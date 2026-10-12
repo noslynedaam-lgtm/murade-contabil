@@ -42,7 +42,7 @@ Subir este serviço não conecta automaticamente os serviços Fiscal e DP hosped
 
 ## Estado do produto
 
-O aviso “Ambiente de demonstração” é intencional. O cadastro da empresa começa vazio; não há lançamentos, livros ou lembretes de exemplo pré-carregados. O plano de contas é apenas um modelo editável. Ainda não há banco de dados, persistência multiusuário, integração autenticada com SEFAZ/eSocial, gestão de certificado, transmissão de obrigações ou rotina agendada. As APIs de integração respondem como indisponíveis até serem implementadas e configuradas. Testar se um site responde por HTTP não comprova autenticação, procuração nem autorização para consultar dados.
+O cadastro da empresa começa vazio; não há lançamentos, livros ou lembretes de exemplo pré-carregados. O plano de contas é apenas um modelo editável. Ainda não há banco de dados, persistência multiusuário, integração autenticada com SEFAZ/eSocial, gestão de certificado, transmissão de obrigações ou rotina agendada. As APIs de integração respondem como indisponíveis até serem implementadas e configuradas. Testar se um site responde por HTTP não comprova autenticação, procuração nem autorização para consultar dados.
 
 O pipeline atual só pode conferir campos básicos dos registros locais. Ele não calcula tributos, importa folhas ou XMLs, fecha livros, transmite declarações nem substitui revisão profissional. Não use os exemplos para escrituração oficial.
 

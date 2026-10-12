@@ -89,7 +89,7 @@ export default function App() {
             if (real) {
               return {
                 ...org,
-                status: real.status,
+                status: real.status === "conectado" ? "alerta" : real.status,
                 pingMs: real.pingMs,
                 statusCode: real.statusCode,
                 statusTexto: real.statusTexto,
@@ -134,7 +134,7 @@ export default function App() {
               o.id === id
                 ? {
                     ...o,
-                    status: item.status,
+                    status: item.status === "conectado" ? "alerta" : item.status,
                     pingMs: item.pingMs,
                     statusCode: item.statusCode,
                     statusTexto: item.statusTexto,
@@ -321,10 +321,6 @@ export default function App() {
           onToggleMobileSidebar={() => setMobileSidebarOpen(true)}
           onConectarFiscal={handleConectarMuradFiscal}
         />
-
-        <div className="px-4 py-2 bg-amber-50 border-b border-amber-300 text-amber-950 text-xs font-semibold" role="status">
-          Ambiente de demonstração: os registros iniciais são exemplos locais. Integrações, autenticação e transmissão oficial não estão configuradas.
-        </div>
 
         {/* Notificação Toast */}
         {toastMessage && (
