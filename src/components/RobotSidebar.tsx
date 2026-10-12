@@ -1,0 +1,191 @@
+import React, { useState } from "react";
+import { Bot, CheckCircle2, RefreshCw, AlertCircle, ArrowUpRight } from "lucide-react";
+
+interface RobotSidebarProps {
+  onRunAudit: () => void;
+  isAuditing: boolean;
+  onNavigateTab: (tab: any) => void;
+}
+
+export const RobotSidebar: React.FC<RobotSidebarProps> = ({
+  onRunAudit,
+  isAuditing,
+  onNavigateTab,
+}) => {
+  const [autoMode, setAutoMode] = useState(true);
+
+  return (
+    <div className="space-y-4">
+      {/* Card Principal do Robô — Tema Claro em Cinza Meio Azulado */}
+      <div className="bg-gradient-to-b from-[#EEF4F9] via-[#E8EFF6] to-[#DEE8F3] text-slate-800 rounded-xl p-5 shadow-xs border border-[#CBD5E1]">
+        <h3 className="text-sm font-extrabold text-slate-900 text-center uppercase tracking-wider mb-3 flex items-center justify-center gap-1.5">
+          <Bot className="w-4 h-4 text-blue-600" />
+          <span>Agente & Robô Murade</span>
+        </h3>
+
+        {/* Avatar Animado que sobe e desce */}
+        <div className="relative w-20 h-20 mx-auto mb-3 animate-floating">
+          <div className="w-full h-full rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md border-2 border-white">
+            <Bot className="w-10 h-10 text-white animate-pulse" />
+          </div>
+          <span className="absolute bottom-0 right-0 w-5 h-5 bg-emerald-600 border-2 border-white rounded-full flex items-center justify-center shadow-xs">
+            <span className="w-2 h-2 bg-white rounded-full" />
+          </span>
+        </div>
+
+        <div className="text-center mb-4">
+          <div className="font-bold text-slate-900 text-sm">Murade Robôs + Agente IA</div>
+          <div className="text-[11px] text-blue-700 font-mono font-bold">Padrão Unificado v2026.1.0</div>
+          <div className="text-xs text-emerald-700 font-semibold flex items-center justify-center gap-1 mt-0.5">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+            <span>3 Robôs + 1 Agente Ativos</span>
+          </div>
+        </div>
+
+        {/* Quadro dos 3 Robôs + Agente IA */}
+        <div className="bg-white/90 border border-slate-300 rounded-lg p-2.5 mb-3 text-[11px] space-y-1.5 shadow-2xs">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-600 flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-blue-600" />
+              <span>1. Coletor (Gov/Extratos):</span>
+            </span>
+            <span className="font-bold text-blue-800">Ativo</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-600 flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-indigo-600" />
+              <span>2. Calculador (Partidas):</span>
+            </span>
+            <span className="font-bold text-indigo-800">Pronto</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-600 flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-emerald-600" />
+              <span>3. Conferidor (D = C):</span>
+            </span>
+            <span className="font-bold text-emerald-800">Zero Erro</span>
+          </div>
+          <div className="flex items-center justify-between pt-1 border-t border-slate-200">
+            <span className="text-slate-700 font-semibold flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+              <span>🧠 Agente IA Coordenador:</span>
+            </span>
+            <span className="font-bold text-slate-900">Chefe / 24h</span>
+          </div>
+        </div>
+
+        {/* Indicadores de Status */}
+        <div className="space-y-2.5 text-xs border-t border-b border-slate-300/80 py-3 mb-3 text-slate-700">
+          <div className="flex justify-between items-center">
+            <span className="text-slate-600">Conformidade Contábil:</span>
+            <span className="font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-sm">100% OK</span>
+          </div>
+
+          <div className="flex justify-between items-center">
+            <span className="text-slate-600">Partidas Dobradas:</span>
+            <span className="font-semibold text-slate-900">D = C (Sem divergências)</span>
+          </div>
+
+          <div className="flex justify-between items-center">
+            <span className="text-slate-600">Competência Vigente:</span>
+            <span className="font-semibold text-blue-900 font-mono">10/2026 (Outubro)</span>
+          </div>
+
+          <div>
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-slate-600">Progresso do Fechamento:</span>
+              <span className="font-bold text-emerald-700">92%</span>
+            </div>
+            <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden border border-slate-300">
+              <div className="bg-gradient-to-r from-blue-600 to-emerald-600 h-2 rounded-full transition-all duration-500" style={{ width: "92%" }} />
+            </div>
+          </div>
+        </div>
+
+        {/* Botões de Ação */}
+        <div className="space-y-2">
+          <button
+            onClick={() => onNavigateTab("ia-premium")}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-3 rounded-lg text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+          >
+            <span>🧠 Abrir IA Murade Premium (Voz v3.0)</span>
+          </button>
+
+          <button
+            id="btn-sidebar-auditoria"
+            onClick={onRunAudit}
+            disabled={isAuditing}
+            className="w-full bg-white hover:bg-slate-100 text-slate-800 font-semibold py-2 px-3 rounded-lg text-xs transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shadow-2xs border border-slate-300"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${isAuditing ? "animate-spin" : ""}`} />
+            <span>{isAuditing ? "Auditoria em Execução..." : "🔍 Rodar Auditoria Completa"}</span>
+          </button>
+
+          <button
+            onClick={() => onNavigateTab("agente")}
+            className="w-full bg-blue-50/80 hover:bg-blue-100 text-blue-900 border border-blue-300 font-bold py-2 px-3 rounded-lg text-xs transition flex items-center justify-between cursor-pointer shadow-2xs"
+          >
+            <span className="flex items-center gap-1.5">
+              <Bot className="w-3.5 h-3.5 text-blue-700" />
+              <span>Painel 3 Robôs + Agente IA</span>
+            </span>
+            <span className="text-[10px] bg-blue-600 text-white px-1.5 py-0.5 rounded font-mono font-bold">
+              v2026.1.0
+            </span>
+          </button>
+
+          <button
+            onClick={() => onNavigateTab("conexoes")}
+            className="w-full bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 font-semibold py-2 px-3 rounded-lg text-xs transition flex items-center justify-between cursor-pointer shadow-2xs"
+          >
+            <span className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              <span>11 Conexões Ativas</span>
+            </span>
+            <span className="text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-mono font-bold">
+              Robô 100%
+            </span>
+          </button>
+
+          <button
+            onClick={() => onNavigateTab("integracao")}
+            className="w-full bg-white hover:bg-slate-100 text-slate-700 font-medium py-2 px-3 rounded-lg text-xs transition flex items-center justify-center gap-1.5 cursor-pointer border border-slate-300 shadow-2xs"
+          >
+            <span>Ver Fluxo Módulos</span>
+            <ArrowUpRight className="w-3 h-3 text-slate-500" />
+          </button>
+        </div>
+
+        {/* Status Modo Autônomo */}
+        <div className="mt-4 pt-3 border-t border-slate-300/80 flex items-center justify-between text-xs">
+          <span className="text-slate-600">Agendamento Automático:</span>
+          <button
+            onClick={() => setAutoMode(!autoMode)}
+            className={`font-semibold cursor-pointer px-2.5 py-0.5 rounded-full transition text-[11px] ${
+              autoMode ? "bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs" : "bg-slate-200 text-slate-600 border border-slate-300"
+            }`}
+          >
+            {autoMode ? "🟢 ATIVO (Dia 25 • 02h)" : "⚪ PAUSADO"}
+          </button>
+        </div>
+      </div>
+
+      {/* Card Rápido: Reforma Tributária 2026 */}
+      <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl p-4 border border-amber-200 shadow-xs">
+        <div className="flex items-center gap-1.5 text-amber-900 font-bold text-xs mb-1">
+          <AlertCircle className="w-4 h-4 text-amber-600" />
+          <span>Reforma Tributária 2026 (IBS / CBS)</span>
+        </div>
+        <p className="text-[12px] text-amber-900/90 leading-relaxed mb-2">
+          O Agente Murade calcula a segregação por regime de destino e apropria créditos de IBS (12%) e CBS (9%) automaticamente nas contas de ativo.
+        </p>
+        <button
+          onClick={() => onNavigateTab("empresa")}
+          className="text-xs font-semibold text-blue-700 hover:text-blue-900 flex items-center gap-1 cursor-pointer"
+        >
+          <span>Conferir Parâmetros Fiscais</span> →
+        </button>
+      </div>
+    </div>
+  );
+};

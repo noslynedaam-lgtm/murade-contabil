@@ -1,0 +1,6 @@
+{
+  "name": "Murade Contábil",
+  "description": "Sistema contábil inteligente com conexão a órgãos públicos (Receita, SEFAZ, Serpro, eSocial), integração FiscoIA/DP/Fiscal, lançamentos automáticos, balancete e Agente IA.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
