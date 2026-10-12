@@ -297,8 +297,6 @@ export const planoContasPadrao: ContaPlano[] = [
 
 export const livrosIniciais: LivroContabil[] = [];
 
-export const CODIGO_LIGACAO_PADRAO = "MURADE-2026-GO";
-
 export const sistemasIniciais: SistemaConectavel[] = [
   {
     id: "sis-1",
