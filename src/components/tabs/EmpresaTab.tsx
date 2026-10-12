@@ -166,15 +166,13 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
           return nova;
         });
 
-        showToast(
-          `✅ EMPRESA LOCALIZADA NO MURAL DE FISCAL!\n"${res.empresa.razaoSocial}" importada com 142 notas fiscais e dados do DP.`
-        );
+        showToast(res.mensagem || `Empresa recebida: ${res.empresa.razaoSocial}. Dados fiscais e de DP não foram importados.`);
       } else {
         showToast("⚠️ Nenhuma empresa localizada no Mural de Fiscal.");
       }
     } catch (e) {
       console.warn("Erro ao puxar do Fiscal:", e);
-      showToast("❌ Falha na conexão com o Mural de Fiscal.");
+      showToast(e instanceof Error ? e.message : "Integração com Murad Fiscal indisponível.");
     } finally {
       setLoadingCnpj(false);
     }
@@ -425,7 +423,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
             situacao: d.descricao_situacao_cadastral || "ATIVA",
             dataSituacao: d.data_situacao_cadastral || "",
             dataAbertura: d.data_inicio_atividade || "",
-            regimeTributario: d.opcao_pelo_simples ? "Simples Nacional" : "Lucro Presumido",
+            regimeTributario: d.opcao_pelo_simples ? "Simples Nacional" : "",
             naturezaJuridica: d.natureza_juridica || "",
             cnaePrincipal: `${d.cnae_fiscal || ""} - ${d.cnae_fiscal_descricao || ""}`,
             capitalSocialFormatado: d.capital_social
@@ -673,12 +671,12 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
                 <h3 className="text-sm sm:text-base font-black tracking-tight text-white flex items-center gap-1.5">
                   <span>Conexão Murad: Puxar Empresas do Mural Fiscal & DP</span>
                 </h3>
-                <span className="text-[10px] bg-emerald-400 text-slate-950 font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
-                  Disponível
+                <span className="text-[10px] bg-amber-300 text-amber-950 font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                  Não configurada
                 </span>
               </div>
               <p className="text-xs text-blue-100 mt-0.5">
-                Conecte diretamente ao <strong>Mural de Fiscal</strong> para localizar empresas já cadastradas com todas as notas fiscais (NF-e/NFC-e), apurações de ICMS e vínculo ao DP.
+                Cadastro local e integração ainda não conectada. As rotas atuais de Fiscal e DP não fornecem uma leitura autenticada compartilhada.
               </p>
             </div>
           </div>
@@ -692,7 +690,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
               className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs px-3.5 py-2.5 rounded-lg transition flex items-center gap-2 cursor-pointer shadow-md disabled:opacity-50"
             >
               <Zap className="w-4 h-4 text-slate-950" />
-              <span>{loadingCnpj ? "Conectando ao Fiscal..." : "⚡ Puxar Empresa do Murade Fiscal"}</span>
+              <span>{loadingCnpj ? "Consultando integração..." : "Verificar integração Fiscal"}</span>
             </button>
 
             {onConectarDP && (
@@ -702,7 +700,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
                 className="bg-white/15 hover:bg-white/25 text-white font-bold text-xs px-3 py-2.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer border border-white/20"
               >
                 <Users className="w-3.5 h-3.5 text-blue-200" />
-                <span>Puxar do Murade DP</span>
+                <span>Verificar integração DP</span>
               </button>
             )}
           </div>
@@ -819,7 +817,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
                           </button>
                         )}
                         <span className="text-[10px] font-bold text-purple-800 bg-purple-100 px-2 py-0.5 rounded">
-                          {emp.regime || "Simples Nacional"}
+                          {emp.regime || "Não informado"}
                         </span>
                         <span className="text-[10px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
                           {emp.situacaoCadastral || "ATIVA"}
@@ -1200,7 +1198,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
               type="text"
               value={cidadeUf}
               onChange={(e) => setCidadeUf(e.target.value)}
-              placeholder="Ex: Goiânia / GO ou São Paulo / SP"
+              placeholder="Informe a cidade e a UF da empresa"
               className="w-full px-3.5 py-2.5 border-2 border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-600 transition"
             />
           </div>
@@ -1212,7 +1210,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
               type="text"
               value={endereco}
               onChange={(e) => setEndereco(e.target.value)}
-              placeholder="Ex: Av. Central, 1200, Sala 304, Setor Sul"
+              placeholder="Logradouro, número, bairro e complemento"
               className="w-full px-3.5 py-2.5 border-2 border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-600 transition"
             />
           </div>

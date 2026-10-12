@@ -8,20 +8,6 @@ export interface RespostaConexaoFiscal {
   lancamentosFiscais?: LancamentoContabil[];
 }
 
-const CHAVES_EMPRESA = [
-  "murad_fiscal_empresa",
-  "murade_fiscal_empresa",
-  "murad_fiscal_empresas",
-  "murade_fiscal_empresas",
-  "fiscal_empresa",
-  "fiscal_empresas",
-  "empresa_fiscal",
-  "empresas_fiscal",
-  "murad_empresa_ativa",
-  "murad_empresa_salva",
-  "murad_empresas_lista",
-];
-
 function normalizarEmpresa(raw: Partial<EmpresaDados>): EmpresaDados {
   return {
     id: raw.id,
@@ -66,41 +52,7 @@ function normalizarEmpresa(raw: Partial<EmpresaDados>): EmpresaDados {
   };
 }
 
-/** Busca uma empresa já salva no navegador, sem preencher dados ausentes com exemplos. */
-export function buscarEmpresasLocalStorageMurad(): EmpresaDados | null {
-  if (typeof window === "undefined") return null;
-
-  for (const chave of CHAVES_EMPRESA) {
-    try {
-      const value = localStorage.getItem(chave);
-      if (!value) continue;
-      const parsed: unknown = JSON.parse(value);
-      const candidatos = Array.isArray(parsed) ? parsed : [parsed];
-      const empresa = candidatos.find(
-        (item): item is Partial<EmpresaDados> =>
-          !!item && typeof item === "object" &&
-          (typeof (item as Partial<EmpresaDados>).razaoSocial === "string" ||
-            typeof (item as Partial<EmpresaDados>).cnpj === "string")
-      );
-      if (empresa) return normalizarEmpresa(empresa);
-    } catch {
-      // Uma chave local malformada não impede consultar as demais.
-    }
-  }
-  return null;
-}
-
 export async function conectarEPuxarEmpresaMuradFiscal(): Promise<RespostaConexaoFiscal> {
-  const empresa = buscarEmpresasLocalStorageMurad();
-  if (empresa) {
-    return {
-      sucesso: true,
-      empresa,
-      mensagem: "Empresa carregada do armazenamento deste navegador. A conexão com o Murad Fiscal não foi verificada.",
-      origem: "Armazenamento local do navegador",
-    };
-  }
-
   const response = await fetch("/api/integracao/fiscal/empresa-ativa");
   if (!response.ok) {
     const details = await response.json().catch(() => ({}));
