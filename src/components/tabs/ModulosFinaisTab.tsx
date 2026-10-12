@@ -111,7 +111,12 @@ export const ModulosFinaisTab: React.FC<ModulosFinaisTabProps> = () => {
   ]);
 
   const dispararAcao = (mensagem: string) => {
-    setFeedbackAcao(mensagem);
+    const acaoExterna = /transmit|import|darf|guia|sefaz|e-cac|pva|sped|ecf|ecd/i.test(mensagem);
+    setFeedbackAcao(
+      acaoExterna
+        ? "Ação não executada: integração oficial, dados e certificado não estão configurados. Nenhum arquivo foi enviado."
+        : mensagem
+    );
     setTimeout(() => setFeedbackAcao(null), 3500);
   };
 

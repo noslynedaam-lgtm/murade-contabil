@@ -45,50 +45,40 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab }) => {
       id: "agenda" as TabId,
       label: "Agenda & Lembretes",
       icon: Calendar,
-      badge: "5 Guias",
-      badgeColor: "bg-amber-400 text-slate-950 font-bold",
     },
     {
       id: "fluxo-previtico" as TabId,
       label: "Fluxo Prevítico",
       icon: Zap,
-      badge: "IA 90D",
-      badgeColor: "bg-emerald-400 text-slate-950 font-black",
     },
     {
       id: "modulos-finais" as TabId,
       label: "Obrigações & Gestão",
       icon: Briefcase,
-      badge: "Completo",
-      badgeColor: "bg-emerald-400 text-slate-950 font-bold",
+      badge: "Em configuração",
+      badgeColor: "bg-amber-300 text-slate-950 font-bold",
     },
     {
       id: "conexoes" as TabId,
       label: "Conexão Órgãos",
       icon: Plug,
-      badge: "4/4 OK",
-      badgeColor: "bg-emerald-500/25 text-emerald-200",
+      badge: "Pendente",
+      badgeColor: "bg-amber-500/25 text-amber-100",
     },
     {
       id: "lancamentos" as TabId,
       label: "Lançamentos",
       icon: FileText,
-      badge: "47",
-      badgeColor: "bg-white/20 text-white",
     },
     {
       id: "balancete" as TabId,
       label: "Balancete",
       icon: BarChart3,
-      badge: "D = C",
-      badgeColor: "bg-emerald-500/25 text-emerald-200",
     },
     {
       id: "livros" as TabId,
       label: "Livros Fiscais & ECD",
       icon: BookOpen,
-      badge: "Prontos",
-      badgeColor: "bg-white/20 text-white",
     },
     {
       id: "plano-contas" as TabId,
@@ -99,10 +89,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab }) => {
     },
     {
       id: "integracao" as TabId,
-      label: "Integração (8 Sistemas)",
+      label: "Integrações",
       icon: Network,
-      badge: "Código",
-      badgeColor: "bg-purple-400/30 text-purple-100",
+      badge: "Pendente",
+      badgeColor: "bg-amber-400/25 text-amber-100",
     },
     {
       id: "calculadora" as TabId,
@@ -234,7 +224,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab }) => {
             <ShieldCheck className="w-4 h-4 text-emerald-300 shrink-0" />
             <span className="font-semibold text-white">Certificado A1</span>
           </div>
-          <span className="text-emerald-300 font-bold text-[10px] bg-emerald-900/40 px-1.5 py-0.5 rounded-xs">Ativo</span>
+          <span className="text-amber-200 font-bold text-[10px] bg-amber-900/40 px-1.5 py-0.5 rounded-xs">Não configurado</span>
         </div>
       </div>
     </aside>

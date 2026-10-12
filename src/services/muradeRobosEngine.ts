@@ -46,7 +46,7 @@ export interface TarefaFila {
   roboId: string;
   cnpj?: string;
   tempo?: number;
-  executar?: () => Promise<any> | void;
+  executar?: () => Promise<void> | void;
 }
 
 export interface RoboStatusItem {
@@ -68,6 +68,7 @@ class MuradeRobosEngine {
   public programaAtual: ProgramaTipo = "contabil";
 
   private listeners: Set<Listener> = new Set();
+  private processamentoId = 0;
 
   public robos: {
     coletor: RoboConfig;
@@ -190,20 +191,28 @@ class MuradeRobosEngine {
       console.log(`▶️ Executando: ${proxima.nome}`);
       this.atualizarStatusRobo(proxima.roboId, "executando", `Executando: ${proxima.nome}`);
 
-      const tempo = proxima.tempo || 1200;
-      setTimeout(() => {
-        if (proxima.executar) {
-          try {
-            proxima.executar();
-          } catch (e) {
-            console.error("Erro na tarefa:", e);
+      const processamentoId = this.processamentoId;
+      const tempo = proxima.tempo ?? 0;
+      void (async () => {
+        try {
+          if (tempo > 0) await new Promise((resolve) => setTimeout(resolve, tempo));
+          if (processamentoId !== this.processamentoId) return;
+          await proxima.executar?.();
+          if (processamentoId === this.processamentoId) {
+            this.atualizarStatusRobo(proxima.roboId, "concluido", `Conferência local concluída: ${proxima.nome}`);
+          }
+        } catch (error) {
+          console.error("Erro na tarefa:", error);
+          this.atualizarStatusRobo(proxima.roboId, "parado", `Falha: ${proxima.nome}`);
+          this.registrarLog("Sistema de Segurança", `A tarefa '${proxima.nome}' falhou. Verifique os dados e tente novamente.`, "alerta");
+        } finally {
+          if (processamentoId === this.processamentoId) {
+            this.seguranca.emExecucao = false;
+            this.emitChange();
+            this.seguranca.processarFila();
           }
         }
-        this.atualizarStatusRobo(proxima.roboId, "ativo", `Concluído: ${proxima.nome}`);
-        this.seguranca.emExecucao = false;
-        this.emitChange();
-        this.seguranca.processarFila(); // Próxima da fila
-      }, tempo);
+      })();
     },
 
     // BLOQUEIO POR EMPRESA — NUNCA DOIS ROBÔS NA MESMA EMPRESA AO MESMO TEMPO
@@ -233,40 +242,36 @@ class MuradeRobosEngine {
       chave: "coletor",
       nome: "Robô Coletor de Dados",
       funcao: "Busca e coleta dados externos — gov, SEFAZ, eSocial, Serpro",
-      ativo: true,
-      status: "ativo",
-      ultimaAcao: "Aguardando próxima varredura",
-      ultimoTimestamp: "Hoje 14:30",
+      ativo: false,
+      status: "inativo",
+      ultimaAcao: "Aguardando dados; fontes externas não configuradas",
     },
     robo_calculador: {
       id: "robo_calculador",
       chave: "calculador",
       nome: "Robô Calculador",
       funcao: "Processa e calcula os valores — impostos, folha, lançamentos",
-      ativo: true,
-      status: "ativo",
-      ultimaAcao: "Pronto para processar partidas dobradas",
-      ultimoTimestamp: "Hoje 14:31",
+      ativo: false,
+      status: "inativo",
+      ultimaAcao: "Aguardando lançamentos locais",
     },
     robo_conferidor: {
       id: "robo_conferidor",
       chave: "conferidor",
       nome: "Robô Conferidor",
       funcao: "Confere, valida e avisa de erros antes de finalizar",
-      ativo: true,
-      status: "ativo",
-      ultimaAcao: "Débito = Crédito validado (0,00 divergência)",
-      ultimoTimestamp: "Hoje 14:32",
+      ativo: false,
+      status: "inativo",
+      ultimaAcao: "Aguardando lançamentos locais",
     },
     agente_ia_murade: {
       id: "agente_ia_murade",
       chave: "agenteIA",
       nome: "Agente IA Murade",
       funcao: "Coordena os 3 robôs, responde dúvidas, toma decisões, avisa de mudanças",
-      ativo: true,
-      status: "coordenando",
-      ultimaAcao: "Gerenciando pipeline sem conflito • Lei 200/2024 ativa",
-      ultimoTimestamp: "Agora mesmo",
+      ativo: false,
+      status: "inativo",
+      ultimaAcao: "Aguardando configuração",
     },
   };
 
@@ -280,30 +285,9 @@ class MuradeRobosEngine {
     {
       id: "init_1",
       hora: "14:30:00",
-      origem: "🤖 Robô Coletor",
-      tipo: "sucesso",
-      mensagem: "Recebimento de lotes fiscais e folha DP concluído. 0 divergências de arquivo.",
-    },
-    {
-      id: "init_2",
-      hora: "14:30:15",
-      origem: "🤖 Robô Calculador",
-      tipo: "sucesso",
-      mensagem: "Apurados 47 lançamentos contábeis automáticos por partidas dobradas.",
-    },
-    {
-      id: "init_3",
-      hora: "14:30:30",
-      origem: "🤖 Robô Conferidor",
-      tipo: "sucesso",
-      mensagem: "Conferência D = C finalizada: Balancete equilibrado (tolerância R$ 0,00 mantida).",
-    },
-    {
-      id: "init_4",
-      hora: "14:31:00",
-      origem: "🧠 Agente IA Murade",
+      origem: "Sistema Murade",
       tipo: "info",
-      mensagem: "Ordem dos robôs cumprida com sucesso. Sem concorrência entre tarefas.",
+      mensagem: "Modo de demonstração. Nenhuma rotina ou integração foi executada automaticamente.",
     },
   ];
 
@@ -387,13 +371,8 @@ class MuradeRobosEngine {
       win.MURADE_ROBOS_CONFIG = this;
     }
 
-    // Inicia os robôs em ORDEM — Coletor → Calculador → Conferidor → Agente IA
-    this.iniciarRobo("coletor");
-    setTimeout(() => this.iniciarRobo("calculador"), 500);
-    setTimeout(() => this.iniciarRobo("conferidor"), 1000);
-    setTimeout(() => this.iniciarAgenteIA(), 1500);
-
-    return { acao: "INICIALIZADO", programa: this.programaAtual };
+    this.registrarLog("Sistema Murade", "Pronto para conferências locais. Robôs externos não iniciam sem fonte de dados configurada.", "info");
+    return { acao: "AGUARDANDO_DADOS", programa: this.programaAtual };
   }
 
   public iniciarRobo(nomeRobo: "coletor" | "calculador" | "conferidor") {
@@ -435,12 +414,14 @@ class MuradeRobosEngine {
   // ==========================================================
   // DISPARO DE PIPELINE COMPLETO EM SEQUÊNCIA (SEM CONFLITO)
   // ==========================================================
-  public executarPipelineCompleto(cnpjEmpresa = "00.000.000/0001-91") {
-    const pode = this.seguranca.podeExecutarNaEmpresa(cnpjEmpresa, "pipeline");
-    if (!pode) {
+  public executarPipelineCompleto(
+    cnpjEmpresa = "local",
+    lancamentos: Array<{ valor: number; contaDebitoCodigo: string; contaCreditoCodigo: string }> = []
+  ) {
+    if (this.seguranca.bloqueioEmpresa[cnpjEmpresa]) {
       this.registrarLog(
         "🧠 Agente IA Murade",
-        `Empresa ${cnpjEmpresa} já bloqueada por outra rotina. Aguardando liberação.`,
+        `Já existe um processamento para ${cnpjEmpresa}. Aguarde a fila atual terminar.`,
         "alerta"
       );
       return false;
@@ -449,22 +430,24 @@ class MuradeRobosEngine {
     this.seguranca.bloquearEmpresa(cnpjEmpresa, "pipeline");
     this.registrarLog(
       "🧠 Agente IA Murade",
-      `Iniciando Pipeline Sequencial Oficial (v${this.versao}) para CNPJ ${cnpjEmpresa}.`,
+      `Iniciando conferência local de ${lancamentos.length} lançamento(s). Nenhuma fonte externa será consultada.`,
       "sistema"
     );
+
+    let invalidos: typeof lancamentos = [];
 
     // 1. Robô Coletor
     this.seguranca.adicionarNaFila({
       id: "task_coletor_" + Date.now(),
-      nome: "Robô 1: Coleta de Dados (SEFAZ / Bancos / DP)",
+      nome: "Robô 1: Preparar registros locais",
       roboId: "robo_coletor",
       cnpj: cnpjEmpresa,
-      tempo: 1200,
+      tempo: 350,
       executar: () => {
         this.registrarLog(
           "🤖 Robô Coletor",
-          "Dados contábeis, extratos e folha do DP coletados e organizados.",
-          "sucesso"
+          `${lancamentos.length} lançamento(s) recebido(s) da tela atual. Fiscal, bancos e Departamento Pessoal não foram consultados.`,
+          "info"
         );
       },
     });
@@ -472,15 +455,18 @@ class MuradeRobosEngine {
     // 2. Robô Calculador (roda estritamente APÓS o coletor)
     this.seguranca.adicionarNaFila({
       id: "task_calculador_" + Date.now(),
-      nome: "Robô 2: Processamento e Partidas Dobradas",
+      nome: "Robô 2: Validar campos dos lançamentos",
       roboId: "robo_calculador",
       cnpj: cnpjEmpresa,
-      tempo: 1400,
+      tempo: 350,
       executar: () => {
+        invalidos = lancamentos.filter((item) =>
+          !Number.isFinite(item.valor) || item.valor <= 0 || !item.contaDebitoCodigo || !item.contaCreditoCodigo
+        );
         this.registrarLog(
           "🤖 Robô Calculador",
-          "Lançamentos calculados com segregação de IBS/CBS e provisões de folha.",
-          "sucesso"
+          `Validação básica concluída. ${invalidos.length} registro(s) com valor ou conta inválidos. Não foram calculados tributos ou folha.`,
+          invalidos.length ? "alerta" : "info"
         );
       },
     });
@@ -488,15 +474,17 @@ class MuradeRobosEngine {
     // 3. Robô Conferidor (roda estritamente APÓS o calculador)
     this.seguranca.adicionarNaFila({
       id: "task_conferidor_" + Date.now(),
-      nome: "Robô 3: Conferência Débito = Crédito (Tolerância Zero)",
+      nome: "Robô 3: Relatar integridade básica",
       roboId: "robo_conferidor",
       cnpj: cnpjEmpresa,
-      tempo: 1200,
+      tempo: 350,
       executar: () => {
         this.registrarLog(
           "🤖 Robô Conferidor",
-          "Conferência concluída: Débito R$ 142.500 = Crédito R$ 142.500 (Divergência R$ 0,00).",
-          "sucesso"
+          lancamentos.length === 0
+            ? "Nenhum lançamento disponível para auditar."
+            : `${lancamentos.length - invalidos.length} de ${lancamentos.length} lançamento(s) têm valor positivo e códigos de conta preenchidos. Isso não confirma D = C.`,
+          invalidos.length === 0 && lancamentos.length > 0 ? "info" : "alerta"
         );
       },
     });
@@ -504,16 +492,16 @@ class MuradeRobosEngine {
     // 4. Finalização pelo Agente IA
     this.seguranca.adicionarNaFila({
       id: "task_agente_" + Date.now(),
-      nome: "Agente IA: Emissão do Parecer e Desbloqueio",
+      nome: "Agente IA: Encerrar conferência local",
       roboId: "agente_ia_murade",
       cnpj: cnpjEmpresa,
-      tempo: 800,
+      tempo: 350,
       executar: () => {
         this.seguranca.desbloquearEmpresa(cnpjEmpresa);
         this.registrarLog(
           "🧠 Agente IA Murade",
-          "Pipeline finalizado com êxito absoluto. Empresa liberada e balancete disponível.",
-          "sucesso"
+          "Conferência local encerrada. Nenhum livro foi fechado ou transmitido.",
+          "info"
         );
       },
     });
@@ -526,6 +514,7 @@ class MuradeRobosEngine {
   // ==========================================================
   public pararTodosRobos() {
     console.log("🛑 PARANDO TODOS OS ROBÔS...");
+    this.processamentoId += 1;
     this.seguranca.emExecucao = false;
     this.seguranca.filaExecucao = [];
     this.seguranca.bloqueioEmpresa = {};
@@ -547,21 +536,20 @@ class MuradeRobosEngine {
   public reiniciarTodosRobos() {
     console.log("🔄 REINICIANDO TODOS OS ROBÔS...");
     this.pararTodosRobos();
-    setTimeout(() => {
-      this.inicializar(this.programaAtual);
-      this.registrarLog("🔄 Sistema de Segurança", "Todos os robôs foram reinicializados em ordem.", "sucesso");
-    }, 800);
-    return { status: "REINICIANDO" };
+    Object.keys(this.estadosRobos).forEach((id) => {
+      this.atualizarStatusRobo(id, "inativo", "Aguardando novos dados e integrações configuradas");
+    });
+    this.registrarLog("Sistema de Segurança", "Fila limpa. Os robôs aguardam um novo processamento manual.", "info");
+    return { status: "AGUARDANDO_DADOS" };
   }
 
   public statusRobos() {
     const status: Record<string, any> = {};
     Object.entries(this.robos).forEach(([chave, robo]) => {
-      const el = typeof document !== "undefined" ? document.querySelector(`[data-robo="${robo.id}"]`) : null;
       status[chave] = {
         nome: robo.nome,
-        ativo: !!el,
-        status: (el as HTMLElement)?.dataset?.status || this.estadosRobos[robo.id]?.status || "inativo",
+        ativo: this.estadosRobos[robo.id]?.ativo ?? false,
+        status: this.estadosRobos[robo.id]?.status || "inativo",
         funcao: robo.funcao,
       };
     });
@@ -572,17 +560,10 @@ class MuradeRobosEngine {
 // Instância Singleton Oficial
 export const muradeRobosEngine = new MuradeRobosEngine();
 
-// Auto-inicialização segura na janela
+// Registra o serviço para a UI, sem iniciar tarefas automáticas.
 if (typeof window !== "undefined") {
   const win = window as any;
   win.MURADE_ROBOS_CONFIG = muradeRobosEngine;
 
-  // Se DOM estiver pronto, inicializa imediatamente; caso contrário aguarda DOMContentLoaded
-  if (document.readyState === "complete" || document.readyState === "interactive") {
-    muradeRobosEngine.inicializar();
-  } else {
-    document.addEventListener("DOMContentLoaded", () => {
-      muradeRobosEngine.inicializar();
-    });
-  }
+  muradeRobosEngine.inicializar();
 }

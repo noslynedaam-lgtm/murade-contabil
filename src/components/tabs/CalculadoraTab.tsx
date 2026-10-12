@@ -8,13 +8,6 @@ import {
   Copy,
   Check,
   TrendingUp,
-  ChevronLeft,
-  ChevronRight,
-  Eye,
-  X,
-  ShieldCheck,
-  FileText,
-  CheckCircle2,
 } from "lucide-react";
 
 interface CalculadoraTabProps {
@@ -22,142 +15,17 @@ interface CalculadoraTabProps {
   onAdicionarLancamento?: (valor: number, empresa: string) => void;
 }
 
-const empresasDetalhes: Record<
-  string,
-  {
-    nome: string;
-    cnpj: string;
-    regime: string;
-    cnae: string;
-    cidadeUf: string;
-    situacao: string;
-    proximaGuia: string;
-    vencimentoGuia: string;
-    orgaosConectados: string;
-  }
-> = {
-  "Empresa XYZ Ltda": {
-    nome: "Empresa XYZ Ltda",
-    cnpj: "12.345.678/0001-90",
-    regime: "Lucro Presumido",
-    cnae: "4711-3/02 - Comércio Varejista",
-    cidadeUf: "Goiânia - GO",
-    situacao: "Ativa e 100% Regular",
-    proximaGuia: "DARF IRPJ / CSLL",
-    vencimentoGuia: "31/10/2026",
-    orgaosConectados: "RFB, SEFAZ-GO, Prefeitura Goiânia, eSocial, Caixa FGTS",
-  },
-  "Comércio Silva ME": {
-    nome: "Comércio Silva ME",
-    cnpj: "23.456.789/0001-01",
-    regime: "Simples Nacional",
-    cnae: "4781-4/00 - Comércio de Roupas",
-    cidadeUf: "São Paulo - SP",
-    situacao: "Ativa e 100% Regular",
-    proximaGuia: "DAS Simples Nacional",
-    vencimentoGuia: "20/10/2026",
-    orgaosConectados: "RFB, SEFAZ-SP, Prefeitura SP, FGTS Digital",
-  },
-  "Indústria Norte Sul": {
-    nome: "Indústria Norte Sul",
-    cnpj: "34.567.890/0001-12",
-    regime: "Lucro Real",
-    cnae: "2599-3/99 - Fabricação de Metais",
-    cidadeUf: "Belo Horizonte - MG",
-    situacao: "Ativa e 100% Regular",
-    proximaGuia: "SPED EFD ICMS/IPI",
-    vencimentoGuia: "25/10/2026",
-    orgaosConectados: "RFB, SEFAZ-MG, Junta Comercial JUCEMG, eSocial",
-  },
-  "Serviços Alpha S.A.": {
-    nome: "Serviços Alpha S.A.",
-    cnpj: "45.678.901/0001-23",
-    regime: "Lucro Presumido",
-    cnae: "6201-5/01 - Desenvolvimento TI",
-    cidadeUf: "Curitiba - PR",
-    situacao: "Ativa e 100% Regular",
-    proximaGuia: "ISS Digital & PIS/COFINS",
-    vencimentoGuia: "15/10/2026",
-    orgaosConectados: "RFB, Prefeitura Curitiba, eSocial, DTE",
-  },
-  "Construções Brasil Ltda": {
-    nome: "Construções Brasil Ltda",
-    cnpj: "56.789.012/0001-34",
-    regime: "Lucro Presumido",
-    cnae: "4120-4/00 - Construção Civil",
-    cidadeUf: "Brasília - DF",
-    situacao: "Ativa e 100% Regular",
-    proximaGuia: "INSS Retenção / DCTFWeb",
-    vencimentoGuia: "20/10/2026",
-    orgaosConectados: "RFB, SEFAZ-DF, Caixa FGTS, eSocial",
-  },
-  "Loja Central Matriz": {
-    nome: "Loja Central Matriz",
-    cnpj: "67.890.123/0001-45",
-    regime: "Simples Nacional",
-    cnae: "4722-9/01 - Varejo de Alimentos",
-    cidadeUf: "Rio de Janeiro - RJ",
-    situacao: "Ativa e 100% Regular",
-    proximaGuia: "DAS Simples Nacional",
-    vencimentoGuia: "20/10/2026",
-    orgaosConectados: "RFB, SEFAZ-RJ, Prefeitura Rio, eSocial",
-  },
-  "Murade Participações S.A.": {
-    nome: "Murade Participações S.A.",
-    cnpj: "78.901.234/0001-56",
-    regime: "Lucro Real",
-    cnae: "6462-0/00 - Holding Contábil",
-    cidadeUf: "Goiânia - GO",
-    situacao: "Ativa e 100% Regular",
-    proximaGuia: "ECD / ECF Contábil",
-    vencimentoGuia: "30/11/2026",
-    orgaosConectados: "RFB, SEFAZ-GO, PGFN, Junta JUCEG",
-  },
-};
-
 export const CalculadoraTab: React.FC<CalculadoraTabProps> = ({ empresaPadrao }) => {
   const [valorAtual, setValorAtual] = useState<string>("0");
   const [valorAnterior, setValorAnterior] = useState<string>("");
   const [operacao, setOperacao] = useState<string>("");
-  const [empresaAtual, setEmpresaAtual] = useState<string>(empresaPadrao || "Empresa XYZ Ltda");
-  const [mostrarDetalhesEmpresa, setMostrarDetalhesEmpresa] = useState<boolean>(false);
-  const [historicoPorEmpresa, setHistoricoPorEmpresa] = useState<Record<string, number>>({
-    "Empresa XYZ Ltda": 15420.5,
-    "Comércio Silva ME": 8340.0,
-    "Indústria Norte Sul": 29800.75,
-    "Serviços Alpha S.A.": 12100.0,
-  });
+  const [empresaAtual, setEmpresaAtual] = useState<string>(empresaPadrao || "");
+  const [historicoPorEmpresa, setHistoricoPorEmpresa] = useState<Record<string, number>>({});
   const [copiado, setCopiado] = useState(false);
 
-  // Lista de sugestões de empresas
-  const empresasDisponiveis = [
-    "Empresa XYZ Ltda",
-    "Comércio Silva ME",
-    "Indústria Norte Sul",
-    "Serviços Alpha S.A.",
-    "Construções Brasil Ltda",
-    "Loja Central Matriz",
-    "Murade Participações S.A.",
-  ];
-
-  // Navegação rápida entre empresas via setinhas
-  const irEmpresaAnterior = () => {
-    const idx = empresasDisponiveis.indexOf(empresaAtual);
-    if (idx <= 0) {
-      setEmpresaAtual(empresasDisponiveis[empresasDisponiveis.length - 1]);
-    } else {
-      setEmpresaAtual(empresasDisponiveis[idx - 1]);
-    }
-  };
-
-  const irProximaEmpresa = () => {
-    const idx = empresasDisponiveis.indexOf(empresaAtual);
-    if (idx === -1 || idx >= empresasDisponiveis.length - 1) {
-      setEmpresaAtual(empresasDisponiveis[0]);
-    } else {
-      setEmpresaAtual(empresasDisponiveis[idx + 1]);
-    }
-  };
+  useEffect(() => {
+    setEmpresaAtual(empresaPadrao || "");
+  }, [empresaPadrao]);
 
   // Total geral calculado dinamicamente
   const totalGeral: number = (Object.values(historicoPorEmpresa) as number[]).reduce(
@@ -332,7 +200,7 @@ export const CalculadoraTab: React.FC<CalculadoraTabProps> = ({ empresaPadrao })
               </span>
             </h2>
             <p className="text-xs sm:text-sm text-slate-500">
-              Soma automática por empresa • Total geral consolidado • Histórico detalhado
+              Cálculos aritméticos e acumulados temporários organizados por empresa neste navegador
             </p>
           </div>
         </div>
@@ -361,86 +229,31 @@ export const CalculadoraTab: React.FC<CalculadoraTabProps> = ({ empresaPadrao })
               MURADE • CONTÁBIL 3D
             </div>
 
-            {/* Seletor de Empresa com Setazinhas de Navegação e Botão Ver Empresa */}
+            {/* Empresa ativa cadastrada na tela de empresa */}
             <div className="mb-3">
-              <div className="flex items-center justify-between text-[11px] font-bold text-purple-200 uppercase tracking-wider mb-1.5">
+              <label htmlFor="empresa-calculadora" className="flex items-center gap-1.5 text-[11px] font-bold text-purple-200 uppercase tracking-wider mb-1.5">
                 <span className="flex items-center gap-1.5">
                   <Building2 className="w-3.5 h-3.5 text-[#CE93D8]" />
-                  <span>Empresa Selecionada:</span>
+                  <span>Empresa para este acumulado:</span>
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setMostrarDetalhesEmpresa(true)}
-                  className="text-[10px] text-amber-300 hover:text-amber-200 flex items-center gap-1 font-semibold cursor-pointer underline decoration-amber-400/50"
-                  title="Ver ficha completa da empresa"
-                >
-                  <Eye className="w-3 h-3" />
-                  <span>Ver Empresa</span>
-                </button>
-              </div>
-
-              {/* Controles de Navegação com as Setazinhas solicitadas */}
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={irEmpresaAnterior}
-                  title="Empresa Anterior (Clique na setinha esquerda)"
-                  className="h-9 w-9 rounded-lg bg-white/10 hover:bg-white/20 active:bg-white/30 text-purple-200 hover:text-white transition cursor-pointer border border-white/20 flex items-center justify-center shrink-0 shadow-xs active:scale-95"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-
-                <div className="relative flex-1">
-                  <input
-                    type="text"
-                    value={empresaAtual}
-                    onChange={(e) => setEmpresaAtual(e.target.value)}
-                    placeholder="Selecione ou digite a empresa..."
-                    list="lista-empresas-calc"
-                    className="w-full h-9 px-3 bg-white/10 border border-white/20 rounded-lg text-white text-xs sm:text-sm font-semibold placeholder:text-purple-300/50 outline-none focus:border-[#CE93D8] focus:bg-white/15 transition shadow-inner"
-                  />
-                  <datalist id="lista-empresas-calc">
-                    {empresasDisponiveis.map((emp) => (
-                      <option key={emp} value={emp} />
-                    ))}
-                  </datalist>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={irProximaEmpresa}
-                  title="Próxima Empresa (Clique na setinha direita)"
-                  className="h-9 w-9 rounded-lg bg-white/10 hover:bg-white/20 active:bg-white/30 text-purple-200 hover:text-white transition cursor-pointer border border-white/20 flex items-center justify-center shrink-0 shadow-xs active:scale-95"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setMostrarDetalhesEmpresa(true)}
-                  title="Abrir detalhes e situação fiscal da empresa"
-                  className="h-9 px-2.5 rounded-lg bg-purple-700/90 hover:bg-purple-600 active:bg-purple-800 text-white text-xs font-bold transition cursor-pointer border border-purple-400/40 flex items-center gap-1 shrink-0 shadow-xs"
-                >
-                  <Building2 className="w-3.5 h-3.5 text-purple-200" />
-                  <span className="hidden sm:inline">Ficha</span>
-                </button>
-              </div>
+              </label>
+              <input
+                id="empresa-calculadora"
+                type="text"
+                value={empresaAtual}
+                onChange={(e) => setEmpresaAtual(e.target.value)}
+                placeholder="Cadastre uma empresa ou digite o nome para organizar o acumulado"
+                className="w-full h-9 px-3 bg-white/10 border border-white/20 rounded-lg text-white text-xs sm:text-sm font-semibold placeholder:text-purple-300/70 outline-none focus:border-[#CE93D8] focus:bg-white/15 transition shadow-inner"
+              />
             </div>
 
             {/* Visor Digital da Calculadora */}
             <div className="bg-[#150A21] rounded-xl p-3 sm:p-3.5 mb-3.5 shadow-[inset_0_4px_12px_rgba(0,0,0,0.6)] border border-white/10">
-              <div
-                onClick={() => setMostrarDetalhesEmpresa(true)}
-                title="Clique aqui para ver a ficha completa desta empresa"
-                className="text-[#CE93D8] hover:text-white cursor-pointer text-xs font-semibold truncate mb-0.5 flex items-center justify-between transition group"
-              >
+              <div className="text-[#CE93D8] text-xs font-semibold truncate mb-0.5 flex items-center justify-between">
                 <span className="truncate flex items-center gap-1.5">
                   <Building2 className="w-3 h-3 text-[#CE93D8]" />
-                  <span className="underline decoration-purple-400/40 underline-offset-2 font-bold group-hover:text-amber-300 transition">
+                  <span className="font-bold">
                     {empresaAtual || "— Nenhuma empresa selecionada"}
-                  </span>
-                  <span className="text-[10px] bg-purple-900/60 text-purple-200 px-1.5 py-0.2 rounded border border-purple-400/30">
-                    Ver Empresa ↗
                   </span>
                 </span>
                 <span className="text-[10px] text-purple-300/70 font-mono ml-2">BRL</span>
@@ -703,7 +516,7 @@ export const CalculadoraTab: React.FC<CalculadoraTabProps> = ({ empresaPadrao })
             <ul className="space-y-2 text-xs text-purple-900/80 leading-relaxed">
               <li className="flex items-start gap-1.5">
                 <span className="text-purple-600 font-bold">1.</span>
-                <span><strong>Escolha a empresa:</strong> Use as setas ◀ ▶ ou digite no campo. Clique em "Ver Empresa" para ver a ficha fiscal completa.</span>
+                <span><strong>Informe a empresa:</strong> use a empresa ativa cadastrada ou digite um nome para organizar este acumulado.</span>
               </li>
               <li className="flex items-start gap-1.5">
                 <span className="text-purple-600 font-bold">2.</span>
@@ -711,7 +524,7 @@ export const CalculadoraTab: React.FC<CalculadoraTabProps> = ({ empresaPadrao })
               </li>
               <li className="flex items-start gap-1.5">
                 <span className="text-purple-600 font-bold">3.</span>
-                <span><strong>Botão "➕ Somar":</strong> Grava o valor diretamente na empresa ativa e no Total Geral.</span>
+                <span><strong>Botão "➕ Somar":</strong> adiciona o valor ao acumulado temporário da empresa informado.</span>
               </li>
               <li className="flex items-start gap-1.5">
                 <span className="text-purple-600 font-bold">4.</span>
@@ -722,179 +535,6 @@ export const CalculadoraTab: React.FC<CalculadoraTabProps> = ({ empresaPadrao })
         </div>
       </div>
 
-      {/* Modal Ficha Completa da Empresa Selecionada */}
-      {mostrarDetalhesEmpresa && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
-            {/* Cabeçalho do Modal */}
-            <div className="bg-gradient-to-r from-[#6A1B9A] to-[#4A148C] text-white p-5 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center border border-white/20">
-                  <Building2 className="w-5 h-5 text-purple-200" />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-base leading-tight flex items-center gap-2">
-                    <span>{empresaAtual}</span>
-                    <span className="text-[10px] bg-emerald-500/30 text-emerald-200 px-2 py-0.5 rounded-full border border-emerald-400/30 font-bold">
-                      Ativa
-                    </span>
-                  </h3>
-                  <p className="text-xs text-purple-200/80">Ficha Cadastral e Dados Fiscais da Empresa</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setMostrarDetalhesEmpresa(false)}
-                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Corpo do Modal */}
-            <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
-              {(() => {
-                const info = empresasDetalhes[empresaAtual] || {
-                  nome: empresaAtual,
-                  cnpj: "12.345.678/0001-90",
-                  regime: "Lucro Presumido",
-                  cnae: "4711-3/02 - Comércio Varejista",
-                  cidadeUf: "Goiânia - GO",
-                  situacao: "Ativa e 100% Regular",
-                  proximaGuia: "DARF DCTFWeb / PIS",
-                  vencimentoGuia: "20/10/2026",
-                  orgaosConectados: "RFB, SEFAZ, Prefeitura, eSocial, FGTS",
-                };
-
-                return (
-                  <>
-                    {/* Seletor Rápido de Empresa dentro do Modal */}
-                    <div className="p-3 bg-purple-50/70 border border-purple-200 rounded-xl">
-                      <div className="text-[11px] font-bold text-purple-900 uppercase tracking-wider mb-2 flex items-center justify-between">
-                        <span>Alternar Empresa:</span>
-                        <span className="text-[10px] text-purple-600 font-semibold">Navegue pelas setas abaixo</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={irEmpresaAnterior}
-                          className="p-2 rounded-lg bg-white hover:bg-purple-100 text-purple-800 border border-purple-200 font-bold transition flex items-center justify-center shadow-xs"
-                          title="Empresa anterior"
-                        >
-                          <ChevronLeft className="w-4 h-4" />
-                        </button>
-                        <select
-                          value={empresaAtual}
-                          onChange={(e) => setEmpresaAtual(e.target.value)}
-                          className="flex-1 px-3 py-2 bg-white border border-purple-200 rounded-lg text-xs font-bold text-slate-800 outline-none focus:border-purple-600"
-                        >
-                          {empresasDisponiveis.map((emp) => (
-                            <option key={emp} value={emp}>
-                              {emp}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          onClick={irProximaEmpresa}
-                          className="p-2 rounded-lg bg-white hover:bg-purple-100 text-purple-800 border border-purple-200 font-bold transition flex items-center justify-center shadow-xs"
-                          title="Próxima empresa"
-                        >
-                          <ChevronRight className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Dados Cadastrais */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                        <div className="text-[10px] font-bold text-slate-500 uppercase">CNPJ</div>
-                        <div className="text-xs font-extrabold text-slate-800 font-mono mt-0.5">{info.cnpj}</div>
-                      </div>
-                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                        <div className="text-[10px] font-bold text-slate-500 uppercase">Regime Tributário</div>
-                        <div className="text-xs font-extrabold text-purple-700 mt-0.5">{info.regime}</div>
-                      </div>
-                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl col-span-2">
-                        <div className="text-[10px] font-bold text-slate-500 uppercase">Atividade Principal (CNAE)</div>
-                        <div className="text-xs font-semibold text-slate-800 mt-0.5">{info.cnae}</div>
-                      </div>
-                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                        <div className="text-[10px] font-bold text-slate-500 uppercase">Município / UF</div>
-                        <div className="text-xs font-semibold text-slate-800 mt-0.5">{info.cidadeUf}</div>
-                      </div>
-                      <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
-                        <div className="text-[10px] font-bold text-emerald-700 uppercase">Situação Cadastral</div>
-                        <div className="text-xs font-bold text-emerald-800 flex items-center gap-1 mt-0.5">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>{info.situacao}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Status Fiscal e Próxima Obrigação */}
-                    <div className="p-3.5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl">
-                      <div className="flex items-center justify-between text-xs">
-                        <div>
-                          <div className="text-[10px] font-bold text-amber-800 uppercase">Próximo Vencimento Fiscal:</div>
-                          <div className="font-extrabold text-slate-900 mt-0.5">{info.proximaGuia}</div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-[10px] font-bold text-amber-800 uppercase">Data Limite:</div>
-                          <div className="font-extrabold text-amber-900 font-mono mt-0.5">{info.vencimentoGuia}</div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Órgãos Públicos Conectados */}
-                    <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl">
-                      <div className="text-[10px] font-bold text-indigo-900 uppercase flex items-center gap-1.5 mb-1.5">
-                        <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
-                        <span>Conexões Públicas Conectadas com Robô Murad:</span>
-                      </div>
-                      <p className="text-xs text-indigo-800 font-medium leading-relaxed">
-                        {info.orgaosConectados}
-                      </p>
-                    </div>
-
-                    {/* Total Acumulado na Calculadora */}
-                    <div className="p-3.5 bg-slate-900 text-white rounded-xl flex items-center justify-between">
-                      <div>
-                        <div className="text-[10px] text-purple-300 uppercase font-bold">Total Acumulado nesta Empresa:</div>
-                        <div className="text-lg font-black font-mono text-emerald-400">
-                          {formatarMoeda(totalEmpresaAtual)}
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => {
-                          setValorAtual(String(totalEmpresaAtual).replace(".", ","));
-                          setMostrarDetalhesEmpresa(false);
-                        }}
-                        className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition cursor-pointer shadow-xs"
-                      >
-                        Carregar no Visor
-                      </button>
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-
-            {/* Rodapé do Modal */}
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
-              <button
-                onClick={() => setMostrarDetalhesEmpresa(false)}
-                className="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs transition cursor-pointer"
-              >
-                Fechar
-              </button>
-              <button
-                onClick={() => setMostrarDetalhesEmpresa(false)}
-                className="px-4 py-2 rounded-lg bg-gradient-to-r from-[#6A1B9A] to-[#4A148C] hover:brightness-110 text-white font-bold text-xs transition cursor-pointer shadow-sm"
-              >
-                Confirmar Empresa Selecionada
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

@@ -98,38 +98,17 @@ export const InicioTab: React.FC<InicioTabProps> = ({
 
   const handleConcluirPreparacao = () => {
     if (!itemSelecionado) return;
-    setLembretes((prev) =>
-      prev.map((i) =>
-        i.id === itemSelecionado.id
-          ? { ...i, statusTexto: "Preparado SPED ✅", acaoTexto1: "Ver", acaoTexto2: "Transmitir" }
-          : i
-      )
-    );
-    showToast("⚙️ Arquivo SPED preparado com sucesso!");
+    showToast("Preparação de SPED indisponível: fonte de dados e validador oficial não configurados.");
   };
 
-  const handleConcluirTransmissao = (protocolo: string) => {
+  const handleConcluirTransmissao = (_protocolo: string) => {
     if (!itemSelecionado) return;
-    setLembretes((prev) =>
-      prev.map((i) =>
-        i.id === itemSelecionado.id
-          ? { ...i, statusTexto: "Transmitido ✅", protocolo }
-          : i
-      )
-    );
-    showToast(`🚀 Transmissão concluída com protocolo: ${protocolo}`);
+    showToast("Transmissão indisponível: integração oficial, certificado e procuração não configurados.");
   };
 
   const handleConcluirPagamento = () => {
     if (!itemSelecionado) return;
-    setLembretes((prev) =>
-      prev.map((i) =>
-        i.id === itemSelecionado.id
-          ? { ...i, statusTexto: "PAGO / LIQUIDADO ✅", statusExecucao: "pago" }
-          : i
-      )
-    );
-    showToast(`💰 Pagamento de '${itemSelecionado.nome}' confirmado!`);
+    showToast("O sistema não consulta bancos nem confirma pagamentos. Nenhum status foi alterado.");
   };
 
   // Contadores dinâmicos
@@ -153,16 +132,16 @@ export const InicioTab: React.FC<InicioTabProps> = ({
       titulo: "Fluxo Prevítico",
       subtitulo: "Projeção inteligente de 90 dias, controle de saldo e upload de NF-e/boletos por OCR.",
       icone: Zap,
-      tag: "IA 90 Dias",
-      tagCor: "bg-emerald-100 text-emerald-800 border-emerald-300",
+      tag: "Módulo local",
+      tagCor: "bg-slate-100 text-slate-700 border-slate-300",
     },
     {
       id: "conexoes",
       titulo: "Conexões & Órgãos",
-      subtitulo: "Monitoramento dos 11 órgãos: Receita Federal, SEFAZ, Prefeitura, Murade Fiscal, DP e Fisco IA.",
+      subtitulo: "Configuração das integrações externas e credenciais por empresa.",
       icone: Globe,
-      tag: "11 Ativos",
-      tagCor: "bg-blue-100 text-blue-800 border-blue-300",
+      tag: "Não configurados",
+      tagCor: "bg-amber-100 text-amber-900 border-amber-300",
     },
     {
       id: "empresa",
@@ -185,8 +164,8 @@ export const InicioTab: React.FC<InicioTabProps> = ({
       titulo: "Balancete de Verificação",
       subtitulo: "Fechamento mensal automatizado com conferência de débitos e créditos em tempo real.",
       icone: Scale,
-      tag: "D = C 100%",
-      tagCor: "bg-emerald-100 text-emerald-800 border-emerald-300",
+      tag: "Aguardando dados",
+      tagCor: "bg-amber-100 text-amber-900 border-amber-300",
     },
     {
       id: "ia-premium",
@@ -214,11 +193,11 @@ export const InicioTab: React.FC<InicioTabProps> = ({
     },
     {
       id: "integracao",
-      titulo: "Interligação dos 4 Sistemas",
-      subtitulo: "Sincronização entre Murade Contábil, Murade Fiscal, Murade DP e Murade Fisco IA.",
+      titulo: "Integrações de Sistemas",
+      subtitulo: "Configuração das conexões externas; sincronização ainda não disponível.",
       icone: Layers,
-      tag: "Código 8840",
-      tagCor: "bg-teal-100 text-teal-800 border-teal-300",
+      tag: "Pendente",
+      tagCor: "bg-amber-100 text-amber-900 border-amber-300",
     },
   ];
 
@@ -233,9 +212,9 @@ export const InicioTab: React.FC<InicioTabProps> = ({
                 <Home className="w-3.5 h-3.5 text-blue-600" />
                 <span>Painel Principal</span>
               </span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                <span>Robô Autônomo Ativo</span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-100 text-amber-900 border border-amber-300">
+                <AlertTriangle className="w-3 h-3 text-amber-700" />
+                <span>Robôs aguardando fontes</span>
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
@@ -265,13 +244,13 @@ export const InicioTab: React.FC<InicioTabProps> = ({
                 </div>
                 <div className="text-xs text-slate-600 font-mono mt-0.5 flex items-center justify-between">
                   <span>CNPJ: {empresa.cnpj || "Não informado"}</span>
-                  <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded border border-emerald-300">
-                    Fiscal & DP Conectados
+                  <span className="text-[10px] bg-amber-100 text-amber-900 font-bold px-1.5 py-0.2 rounded border border-amber-300">
+                    Integrações pendentes
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-[11px] mt-2 pt-2 border-t border-slate-100 text-slate-500">
-                  <span>{empresa.regime || "Simples Nacional"}</span>
-                  <span className="font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded">Comp. {empresa.competencia || "2026-10"}</span>
+                  <span>{empresa.regime || "Regime não informado"}</span>
+                  <span className="font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">Comp. {empresa.competencia || "Não definida"}</span>
                 </div>
               </>
             ) : (
@@ -285,7 +264,7 @@ export const InicioTab: React.FC<InicioTabProps> = ({
                       className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-black transition cursor-pointer shadow-2xs flex items-center justify-center gap-1"
                     >
                       <Zap className="w-3.5 h-3.5 text-amber-300" />
-                      <span>Conectar ao Murade Fiscal & Puxar Empresa</span>
+                      <span>Verificar conexão com Murade Fiscal</span>
                     </button>
                   )}
                   <button
@@ -312,14 +291,14 @@ export const InicioTab: React.FC<InicioTabProps> = ({
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-sm sm:text-base font-black tracking-tight text-white flex items-center gap-1.5">
-                  <span>Conexão Murade: Murade Fiscal • Murade DP • Órgãos Públicos</span>
+                  <span>Integrações: Murade Fiscal • Murade DP • Órgãos Públicos</span>
                 </h3>
-                <span className="text-[10px] bg-emerald-400 text-slate-950 font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
-                  100% Operacional
+                <span className="text-[10px] bg-amber-300 text-slate-950 font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                  Integrações pendentes
                 </span>
               </div>
               <p className="text-xs text-blue-100 mt-0.5">
-                O Contábil comunica diretamente com o <strong>Murade Fiscal</strong> (NF-e/Apuração), <strong>Murade DP</strong> (Folha/eSocial) e <strong>Órgãos Federais/Estaduais</strong>.
+                Conexões com Murade Fiscal, Departamento Pessoal e órgãos públicos aguardam URLs, autenticação e configuração.
               </p>
             </div>
           </div>
@@ -332,7 +311,7 @@ export const InicioTab: React.FC<InicioTabProps> = ({
                 className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-md"
               >
                 <Zap className="w-3.5 h-3.5 text-slate-950" />
-                <span>Puxar Empresa do Murade Fiscal</span>
+                <span>Verificar Murade Fiscal</span>
               </button>
             )}
 
@@ -343,7 +322,7 @@ export const InicioTab: React.FC<InicioTabProps> = ({
                 className="bg-white/15 hover:bg-white/25 text-white font-bold text-xs px-3 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer border border-white/20"
               >
                 <Users className="w-3.5 h-3.5 text-blue-200" />
-                <span>Sincronizar DP</span>
+                <span>Verificar Murade DP</span>
               </button>
             )}
 
@@ -361,34 +340,34 @@ export const InicioTab: React.FC<InicioTabProps> = ({
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-3 text-xs">
           <div className="bg-black/20 rounded-lg p-2.5 border border-white/10 flex items-center justify-between">
             <div>
-              <div className="text-[10px] text-blue-200 uppercase font-bold">Mural de Fiscal</div>
-              <div className="font-bold text-white">142 XMLs Prontos</div>
+              <div className="text-[10px] text-blue-200 uppercase font-bold">Mural do Fiscal</div>
+              <div className="font-bold text-white">Aguardando conexão</div>
             </div>
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <AlertTriangle className="w-4 h-4 text-amber-300 shrink-0" />
           </div>
 
           <div className="bg-black/20 rounded-lg p-2.5 border border-white/10 flex items-center justify-between">
             <div>
-              <div className="text-[10px] text-blue-200 uppercase font-bold">Mural DP</div>
-              <div className="font-bold text-white">12 Funcionários S-1200</div>
+              <div className="text-[10px] text-blue-200 uppercase font-bold">Mural do DP</div>
+              <div className="font-bold text-white">Aguardando conexão</div>
             </div>
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <AlertTriangle className="w-4 h-4 text-amber-300 shrink-0" />
           </div>
 
           <div className="bg-black/20 rounded-lg p-2.5 border border-white/10 flex items-center justify-between">
             <div>
               <div className="text-[10px] text-blue-200 uppercase font-bold">Receita Federal / SERPRO</div>
-              <div className="font-bold text-white">Certificado A1 Válido</div>
+              <div className="font-bold text-white">Certificado não configurado</div>
             </div>
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <AlertTriangle className="w-4 h-4 text-amber-300 shrink-0" />
           </div>
 
           <div className="bg-black/20 rounded-lg p-2.5 border border-white/10 flex items-center justify-between">
             <div>
               <div className="text-[10px] text-blue-200 uppercase font-bold">SEFAZ Estadual</div>
-              <div className="font-bold text-white">SPED / NF-e 4.0</div>
+              <div className="font-bold text-white">Não conectado</div>
             </div>
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <AlertTriangle className="w-4 h-4 text-amber-300 shrink-0" />
           </div>
         </div>
       </div>
@@ -407,14 +386,14 @@ export const InicioTab: React.FC<InicioTabProps> = ({
                 <span>Fluxo Prevítico</span>
               </span>
               <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded">
-                Projeção 90D
+              Sem dados
               </span>
             </div>
             <div className="text-lg font-black text-slate-900 font-mono">
-              R$ 89.200,00
+              Aguardando lançamentos
             </div>
             <p className="text-[11px] text-slate-600 mt-1 leading-snug">
-              Saldo positivo projetado com conferência bancária e OCR.
+              Cadastre informações financeiras para habilitar uma projeção.
             </p>
           </div>
           <div className="mt-3 pt-2 border-t border-slate-300/80 flex items-center justify-between text-xs font-semibold text-blue-700 group-hover:text-blue-900">
@@ -434,15 +413,15 @@ export const InicioTab: React.FC<InicioTabProps> = ({
                 <Globe className="w-4 h-4 text-blue-600" />
                 <span>Órgãos & APIs</span>
               </span>
-              <span className="text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300 px-1.5 py-0.5 rounded">
-                {totalConectados}/11 Ativos
+              <span className="text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 px-1.5 py-0.5 rounded">
+                {totalConectados} endereços respondendo
               </span>
             </div>
             <div className="text-lg font-black text-slate-900">
-              100% Sincronizado
+              Integrações não configuradas
             </div>
             <p className="text-[11px] text-slate-600 mt-1 leading-snug">
-              Receita Federal, SEFAZ, Prefeitura, Murade Fiscal, DP e Fisco IA.
+              O teste de alcance HTTP não confirma autenticação nem acesso a dados.
             </p>
           </div>
           <div className="mt-3 pt-2 border-t border-slate-300/80 flex items-center justify-between text-xs font-semibold text-blue-700 group-hover:text-blue-900">
@@ -463,14 +442,14 @@ export const InicioTab: React.FC<InicioTabProps> = ({
                 <span>Balancete Geral</span>
               </span>
               <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded">
-                Equilibrado
+              Não verificado
               </span>
             </div>
             <div className="text-lg font-black text-emerald-700">
-              D = C (Sem Erro)
+              {totalLancamentos > 0 ? "Aguardando conferência" : "Sem lançamentos"}
             </div>
             <p className="text-[11px] text-slate-600 mt-1 leading-snug">
-              Total de {totalLancamentos} lançamentos auditados pelo Robô.
+              {totalLancamentos} lançamento(s) cadastrado(s). A conferência ainda não foi executada.
             </p>
           </div>
           <div className="mt-3 pt-2 border-t border-slate-300/80 flex items-center justify-between text-xs font-semibold text-blue-700 group-hover:text-blue-900">
@@ -495,10 +474,10 @@ export const InicioTab: React.FC<InicioTabProps> = ({
               </span>
             </div>
             <div className="text-lg font-black text-slate-900">
-              Zero Conflito
+              Aguardando dados
             </div>
             <p className="text-[11px] text-slate-600 mt-1 leading-snug">
-              Coletor → Calculador → Conferidor coordenados pelo Agente IA Chefe.
+              A conferência local só pode rodar depois que houver registros.
             </p>
           </div>
           <div className="mt-3 pt-2 border-t border-slate-300/80 flex items-center justify-between text-xs font-semibold text-blue-700 group-hover:text-blue-900">

@@ -10,7 +10,6 @@ import {
   Calendar,
   Globe,
   FileSpreadsheet,
-  CheckCircle2,
   Scale,
   Home,
 } from "lucide-react";
@@ -70,9 +69,8 @@ export const Header: React.FC<HeaderProps> = ({
               <Scale className="w-4 h-4 text-amber-300" title="Balança da Contabilidade" />
             </span>
             <span className="text-blue-300 hidden sm:inline">•</span>
-            <span className="text-[11px] text-emerald-300 hidden sm:flex items-center gap-1.5 font-semibold bg-[#06214E] px-2 py-0.5 rounded-full border border-emerald-400/30">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-              Agente 100% Ativo
+            <span className="text-[11px] text-amber-200 hidden sm:flex items-center gap-1.5 font-semibold bg-[#06214E] px-2 py-0.5 rounded-full border border-amber-400/30">
+              Integrações pendentes
             </span>
           </button>
         </div>
@@ -82,7 +80,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               onClick={onConectarFiscal}
               className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black flex items-center gap-1.5 transition cursor-pointer shadow-xs"
-              title="Conectar ao Murade Fiscal, DP e Órgãos Públicos para puxar empresa"
+              title="Consultar a integração com Murade Fiscal"
             >
               <Zap className="w-3.5 h-3.5 text-slate-950 animate-bounce" />
               <span className="hidden sm:inline">Puxar do Fiscal / Órgãos</span>
@@ -91,10 +89,10 @@ export const Header: React.FC<HeaderProps> = ({
           )}
 
           <div className="hidden md:flex items-center gap-1.5 bg-[#06214E] px-2.5 py-1 rounded-lg border border-blue-400/30 text-blue-100">
-            <Activity className="w-3 h-3 text-emerald-400" />
-            <span>Gov Sync: 100%</span>
+            <Activity className="w-3 h-3 text-amber-300" />
+            <span>Gov Sync: não configurado</span>
             <span className="text-blue-400">|</span>
-            <span className="text-amber-300 font-mono font-bold">10/2026</span>
+            <span className="text-amber-300 font-mono font-bold">{new Date().toLocaleDateString("pt-BR", { month: "2-digit", year: "numeric" })}</span>
           </div>
         </div>
       </div>

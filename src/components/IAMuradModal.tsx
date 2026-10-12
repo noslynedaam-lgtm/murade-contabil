@@ -124,22 +124,15 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
         body: JSON.stringify({
           message: texto,
           context: {
-            empresa: empresa.razaoSocial,
-            cnpj: empresa.cnpj,
             regime: empresa.regime,
-            competencia: empresa.competencia,
             totalLancamentos: lancamentos.length,
-            ibs: empresa.ibsAliquota,
-            cbs: empresa.cbsAliquota,
           },
         }),
       });
 
-      let respostaTexto = "Processado pelo Agente Murade.";
-      if (res.ok) {
-        const data = await res.json();
-        respostaTexto = data.reply || respostaTexto;
-      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Serviço de IA indisponível.");
+      const respostaTexto = data.reply;
 
       const iaMsg: ChatMessage = {
         id: `msg-${Date.now() + 1}`,
@@ -154,7 +147,7 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
       const erroMsg: ChatMessage = {
         id: `msg-${Date.now() + 1}`,
         sender: "ia",
-        text: "Verifiquei suas contas no sistema Murade Contábil. Todos os módulos (Fiscal, DP e Contábil) estão em equilíbrio com Débito igual a Crédito.",
+        text: err instanceof Error ? err.message : "Serviço de IA indisponível. Confira a configuração do servidor.",
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
       setMessages((prev) => [...prev, erroMsg]);

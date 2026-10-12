@@ -89,7 +89,7 @@ export default function App() {
             if (real) {
               return {
                 ...org,
-                status: real.status,
+                status: real.status === "conectado" ? "alerta" : real.status,
                 pingMs: real.pingMs,
                 statusCode: real.statusCode,
                 statusTexto: real.statusTexto,
@@ -97,29 +97,24 @@ export default function App() {
                 ultimaVerificacao: `Hoje às ${real.verificadoEm}`,
               };
             }
-            return {
-              ...org,
-              status: "conectado",
-              pingMs: 18,
-              ultimaVerificacao: "Tempo Real (Ativo)",
-            };
+            return org;
           })
         );
-        showToast(`✅ Varredura em tempo real concluída! ${data.conectados || 8} de ${data.totalTestados || 8} servidores governamentais responderam com sucesso.`);
+        showToast(`Verificação de alcance concluída: ${data.totalTestados ?? 0} endereços consultados. Isso não confirma autenticação nem integração.` , "info");
       } else {
         throw new Error("Resposta inválida");
       }
     } catch (err) {
-      console.warn("Falha no teste real de órgãos, aplicando fallback seguro:", err);
+      console.warn("Falha no teste de alcance dos órgãos:", err);
       setOrgaos((prev) =>
         prev.map((org) => ({
           ...org,
-          status: "conectado",
-          pingMs: 32,
-          ultimaVerificacao: "Verificado agora",
+          status: "offline",
+          statusTexto: "Não foi possível verificar",
+          ultimaVerificacao: "Falha na consulta",
         }))
       );
-      showToast("✅ Conexões autenticadas e canais governamentais ativos!");
+      showToast("Não foi possível verificar os endereços. Nenhuma autenticação foi confirmada.", "info");
     } finally {
       setIsTestingOrgaos(false);
     }
@@ -139,7 +134,7 @@ export default function App() {
               o.id === id
                 ? {
                     ...o,
-                    status: item.status,
+                    status: item.status === "conectado" ? "alerta" : item.status,
                     pingMs: item.pingMs,
                     statusCode: item.statusCode,
                     statusTexto: item.statusTexto,
@@ -148,7 +143,7 @@ export default function App() {
                 : o
             )
           );
-          showToast(`✅ ${item.nome}: Conexão ativa! Latência: ${item.pingMs}ms, Status: ${item.statusCode} OK`);
+          showToast(`${item.nome}: resposta HTTP ${item.statusCode}; autenticação e integração não foram verificadas.`, "info");
           return;
         }
       }
@@ -158,11 +153,11 @@ export default function App() {
     setOrgaos((prev) =>
       prev.map((o) =>
         o.id === id
-          ? { ...o, status: "conectado", pingMs: 25, ultimaVerificacao: "Agora mesmo" }
+          ? { ...o, status: "offline", statusTexto: "Não foi possível verificar", ultimaVerificacao: "Falha na consulta" }
           : o
       )
     );
-    showToast(`✅ Conexão direta com órgão validada com sucesso!`);
+    showToast("Não foi possível verificar o endereço deste órgão.", "info");
   };
 
   const handleAtualizarOrgao = (id: string, updates: Partial<OrgaoConectado>) => {
@@ -175,74 +170,42 @@ export default function App() {
   // 2. Rodar Auditoria Completa pelo Robô
   const handleRunAudit = () => {
     setIsAuditing(true);
-    showToast("Robô Murade: Executando auditoria cruzada (FiscoIA x Sped x Folha)...", "info");
-    setTimeout(() => {
-      setIsAuditing(false);
-      showToast("✅ Auditoria 100% concluída: Nenhum desequilíbrio contábil ou fiscal encontrado!");
-    }, 1500);
+    const invalidos = lancamentos.filter((item) =>
+      !Number.isFinite(item.valor) || item.valor <= 0 || !item.contaDebitoCodigo || !item.contaCreditoCodigo
+    );
+    setIsAuditing(false);
+    showToast(
+      invalidos.length === 0
+        ? `Conferência local concluída: ${lancamentos.length} lançamentos têm valor positivo e contas preenchidas. Isso não valida impostos, SPED ou folha.`
+        : `Conferência local encontrou ${invalidos.length} lançamento(s) com valor ou conta inválidos.`,
+      invalidos.length === 0 ? "info" : "success"
+    );
   };
 
   // 3. Importar do Fiscal
   const handleImportarFiscal = () => {
-    const novoFiscal: LancamentoContabil = {
-      id: `lan-fiscal-${Date.now()}`,
-      data: "25/10/2026",
-      contaDebitoCodigo: "1.1.2",
-      contaDebitoNome: "Bancos Conta Movimento",
-      contaCreditoCodigo: "4.1.1",
-      contaCreditoNome: "Receita de Venda de Mercadorias (com IBS/CBS)",
-      valor: 34200.0,
-      historico: "Importação automática de notas fiscais de saída e apuração ICMS/IBS ref. lote 8820",
-      origem: "Fiscal — NFe Saída",
-      documentoRef: "NFE-LOTE-8820",
-    };
-    setLancamentos((prev) => [novoFiscal, ...prev]);
-    showToast("📥 Importados 1 lote de notas fiscais do Módulo Fiscal com sucesso!");
+    showToast("Integração com o módulo Fiscal não configurada. Nenhum lançamento foi importado.", "info");
   };
 
   // 4. Importar do DP
   const handleImportarDP = () => {
-    const novoDP: LancamentoContabil = {
-      id: `lan-dp-${Date.now()}`,
-      data: "25/10/2026",
-      contaDebitoCodigo: "5.2.1",
-      contaDebitoNome: "Despesas com Benefícios e Alimentação",
-      contaCreditoCodigo: "2.1.2",
-      contaCreditoNome: "Salários e Encargos a Pagar",
-      valor: 3850.0,
-      historico: "Importação automática da folha de benefícios do eSocial S-1200",
-      origem: "DP — Folha",
-      documentoRef: "ESOCIAL-S1200-BENEF",
-    };
-    setLancamentos((prev) => [novoDP, ...prev]);
-    showToast("📥 Folha de pagamento e provisões do DP importadas com sucesso!");
+    showToast("Integração com Departamento Pessoal não configurada. Nenhum lançamento foi importado.", "info");
   };
 
   // 5. Gerar Todos os Lançamentos Sozinho
   const handleGerarTudo = () => {
-    showToast("🤖 O Agente Murade consolidou todas as fontes e recalculou os 47 lançamentos contábeis!");
+    showToast("Consolidação automática ainda não está disponível. Conecte e valide as fontes antes de gerar lançamentos.", "info");
   };
 
   // 6. Fechar Mês no Balancete
   const handleFecharMes = () => {
-    showToast("🔒 Mês 10/2026 encerrado com sucesso! Livros Diário e Razão selados e prontos para ECD.");
+    showToast("Fechamento não realizado: conclua e confira os lançamentos antes de encerrar a competência.", "info");
   };
 
   // 7. Transmitir Todos os Livros
   const handleTransmitirTodos = () => {
-    setIsTransmitting(true);
-    showToast("Assinando com certificado digital ICP-Brasil e transmitindo obrigações...", "info");
-    setTimeout(() => {
-      setLivros((prev) =>
-        prev.map((l) => ({
-          ...l,
-          status: "transmitido",
-          hashTransmissao: `REC:${Date.now().toString(16).toUpperCase()}`,
-        }))
-      );
-      setIsTransmitting(false);
-      showToast("✅ Todos os livros e declarações foram transmitidos e os recibos arquivados!");
-    }, 1800);
+    setIsTransmitting(false);
+    showToast("Transmissão indisponível: configure certificado, procuração e integração oficial. Nada foi transmitido.", "info");
   };
 
   // 8. CONECTAR AO MURADE FISCAL E PUXAR EMPRESA REAL DO MURADE FISCAL
@@ -283,24 +246,19 @@ export default function App() {
           });
         }
 
-        // Executa varredura de status dos órgãos conectados
-        handleTestarConexoes();
-
-        showToast(
-          `✅ Empresa '${res.empresa.razaoSocial}' conectada e importada do Murade Fiscal!\n📄 142 XMLs sincronizados\n🏛️ Receita Federal e SEFAZ Validadas.`
-        );
+        showToast(res.mensagem, "info");
       } else {
         showToast("⚠️ Nenhuma empresa encontrada no Murade Fiscal.", "info");
       }
     } catch (e) {
       console.error("Erro ao conectar ao Murade Fiscal:", e);
-      showToast("❌ Erro ao conectar ao Murade Fiscal.", "info");
+      showToast(e instanceof Error ? e.message : "Integração com Murad Fiscal indisponível.", "info");
     }
   };
 
   // 9. CONECTAR AO MURADE DP (DEPARTAMENTO PESSOAL)
   const handleConectarMuradDP = async () => {
-    showToast("🔄 Conectando ao Murade Departamento Pessoal (eSocial)...", "info");
+    showToast("Verificando a integração com Departamento Pessoal...", "info");
     try {
       const res = await conectarMuradDP();
       if (res.sucesso) {
@@ -312,12 +270,10 @@ export default function App() {
             return [...novos, ...prev];
           });
         }
-        showToast(
-          "✅ Murade DP sincronizado com sucesso!\n12 Colaboradores ativos e Folha eSocial incorporada aos lançamentos contábeis."
-        );
+        showToast("Integração com Departamento Pessoal consultada.", "info");
       }
     } catch (e) {
-      showToast("❌ Falha de conexão com o Murade DP.", "info");
+      showToast(e instanceof Error ? e.message : "Integração com Murad DP indisponível.", "info");
     }
   };
 
@@ -534,6 +490,8 @@ export default function App() {
                 <AgenteTab
                   onRunAudit={handleRunAudit}
                   isAuditing={isAuditing}
+                  cnpjEmpresa={empresa.cnpj}
+                  lancamentos={lancamentos}
                 />
               )}
             </div>

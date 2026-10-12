@@ -18,18 +18,15 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
   const handleBaixarPDF = (livro: LivroContabil) => {
-    const conteudo = `LIVRO CONTÁBIL OFICIAL — MURADE CONTÁBIL 2026\nDocumento: ${livro.titulo}\nDescrição: ${livro.descricao}\nCompetência: ${livro.competencia}\nDestino: ${livro.orgaoDestino}\nStatus: Pronto e Assinado via ICP-Brasil.\n\nHash SHA-256: 8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b`;
+    const conteudo = `RASCUNHO DE DEMONSTRAÇÃO — NÃO É LIVRO OFICIAL\nDocumento: ${livro.titulo}\nDescrição: ${livro.descricao}\nCompetência: ${livro.competencia}\n\nEste arquivo não foi assinado, validado ou transmitido.`;
     baixarArquivoTexto(`${livro.titulo.replace(/\s+/g, "_")}_${livro.competencia.replace("/", "-")}.txt`, conteudo);
     setSuccessToast(`📥 ${livro.titulo} baixado com sucesso!`);
     setTimeout(() => setSuccessToast(null), 3000);
   };
 
   const handleTransmitirIndividual = (livro: LivroContabil) => {
-    setSuccessToast(`Transmissão iniciada para ${livro.titulo} junto à ${livro.orgaoDestino}...`);
-    setTimeout(() => {
-      setSuccessToast(`✅ ${livro.titulo} transmitido com sucesso! Recibo gerado.`);
-      setTimeout(() => setSuccessToast(null), 3500);
-    }, 1200);
+    setSuccessToast(`Transmissão indisponível: integração e certificado não configurados. ${livro.titulo} não foi transmitido.`);
+    setTimeout(() => setSuccessToast(null), 3500);
   };
 
   return (
@@ -38,10 +35,10 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
         <div>
           <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
             <BookOpen className="w-5 h-5 text-blue-600" />
-            <span>📖 LIVROS — Fechamento Automático & Transmissão!</span>
+            <span>📖 Livros e relatórios de demonstração</span>
           </h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            O Agente gera, fecha e transmite SOZINHO todos os livros contábeis e obrigações fiscais!
+            Os arquivos disponíveis são rascunhos locais. Não há assinatura digital, fechamento ou transmissão oficial.
           </p>
         </div>
 
@@ -52,7 +49,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
           className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition flex items-center gap-2 cursor-pointer shadow-xs disabled:opacity-50"
         >
           <Send className={`w-3.5 h-3.5 ${isTransmitting ? "animate-spin" : ""}`} />
-          <span>{isTransmitting ? "Assinando e Transmitindo..." : "✅ FECHAR E TRANSMITIR TODOS SOZINHO"}</span>
+          <span>{isTransmitting ? "Verificando configuração..." : "Verificar transmissão"}</span>
         </button>
       </div>
 

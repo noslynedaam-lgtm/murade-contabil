@@ -15,28 +15,25 @@ export const IbsCbsReformaCard: React.FC<IbsCbsReformaCardProps> = ({
   const [anoAtivo, setAnoAtivo] = useState<number>(defaultSimularAno || anoReal);
   const [mostrarSimulador, setMostrarSimulador] = useState(false);
 
-  // Valores de exemplo de apuração do faturamento atual da empresa (R$ 25.000 de base)
-  const baseFaturamento = 25000;
-  const icmsAtual = 3800;
-  const issAtual = 1200;
-  const piscofinsAtual = 2450;
-
-  // IBS e CBS estimados (Lei Complementar nº 200/2024)
-  const aliquotaIBS = 17.0; // %
-  const aliquotaCBS = 8.8; // %
-  const creditoIBS = 850;
-  const creditoCBS = 420;
-  const valorIBS = (baseFaturamento * (aliquotaIBS / 100)) - creditoIBS;
-  const valorCBS = (baseFaturamento * (aliquotaCBS / 100)) - creditoCBS;
-
-  // Determinação da fase conforme o script da Lei Complementar nº 200/2024
+  // Linha do tempo geral da LC 214/2025; este componente não calcula valores tributários.
+  // Mantidos zerados porque a antiga tabela de estimativas está desativada.
+  const baseFaturamento = 0;
+  const icmsAtual = 0;
+  const issAtual = 0;
+  const piscofinsAtual = 0;
+  const aliquotaIBS = 0;
+  const aliquotaCBS = 0;
+  const creditoIBS = 0;
+  const creditoCBS = 0;
+  const valorIBS = 0;
+  const valorCBS = 0;
   const isFaseAtual = anoAtivo < 2027;
   const isFaseCalculo = anoAtivo >= 2027 && anoAtivo < 2029;
   const isFaseVigenteParcial = anoAtivo >= 2029 && anoAtivo < 2033;
   const isFaseFinal = anoAtivo >= 2033;
 
-  // A área de cálculo paralelo aparece a partir de 2027 ou quando o usuário ativar a simulação
-  const mostrarAreaCalculo = !isFaseAtual;
+  // A tabela com estimativas antigas foi desativada até existir um simulador legal validado.
+  const mostrarAreaCalculo = false;
 
   return (
     <div
@@ -52,7 +49,7 @@ export const IbsCbsReformaCard: React.FC<IbsCbsReformaCardProps> = ({
             <h3 className="text-base sm:text-lg font-extrabold tracking-tight text-slate-900 flex items-center gap-2">
               <span>Reforma Tributária — IBS / CBS</span>
               <span className="text-[10px] bg-blue-100 text-blue-700 border border-blue-300 px-2 py-0.5 rounded-full font-bold">
-                LC nº 200/2024
+                LC nº 214/2025
               </span>
             </h3>
             <p className="text-xs text-slate-600 mt-0.5">
@@ -121,7 +118,7 @@ export const IbsCbsReformaCard: React.FC<IbsCbsReformaCardProps> = ({
           <div className="flex items-center gap-1.5 text-slate-700">
             <Sparkles className="w-4 h-4 text-blue-600 shrink-0" />
             <span>
-              <strong>Simular Linha do Tempo da Reforma:</strong> Escolha um ano para visualizar a ativação automática:
+              <strong>Linha do tempo geral da Reforma:</strong> Escolha um ano para consultar a fase prevista:
             </span>
           </div>
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -143,7 +140,7 @@ export const IbsCbsReformaCard: React.FC<IbsCbsReformaCardProps> = ({
                   : "bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300"
               }`}
             >
-              2027 (Cálculo Paralelo)
+              2027–2028
             </button>
             <button
               onClick={() => setAnoAtivo(2029)}
@@ -153,7 +150,7 @@ export const IbsCbsReformaCard: React.FC<IbsCbsReformaCardProps> = ({
                   : "bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300"
               }`}
             >
-              2029 (Início Pagamento)
+              2029–2032
             </button>
             <button
               onClick={() => setAnoAtivo(2033)}
@@ -173,31 +170,31 @@ export const IbsCbsReformaCard: React.FC<IbsCbsReformaCardProps> = ({
       <div id="avisoFase" className="p-3.5 rounded-xl text-xs bg-amber-50 border-l-4 border-amber-500 border-y border-r border-amber-200 text-slate-800 mb-4 leading-relaxed shadow-2xs">
         {isFaseAtual && (
           <>
-            📅 <strong>2026 — Fase Atual:</strong> Impostos vigentes: ICMS, ISS, PIS e COFINS.<br />
-            ⏳ <strong>2027:</strong> Cálculo paralelo obrigatório de IBS/CBS — sem pagamento.<br />
-            ✅ <strong>2029:</strong> IBS e CBS entram em vigor — início do pagamento.<br />
-            🏁 <strong>2033:</strong> Fim total de ICMS, ISS, PIS e COFINS.
+            📅 <strong>2026 — Ano de teste:</strong> IBS 0,1% e CBS 0,9%, conforme obrigações e regras aplicáveis.<br />
+            ⏳ <strong>2027–2028:</strong> Início da CBS e extinção de PIS/COFINS; IBS com alíquota de 0,1 ponto percentual.<br />
+            ✅ <strong>2029–2032:</strong> Transição gradual de ICMS/ISS para IBS.<br />
+            🏁 <strong>2033:</strong> Vigência integral do novo modelo; extinção de ICMS e ISS.
           </>
         )}
 
         {isFaseCalculo && (
           <>
-            📅 <strong>2027 — Cálculo Paralelo Obrigatório:</strong> IBS e CBS calculados paralelamente aos impostos atuais. <strong>Ainda não são devidos — não paga!</strong><br />
-            ⏳ <strong>2029:</strong> IBS e CBS entram em vigor — início do pagamento.<br />
-            🏁 <strong>2033:</strong> Fim total de ICMS, ISS, PIS e COFINS.
+            📅 <strong>2027–2028:</strong> Início da CBS e extinção de PIS/COFINS; IBS com alíquota de 0,1 ponto percentual.<br />
+            ⏳ <strong>2029–2032:</strong> Transição gradual de ICMS/ISS para IBS.<br />
+            🏁 <strong>2033:</strong> Vigência integral do novo modelo.
           </>
         )}
 
         {isFaseVigenteParcial && (
           <>
-            ✅ <strong>2029 — IBS e CBS em Vigor:</strong> Impostos novos em cobrança. ICMS/ISS em redução gradual.<br />
-            🏁 <strong>2033:</strong> Fim total de ICMS, ISS, PIS e COFINS — só IBS e CBS.
+            ✅ <strong>2029–2032 — Transição gradual:</strong> IBS aumenta enquanto ICMS/ISS diminuem progressivamente.<br />
+            🏁 <strong>2033:</strong> Vigência integral do novo modelo.
           </>
         )}
 
         {isFaseFinal && (
           <>
-            🏁 <strong>2033+ — Fase Final:</strong> ICMS, ISS, PIS e COFINS extintos. Apenas IBS e CBS vigentes.
+            🏁 <strong>2033+ — Novo modelo:</strong> Vigência integral; ICMS e ISS extintos.
           </>
         )}
       </div>
@@ -290,14 +287,14 @@ export const IbsCbsReformaCard: React.FC<IbsCbsReformaCardProps> = ({
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
             <span>
-              Em 2026, vigoram os tributos tradicionais. O cálculo paralelo de IBS/CBS será acionado automaticamente em <strong>01/01/2027</strong>.
+              Prévia informativa de {anoAtivo}: consulte a linha do tempo oficial. Este protótipo não calcula tributos nem aplica regras tributárias.
             </span>
           </div>
           <button
             onClick={() => setAnoAtivo(2027)}
             className="text-[11px] bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md font-bold cursor-pointer transition shrink-0 ml-2 shadow-xs"
           >
-            Visualizar Prévia 2027
+            Visualizar Prévia {anoAtivo === 2026 ? 2027 : 2026}
           </button>
         </div>
       )}
@@ -306,7 +303,7 @@ export const IbsCbsReformaCard: React.FC<IbsCbsReformaCardProps> = ({
       <div className="mt-4 pt-4 border-t border-slate-300">
         <div className="text-xs sm:text-sm font-bold text-slate-900 mb-3 flex items-center gap-1.5">
           <span>📖</span>
-          <span>Contas Contábeis — IBS / CBS (já cadastradas no Plano de Contas)</span>
+          <span>Exemplos de contas para revisão pelo contador</span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
           <div className="p-2.5 rounded-lg border border-blue-300 bg-white shadow-2xs">
@@ -328,11 +325,10 @@ export const IbsCbsReformaCard: React.FC<IbsCbsReformaCardProps> = ({
         </div>
       </div>
 
-      {/* 🔄 ATIVAÇÃO AUTOMÁTICA */}
       <div className="mt-4 p-3 rounded-xl bg-white border border-slate-300 text-xs text-slate-700 flex items-start gap-2 shadow-2xs">
-        <span className="text-sm">🔄</span>
+        <span className="text-sm">ℹ️</span>
         <div>
-          <strong className="text-slate-900">Ativação Automática:</strong> O sistema detecta a data atual do calendário e ativa o cálculo paralelo em 01/01/2027 e o início dos pagamentos em 01/01/2029 — sem necessidade de intervenção manual pelo contador.
+          Este protótipo não ativa cálculos, não lança créditos e não integra o plano de contas. <a className="font-semibold underline" href="https://www.gov.br/receitafederal/pt-br/acesso-a-informacao/acoes-e-programas/programas-e-atividades/reforma-tributaria-do-consumo/entenda" target="_blank" rel="noreferrer">Consulte a linha do tempo oficial da Receita Federal.</a>
         </div>
       </div>
     </div>
