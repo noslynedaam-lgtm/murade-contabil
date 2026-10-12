@@ -41,9 +41,8 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({
   onConectarDP,
 }) => {
   const [subAba, setSubAba] = useState<"configuracao" | "fluxo">("configuracao");
-  const [codigoLigacao, setCodigoLigacao] = useState("MURAD-2026-GO");
+  const [codigoLigacao, setCodigoLigacao] = useState("");
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
-  const [sincronizando, setSincronizando] = useState(false);
   const [statusSinc, setStatusSinc] = useState<string | null>(null);
 
   // 8 Sistemas conforme o template fornecido
@@ -63,8 +62,8 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({
       tag: "Fiscal & Tributário",
       nome: "MURADE FISCAL",
       placeholder: "Renomear ex: Murade Tributos",
-      status: "conectado",
-      statusTexto: "✅ Conectado",
+      status: "pendente",
+      statusTexto: "Integração não configurada",
     },
     {
       id: "sis-3",
@@ -72,8 +71,8 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({
       tag: "Compliance & Governo",
       nome: "FISCO IA",
       placeholder: "Renomear ex: Murade Gov",
-      status: "conectado",
-      statusTexto: "✅ Conectado",
+      status: "pendente",
+      statusTexto: "Integração não configurada",
     },
     {
       id: "sis-4",
@@ -82,7 +81,7 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({
       nome: "MURADE CONTÁBIL",
       placeholder: "Renomear ex: Murade Balanço",
       status: "local",
-      statusTexto: "✅ Ativo • Local",
+      statusTexto: "Interface local de demonstração",
       isPrincipal: true,
     },
     {
@@ -132,35 +131,33 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({
     setTimeout(() => setFeedbackToast(null), 4500);
   };
 
-  // 📋 COPIAR CÓDIGO DE LIGAÇÃO
-  const copiarCodigo = () => {
-    if (navigator?.clipboard?.writeText) {
-      navigator.clipboard.writeText(codigoLigacao);
+  // Copiar somente um identificador que o usuário tenha informado.
+  const copiarCodigo = async () => {
+    if (!codigoLigacao.trim()) {
+      showToast("Informe um identificador antes de copiar. Ele ainda não autentica nem conecta sistemas.");
+      return;
     }
-    showToast(
-      `✅ Código copiado com sucesso!\n\nCódigo: ${codigoLigacao}\n\nCole o mesmo no DP, Fiscal, FISCO IA e em todos os novos sistemas que criar!`
-    );
+    try {
+      await navigator.clipboard.writeText(codigoLigacao);
+      showToast("Identificador copiado. Ele não autentica nem conecta sistemas.");
+    } catch {
+      showToast("Não foi possível copiar o identificador neste navegador.");
+    }
   };
 
   // ✅ VALIDAR CONEXÃO
   const validar = () => {
-    showToast(
-      `🔍 Validando código de ligação...\n\n✅ Código: ${codigoLigacao} — Válido\n✅ Formato correto\n✅ Pronto para conectar\n\n💡 Coloque o mesmo código no DP para estabelecer a conexão completa!`
-    );
+    showToast("Este código é apenas um campo de demonstração. Não existe serviço para validá-lo ou conectar módulos.");
   };
 
   // 🧪 TESTAR TODAS AS CONEXÕES
   const testarTodas = () => {
-    showToast(
-      `🔄 Testando TODAS as conexões...\n\n✅ MURADE FISCAL — Conectado\n✅ FISCO IA — Conectado\n⏳ MURADE DP — Aguardando código\n✅ MURADE CONTÁBIL — Terminal Principal (Local)\n⏳ Sistemas 5 a 8 — Reservados\n\n💡 Coloque ${codigoLigacao} no DP para conectar todos os 4 ativos!`
-    );
+    showToast("Fiscal, DP e FISCO IA não estão conectados neste projeto. Nenhum endpoint de teste foi chamado.");
   };
 
   // 💾 SALVAR CONFIGURAÇÕES
   const salvar = () => {
-    showToast(
-      `✅ Configurações SALVAS com sucesso!\n\n📙 Sistema: MURADE CONTÁBIL\n🔑 Código: ${codigoLigacao}\n🔗 Conectados: Fiscal ✅ | FISCO IA ✅\n⏳ Pendente: DP (colocar código lá)\n🤖 Robô Contábil: Ativo\n🧠 Agente IA Contábil: Ativo\n🔒 Proteção Admin: Ativada\n\nTudo pronto e interligado! 🚀`
-    );
+    showToast("As configurações de integração não são persistidas. Conectores, autenticação e proteção de acesso ainda precisam ser implementados.");
   };
 
   const handleNomeChange = (id: string, novoNome: string) => {
@@ -170,12 +167,7 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({
   };
 
   const handleSincronizarFluxo = () => {
-    setSincronizando(true);
-    setStatusSinc("Executando pipeline: FiscoIA (OCR) → Fiscal (Apuração) → DP (Folha) → Contábil (Lançamentos)...");
-    setTimeout(() => {
-      setSincronizando(false);
-      setStatusSinc("✅ Sincronização concluída! 142 documentos processados e 47 lançamentos contábeis gerados com sucesso.");
-    }, 1800);
+    setStatusSinc("Sincronização indisponível: nenhum conector externo, OCR ou armazenamento foi configurado.");
   };
 
   return (
@@ -189,7 +181,7 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({
               <span>Murade Contábil — Configuração de Integração</span>
             </div>
             <div className="text-xs sm:text-sm text-purple-100 font-medium mt-1 opacity-90">
-              Conecta com DP • Fiscal • FISCO IA • Sistemas Futuros
+              Módulos previstos; integrações ainda não configuradas
             </div>
           </div>
 
@@ -203,7 +195,7 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({
                   : "text-purple-100 hover:text-white"
               }`}
             >
-              🔑 Código & 8 Sistemas
+              Identificador & módulos
             </button>
             <button
               onClick={() => setSubAba("fluxo")}
@@ -232,11 +224,10 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({
           <div className="bg-[#EBE0F0] p-5 sm:p-6 rounded-xl border-l-4 border-[#6A1B9A] shadow-xs border border-purple-200">
             <div className="text-sm sm:text-base font-bold text-[#6A1B9A] mb-1.5 flex items-center gap-2">
               <Key className="w-4 h-4 text-[#6A1B9A]" />
-              <span>🔑 Código de Ligação — COLOQUE O MESMO EM TODOS OS SISTEMAS</span>
+              <span>Identificador opcional</span>
             </div>
             <div className="text-xs text-slate-700 mb-3.5 leading-relaxed">
-              ⚠️ Este é o código que conecta o Contábil com o DP, Fiscal, FISCO IA e todos os sistemas futuros.<br />
-              <strong>Não altere o código aqui — use o mesmo em todos os lugares. O nome do sistema pode ser renomeado livremente.</strong>
+              Identificador opcional para organização interna. Não cria conexão, autentica usuários nem sincroniza módulos.
             </div>
 
             <input
@@ -244,7 +235,7 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({
               className="w-full p-3 sm:p-3.5 text-base sm:text-lg font-bold border-2 border-[#6A1B9A] rounded-lg bg-white text-[#6A1B9A] font-mono tracking-wider focus:outline-none focus:ring-3 focus:ring-[#6A1B9A]/20 shadow-2xs"
               value={codigoLigacao}
               onChange={(e) => setCodigoLigacao(e.target.value)}
-              readOnly
+              placeholder="Identificador opcional (sem função de autenticação)"
             />
 
             <div className="flex gap-2.5 mt-3.5 flex-wrap">
@@ -263,7 +254,7 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({
                 className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-[#2E7D32] hover:bg-[#1B5E20] transition flex items-center gap-1.5 cursor-pointer shadow-xs"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                <span>✅ Validar Conexão</span>
+                <span>Verificar configuração</span>
               </button>
 
               {onConectarFiscal && (
@@ -293,9 +284,9 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({
           {/* 📋 SISTEMAS CONECTÁVEIS — 4 ATIVOS + 4 RESERVADOS = 8 TOTAIS */}
           <div>
             <div className="text-sm sm:text-base font-bold text-[#1E293B] pb-2 mb-4 border-b-2 border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-              <span>📋 Sistemas Conectáveis (8 totais)</span>
+              <span>📋 Módulos previstos</span>
               <span className="text-xs font-normal text-slate-500">
-                ✏️ Clique no nome para renomear — o código de ligação permanece o mesmo
+                ✏️ Os nomes não são salvos sem persistência configurada
               </span>
             </div>
 
@@ -303,7 +294,7 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({
               {sistemas.map((sistema) => {
                 const isPrincipal = sistema.isPrincipal;
                 const isReservado = sistema.isReservado;
-                const isConectado = sistema.status === "conectado" || sistema.status === "local";
+                const isConectado = sistema.status === "conectado";
 
                 return (
                   <div
@@ -364,7 +355,7 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({
 
             <div className="bg-[#FFF8E1] border-l-4 border-[#FF9800] p-3.5 rounded-r-lg rounded-l-xs text-xs text-[#E65100] mb-4 leading-relaxed font-medium">
               ⚠️ <strong>Regra de Isolamento:</strong> O Robô e o Agente IA do Contábil atuam{" "}
-              <strong>APENAS dentro deste sistema</strong>. NÃO compartilham ações de bloqueio com DP, Fiscal ou FISCO IA. Os DADOS sincronizam — os AGENTES NÃO.
+              <strong>APENAS dentro deste sistema</strong>. Robôs locais não compartilham ações com DP, Fiscal ou FISCO IA. Os módulos externos não estão conectados.
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -400,10 +391,9 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({
           <div className="bg-[#E8F5E9] border-l-4 border-[#2E7D32] p-4 rounded-r-lg rounded-l-xs text-xs sm:text-[13.5px] text-[#2E7D32] leading-relaxed">
             <div className="font-bold mb-0.5 flex items-center gap-1.5">
               <Lock className="w-4 h-4 text-[#2E7D32]" />
-              <span>🔒 Acesso Restrito — Apenas Administrador</span>
+              <span>🔒 Controle de acesso ainda não implementado</span>
             </div>
-            O código de ligação, configurações de conexão e renomeação de sistemas são visíveis e editáveis SOMENTE pelo Administrador.
-            Usuários, contadores e clientes <strong>NÃO veem, NÃO editam e NÃO desconectam</strong> nada desta área.
+            Este protótipo não possui autenticação nem perfis de acesso. Não use dados reais ou segredos nesta área.
           </div>
 
           {/* 🧪 BOTÕES FINAIS */}
@@ -435,17 +425,16 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({
                 <span>🔄 FLUXO COMPLETO — FiscoIA → Fiscal → DP → Contábil</span>
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Arquitetura de dados unificada: O Agente Murade orquestra a comunicação síncrona entre os 4 pilares contábeis.
+                Visão planejada dos módulos. A comunicação entre eles ainda não foi implementada.
               </p>
             </div>
 
             <button
               onClick={handleSincronizarFluxo}
-              disabled={sincronizando}
               className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition flex items-center gap-2 cursor-pointer shadow-xs disabled:opacity-50 self-start sm:self-auto"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${sincronizando ? "animate-spin" : ""}`} />
-              <span>{sincronizando ? "Sincronizando Módulos..." : "⚡ SINCRONIZAR TUDO AGORA"}</span>
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Verificar disponibilidade</span>
             </button>
           </div>
 
@@ -470,10 +459,10 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({
                 <span>FiscoIA</span>
               </div>
               <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                Captura e OCR de notas fiscais (XML/PDF), extratos bancários automáticos e inteligência preditiva.
+                Captura de documentos e OCR dependem de integrações ainda não configuradas.
               </p>
               <div className="mt-3 pt-2 border-t border-slate-200 text-[11px] text-emerald-700 font-semibold">
-                142 XMLs importados
+                Integração não configurada
               </div>
             </div>
 
@@ -489,10 +478,10 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({
                 <span>MURADE FISCAL</span>
               </div>
               <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                Apuração de ICMS, PIS/COFINS, retenções e o novo IBS/CBS 2026. Gera Livros de Entradas e Saídas.
+                Módulo fiscal demonstrativo; apuração e geração de livros não estão disponíveis.
               </p>
               <div className="mt-3 pt-2 border-t border-slate-200 text-[11px] text-emerald-700 font-semibold">
-                Livros e EFD gerados
+                Nenhum livro ou EFD gerado
               </div>
             </div>
 
@@ -508,10 +497,10 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({
                 <span>MURADE DP</span>
               </div>
               <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                Folha de pagamento, pró-labore, eSocial (S-1200/S-1299), FGTS Digital e provisões de férias e 13º.
+                Módulo de DP demonstrativo; folha e eventos oficiais não estão disponíveis.
               </p>
               <div className="mt-3 pt-2 border-t border-slate-200 text-[11px] text-emerald-700 font-semibold">
-                18 colaboradores ativos
+                Nenhum dado de colaboradores carregado
               </div>
             </div>
 
@@ -527,10 +516,10 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({
                 <span>MURADE CONTÁBIL</span>
               </div>
               <p className="text-xs text-slate-700 mt-1.5 leading-relaxed">
-                Terminal principal que consolida lançamentos de partida dobrada (D=C), fecha balancetes e assina ECD.
+                Interface local; não fecha balancetes nem assina ou transmite ECD.
               </p>
               <div className="mt-3 pt-2 border-t border-purple-200 text-[11px] text-emerald-700 font-bold">
-                ✅ Balancete 100% OK
+                Interface de demonstração; balancete não validado
               </div>
             </div>
           </div>
@@ -539,3 +528,4 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({
     </div>
   );
 };
+

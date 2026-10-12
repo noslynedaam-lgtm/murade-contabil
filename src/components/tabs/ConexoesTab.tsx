@@ -337,18 +337,18 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
                     )}
                   </div>
 
-                  <div className="text-[11px] font-semibold text-emerald-700 flex items-center gap-1 mt-1">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                    <span>Conectado — {orgao.descricao}</span>
+                  <div className="text-[11px] font-semibold text-amber-800 flex items-center gap-1 mt-1">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>{orgao.statusTexto || "Não verificado"} — {orgao.descricao}</span>
                   </div>
                 </div>
 
                 <div className="flex flex-col items-end gap-1 shrink-0">
-                  <span className="text-[10px] font-mono font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200">
-                    {testandoId === orgao.id ? "Testando..." : `${orgao.pingMs || 25}ms`}
+                  <span className="text-[10px] font-mono font-bold text-slate-700 bg-white px-2 py-0.5 rounded border border-slate-200">
+                    {testandoId === orgao.id ? "Testando..." : orgao.pingMs ? `${orgao.pingMs}ms` : "Sem teste"}
                   </span>
                   <span className="text-[9px] font-mono font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200">
-                    {orgao.statusCode ? `${orgao.statusCode} OK` : "200 OK"}
+                    {orgao.statusCode ? `HTTP ${orgao.statusCode}` : "Sem resposta"}
                   </span>
                 </div>
               </div>
@@ -356,10 +356,10 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
               {/* Informações Técnicas de Segurança */}
               <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
                 <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 font-medium">
-                  🔒 {orgao.tls || "TLS 1.3 / HTTPS"}
+                  🔒 {orgao.tls || "TLS não verificado"}
                 </span>
                 <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 font-medium">
-                  🏢 {orgao.ambiente || "Produção Oficial"}
+                  🏢 {orgao.ambiente || "Ambiente não configurado"}
                 </span>
                 {orgao.credencialTipo && (
                   <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 font-medium text-slate-600 truncate max-w-[190px]">
@@ -372,8 +372,8 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
               <div className="mt-2.5 p-2 rounded-lg bg-purple-50/60 border border-purple-200/70 text-[11px] text-purple-900 flex items-start gap-1.5">
                 <Bot className="w-3.5 h-3.5 text-purple-600 shrink-0 mt-0.5" />
                 <div>
-                  <strong className="text-purple-950 font-bold">Ação do Robô:</strong>{" "}
-                  <span className="text-purple-900/90">{orgao.detalhes || "Sincronização automática e contínua ativa."}</span>
+                  <strong className="text-purple-950 font-bold">Observação:</strong>{" "}
+                  <span className="text-purple-900/90">{orgao.detalhes || "Integração ainda não configurada."}</span>
                 </div>
               </div>
             </div>
@@ -525,7 +525,7 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
         </button>
 
         <span className="text-[11px] text-slate-600">
-          Última sincronização pelo Robô: <strong className="text-slate-800">Hoje às 14:32</strong> • {orgaos.length} de {orgaos.length} Conexões 100% OK
+          Verificação de alcance não autentica integrações. {orgaos.filter((org) => org.status === "conectado").length} conexão(ões) autenticada(s) configurada(s).
         </span>
       </div>
 

@@ -97,7 +97,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
   const [razaoSocial, setRazaoSocial] = useState("");
   const [nomeFantasia, setNomeFantasia] = useState("");
   const [naturezaJuridica, setNaturezaJuridica] = useState("");
-  const [regimeTributario, setRegimeTributario] = useState("Simples Nacional");
+  const [regimeTributario, setRegimeTributario] = useState("");
   const [cnaePrincipal, setCnaePrincipal] = useState("");
   const [capitalSocial, setCapitalSocial] = useState("");
   const [endereco, setEndereco] = useState("");
@@ -109,8 +109,8 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
   const [responsavelNome, setResponsavelNome] = useState("");
   const [contadorNome, setContadorNome] = useState("");
   const [contadorCrc, setContadorCrc] = useState("");
-  const [ibsAliquota, setIbsAliquota] = useState(12.0);
-  const [cbsAliquota, setCbsAliquota] = useState(9.0);
+  const [ibsAliquota, setIbsAliquota] = useState(0);
+  const [cbsAliquota, setCbsAliquota] = useState(0);
   const [situacaoCadastral, setSituacaoCadastral] = useState("ATIVA");
   const [dataSituacao, setDataSituacao] = useState("");
   const [dataAbertura, setDataAbertura] = useState("");
@@ -197,7 +197,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     setRazaoSocial("");
     setNomeFantasia("");
     setNaturezaJuridica("");
-    setRegimeTributario("Simples Nacional");
+    setRegimeTributario("");
     setCnaePrincipal("");
     setCapitalSocial("");
     setEndereco("");
@@ -209,8 +209,8 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     setResponsavelNome("");
     setContadorNome("");
     setContadorCrc("");
-    setIbsAliquota(12.0);
-    setCbsAliquota(9.0);
+    setIbsAliquota(0);
+    setCbsAliquota(0);
     setSituacaoCadastral("ATIVA");
     setDataSituacao("");
     setDataAbertura("");
@@ -234,7 +234,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     setRazaoSocial(emp.razaoSocial || "");
     setNomeFantasia(emp.nomeFantasia || "");
     setNaturezaJuridica(emp.naturezaJuridica || "");
-    setRegimeTributario(emp.regime || "Simples Nacional");
+    setRegimeTributario(emp.regime || "");
     setCnaePrincipal(emp.cnae || "");
     setCapitalSocial(emp.capitalSocialFormatado || "");
     setEndereco(emp.endereco || "");
@@ -246,8 +246,8 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     setResponsavelNome(emp.responsavelNome || "");
     setContadorNome(emp.contadorNome || "");
     setContadorCrc(emp.contadorCrc || "");
-    setIbsAliquota(emp.ibsAliquota ?? 12.0);
-    setCbsAliquota(emp.cbsAliquota ?? 9.0);
+    setIbsAliquota(emp.ibsAliquota ?? 0);
+    setCbsAliquota(emp.cbsAliquota ?? 0);
     setSituacaoCadastral(emp.situacaoCadastral || "ATIVA");
     setDataSituacao(emp.dataSituacao || "");
     setDataAbertura(emp.dataAbertura || "");
@@ -308,12 +308,12 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
           cnpj: "",
           razaoSocial: "",
           nomeFantasia: "",
-          regime: "Simples Nacional",
+          regime: "",
           municipio: "",
           uf: "",
           competencia: "2026-10",
-          ibsAliquota: 12.0,
-          cbsAliquota: 9.0,
+          ibsAliquota: 0,
+          cbsAliquota: 0,
           cnae: "",
           situacaoCadastral: "",
           certificadoAtivo: false,
@@ -711,19 +711,19 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-3 text-xs">
           <div className="bg-black/20 rounded-lg p-2 border border-white/10 flex items-center justify-between">
             <span className="text-[11px] text-blue-100">Murade Fiscal:</span>
-            <span className="font-bold text-emerald-300">Empresa e 142 XMLs</span>
+            <span className="font-bold text-amber-200">Não conectado</span>
           </div>
           <div className="bg-black/20 rounded-lg p-2 border border-white/10 flex items-center justify-between">
             <span className="text-[11px] text-blue-100">Mural DP:</span>
-            <span className="font-bold text-emerald-300">Folha eSocial Pronta</span>
+            <span className="font-bold text-amber-200">Não conectado</span>
           </div>
           <div className="bg-black/20 rounded-lg p-2 border border-white/10 flex items-center justify-between">
             <span className="text-[11px] text-blue-100">Receita Federal:</span>
-            <span className="font-bold text-emerald-300">e-CAC / DCTFWeb</span>
+            <span className="font-bold text-amber-200">Não verificado</span>
           </div>
           <div className="bg-black/20 rounded-lg p-2 border border-white/10 flex items-center justify-between">
             <span className="text-[11px] text-blue-100">SEFAZ Estadual:</span>
-            <span className="font-bold text-emerald-300">SPED / DFe Ativo</span>
+            <span className="font-bold text-amber-200">Não verificado</span>
           </div>
         </div>
       </div>
@@ -923,7 +923,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
                           </span>
                         )}
                         <span className="text-[10px] font-bold text-blue-800 bg-blue-100 px-1.5 py-0.5 rounded">
-                          IBS: {emp.ibsAliquota ?? 12}% | CBS: {emp.cbsAliquota ?? 9}%
+                          IBS: {emp.ibsAliquota ?? 0}% | CBS: {emp.cbsAliquota ?? 0}%
                         </span>
                       </div>
                     </div>

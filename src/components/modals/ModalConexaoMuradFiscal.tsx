@@ -193,7 +193,7 @@ export const ModalConexaoMuradFiscal: React.FC<ModalConexaoMuradFiscalProps> = (
                 <div className="flex items-center justify-between py-1">
                   <span className="text-slate-600">Reforma 2026 (IBS / CBS):</span>
                   <span className="font-bold text-blue-700 font-mono">
-                    IBS {empresa.ibsAliquota || 12}% | CBS {empresa.cbsAliquota || 9}%
+                    IBS {empresa.ibsAliquota || 0}% | CBS {empresa.cbsAliquota || 0}%
                   </span>
                 </div>
               </div>

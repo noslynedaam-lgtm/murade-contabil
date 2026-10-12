@@ -4,18 +4,18 @@ export const initialEmpresa: EmpresaDados = {
   cnpj: "",
   razaoSocial: "",
   nomeFantasia: "",
-  regime: "Simples Nacional",
+  regime: "",
   municipio: "",
   uf: "",
   competencia: "2026-10",
-  ibsAliquota: 12.0,
-  cbsAliquota: 9.0,
+  ibsAliquota: 0,
+  cbsAliquota: 0,
   cnae: "",
   situacaoCadastral: "",
   certificadoAtivo: false,
 };
 
-export const orgaosIniciais: OrgaoConectado[] = [
+export const orgaosIniciais: OrgaoConectado[] = ([
   // --- ÂMBITO FEDERAL ---
   {
     id: "rfb",
@@ -233,7 +233,17 @@ export const orgaosIniciais: OrgaoConectado[] = [
     tls: "Internal Bus TLS",
     ambiente: "Produção",
   },
-];
+] as OrgaoConectado[]).map((org) => ({
+  ...org,
+  status: "alerta" as const,
+  autenticacao: "Não configurada",
+  detalhes: "Conexão e situação cadastral não verificadas; configure uma integração antes de usar.",
+  ultimaVerificacao: "Não verificado",
+  pingMs: 0,
+  statusCode: undefined,
+  statusTexto: "Não verificado",
+  ambiente: "Homologação" as const,
+}));
 
 export const lancamentosIniciais: LancamentoContabil[] = [
   {

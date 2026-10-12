@@ -12,8 +12,6 @@ export const RobotSidebar: React.FC<RobotSidebarProps> = ({
   isAuditing,
   onNavigateTab,
 }) => {
-  const [autoMode, setAutoMode] = useState(true);
-
   return (
     <div className="space-y-4">
       {/* Card Principal do Robô — Tema Claro em Cinza Meio Azulado */}
@@ -38,7 +36,7 @@ export const RobotSidebar: React.FC<RobotSidebarProps> = ({
           <div className="text-[11px] text-blue-700 font-mono font-bold">Padrão Unificado v2026.1.0</div>
           <div className="text-xs text-emerald-700 font-semibold flex items-center justify-center gap-1 mt-0.5">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            <span>3 Robôs + 1 Agente Ativos</span>
+            <span>Pipeline local • fontes não conectadas</span>
           </div>
         </div>
 
@@ -49,28 +47,28 @@ export const RobotSidebar: React.FC<RobotSidebarProps> = ({
               <span className="w-2 h-2 rounded-full bg-blue-600" />
               <span>1. Coletor (Gov/Extratos):</span>
             </span>
-            <span className="font-bold text-blue-800">Ativo</span>
+            <span className="font-bold text-amber-800">Aguardando integração</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-slate-600 flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-indigo-600" />
               <span>2. Calculador (Partidas):</span>
             </span>
-            <span className="font-bold text-indigo-800">Pronto</span>
+            <span className="font-bold text-indigo-800">Não executado</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-slate-600 flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-emerald-600" />
               <span>3. Conferidor (D = C):</span>
             </span>
-            <span className="font-bold text-emerald-800">Zero Erro</span>
+            <span className="font-bold text-amber-800">Aguardando dados</span>
           </div>
           <div className="flex items-center justify-between pt-1 border-t border-slate-200">
             <span className="text-slate-700 font-semibold flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
               <span>🧠 Agente IA Coordenador:</span>
             </span>
-            <span className="font-bold text-slate-900">Chefe / 24h</span>
+            <span className="font-bold text-slate-900">Sob demanda</span>
           </div>
         </div>
 
@@ -78,26 +76,26 @@ export const RobotSidebar: React.FC<RobotSidebarProps> = ({
         <div className="space-y-2.5 text-xs border-t border-b border-slate-300/80 py-3 mb-3 text-slate-700">
           <div className="flex justify-between items-center">
             <span className="text-slate-600">Conformidade Contábil:</span>
-            <span className="font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-sm">100% OK</span>
+              <span className="font-bold text-amber-900 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-sm">Não verificado</span>
           </div>
 
           <div className="flex justify-between items-center">
             <span className="text-slate-600">Partidas Dobradas:</span>
-            <span className="font-semibold text-slate-900">D = C (Sem divergências)</span>
+            <span className="font-semibold text-slate-900">Aguardando dados confiáveis</span>
           </div>
 
           <div className="flex justify-between items-center">
             <span className="text-slate-600">Competência Vigente:</span>
-            <span className="font-semibold text-blue-900 font-mono">10/2026 (Outubro)</span>
+            <span className="font-semibold text-blue-900 font-mono">Não definida</span>
           </div>
 
           <div>
             <div className="flex justify-between items-center mb-1">
               <span className="text-slate-600">Progresso do Fechamento:</span>
-              <span className="font-bold text-emerald-700">92%</span>
+              <span className="font-bold text-slate-600">Pendente</span>
             </div>
             <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden border border-slate-300">
-              <div className="bg-gradient-to-r from-blue-600 to-emerald-600 h-2 rounded-full transition-all duration-500" style={{ width: "92%" }} />
+              <div className="bg-slate-400 h-2 rounded-full transition-all duration-500" style={{ width: "0%" }} />
             </div>
           </div>
         </div>
@@ -140,10 +138,10 @@ export const RobotSidebar: React.FC<RobotSidebarProps> = ({
           >
             <span className="flex items-center gap-1.5">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-              <span>11 Conexões Ativas</span>
+              <span>Integrações não configuradas</span>
             </span>
             <span className="text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-mono font-bold">
-              Robô 100%
+              Aguardando credenciais
             </span>
           </button>
 
@@ -158,14 +156,12 @@ export const RobotSidebar: React.FC<RobotSidebarProps> = ({
 
         {/* Status Modo Autônomo */}
         <div className="mt-4 pt-3 border-t border-slate-300/80 flex items-center justify-between text-xs">
-          <span className="text-slate-600">Agendamento Automático:</span>
+          <span className="text-slate-600">Agendamento Automático (não configurado):</span>
           <button
-            onClick={() => setAutoMode(!autoMode)}
-            className={`font-semibold cursor-pointer px-2.5 py-0.5 rounded-full transition text-[11px] ${
-              autoMode ? "bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs" : "bg-slate-200 text-slate-600 border border-slate-300"
-            }`}
+            disabled
+            className="font-semibold px-2.5 py-0.5 rounded-full text-[11px] bg-slate-200 text-slate-700 border border-slate-300"
           >
-            {autoMode ? "🟢 ATIVO (Dia 25 • 02h)" : "⚪ PAUSADO"}
+            Não configurado
           </button>
         </div>
       </div>
@@ -177,7 +173,7 @@ export const RobotSidebar: React.FC<RobotSidebarProps> = ({
           <span>Reforma Tributária 2026 (IBS / CBS)</span>
         </div>
         <p className="text-[12px] text-amber-900/90 leading-relaxed mb-2">
-          O Agente Murade calcula a segregação por regime de destino e apropria créditos de IBS (12%) e CBS (9%) automaticamente nas contas de ativo.
+          Em 2026, as alíquotas de teste gerais são IBS 0,1% e CBS 0,9%. Este protótipo não calcula tributos nem lança créditos automaticamente; valide regras e enquadramento.
         </p>
         <button
           onClick={() => onNavigateTab("empresa")}

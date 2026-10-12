@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Mic, Send, Bot, Sparkles, Volume2, CheckCircle2, RefreshCw, Lock, AlertCircle, ShieldCheck } from "lucide-react";
+import { Mic, Send, Bot, Sparkles, Volume2 } from "lucide-react";
 import { EmpresaDados, LancamentoContabil } from "../../types";
 
 interface IAPremiumTabProps {
@@ -16,16 +16,12 @@ interface MensagemChat {
 }
 
 export const IAPremiumTab: React.FC<IAPremiumTabProps> = ({ empresa, lancamentos = [] }) => {
-  // Estado da Licença: vem do FISCO IA via código de ligação MURAD-2026-GO
-  const [licencaAtiva, setLicencaAtiva] = useState(true);
-  const [verificando, setVerificando] = useState(false);
-  const [toastVerificacao, setToastVerificacao] = useState<string | null>(null);
-
-  // Voz selecionada: Beniamino, Carla, Alex ou Somente Texto
-  const [vozSelecionada, setVozSelecionada] = useState<string>("Beniamino — Voz Premium Masculina");
+  // A fala usa a síntese de voz disponível no navegador; não é uma licença premium.
+  const [vozSelecionada, setVozSelecionada] = useState<string>("Somente Texto");
   const [gravando, setGravando] = useState(false);
   const [textoEntrada, setTextoEntrada] = useState("");
   const [falando, setFalando] = useState(false);
+  const [respondendo, setRespondendo] = useState(false);
 
   // Histórico de mensagens
   const [mensagens, setMensagens] = useState<MensagemChat[]>([
@@ -33,7 +29,7 @@ export const IAPremiumTab: React.FC<IAPremiumTabProps> = ({ empresa, lancamentos
       id: "1",
       autor: "ia",
       texto:
-        "Olá! Sou a IA Murade, sua assistente contábil inteligente com voz humana atualizada. 🎙️\n\nEstou pronta para ajudar com lançamentos, balanços, conciliação bancária, dúvidas fiscais, reforma tributária 2026 (IBS/CBS) e muito mais. Posso falar com você por voz ou texto — como preferir!\n\nEm que posso auxiliar hoje?",
+        "Olá! Este chat envia sua pergunta ao serviço Gemini configurado no servidor. Ele não confirma integrações, saldos ou transmissões oficiais. Configure GEMINI_API_KEY para usar o serviço.",
       horario: "Agora",
     },
   ]);
@@ -58,17 +54,6 @@ export const IAPremiumTab: React.FC<IAPremiumTabProps> = ({ empresa, lancamentos
       utterance.onerror = () => setFalando(false);
       window.speechSynthesis.speak(utterance);
     }
-  };
-
-  const verificarLicenca = () => {
-    setVerificando(true);
-    setToastVerificacao("🔄 Consultando FISCO IA em tempo real com o código MURAD-2026-GO...");
-    setTimeout(() => {
-      setVerificando(false);
-      setLicencaAtiva(true);
-      setToastVerificacao("✅ Licença confirmada com êxito na matriz do FISCO IA! Terminal liberado.");
-      setTimeout(() => setToastVerificacao(null), 4000);
-    }, 1200);
   };
 
   const alternarMicrofone = () => {
@@ -96,9 +81,9 @@ export const IAPremiumTab: React.FC<IAPremiumTabProps> = ({ empresa, lancamentos
     }
   };
 
-  const enviarMensagem = () => {
+  const enviarMensagem = async () => {
     const texto = textoEntrada.trim();
-    if (!texto) return;
+    if (!texto || respondendo) return;
 
     const novaMsgUsuario: MensagemChat = {
       id: Date.now().toString(),
@@ -109,24 +94,20 @@ export const IAPremiumTab: React.FC<IAPremiumTabProps> = ({ empresa, lancamentos
 
     setMensagens((prev) => [...prev, novaMsgUsuario]);
     setTextoEntrada("");
-
-    // Resposta contábil contextualizada
-    setTimeout(() => {
-      let resposta = "";
-      const lower = texto.toLowerCase();
-
-      if (lower.includes("balancete") || lower.includes("fechamento") || lower.includes("balanço")) {
-        resposta = `Perfeito! Analisei a base contábil da ${empresa?.razaoSocial || "empresa"}. O balancete do mês está perfeitamente conciliado: Débitos e Créditos somam R$ 41.500,00 sem divergências (D = C). Todas as partidas dobradas foram checadas com a escrituração fiscal e folha de pagamento do DP.`;
-      } else if (lower.includes("reforma") || lower.includes("ibs") || lower.includes("cbs")) {
-        resposta = `Sobre a Reforma Tributária 2026: Os parâmetros já estão ativos no Murade Contábil. Alíquotas configuradas: IBS 12% e CBS 9%. Os créditos já foram apropriados nas contas patrimoniais do Ativo Circulante sem retenções indevidas.`;
-      } else if (lower.includes("nota") || lower.includes("xml") || lower.includes("fiscal") || lower.includes("sefaz")) {
-        resposta = `O módulo MURADE FISCAL e o FISCO IA efetuaram a conferência dos 142 XMLs da SEFAZ. Todas as notas de entrada e saída geraram lançamentos automáticos no razão contábil. Nenhum documento pendente de conciliação.`;
-      } else if (lower.includes("licença") || lower.includes("fisco")) {
-        resposta = `A sua licença está 100% ativa, interligada ao FISCO IA Matriz através do identificador 'MURADE-2026-GO'. A voz configurada é '${vozSelecionada}'.`;
-      } else {
-        resposta = `Entendi sua pergunta sobre "${texto}". Estou analisando os dados contábeis integrados...\n\n💡 Como IA conectada ao Murade Contábil, posso acessar lançamentos, balanços e a legislação atualizada para te orientar com precisão.\n\nTodos os 47 lançamentos do mês estão auditados e prontos para fechamento! Se quiser, posso gerar um relatório detalhado ou checar qualquer pendência nos órgãos.`;
-      }
-
+    setRespondendo(true);
+    try {
+      const response = await fetch("/api/ai/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: texto,
+          // Enviar apenas contexto agregado; não enviar CNPJ, folha nem valores contábeis.
+          context: { regime: empresa?.regime || "", totalLancamentos: lancamentos.length },
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Serviço de IA indisponível.");
+      const resposta = data.reply as string;
       const novaMsgIA: MensagemChat = {
         id: (Date.now() + 1).toString(),
         autor: "ia",
@@ -134,91 +115,39 @@ export const IAPremiumTab: React.FC<IAPremiumTabProps> = ({ empresa, lancamentos
         horario: "Agora",
         voz: vozSelecionada,
       };
-
       setMensagens((prev) => [...prev, novaMsgIA]);
       falarTexto(resposta);
-    }, 1000);
+    } catch (error) {
+      setMensagens((prev) => [...prev, {
+        id: (Date.now() + 1).toString(),
+        autor: "ia",
+        texto: error instanceof Error ? error.message : "Serviço de IA indisponível. Configure a chave de API no servidor.",
+        horario: "Agora",
+      }]);
+    } finally {
+      setRespondendo(false);
+    }
   };
 
   return (
     <div className="space-y-4">
-      {/* ✅ BARRA DE LICENÇA — VEM DO FISCO IA AUTOMATICAMENTE */}
+      {/* Estado real do serviço */}
       <div className="bg-[#082B66] border border-[#0A357D] text-white px-4 sm:px-6 py-3 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-sm">
         <div className="flex items-center gap-2.5 text-sm font-semibold">
-          {licencaAtiva ? (
-            <>
-              <CheckCircle2 className="w-4 h-4 text-emerald-300 shrink-0" />
-              <span className="text-emerald-100 font-bold">
-                ✅ Licença Ativa — IA Murade Premium Liberada
-              </span>
-            </>
-          ) : (
-            <>
-              <Lock className="w-4 h-4 text-amber-300 shrink-0" />
-              <span className="text-amber-200 font-bold">
-                ⏳ Aguardando contratação no FISCO IA
-              </span>
-            </>
-          )}
+          <span className="text-amber-100 font-bold">
+            Chat IA: depende de GEMINI_API_KEY no servidor; não há licença FISCO IA integrada.
+          </span>
         </div>
 
         <div className="flex items-center gap-3 text-xs opacity-90 text-blue-100">
           <span>
-            {licencaAtiva
-              ? `Ativado via FISCO IA • Voz: ${vozSelecionada.split("—")[0].trim()}`
-              : "Sem contratação ativa — IA bloqueada"}
+            {`Fala: síntese do navegador • ${respondendo ? "Aguardando resposta" : "Pronto para enviar"}`}
           </span>
 
-          {/* Botão de teste/simulação de status para conveniência do usuário */}
-          <button
-            onClick={() => setLicencaAtiva(!licencaAtiva)}
-            className="px-2 py-0.5 rounded-md bg-white/20 hover:bg-white/30 text-white text-[11px] font-semibold transition cursor-pointer"
-            title="Alternar simulação de licença ativa / bloqueada"
-          >
-            {licencaAtiva ? "Simular Bloqueio" : "Simular Liberação"}
-          </button>
         </div>
       </div>
 
-      {toastVerificacao && (
-        <div className="p-3 bg-blue-50 border border-blue-200 text-blue-900 rounded-xl text-xs font-semibold flex items-center gap-2 shadow-2xs">
-          <RefreshCw className={`w-4 h-4 text-blue-600 ${verificando ? "animate-spin" : ""}`} />
-          <span>{toastVerificacao}</span>
-        </div>
-      )}
-
-      {/* 🚫 TELA DE AGUARDO — APARECE SE NÃO CONTRATOU AINDA */}
-      {!licencaAtiva && (
-        <div className="bg-white rounded-2xl p-8 sm:p-12 text-center border border-purple-100 shadow-sm">
-          <div className="w-16 h-16 rounded-full bg-purple-50 text-purple-700 flex items-center justify-center text-3xl mx-auto mb-4 border border-purple-200">
-            🔒
-          </div>
-          <h2 className="text-xl sm:text-2xl font-bold text-slate-900 mb-2">
-            IA Murade — Aguardando Ativação
-          </h2>
-          <p className="text-sm text-slate-600 max-w-lg mx-auto mb-4 leading-relaxed">
-            A Inteligência Artificial Murade Premium com Voz Humana é liberada automaticamente após a
-            contratação no FISCO IA. Aqui não é necessário fazer pagamento nem escolher plano — a
-            ativação vem direto da matriz.
-          </p>
-
-          <div className="text-xs sm:text-sm text-[#6A1B9A] font-semibold max-w-md mx-auto mb-6 bg-purple-50 p-3.5 rounded-xl border border-purple-100">
-            💡 Vá até o FISCO IA → contrate → volte aqui → a IA aparece liberada sozinha com a voz selecionada!
-          </div>
-
-          <button
-            onClick={verificarLicenca}
-            disabled={verificando}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-[#082B66] hover:bg-[#0A357D] text-white rounded-xl font-bold text-sm transition cursor-pointer shadow-md disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${verificando ? "animate-spin" : ""}`} />
-            <span>{verificando ? "Verificando no FISCO IA..." : "🔄 Verificar Agora"}</span>
-          </button>
-        </div>
-      )}
-
-      {/* ✅ CONTEÚDO LIBERADO — SÓ APARECE QUANDO CONTRATOU NO FISCO IA */}
-      {licencaAtiva && (
+      {/* Conversa real via endpoint do servidor */}
         <div className="bg-white rounded-2xl shadow-sm border border-purple-100 overflow-hidden">
           {/* CABEÇALHO DA IA */}
           <div className="bg-gradient-to-r from-[#6A1B9A] to-[#4A148C] text-white px-5 sm:px-7 py-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
@@ -228,18 +157,18 @@ export const IAPremiumTab: React.FC<IAPremiumTabProps> = ({ empresa, lancamentos
                 <div className="flex items-center gap-2">
                   <h2 className="text-xl font-black tracking-tight text-white">IA Murade Premium</h2>
                   <span className="text-[11px] font-bold bg-white/20 text-purple-100 px-2.5 py-0.5 rounded-full">
-                    v3.0 • Voz Humana Atualizada
+                    via Gemini API
                   </span>
                 </div>
                 <p className="text-xs text-purple-200 mt-0.5">
-                  Interligada com Fiscal • DP • Contábil • FISCO IA Matriz
+                  Não acessa módulos externos nem transmite obrigações
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2 bg-white/15 backdrop-blur-md px-3.5 py-1.5 rounded-full text-xs font-semibold self-start sm:self-auto border border-white/20">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Online — Voz Premium Ativa</span>
+              <span>{respondendo ? "Consultando IA" : "Aguardando pergunta"}</span>
             </div>
           </div>
 
@@ -352,7 +281,6 @@ export const IAPremiumTab: React.FC<IAPremiumTabProps> = ({ empresa, lancamentos
             </button>
           </div>
         </div>
-      )}
     </div>
   );
 };

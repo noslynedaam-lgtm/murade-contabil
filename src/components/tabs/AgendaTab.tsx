@@ -211,62 +211,19 @@ export const AgendaTab: React.FC<AgendaTabProps> = ({
   // Handler após conclusão de Preparação (ECD)
   const handleConcluirPreparacao = () => {
     if (!itemSelecionado) return;
-    setLembretes((prev) =>
-      prev.map((item) => {
-        if (item.id === itemSelecionado.id) {
-          return {
-            ...item,
-            statusTexto: "Preparado SPED ✅",
-            statusExecucao: "gerado",
-            acaoTexto1: "Ver",
-            acaoTexto2: "Transmitir",
-            corTag: "border-indigo-500 bg-indigo-50",
-          };
-        }
-        return item;
-      })
-    );
-    showToast("⚙️ Arquivo SPED preparado e validado! Liberado para transmissão com certificado digital.");
+    showToast("Preparação de SPED indisponível: fonte de dados e validador oficial não configurados. Nenhum arquivo foi gerado.");
   };
 
   // Handler após Transmissão
-  const handleConcluirTransmissao = (protocolo: string) => {
+  const handleConcluirTransmissao = (_protocolo: string) => {
     if (!itemSelecionado) return;
-    setLembretes((prev) =>
-      prev.map((item) => {
-        if (item.id === itemSelecionado.id) {
-          return {
-            ...item,
-            statusTexto: "Transmitido ✅",
-            statusExecucao: "transmitido",
-            protocolo,
-            tipo: "futuro",
-            corTag: "border-emerald-600 bg-emerald-50",
-          };
-        }
-        return item;
-      })
-    );
-    showToast(`🚀 Transmissão homologada na Receita! Protocolo: ${protocolo}`);
+    showToast("Transmissão indisponível: integração oficial, certificado e procuração não configurados. Nenhum protocolo foi emitido.");
   };
 
   // Handler após Pagamento
   const handleConcluirPagamento = () => {
     if (!itemSelecionado) return;
-    setLembretes((prev) =>
-      prev.map((item) => {
-        if (item.id === itemSelecionado.id) {
-          return {
-            ...item,
-            statusTexto: "PAGO / LIQUIDADO ✅",
-            statusExecucao: "pago",
-            corTag: "border-emerald-600 bg-emerald-50",
-          };
-        }
-        return item;
-      })
-    );
-    showToast(`💰 Pagamento de '${itemSelecionado.nome}' confirmado! Obrigação liquidada.`);
+    showToast("O sistema não consulta bancos nem confirma pagamentos. Nenhum status de pagamento foi alterado.");
   };
 
   return (

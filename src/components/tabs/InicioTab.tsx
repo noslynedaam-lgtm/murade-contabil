@@ -98,38 +98,17 @@ export const InicioTab: React.FC<InicioTabProps> = ({
 
   const handleConcluirPreparacao = () => {
     if (!itemSelecionado) return;
-    setLembretes((prev) =>
-      prev.map((i) =>
-        i.id === itemSelecionado.id
-          ? { ...i, statusTexto: "Preparado SPED ✅", acaoTexto1: "Ver", acaoTexto2: "Transmitir" }
-          : i
-      )
-    );
-    showToast("⚙️ Arquivo SPED preparado com sucesso!");
+    showToast("Preparação de SPED indisponível: fonte de dados e validador oficial não configurados.");
   };
 
-  const handleConcluirTransmissao = (protocolo: string) => {
+  const handleConcluirTransmissao = (_protocolo: string) => {
     if (!itemSelecionado) return;
-    setLembretes((prev) =>
-      prev.map((i) =>
-        i.id === itemSelecionado.id
-          ? { ...i, statusTexto: "Transmitido ✅", protocolo }
-          : i
-      )
-    );
-    showToast(`🚀 Transmissão concluída com protocolo: ${protocolo}`);
+    showToast("Transmissão indisponível: integração oficial, certificado e procuração não configurados.");
   };
 
   const handleConcluirPagamento = () => {
     if (!itemSelecionado) return;
-    setLembretes((prev) =>
-      prev.map((i) =>
-        i.id === itemSelecionado.id
-          ? { ...i, statusTexto: "PAGO / LIQUIDADO ✅", statusExecucao: "pago" }
-          : i
-      )
-    );
-    showToast(`💰 Pagamento de '${itemSelecionado.nome}' confirmado!`);
+    showToast("O sistema não consulta bancos nem confirma pagamentos. Nenhum status foi alterado.");
   };
 
   // Contadores dinâmicos
@@ -362,7 +341,7 @@ export const InicioTab: React.FC<InicioTabProps> = ({
           <div className="bg-black/20 rounded-lg p-2.5 border border-white/10 flex items-center justify-between">
             <div>
               <div className="text-[10px] text-blue-200 uppercase font-bold">Mural de Fiscal</div>
-              <div className="font-bold text-white">142 XMLs Prontos</div>
+                <div className="font-bold text-white">Dados não conectados</div>
             </div>
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           </div>
@@ -434,15 +413,15 @@ export const InicioTab: React.FC<InicioTabProps> = ({
                 <Globe className="w-4 h-4 text-blue-600" />
                 <span>Órgãos & APIs</span>
               </span>
-              <span className="text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300 px-1.5 py-0.5 rounded">
-                {totalConectados}/11 Ativos
+              <span className="text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 px-1.5 py-0.5 rounded">
+                {totalConectados} autenticados
               </span>
             </div>
             <div className="text-lg font-black text-slate-900">
-              100% Sincronizado
+              Integrações não configuradas
             </div>
             <p className="text-[11px] text-slate-600 mt-1 leading-snug">
-              Receita Federal, SEFAZ, Prefeitura, Murade Fiscal, DP e Fisco IA.
+              O teste de alcance HTTP não confirma autenticação nem acesso a dados.
             </p>
           </div>
           <div className="mt-3 pt-2 border-t border-slate-300/80 flex items-center justify-between text-xs font-semibold text-blue-700 group-hover:text-blue-900">
