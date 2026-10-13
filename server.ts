@@ -60,6 +60,31 @@ async function startServer() {
     });
   });
 
+  // Authenticated status handshake used by Murade Departamento Pessoal.
+  app.get("/api/integracao/dp/status", (req, res) => {
+    const expected = process.env.MURADE_INTEGRATION_TOKEN;
+    if (!expected) {
+      return res.status(503).json({ conectado: false, motivo: "MURADE_INTEGRATION_TOKEN não configurado." });
+    }
+
+    const authorization = req.get("authorization") || "";
+    const supplied = authorization.match(/^Bearer\s+(.+)$/i)?.[1] || "";
+    const expectedBytes = Buffer.from(expected);
+    const suppliedBytes = Buffer.from(supplied);
+    const autorizado = suppliedBytes.length === expectedBytes.length && timingSafeEqual(suppliedBytes, expectedBytes);
+    if (!autorizado) {
+      return res.status(401).json({ conectado: false, motivo: "Credencial de integração inválida." });
+    }
+
+    return res.json({
+      conectado: true,
+      sistema: "Murade Contábil",
+      integracao: "Murade Departamento Pessoal",
+      dadosCompartilhados: false,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   // In-memory store for shared Murad companies across Fiscal, DP and Contábil
   let empresasMuradFiscal: Array<Record<string, any>> = [];
 
