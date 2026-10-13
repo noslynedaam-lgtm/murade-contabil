@@ -57,3 +57,8 @@ O pipeline atual só pode conferir campos básicos dos registros locais. Ele nã
 ## Sobre Next.js
 
 Não foi feita migração para Next.js: o projeto existente usa Vite e contém um servidor Express próprio. A conversão requer uma decisão de arquitetura e revisão das rotas de API, configuração e implantação. O guia acima instala e executa a estrutura React/Vite atual.
+
+
+## Integração Murade Fiscal
+
+O endpoint `GET /api/integracao/fiscal/status` aceita um token Bearer compartilhado e confirma apenas o handshake entre servidores. Defina `MURADE_INTEGRATION_TOKEN` no Render do Contábil e use o mesmo valor no serviço Fiscal. Esse handshake não sincroniza cadastros, lançamentos, certificados ou outros documentos; armazenamento persistente e autorização por empresa ainda são necessários para troca de dados.
