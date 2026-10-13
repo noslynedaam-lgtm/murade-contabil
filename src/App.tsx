@@ -27,7 +27,17 @@ import { CheckCircle2, X } from "lucide-react";
 export default function App() {
   const [tabAtiva, setTabAtiva] = useState<TabId>("inicio");
   const [empresa, setEmpresa] = useState<EmpresaDados>(initialEmpresa);
-  const [orgaos, setOrgaos] = useState<OrgaoConectado[]>(orgaosIniciais);
+  const [orgaos, setOrgaos] = useState<OrgaoConectado[]>(() => orgaosIniciais.map((org) => ({
+    ...org,
+    status: "offline",
+    pingMs: undefined,
+    statusCode: undefined,
+    statusTexto: "Não verificado",
+    tls: undefined,
+    ambiente: "Não configurado",
+    ultimaVerificacao: "Ainda não consultado",
+    detalhes: "Integração autenticada ainda não configurada.",
+  })));
   const [lancamentos, setLancamentos] = useState<LancamentoContabil[]>(lancamentosIniciais);
   const [contas, setContas] = useState<ContaPlano[]>(() =>
     ordenarContasPorSequenciaNumerica(planoContasPadrao)
