@@ -371,7 +371,7 @@ class MuradeRobosEngine {
       win.MURADE_ROBOS_CONFIG = this;
     }
 
-    this.registrarLog("Sistema Murade", "Pronto para conferências locais. Robôs externos não iniciam sem fonte de dados configurada.", "info");
+    this.registrarLog("Sistema Murade", "Aguardando dados locais para conferência. Fontes externas e integrações não estão configuradas.", "info");
     return { acao: "AGUARDANDO_DADOS", programa: this.programaAtual };
   }
 
@@ -379,36 +379,16 @@ class MuradeRobosEngine {
     const robo = this.robos[nomeRobo];
     console.log(`✅ ${robo.nome} ATIVO — ${robo.funcao}`);
 
-    this.atualizarStatusRobo(robo.id, "ativo", "Ativo e sincronizado");
-    this.registrarLog(`🤖 ${robo.nome}`, `Inicializado em ordem sequencial (${robo.funcao})`, "sucesso");
-
-    if (typeof document !== "undefined") {
-      if (!document.querySelector(`[data-robo="${robo.id}"]`)) {
-        const el = document.createElement("div");
-        el.setAttribute("data-robo", robo.id);
-        el.style.display = "none";
-        el.dataset.status = "ativo";
-        document.body.appendChild(el);
-      }
-    }
+    this.atualizarStatusRobo(robo.id, "inativo", "Aguardando tarefa ou dados para processar");
+    this.registrarLog(`🤖 ${robo.nome}`, "Robô local pronto; aguardando tarefa. Fontes externas não configuradas.", "info");
   }
 
   public iniciarAgenteIA() {
     const agente = this.robos.agenteIA;
     console.log(`🧠 ${agente.nome} ATIVO — ${agente.funcao}`);
 
-    this.atualizarStatusRobo(agente.id, "coordenando", "Coordenação ativa em tempo real");
-    this.registrarLog(`🧠 ${agente.nome}`, "Chefe/Coordenador ativo — garantindo zero concorrência entre robôs", "sucesso");
-
-    if (typeof document !== "undefined") {
-      if (!document.querySelector(`[data-robo="${agente.id}"]`)) {
-        const el = document.createElement("div");
-        el.setAttribute("data-robo", agente.id);
-        el.style.display = "none";
-        el.dataset.status = "coordenando";
-        document.body.appendChild(el);
-      }
-    }
+    this.atualizarStatusRobo(agente.id, "inativo", "Aguardando pipeline local");
+    this.registrarLog(`🧠 ${agente.nome}`, "Agente local aguardando pipeline; não há coordenação externa ativa.", "info");
   }
 
   // ==========================================================
