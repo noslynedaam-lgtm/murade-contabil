@@ -35,6 +35,7 @@ import {
 import { CertificadoDigitalModal } from "../modals/CertificadoDigitalModal";
 import { ModalConexaoMuradFiscal } from "../modals/ModalConexaoMuradFiscal";
 import { conectarEPuxarEmpresaMuradFiscal, conectarMuradDP } from "../../services/integracaoMuradService";
+import { baixarPacoteEmpresasMurade, lerPacoteEmpresasMurade } from "../../services/migracaoEmpresaService";
 
 interface EmpresaTabProps {
   empresa: EmpresaDados;
@@ -135,6 +136,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
   const [isDraggingCert, setIsDraggingCert] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const migrationInputRef = useRef<HTMLInputElement | null>(null);
   const formSectionRef = useRef<HTMLDivElement | null>(null);
 
   const showToast = (msg: string) => {
@@ -185,6 +187,49 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     } catch (e) {
       console.warn("Erro ao salvar lista de empresas:", e);
     }
+  };
+
+  const handleImportarPacoteMurade = async (arquivo?: File) => {
+    if (!arquivo) return;
+    try {
+      const pacote = await lerPacoteEmpresasMurade(arquivo);
+      const importadas: EmpresaDados[] = pacote.map((item, index) => ({
+        ...item,
+        id: item.id || `mig-${item.cnpj.replace(/\W/g, '')}-${index}`,
+        municipio: item.municipio || item.cidade || '', uf: item.uf || '', cidadeUf: [item.municipio || item.cidade, item.uf].filter(Boolean).join(' / '),
+        razaoSocial: item.razaoSocial, nomeFantasia: item.nomeFantasia || item.razaoSocial,
+        regime: item.regime || item.regimeTributario || '', competencia: '', ibsAliquota: 0, cbsAliquota: 0,
+        cnae: '', situacaoCadastral: 'Não consultada', configuracaoFiscal: {
+          seriesEmissao: item.configuracaoFiscal?.seriesEmissao || [],
+          modelosDocumento: item.configuracaoFiscal?.modelosDocumento || [],
+          fontesEntrada: item.configuracaoFiscal?.fontesEntrada || [],
+          fontesSaida: item.configuracaoFiscal?.fontesSaida || [],
+          identificadorEmissor: item.configuracaoFiscal?.identificadorEmissor,
+        },
+        inscricaoEstadual: item.inscricaoEstadual, inscricaoMunicipal: item.inscricaoMunicipal,
+        endereco: item.endereco, cep: item.cep,
+        certificadoNomeArquivo: item.certificado?.nomeArquivo,
+        certificadoValidade: item.certificado?.validade,
+        certificadoTipo: item.certificado?.tipo,
+        certificadoAtivo: false,
+      }));
+      const porCnpj = new Map<string, EmpresaDados>(empresasCadastradas.map((item) => [item.cnpj.replace(/\W/g, ''), item]));
+      importadas.forEach((item) => {
+        const chave = item.cnpj.replace(/\W/g, '');
+        porCnpj.set(chave, { ...porCnpj.get(chave), ...item });
+      });
+      const atualizadas = [...porCnpj.values()];
+      setEmpresasCadastradas(atualizadas);
+      persistirEmpresas(atualizadas);
+      if (importadas[0]) {
+        onUpdateEmpresa(importadas[0]);
+        localStorage.setItem('murad_empresa_salva', JSON.stringify(importadas[0]));
+      }
+      showToast(`${importadas.length} empresa(s) importada(s) do pacote Murade. Revise os campos fiscais antes de usar.`);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Não foi possível importar o pacote Murade.');
+    }
+    if (migrationInputRef.current) migrationInputRef.current.value = '';
   };
 
   // Limpeza completa de todos os campos do formulário
@@ -595,6 +640,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     showToast(
       `✅ EMPRESA "${dadosParaSalvar.razaoSocial}" SALVA COM SUCESSO!\n\n✨ Os campos foram limpos automaticamente para evitar cadastros duplicados. Você pode editá-la quando quiser pelo botão "✏️ Editar Empresa".`
     );
+    setFormularioAberto(false);
   };
 
   // Empresa ativa atual (prioridade para prop ou primeira da lista)
@@ -634,6 +680,15 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <input ref={migrationInputRef} type="file" accept=".json,application/json" className="hidden" onChange={(event) => void handleImportarPacoteMurade(event.target.files?.[0])} />
+          <button type="button" onClick={() => migrationInputRef.current?.click()} className="px-3 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50 text-blue-800 text-xs font-semibold">Importar pacote Murade</button>
+          {empresasCadastradas.length > 0 && <button type="button" onClick={() => baixarPacoteEmpresasMurade(empresasCadastradas.map((item) => ({
+            id: item.id, cnpj: item.cnpj, razaoSocial: item.razaoSocial, nomeFantasia: item.nomeFantasia,
+            uf: item.uf, municipio: item.municipio, cidade: item.municipio, regime: item.regime,
+            inscricaoEstadual: item.inscricaoEstadual, inscricaoMunicipal: item.inscricaoMunicipal,
+            endereco: item.endereco, cep: item.cep, configuracaoFiscal: item.configuracaoFiscal,
+            certificado: { nomeArquivo: item.certificadoNomeArquivo, validade: item.certificadoValidade, tipo: item.certificadoTipo },
+          })))} className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold">Exportar pacote</button>}
           {onIrParaAgenda && (
             <button
               onClick={onIrParaAgenda}
