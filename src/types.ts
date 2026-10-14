@@ -170,6 +170,7 @@ export interface ChatMessage {
   sender: "user" | "ia";
   text: string;
   timestamp: string;
+  sources?: { title: string; url: string }[];
 }
 
 export interface SistemaConectavel {

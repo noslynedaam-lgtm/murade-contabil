@@ -13,6 +13,7 @@ interface MensagemChat {
   texto: string;
   horario: string;
   voz?: string;
+  fontes?: { title: string; url: string }[];
 }
 
 export const IAPremiumTab: React.FC<IAPremiumTabProps> = ({ empresa, lancamentos = [] }) => {
@@ -103,6 +104,7 @@ export const IAPremiumTab: React.FC<IAPremiumTabProps> = ({ empresa, lancamentos
           message: texto,
           // Enviar apenas contexto agregado; não enviar CNPJ, folha nem valores contábeis.
           context: { regime: empresa?.regime || "", totalLancamentos: lancamentos.length },
+          module: "contabil",
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -114,6 +116,7 @@ export const IAPremiumTab: React.FC<IAPremiumTabProps> = ({ empresa, lancamentos
         texto: resposta,
         horario: "Agora",
         voz: vozSelecionada,
+        fontes: Array.isArray(data.sources) ? data.sources : [],
       };
       setMensagens((prev) => [...prev, novaMsgIA]);
       falarTexto(resposta);
@@ -184,6 +187,7 @@ export const IAPremiumTab: React.FC<IAPremiumTabProps> = ({ empresa, lancamentos
                 }`}
               >
                 <div className="whitespace-pre-line">{msg.texto}</div>
+                {!!msg.fontes?.length && <div className="mt-2 border-t border-slate-100 pt-2"><strong className="text-[10px]">Fontes consultadas</strong>{msg.fontes.map((fonte) => <a key={fonte.url} href={fonte.url} target="_blank" rel="noreferrer" className="block text-[10px] text-blue-700 underline">{fonte.title}</a>)}</div>}
                 <div
                   className={`text-[10px] mt-2 flex items-center justify-between gap-2 ${
                     msg.autor === "ia" ? "text-slate-400" : "text-purple-200"

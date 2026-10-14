@@ -386,7 +386,8 @@ async function startServer() {
 
   // API do Agente IA Murad (Contabilidade, Fisco e Reforma Tributária 2026)
   app.post("/api/ai/chat", async (req, res) => {
-    const { message, context } = req.body;
+    const { message, context, module: requestedModule } = req.body;
+    const moduleName = requestedModule === "fiscal" || requestedModule === "dp" ? requestedModule : "contabil";
 
     if (typeof message !== "string" || !message.trim()) {
       return res.status(400).json({ error: "Mensagem não fornecida." });
@@ -396,21 +397,13 @@ async function startServer() {
     const ai = getAI();
 
     // Contexto base de especialista contábil brasileiro
-    const systemInstruction = `Você é o Agente Murad, a inteligência contábil e tributária do sistema Murad Contábil.
-Você é um especialista sênior em contabilidade brasileira, CPC/IFRS, legislação tributária (Lucro Real, Lucro Presumido, Simples Nacional, MEI), obrigações acessórias (SPED, EFD ICMS/IPI, ECD, ECF, DCTFWeb, eSocial) e principalmente na Reforma Tributária de 2026 (IBS, CBS e Imposto Seletivo).
-Seu tom é profissional, ágil, prestativo e seguro.
-Ao responder:
-- Seja conciso e direto ao ponto com linguagem técnica e clara.
-- Se a dúvida for sobre lançamentos contábeis (Débito e Crédito), forneça o exemplo das contas contábeis correspondentes segundo o padrão CPC.
-- Não invente dados da empresa, saldos, transmissões, conexões, alíquotas ou prazos. Quando faltarem dados, peça-os e recomende validação pelo profissional responsável.
-- Para 2026, diferencie a fase de teste das alíquotas definitivas e valide enquadramento, exceções e regras vigentes antes de orientar cálculos.
-- Responda sempre em português do Brasil.`;
+    const systemInstruction = `Você é a Assistente Murade, trabalhando no módulo ${moduleName === "dp" ? "Departamento Pessoal" : moduleName === "fiscal" ? "Fiscal" : "Contábil"}, para profissionais brasileiros. Responda em português do Brasil, com tom calmo, direto e prático. Para legislação, prazos, alíquotas, obrigações, tabelas e procedimentos sujeitos a mudança, pesquise informações atuais pela ferramenta de busca. Baseie conclusões legais apenas em fontes oficiais brasileiras: Receita Federal, Portal SPED, eSocial, SEFAZ, Planalto e prefeituras/portais oficiais. Não use páginas comerciais como autoridade legal. Explique a causa provável e a solução em etapas. Não invente dados de empresas, trabalhadores, folha, saldos, transmissões, integrações, alíquotas ou prazos; peça UF, município, regime e competência quando necessário. Não afirme que uma ação foi executada ou que uma conexão existe sem confirmação. Se não localizar fonte oficial atual ou não puder confirmar, diga claramente que ainda vai verificar e identifique o órgão que deve ser consultado. Respostas são orientação informativa, não substituem conferência do contador responsável.`;
 
     if (!ai) return res.status(503).json({ error: "Assistente IA indisponível. Configure uma GEMINI_API_KEY válida." });
     try {
         const response = await ai.models.generateContent({
           model: process.env.GEMINI_MODEL || "gemini-3.8-flash",
-          config: { systemInstruction },
+          config: { systemInstruction, tools: [{ googleSearch: {} }] },
           contents: [
             {
               role: "user",
@@ -424,7 +417,19 @@ Ao responder:
         });
 
         if (!response.text) return res.status(502).json({ error: "O provedor de IA não retornou uma resposta." });
-        return res.json({ reply: response.text });
+        const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks ?? [];
+        const sources = chunks.flatMap((chunk: any) => {
+          const web = chunk.web;
+          if (!web?.uri || !/^https:\/\//i.test(web.uri)) return [];
+          const host = new URL(web.uri).hostname.toLowerCase();
+          if (!(host === "gov.br" || host.endsWith(".gov.br") || host === "gov" || host.endsWith(".gov") || host.endsWith(".leg.br") || host.endsWith(".jus.br"))) return [];
+          return [{ title: String(web.title || "Fonte consultada"), url: String(web.uri) }];
+        }).filter((source, index, all) => all.findIndex((item) => item.url === source.url) === index).slice(0, 6);
+        const requiresOfficialSource = /(folha|trabalh|sal[aá]rio|inss|irrf|fgts|e-?social|nota|rejei|sefaz|tribut|imposto|icms|iss|ipi|ibs|cbs|sped|ecd|ecf|efd|dctf|dirf|prazo|venc|al[ií]quota|legisla|feriado|f[eé]rias|rescis[aã]o|encargo)/i.test(message);
+        const reply = requiresOfficialSource && sources.length === 0
+          ? "Ainda não consegui confirmar uma fonte oficial atual para essa pergunta. Para evitar passar regra, valor ou prazo incorreto, confira o órgão oficial responsável. Informe a competência e, quando aplicável, UF, município, regime ou código do erro para eu refazer a busca."
+          : response.text;
+        return res.json({ reply, sources, searched: Boolean(response.candidates?.[0]?.groundingMetadata) });
     } catch (err: any) {
       console.error("Erro na chamada Gemini:", err);
       return res.status(502).json({ error: "Não foi possível obter resposta do provedor de IA." });
