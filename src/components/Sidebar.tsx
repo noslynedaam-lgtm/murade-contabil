@@ -18,6 +18,7 @@ import {
   Zap,
   Scale,
   Home,
+  Database,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -86,6 +87,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab }) => {
       icon: FolderTree,
       badge: "CPC",
       badgeColor: "bg-white/20 text-white",
+    },
+    {
+      id: "migracao" as TabId,
+      label: "Migração Contábil",
+      icon: Database,
+      badge: "4 etapas",
+      badgeColor: "bg-cyan-300 text-cyan-950 font-bold",
     },
     {
       id: "integracao" as TabId,

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { TabId, OrgaoConectado, EmpresaDados, LancamentoContabil, ContaPlano, LivroContabil, LembreteItem } from "./types";
+import { TabId, OrgaoConectado, EmpresaDados, LancamentoContabil, ContaPlano, LivroContabil, LembreteItem, CentroCustoContabil } from "./types";
 import { initialEmpresa, orgaosIniciais, lancamentosIniciais, planoContasPadrao, livrosIniciais, lembretesIniciais } from "./data/mockData";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
@@ -19,6 +19,7 @@ import { AgendaTab } from "./components/tabs/AgendaTab";
 import { CalculadoraTab } from "./components/tabs/CalculadoraTab";
 import { FluxoPreviticoTab } from "./components/tabs/FluxoPreviticoTab";
 import { ModulosFinaisTab } from "./components/tabs/ModulosFinaisTab";
+import { MigracaoContabilTab } from "./components/tabs/MigracaoContabilTab";
 import { ordenarContasPorSequenciaNumerica } from "./utils/planoContasUtils";
 import { ModalConexaoMuradFiscal } from "./components/modals/ModalConexaoMuradFiscal";
 import { conectarEPuxarEmpresaMuradFiscal, conectarMuradDP } from "./services/integracaoMuradService";
@@ -42,6 +43,7 @@ export default function App() {
   const [contas, setContas] = useState<ContaPlano[]>(() =>
     ordenarContasPorSequenciaNumerica(planoContasPadrao)
   );
+  const [centrosCusto, setCentrosCusto] = useState<CentroCustoContabil[]>([]);
   const [livros, setLivros] = useState<LivroContabil[]>(livrosIniciais);
   const [lembretes, setLembretes] = useState<LembreteItem[]>(lembretesIniciais);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -53,6 +55,50 @@ export default function App() {
   const [modalFiscalAberto, setModalFiscalAberto] = useState(false);
   const [empresaFiscalDetectada, setEmpresaFiscalDetectada] = useState<EmpresaDados | null>(null);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: "success" | "info" } | null>(null);
+
+  React.useEffect(() => {
+    const cnpj = String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
+    if (!cnpj) return;
+    try {
+      const salvo = localStorage.getItem(`murade_contabil_dados_${cnpj}`);
+      if (!salvo) {
+        setContas(ordenarContasPorSequenciaNumerica(planoContasPadrao));
+        setCentrosCusto([]);
+        setLancamentos(lancamentosIniciais);
+        return;
+      }
+      const dados = JSON.parse(salvo);
+      if (Array.isArray(dados.contas)) setContas(ordenarContasPorSequenciaNumerica(dados.contas));
+      if (Array.isArray(dados.centrosCusto)) setCentrosCusto(dados.centrosCusto);
+      if (Array.isArray(dados.lancamentos)) setLancamentos(dados.lancamentos);
+    } catch (error) {
+      console.warn("Não foi possível carregar os dados contábeis migrados desta empresa:", error);
+    }
+  }, [empresa.cnpj]);
+
+  const handleImportarDadosContabeis = (dados: { contas: ContaPlano[]; centrosCusto: CentroCustoContabil[]; lancamentos: LancamentoContabil[] }) => {
+    const contasPorCodigo = new Map<string, ContaPlano>(contas.map((item) => [item.codigo, item]));
+    dados.contas.forEach((item) => contasPorCodigo.set(item.codigo, item));
+    const centrosPorCodigo = new Map<string, CentroCustoContabil>(centrosCusto.map((item) => [item.codigo, item]));
+    dados.centrosCusto.forEach((item) => centrosPorCodigo.set(item.codigo, item));
+    const chaveLancamento = (item: LancamentoContabil) => [item.data, item.documentoRef || "", item.contaDebitoCodigo, item.contaCreditoCodigo, item.valor.toFixed(2), item.historico].join("|");
+    const lancamentosPorChave = new Map<string, LancamentoContabil>(lancamentos.map((item) => [chaveLancamento(item), item]));
+    dados.lancamentos.forEach((item) => lancamentosPorChave.set(chaveLancamento(item), item));
+    const novasContas = ordenarContasPorSequenciaNumerica([...contasPorCodigo.values()]);
+    const novosCentros = [...centrosPorCodigo.values()];
+    const novosLancamentos = [...lancamentosPorChave.values()];
+    setContas(novasContas);
+    setCentrosCusto(novosCentros);
+    setLancamentos(novosLancamentos);
+    const cnpj = String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
+    if (cnpj) {
+      try {
+        localStorage.setItem(`murade_contabil_dados_${cnpj}`, JSON.stringify({ contas: novasContas, centrosCusto: novosCentros, lancamentos: novosLancamentos }));
+      } catch {
+        showToast("Os dados foram importados nesta sessão, mas o navegador não conseguiu salvá-los localmente.", "info");
+      }
+    }
+  };
 
   const showToast = (text: string, type: "success" | "info" = "success") => {
     setToastMessage({ text, type });
@@ -485,6 +531,17 @@ export default function App() {
                       `✅ Conta ${nova.codigo} — "${nova.descricao}" inserida com êxito na sequência numérica!`
                     );
                   }}
+                />
+              )}
+
+              {tabAtiva === "migracao" && (
+                <MigracaoContabilTab
+                  empresa={empresa}
+                  contas={contas}
+                  centrosCusto={centrosCusto}
+                  lancamentos={lancamentos}
+                  onImportar={handleImportarDadosContabeis}
+                  onNotificar={(mensagem) => showToast(mensagem, "info")}
                 />
               )}
 

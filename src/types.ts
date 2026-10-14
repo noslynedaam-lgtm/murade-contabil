@@ -2,6 +2,7 @@ export type TabId =
   | "inicio"
   | "conexoes"
   | "empresa"
+  | "migracao"
   | "agenda"
   | "lancamentos"
   | "balancete"
@@ -118,6 +119,19 @@ export interface LancamentoContabil {
   historico: string;
   origem: "Cadastro" | "Fiscal — NFe Entrada" | "Fiscal — NFe Saída" | "Fiscal — Apuração ICMS" | "DP — Folha" | "DP — INSS" | "DP — FGTS" | "Financeiro / Bancos" | "Manual";
   documentoRef?: string;
+  competencia?: string;
+  centroCustoCodigo?: string;
+  centroCustoNome?: string;
+  centroCustoDebitoCodigo?: string;
+  centroCustoCreditoCodigo?: string;
+}
+
+export interface CentroCustoContabil {
+  id: string;
+  codigo: string;
+  nome: string;
+  descricao?: string;
+  centroPaiCodigo?: string;
 }
 
 export interface ContaPlano {
