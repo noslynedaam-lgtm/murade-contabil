@@ -127,6 +127,7 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
             regime: empresa.regime,
             totalLancamentos: lancamentos.length,
           },
+          module: "contabil",
         }),
       });
 
@@ -139,6 +140,7 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
         sender: "ia",
         text: respostaTexto,
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        sources: Array.isArray(data.sources) ? data.sources : [],
       };
 
       setMessages((prev) => [...prev, iaMsg]);
@@ -183,7 +185,7 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
                 </span>
               </div>
               <div className="text-[11px] text-blue-100 flex items-center gap-1">
-                <span>{falando ? "🔊 Sintetizando fala..." : "Online • Especialista Fiscal & Contábil"}</span>
+                <span>{falando ? "🔊 Sintetizando fala..." : loading ? "Pesquisando fontes atuais..." : "Assistente contábil com pesquisa"}</span>
               </div>
             </div>
           </div>
@@ -229,6 +231,7 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
                 }`}
               >
                 <div className="whitespace-pre-wrap">{m.text}</div>
+                {!!m.sources?.length && <div className="mt-2 border-t border-slate-100 pt-2"><strong className="text-[10px]">Fontes consultadas</strong>{m.sources.map((source) => <a key={source.url} href={source.url} target="_blank" rel="noreferrer" className="block text-[10px] text-blue-700 underline">{source.title}</a>)}</div>}
                 <div
                   className={`text-[10px] mt-1.5 text-right font-medium ${
                     m.sender === "user" ? "text-blue-200" : "text-slate-400"

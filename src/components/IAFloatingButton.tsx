@@ -23,7 +23,7 @@ export const IAFloatingButton: React.FC<IAFloatingButtonProps> = ({ onOpenIA }) 
             <span>IA Murad</span>
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
           </div>
-          <div className="text-[11px] text-slate-500">Voz Natural • Online 24h</div>
+          <div className="text-[11px] text-slate-500">Assistente com pesquisa atual</div>
         </div>
       </div>
     </div>

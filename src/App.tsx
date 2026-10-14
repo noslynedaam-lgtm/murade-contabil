@@ -20,12 +20,15 @@ import { CalculadoraTab } from "./components/tabs/CalculadoraTab";
 import { FluxoPreviticoTab } from "./components/tabs/FluxoPreviticoTab";
 import { ModulosFinaisTab } from "./components/tabs/ModulosFinaisTab";
 import { MigracaoContabilTab } from "./components/tabs/MigracaoContabilTab";
+import { IAFloatingButton } from "./components/IAFloatingButton";
+import { IAMuradModal } from "./components/IAMuradModal";
 import { ordenarContasPorSequenciaNumerica } from "./utils/planoContasUtils";
 import { ModalConexaoMuradFiscal } from "./components/modals/ModalConexaoMuradFiscal";
 import { conectarEPuxarEmpresaMuradFiscal, conectarMuradDP } from "./services/integracaoMuradService";
 import { CheckCircle2, X } from "lucide-react";
 
 export default function App() {
+  const [assistenteAberta, setAssistenteAberta] = useState(false);
   const [tabAtiva, setTabAtiva] = useState<TabId>("inicio");
   const [empresa, setEmpresa] = useState<EmpresaDados>(initialEmpresa);
   const [orgaos, setOrgaos] = useState<OrgaoConectado[]>(() => orgaosIniciais.map((org) => ({
@@ -586,6 +589,13 @@ export default function App() {
           setModalFiscalAberto(false);
           showToast(`✅ Empresa '${emp.razaoSocial}' ativa e pronta para escrituração contábil!`);
         }}
+      />
+      <IAFloatingButton onOpenIA={() => setAssistenteAberta(true)} />
+      <IAMuradModal
+        isOpen={assistenteAberta}
+        onClose={() => setAssistenteAberta(false)}
+        empresa={empresa}
+        lancamentos={lancamentos}
       />
     </div>
   );
