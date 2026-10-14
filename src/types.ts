@@ -79,6 +79,13 @@ export interface EmpresaDados {
   certificadoEmissor?: string;
   certificadoTamanho?: string;
   certificadoDataUpload?: string;
+  configuracaoFiscal?: {
+    seriesEmissao: Array<{ serie: string; ultimoNumeroEmitido: string }>;
+    modelosDocumento: string[];
+    fontesEntrada: string[];
+    fontesSaida: string[];
+    identificadorEmissor?: string;
+  };
   dadosFiscais?: {
     documentosCapturados?: number;
     nfeEmitidas?: number;

@@ -46,6 +46,7 @@ function normalizarEmpresa(raw: Partial<EmpresaDados>): EmpresaDados {
     certificadoTipo: raw.certificadoTipo,
     certificadoEmissor: raw.certificadoEmissor,
     certificadoTamanho: raw.certificadoTamanho,
+    configuracaoFiscal: raw.configuracaoFiscal,
     fonteDados: raw.fonteDados || "Cadastro local; não consultado em fonte externa",
     dadosFiscais: raw.dadosFiscais,
     dadosDP: raw.dadosDP,
