@@ -454,15 +454,6 @@ export default function App() {
               {tabAtiva === "fluxo-previtico" && (
                 <FluxoPreviticoTab
                   empresaNome={empresa.nomeFantasia || empresa.razaoSocial}
-                  lancamentos={lancamentos}
-                  onAdicionarLancamento={(novo) => {
-                    const novoCompleto = {
-                      ...novo,
-                      id: `lan-fluxo-${Date.now()}`,
-                    };
-                    setLancamentos((prev) => [novoCompleto, ...prev]);
-                    showToast("Lançamento adicionado aos registros contábeis!");
-                  }}
                   onVoltar={() => setTabAtiva("empresa")}
                 />
               )}
