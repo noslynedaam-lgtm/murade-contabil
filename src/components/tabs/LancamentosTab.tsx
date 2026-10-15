@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { LancamentoContabil, ContaPlano } from "../../types";
 import {
+  AlertTriangle,
   CheckCircle2,
   Plus,
   Download,
@@ -43,13 +44,13 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
   }, [contas]);
 
   // Form novo lançamento manual
-  const [dataLan, setDataLan] = useState("25/10/2026");
-  const [debitoCod, setDebitoCod] = useState("1.1.2");
-  const [debitoNome, setDebitoNome] = useState("Bancos Conta Movimento");
-  const [creditoCod, setCreditoCod] = useState("4.1.2");
-  const [creditoNome, setCreditoNome] = useState("Receita de Prestação de Serviços");
-  const [valorLan, setValorLan] = useState("12500.00");
-  const [histLan, setHistLan] = useState("Recebimento ref. serviços contábeis e consultoria tributária NF 1092");
+  const [dataLan, setDataLan] = useState("");
+  const [debitoCod, setDebitoCod] = useState("");
+  const [debitoNome, setDebitoNome] = useState("");
+  const [creditoCod, setCreditoCod] = useState("");
+  const [creditoNome, setCreditoNome] = useState("");
+  const [valorLan, setValorLan] = useState("");
+  const [histLan, setHistLan] = useState("");
 
   // Atualizar conta a débito a partir da seleção no plano de contas sequencial
   const handleSelecionarDebito = (codigo: string) => {
@@ -70,24 +71,32 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
   };
 
   const totalDebito = lancamentos.reduce((acc, l) => acc + l.valor, 0);
-  const totalCredito = totalDebito; // Partida dobrada garantida em cada lançamento
+  const totalCredito = lancamentos.reduce((acc, l) => acc + l.valor, 0);
+  const lancamentosComContaInvalida = lancamentos.filter((l) => {
+    const debito = contas.find((conta) => conta.codigo === l.contaDebitoCodigo);
+    const credito = contas.find((conta) => conta.codigo === l.contaCreditoCodigo);
+    return !Number.isFinite(l.valor) || l.valor <= 0 || !debito || !credito || debito.tipo !== "analitica" || credito.tipo !== "analitica";
+  }).length;
 
   const handleSalvarNovo = (e: React.FormEvent) => {
     e.preventDefault();
     const val = parseFloat(valorLan) || 0;
-    if (val <= 0) return;
+    const dataValida = /^\d{2}\/\d{2}\/\d{4}$/.test(dataLan);
+    const debito = contas.find((conta) => conta.codigo === debitoCod && conta.tipo === "analitica");
+    const credito = contas.find((conta) => conta.codigo === creditoCod && conta.tipo === "analitica");
+    if (val <= 0 || !dataValida || !debito || !credito || !histLan.trim()) return;
 
     const novo: LancamentoContabil = {
-      id: `lan-${Date.now()}`,
+      id: `lan-${crypto.randomUUID()}`,
       data: dataLan,
       contaDebitoCodigo: debitoCod,
-      contaDebitoNome: debitoNome,
+      contaDebitoNome: debito.descricao,
       contaCreditoCodigo: creditoCod,
-      contaCreditoNome: creditoNome,
+      contaCreditoNome: credito.descricao,
       valor: val,
       historico: histLan,
       origem: "Manual",
-      documentoRef: `MAN-${Math.floor(Math.random() * 9000 + 1000)}`,
+      documentoRef: `MAN-${crypto.randomUUID()}`,
     };
 
     onAdicionarLancamento(novo);
@@ -105,17 +114,17 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-3 border-b border-slate-100">
         <div>
           <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-            <span className="text-xl">📝</span> Lançamentos Contábeis — Gerados pelo Agente e Manuais
+            <span className="text-xl">📝</span> Lançamentos contábeis registrados
           </h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            Lançamentos integrados do FiscoIA, Fiscal e DP ou lançados manualmente conforme a sequência numérica do Plano de Contas.
+            Exibe os registros locais desta empresa. As integrações automáticas com Fiscal e DP ainda não geram partidas contábeis.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            <span>Partidas Dobradas OK</span>
+          <span className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+            <AlertTriangle className="w-4 h-4 text-amber-600" />
+            <span>{lancamentos.length === 0 ? "Sem lançamentos para validar" : `${lancamentosComContaInvalida} lançamento(s) com conta/valor pendente de conferência`}</span>
           </span>
         </div>
       </div>
@@ -126,28 +135,31 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
           <button
             id="btn-importar-fiscal"
             onClick={onImportarFiscal}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+            disabled
+            className="bg-slate-200 text-slate-600 text-xs font-bold px-3 py-2 rounded-lg transition flex items-center gap-1.5 cursor-not-allowed shadow-xs"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>📥 Importar do Fiscal</span>
+            <span>Fiscal: importação contábil indisponível</span>
           </button>
 
           <button
             id="btn-importar-dp"
             onClick={onImportarDP}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+            disabled
+            className="bg-slate-200 text-slate-600 text-xs font-bold px-3 py-2 rounded-lg transition flex items-center gap-1.5 cursor-not-allowed shadow-xs"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>📥 Importar do DP</span>
+            <span>DP: folha ainda não disponível</span>
           </button>
 
           <button
             id="btn-gerar-tudo"
             onClick={onGerarTudo}
-            className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+            disabled
+            className="bg-slate-200 text-slate-600 text-xs font-bold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 cursor-not-allowed shadow-xs"
           >
             <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-            <span>🤖 GERAR TUDO SOZINHO</span>
+            <span>Automação contábil não habilitada</span>
           </button>
         </div>
 
@@ -240,6 +252,7 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                 </td>
               </tr>
             ))}
+            {lancamentosFiltrados.length === 0 && <tr><td colSpan={7} className="px-3 py-8 text-center text-slate-500">Nenhum lançamento neste filtro. A integração fiscal atual persiste documentos de origem, mas ainda não os transforma em partidas.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -247,10 +260,9 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
       {/* Rodapé de Totalização e Partida Dobrada */}
       <div className="mt-3.5 p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+          <AlertTriangle className="w-4 h-4 text-amber-600" />
           <span className="text-slate-700">
-            Total de <strong>{lancamentos.length} lançamentos</strong> ativos na competência —{" "}
-            <span className="font-bold text-emerald-700">DEVE = CR ✅</span>
+            <strong>{lancamentos.length} lançamentos locais</strong> · {lancamentosComContaInvalida} com conta ou valor inválido · a validação estrutural não confirma classificação fiscal ou contábil.
           </span>
         </div>
 
@@ -286,6 +298,8 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                   <label className="block text-slate-700 font-semibold mb-1">Data do Lançamento</label>
                   <input
                     type="text"
+                    placeholder="DD/MM/AAAA"
+                    required
                     className="w-full border border-slate-300 rounded-lg p-2 text-xs"
                     value={dataLan}
                     onChange={(e) => setDataLan(e.target.value)}
@@ -295,6 +309,8 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                   <label className="block text-slate-700 font-semibold mb-1">Valor (R$)</label>
                   <input
                     type="number"
+                    required
+                    min="0.01"
                     step="0.01"
                     className="w-full border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-900"
                     value={valorLan}
@@ -319,8 +335,10 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                   <select
                     className="w-full border border-rose-300 rounded-lg p-2 text-xs bg-white text-slate-800 font-mono"
                     value={debitoCod}
+                    required
                     onChange={(e) => handleSelecionarDebito(e.target.value)}
                   >
+                    <option value="" disabled>Selecione uma conta analítica</option>
                     {contasAnaliticas.map((c) => (
                       <option key={c.codigo} value={c.codigo}>
                         {c.codigo} — {c.descricao}
@@ -363,8 +381,10 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                   <select
                     className="w-full border border-emerald-300 rounded-lg p-2 text-xs bg-white text-slate-800 font-mono"
                     value={creditoCod}
+                    required
                     onChange={(e) => handleSelecionarCredito(e.target.value)}
                   >
+                    <option value="" disabled>Selecione uma conta analítica</option>
                     {contasAnaliticas.map((c) => (
                       <option key={c.codigo} value={c.codigo}>
                         {c.codigo} — {c.descricao}
@@ -397,6 +417,7 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                   rows={2}
                   className="w-full border border-slate-300 rounded-lg p-2 text-xs"
                   value={histLan}
+                  required
                   onChange={(e) => setHistLan(e.target.value)}
                 />
               </div>

@@ -16,3 +16,7 @@ services:
         sync: false
       - key: MURADE_INTEGRATION_TOKEN
         sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: PGSSLMODE
+        value: require

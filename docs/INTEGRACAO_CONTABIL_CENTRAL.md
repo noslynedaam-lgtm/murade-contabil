@@ -28,11 +28,13 @@ Certificados, senhas, CPF de funcionário, dados bancários e documentos pessoai
 - Comunicação entre serviços usa HTTPS e `MURADE_INTEGRATION_TOKEN` no cabeçalho Bearer. O segredo permanece no servidor e nunca é enviado ao navegador.
 - Toda consulta limita o escopo ao CNPJ solicitado e valida o CNPJ no serviço de origem.
 - As rotas de leitura de documentos fiscais e agregados do DP não podem ser expostas como proxy público sem autenticação de usuário e autorização da empresa.
-- Os serviços Render atuais usam plano gratuito com sistema de arquivos efêmero. Antes de usar a integração como livro contábil persistente, é necessário banco durável, backup e trilha de auditoria.
+- O Render Blueprint do Contábil agora espera `DATABASE_URL` como segredo. Aponte para um PostgreSQL durável e confirme backups/retenção no provedor. Pode ser uma instância existente apenas se as permissões e o isolamento entre serviços estiverem adequados; o plano gratuito do web service não torna arquivos locais persistentes.
 - Em indisponibilidade de uma fonte, o Contábil mantém a última consulta identificada como desatualizada e mostra a falha; não informa que está atualizado.
 
 ## Estado de implementação
 
-- Os três serviços confirmam conectividade autenticada. O handshake informa `dadosCompartilhados: false`.
-- O Fiscal passou a oferecer um endpoint autenticado, somente leitura, para documentos já recebidos: `GET /api/integracao/fiscal/documentos?cnpj=...`, com filtro opcional de período e limite por chamada.
-- Ainda falta um importador do lado do Contábil, uma API de agregados contábeis do DP, banco persistente e autenticação/autorização de usuários. Até esses itens serem implementados, não há sincronização automática ponta a ponta nem lançamentos contábeis derivados desses dados.
+- O handshake permanece separado do processamento e não prova que os dados foram transferidos nem que o banco de destino está disponível.
+- O Fiscal oferece `GET /api/integracao/fiscal/documentos?cnpj=...`, com autenticação, filtro opcional de período e paginação.
+- O Contábil recebe lotes por `POST /api/integracao/fiscal/documentos` e grava documentos de origem no PostgreSQL em tabela separada por CNPJ, chave e competência. A leitura serviço a serviço usa `GET` autenticado na mesma rota. O Fiscal envia os documentos salvos pela ação “Enviar documentos ao Contábil” na tela Integração Fiscal-Contábil.
+- O Contábil oferece `POST /api/integracao/dp/folhas` e `GET /api/integracao/dp/folhas`, autenticados com o mesmo token serviço a serviço. O contrato aceita somente `quantidadeFuncionarios`, `folhaBruta`, `outrosProventos`, `descontosINSS`, `descontosIRRF`, `descontosOutros`, `liquidoFolha`, `fgts`, `inssPatronal`, `provisaoFerias`, `provisao13` e `encargosOutros`, por CNPJ e competência. O payload é limitado a 16 KB e rejeita campos pessoais ou adicionais. `processamentoId` deve ser UUID; a chave idempotente é CNPJ + competência + identificador. O estado do receptor aparece em `/api/integracao/dp/status` como `recebimentoDPConfigurado`, separado de `dadosCompartilhados`.
+- A gravação de documentos fiscais e de resumos do DP ainda não cria lançamentos contábeis: faltam mapeamentos de contas por operação/regime, uma tela autenticada para o usuário consultar/revisar os dados recebidos e a geração validada das partidas. O endpoint de recepção do Contábil está implementado, mas o DP ainda não persiste nem envia o resumo agregado. Não há fechamento ponta a ponta.

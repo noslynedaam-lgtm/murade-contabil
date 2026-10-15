@@ -58,8 +58,8 @@ export const AgendaTab: React.FC<AgendaTabProps> = ({
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   // Navegação de mês
-  const [mesIndex, setMesIndex] = useState(8); // 8 = Setembro
-  const [ano, setAno] = useState(2026);
+  const [mesIndex, setMesIndex] = useState(() => new Date().getMonth());
+  const [ano, setAno] = useState(() => new Date().getFullYear());
   const nomesMeses = [
     "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
     "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
@@ -77,7 +77,10 @@ export const AgendaTab: React.FC<AgendaTabProps> = ({
 
   // Formulário do Modal "Novo Lembrete"
   const [novoNome, setNovoNome] = useState("");
-  const [novaData, setNovaData] = useState("2026-09-22");
+  const [novaData, setNovaData] = useState(() => {
+    const hoje = new Date();
+    return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}-${String(hoje.getDate()).padStart(2, "0")}`;
+  });
   const [novaOrigem, setNovaOrigem] = useState("contabil");
   const [novoValor, setNovoValor] = useState("0");
   const [novaObs, setNovaObs] = useState("");
@@ -145,7 +148,7 @@ export const AgendaTab: React.FC<AgendaTabProps> = ({
     setNovoNome("");
     setNovoValor("0");
     setNovaObs("");
-    showToast(`✅ Lembrete '${novoNome}' cadastrado e sincronizado com os 4 sistemas!`);
+    showToast(`✅ Lembrete '${novoNome}' cadastrado nesta agenda.`);
   };
 
   // Handler de Exclusão definitiva (Lixeira)
@@ -187,27 +190,6 @@ export const AgendaTab: React.FC<AgendaTabProps> = ({
   };
 
   // Handler após conclusão de Apuração
-  const handleConcluirApuracao = (novoValor: number) => {
-    if (!itemSelecionado) return;
-    setLembretes((prev) =>
-      prev.map((item) => {
-        if (item.id === itemSelecionado.id) {
-          return {
-            ...item,
-            valor: novoValor,
-            statusTexto: "Apurado ✅",
-            statusExecucao: "apurado",
-            acaoTexto1: "Ver",
-            acaoTexto2: "Gerar DARF",
-            corTag: "border-blue-500 bg-blue-50",
-          };
-        }
-        return item;
-      })
-    );
-    showToast(`📊 Apuração concluída com sucesso! Valor apurado: R$ ${novoValor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}. Guia DARF liberada.`);
-  };
-
   // Handler após conclusão de Preparação (ECD)
   const handleConcluirPreparacao = () => {
     if (!itemSelecionado) return;
@@ -246,7 +228,7 @@ export const AgendaTab: React.FC<AgendaTabProps> = ({
                 Agenda & Lembretes Fiscais
               </h1>
               <span className="text-[11px] font-bold bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full">
-                Módulo Operacional Ativo
+                Lembretes locais
               </span>
             </div>
             <p className="text-xs text-slate-500">
@@ -265,18 +247,18 @@ export const AgendaTab: React.FC<AgendaTabProps> = ({
               <span>Ver Cadastro de Empresa</span>
             </button>
           )}
-          <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-semibold shrink-0">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            <span className="hidden sm:inline">Sincronizado com DP • Fiscal • FISCO IA</span>
-            <span className="sm:hidden">Sincronizado</span>
+          <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-full text-xs font-semibold shrink-0" role="status">
+            <AlertCircle className="w-3.5 h-3.5 text-amber-700" />
+            <span className="hidden sm:inline">Agenda local · integrações não confirmadas</span>
+            <span className="sm:hidden">Agenda local</span>
           </div>
         </div>
       </div>
 
       {/* TOAST FEEDBACK */}
       {toastMsg && (
-        <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs animate-in fade-in">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+        <div className="p-3 bg-slate-50 border border-slate-300 text-slate-800 rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs animate-in fade-in">
+          <AlertCircle className="w-4 h-4 text-slate-600 shrink-0" />
           <span className="whitespace-pre-line">{toastMsg}</span>
         </div>
       )}
@@ -304,7 +286,7 @@ export const AgendaTab: React.FC<AgendaTabProps> = ({
             <Clock className="w-4 h-4" />
           </div>
           <div>
-            <strong>Agenda Totalmente Ativa:</strong> Clique nos botões de ação (<strong>Ver, Apurar, Preparar, Gerar Guia, Transmitir, Pagar e Excluir</strong>) de cada obrigação para executar tarefas reais. Use os cards coloridos abaixo ou clique diretamente nos dias do calendário para filtrar o que está vencido e o que vai vencer.
+            Use os filtros para localizar lembretes por data. É possível consultar os dados cadastrados e calcular uma prévia matemática. Geração de guia, preparação SPED, transmissão e confirmação de pagamento ainda dependem de integrações não configuradas; nenhuma dessas ações será marcada como concluída.
           </div>
         </div>
 
@@ -690,7 +672,7 @@ export const AgendaTab: React.FC<AgendaTabProps> = ({
                     </div>
                   </div>
 
-                  {/* BOTÕES DE AÇÃO 100% FUNCIONAIS: VER, APURAR, GERAR, TRANSMITIR, PAGAR, EXCLUIR */}
+                  {/* Ações de lembrete e acesso às rotinas disponíveis */}
                   <div className="flex items-center gap-2 shrink-0 flex-wrap">
                     {/* Botão Ação 1 (Ver / Apurar / Preparar) */}
                     <button
@@ -785,7 +767,6 @@ export const AgendaTab: React.FC<AgendaTabProps> = ({
             setModalAtivo(null);
             setItemSelecionado(null);
           }}
-          onConcluirApuracao={handleConcluirApuracao}
         />
       )}
 

@@ -124,33 +124,37 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
               <div className="flex items-center gap-2">
                 <span className="text-xs font-extrabold text-blue-900 uppercase tracking-wider">Estado das integrações</span>
                 <span className="text-[10px] bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full border border-amber-300 font-bold shadow-2xs">
-                  Sem automação governamental configurada
+                  Transporte não significa processamento concluído
                 </span>
               </div>
               <p className="text-xs text-slate-700 mt-0.5">
-                Fiscal, DP e portais oficiais permanecem desconectados até que cada integração seja implementada e autenticada.
+                O status de rede/token confirma somente comunicação entre serviços. A rotina abaixo deixa claro o que cada módulo ainda precisa processar antes de considerar o fechamento pronto.
               </p>
             </div>
           </div>
         </div>
 
-        {/* Mini Métricas do Robô */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 pt-3 border-t border-slate-300/80 text-center">
-          <div className="bg-white/90 border border-slate-300/80 rounded-lg p-1.5 shadow-2xs">
-            <div className="text-[10px] text-slate-600 uppercase font-bold">Endereços respondendo</div>
-            <div className="text-sm font-black text-slate-900">{respondendo} de {orgaos.length}</div>
+        {/* Papel e estado real de cada módulo; conexão sozinha não conclui o trabalho. */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-3 pt-3 border-t border-slate-300/80">
+          <div className="bg-white/90 border border-slate-300/80 rounded-lg p-3 shadow-2xs">
+            <div className="text-[10px] text-slate-600 uppercase font-bold">Fiscal · origem dos documentos</div>
+            <div className="mt-1 text-xs font-black text-slate-900">Captura e armazenamento na origem</div>
+            <p className="mt-1 text-[11px] text-slate-600">Documentos novos ou atualizados podem ser enviados pelo Fiscal e persistidos por CNPJ. A integração exige token e PostgreSQL disponíveis; a classificação contábil continua pendente.</p>
           </div>
-          <div className="bg-white/90 border border-slate-300/80 rounded-lg p-1.5 shadow-2xs">
-            <div className="text-[10px] text-slate-600 uppercase font-bold">Autenticação oficial</div>
-            <div className="text-sm font-black text-amber-700">Não configurada</div>
+          <div className="bg-white/90 border border-slate-300/80 rounded-lg p-3 shadow-2xs">
+            <div className="text-[10px] text-slate-600 uppercase font-bold">Departamento Pessoal · origem da folha</div>
+            <div className="mt-1 text-xs font-black text-amber-800">Folha e encargos não processados</div>
+            <p className="mt-1 text-[11px] text-slate-600">A API de cálculo de folha ainda não está implementada; nenhum custo trabalhista deve ser lançado como concluído.</p>
           </div>
-          <div className="bg-white/90 border border-slate-300/80 rounded-lg p-1.5 shadow-2xs">
-            <div className="text-[10px] text-slate-600 uppercase font-bold">Dados compartilhados</div>
-            <div className="text-sm font-black text-amber-700">Não configurados</div>
+          <div className="bg-white/90 border border-slate-300/80 rounded-lg p-3 shadow-2xs">
+            <div className="text-[10px] text-slate-600 uppercase font-bold">Contábil · consolidação</div>
+            <div className="mt-1 text-xs font-black text-amber-800">Lançamentos locais; sem fechamento integrado</div>
+            <p className="mt-1 text-[11px] text-slate-600">Balancete usa lançamentos e plano de contas locais. Livros oficiais e obrigações ainda exigem integração, validação e conferência.</p>
           </div>
-          <div className="bg-white/90 border border-slate-300/80 rounded-lg p-1.5 shadow-2xs">
-            <div className="text-[10px] text-slate-600 uppercase font-bold">Latência média</div>
-            <div className="text-sm font-black text-blue-600">{latenciaMedia}</div>
+          <div className="md:col-span-3 flex flex-wrap gap-x-5 gap-y-1 rounded-lg bg-white/70 px-3 py-2 text-[10px] text-slate-600">
+            <span>Endereços que responderam: <strong className="text-slate-900">{respondendo} de {orgaos.length}</strong></span>
+            <span>Autenticação oficial: <strong className="text-amber-800">não confirmada por este teste</strong></span>
+            <span>Latência média: <strong className="text-blue-700">{latenciaMedia}</strong></span>
           </div>
         </div>
       </div>

@@ -41,6 +41,9 @@ export default function App() {
     ambiente: "Não configurado",
     ultimaVerificacao: "Ainda não consultado",
     detalhes: "Integração autenticada ainda não configurada.",
+    descricao: "Canal oficial listado; autenticação e integração de dados ainda não configuradas.",
+    autenticacao: "Não configurada",
+    credencialTipo: undefined,
   })));
   const [lancamentos, setLancamentos] = useState<LancamentoContabil[]>(lancamentosIniciais);
   const [contas, setContas] = useState<ContaPlano[]>(() =>
@@ -49,6 +52,7 @@ export default function App() {
   const [centrosCusto, setCentrosCusto] = useState<CentroCustoContabil[]>([]);
   const [livros, setLivros] = useState<LivroContabil[]>(livrosIniciais);
   const [lembretes, setLembretes] = useState<LembreteItem[]>(lembretesIniciais);
+  const [dadosEmpresaCarregadosCnpj, setDadosEmpresaCarregadosCnpj] = useState("");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   // Estados de controle e feedback
@@ -59,25 +63,61 @@ export default function App() {
   const [empresaFiscalDetectada, setEmpresaFiscalDetectada] = useState<EmpresaDados | null>(null);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: "success" | "info" } | null>(null);
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     const cnpj = String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
-    if (!cnpj) return;
+    const dadosVazios = () => {
+      setContas(ordenarContasPorSequenciaNumerica(planoContasPadrao));
+      setCentrosCusto([]);
+      setLancamentos(lancamentosIniciais);
+      setLivros(livrosIniciais);
+      setLembretes(lembretesIniciais);
+    };
+
+    // Não permita que o conjunto da empresa anterior permaneça visível enquanto
+    // outra empresa está sendo carregada ou quando o cadastro ainda não tem CNPJ.
+    setDadosEmpresaCarregadosCnpj("");
+    if (!cnpj) {
+      dadosVazios();
+      return;
+    }
     try {
       const salvo = localStorage.getItem(`murade_contabil_dados_${cnpj}`);
       if (!salvo) {
-        setContas(ordenarContasPorSequenciaNumerica(planoContasPadrao));
-        setCentrosCusto([]);
-        setLancamentos(lancamentosIniciais);
+        dadosVazios();
+        setDadosEmpresaCarregadosCnpj(cnpj);
         return;
       }
       const dados = JSON.parse(salvo);
-      if (Array.isArray(dados.contas)) setContas(ordenarContasPorSequenciaNumerica(dados.contas));
-      if (Array.isArray(dados.centrosCusto)) setCentrosCusto(dados.centrosCusto);
-      if (Array.isArray(dados.lancamentos)) setLancamentos(dados.lancamentos);
+      setContas(Array.isArray(dados.contas) ? ordenarContasPorSequenciaNumerica(dados.contas) : ordenarContasPorSequenciaNumerica(planoContasPadrao));
+      setCentrosCusto(Array.isArray(dados.centrosCusto) ? dados.centrosCusto : []);
+      setLancamentos(Array.isArray(dados.lancamentos) ? dados.lancamentos : []);
+      setLivros(Array.isArray(dados.livros) ? dados.livros : livrosIniciais);
+      setLembretes(Array.isArray(dados.lembretes) ? dados.lembretes : lembretesIniciais);
+      setDadosEmpresaCarregadosCnpj(cnpj);
     } catch (error) {
       console.warn("Não foi possível carregar os dados contábeis migrados desta empresa:", error);
+      dadosVazios();
+      setDadosEmpresaCarregadosCnpj(cnpj);
     }
   }, [empresa.cnpj]);
+
+  React.useEffect(() => {
+    const cnpj = String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
+    // A hidratação roda antes da persistência. Esta trava impede gravar o estado
+    // antigo no CNPJ novo durante a troca de empresa.
+    if (!cnpj || dadosEmpresaCarregadosCnpj !== cnpj) return;
+    try {
+      localStorage.setItem(`murade_contabil_dados_${cnpj}`, JSON.stringify({
+        contas,
+        centrosCusto,
+        lancamentos,
+        livros,
+        lembretes,
+      }));
+    } catch (error) {
+      console.warn("Não foi possível salvar localmente os dados contábeis desta empresa:", error);
+    }
+  }, [empresa.cnpj, dadosEmpresaCarregadosCnpj, contas, centrosCusto, lancamentos, livros, lembretes]);
 
   const handleImportarDadosContabeis = (dados: { contas: ContaPlano[]; centrosCusto: CentroCustoContabil[]; lancamentos: LancamentoContabil[] }) => {
     const contasPorCodigo = new Map<string, ContaPlano>(contas.map((item) => [item.codigo, item]));

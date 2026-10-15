@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { LivroContabil } from "../../types";
 import { AlertTriangle, BookOpen, Download, FileText, Send } from "lucide-react";
-import { baixarArquivoTexto } from "../modals/DemonstrativosModals";
+import { baixarArquivoTexto } from "../../utils/downloadText";
 
 interface LivrosTabProps {
   livros: LivroContabil[];

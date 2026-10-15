@@ -84,18 +84,6 @@ export const InicioTab: React.FC<InicioTabProps> = ({
     showToast(`🗑️ Lembrete '${nome}' excluído com sucesso!`);
   };
 
-  const handleConcluirApuracao = (novoValor: number) => {
-    if (!itemSelecionado) return;
-    setLembretes((prev) =>
-      prev.map((i) =>
-        i.id === itemSelecionado.id
-          ? { ...i, valor: novoValor, statusTexto: "Apurado ✅", acaoTexto1: "Ver", acaoTexto2: "Gerar DARF" }
-          : i
-      )
-    );
-    showToast(`📊 Apuração concluída! Valor apurado: R$ ${novoValor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}.`);
-  };
-
   const handleConcluirPreparacao = () => {
     if (!itemSelecionado) return;
     showToast("Preparação de SPED indisponível: fonte de dados e validador oficial não configurados.");
@@ -489,15 +477,15 @@ export const InicioTab: React.FC<InicioTabProps> = ({
 
       {/* TOAST FEEDBACK */}
       {toastMsg && (
-        <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs animate-in fade-in">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+        <div className="p-3 bg-slate-50 border border-slate-300 text-slate-800 rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs animate-in fade-in">
+          <AlertTriangle className="w-4 h-4 text-slate-600 shrink-0" />
           <span>{toastMsg}</span>
         </div>
       )}
 
       {/* ========================================================= */}
       {/* SESSÃO: LEMBRETES FISCAIS & VENCIMENTOS IMINENTES          */}
-      {/* Botões 100% Funcionais: Ver, Apurar, Gerar, Pagar, Excluir */}
+      {/* Lembretes e rotinas disponíveis */}
       {/* ========================================================= */}
       <div className="bg-white border border-purple-200/90 rounded-2xl p-4 sm:p-5 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -573,7 +561,7 @@ export const InicioTab: React.FC<InicioTabProps> = ({
                 </div>
               </div>
 
-              {/* BOTÕES DE AÇÃO 100% FUNCIONAIS */}
+              {/* Ações de lembrete */}
               <div className="flex items-center justify-between pt-2 border-t border-slate-200/60">
                 <div className="flex items-center gap-1.5">
                   {/* Ação 1 (Ver / Apurar / Preparar) */}
@@ -764,7 +752,6 @@ export const InicioTab: React.FC<InicioTabProps> = ({
             setModalAtivo(null);
             setItemSelecionado(null);
           }}
-          onConcluirApuracao={handleConcluirApuracao}
         />
       )}
 

@@ -4,6 +4,8 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import { timingSafeEqual } from "node:crypto";
+import { ErroValidacaoDocumentoFiscal, fiscalStoreConfigurado, gravarDocumentosFiscais, lerDocumentosFiscais, verificarEstadoStoreFiscal } from "./src/server/documentosFiscaisStore";
+import { dpStoreConfigurado, ErroValidacaoResumoDP, gravarResumoDP, lerResumosDP, verificarEstadoStoreDP } from "./src/server/dadosDpStore";
 
 dotenv.config();
 
@@ -23,7 +25,28 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: "20mb" }));
+
+  const integracaoAutorizada = (req: express.Request): boolean => {
+    const expected = process.env.MURADE_INTEGRATION_TOKEN || "";
+    const authorization = req.get("authorization") || "";
+    const supplied = authorization.match(/^Bearer\s+(.+)$/i)?.[1] || "";
+    const expectedBytes = Buffer.from(expected);
+    const suppliedBytes = Buffer.from(supplied);
+    return Boolean(expectedBytes.length && suppliedBytes.length === expectedBytes.length && timingSafeEqual(suppliedBytes, expectedBytes));
+  };
+
+  const negarIntegracao = (req: express.Request, res: express.Response): boolean => {
+    if (!process.env.MURADE_INTEGRATION_TOKEN) {
+      res.status(503).json({ sucesso: false, motivo: "MURADE_INTEGRATION_TOKEN não configurado no Contábil." });
+      return true;
+    }
+    if (!integracaoAutorizada(req)) {
+      res.status(401).json({ sucesso: false, motivo: "Credencial de integração inválida." });
+      return true;
+    }
+    return false;
+  };
 
   // API Health
   app.get("/api/health", (req, res) => {
@@ -38,7 +61,7 @@ async function startServer() {
   });
 
   // Authenticated server-to-server handshake used by Murade Fiscal.
-  app.get("/api/integracao/fiscal/status", (req, res) => {
+  app.get("/api/integracao/fiscal/status", async (req, res) => {
     const expected = process.env.MURADE_INTEGRATION_TOKEN;
     if (!expected) {
       return res.status(503).json({ conectado: false, motivo: "MURADE_INTEGRATION_TOKEN não configurado." });
@@ -53,17 +76,81 @@ async function startServer() {
       return res.status(401).json({ conectado: false, motivo: "Credencial de integração inválida." });
     }
 
+    let armazenamento: { disponivel: boolean; documentosRecebidos: number; ultimoRecebimento: string | null };
+    try {
+      armazenamento = await verificarEstadoStoreFiscal();
+    } catch {
+      armazenamento = { disponivel: false, documentosRecebidos: 0, ultimoRecebimento: null };
+    }
     return res.json({
       conectado: true,
       sistema: "Murade Contábil",
       integracao: "Murade Fiscal",
-      dadosCompartilhados: false,
+      dadosCompartilhados: armazenamento.documentosRecebidos > 0,
+      recebimentoFiscalConfigurado: armazenamento.disponivel,
+      documentosFiscaisRecebidos: armazenamento.documentosRecebidos,
+      ultimoRecebimentoFiscal: armazenamento.ultimoRecebimento,
       timestamp: new Date().toISOString(),
     });
   });
 
-  // Authenticated status handshake used by Murade Departamento Pessoal.
-  app.get("/api/integracao/dp/status", (req, res) => {
+  // Receives source fiscal documents from the authenticated Fiscal service.
+  // Documents are stored per CNPJ and idempotently by access key; they are not
+  // turned into journal entries until an accountant maps the accounts.
+  app.post("/api/integracao/fiscal/documentos", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Vary", "Authorization");
+    if (negarIntegracao(req, res)) return;
+    if (!fiscalStoreConfigurado()) {
+      return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil para receber documentos com persistência." });
+    }
+    const cnpj = String(req.body?.cnpj || "").replace(/\D/g, "");
+    if (!/^\d{14}$/.test(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
+    if (req.body?.versaoContrato !== 1) return res.status(400).json({ sucesso: false, motivo: "Versão de contrato de integração não suportada." });
+    try {
+      const resultado = await gravarDocumentosFiscais(cnpj, req.body?.documentos);
+      return res.json({
+        sucesso: true,
+        persistencia: "postgresql",
+        cnpj,
+        ...resultado,
+        lancamentosContabeisGerados: 0,
+        pendente: "Mapeamento e conferência de contas antes da geração de partidas dobradas.",
+        recebidoEm: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      const status = error instanceof ErroValidacaoDocumentoFiscal ? 422 : 503;
+      return res.status(status).json({ sucesso: false, motivo: error?.message || "Não foi possível persistir o lote fiscal no PostgreSQL." });
+    }
+  });
+
+  // Authenticated readback for server-to-server reconciliation only.
+  app.get("/api/integracao/fiscal/documentos", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Vary", "Authorization");
+    if (negarIntegracao(req, res)) return;
+    if (!fiscalStoreConfigurado()) {
+      return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil." });
+    }
+    const cnpj = String(req.query.cnpj || "").replace(/\D/g, "");
+    if (!/^\d{14}$/.test(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
+    const desde = String(req.query.desde || "");
+    const ate = String(req.query.ate || "");
+    const limite = req.query.limite == null ? 200 : Number(req.query.limite);
+    if ((desde && !/^\d{4}-(0[1-9]|1[0-2])$/.test(desde)) || (ate && !/^\d{4}-(0[1-9]|1[0-2])$/.test(ate)) || (desde && ate && desde > ate)) {
+      return res.status(400).json({ sucesso: false, motivo: "Período inválido; use AAAA-MM." });
+    }
+    if (!Number.isInteger(limite) || limite < 1 || limite > 500) return res.status(400).json({ sucesso: false, motivo: "Limite deve estar entre 1 e 500." });
+    try {
+      const documentos = await lerDocumentosFiscais(cnpj, desde, ate, limite);
+      return res.json({ sucesso: true, cnpj, retornados: documentos.length, documentos });
+    } catch (error: any) {
+      return res.status(503).json({ sucesso: false, motivo: error?.message || "Não foi possível consultar documentos armazenados." });
+    }
+  });
+
+  // Authenticated server-to-server status used by Murade Departamento Pessoal.
+  app.get("/api/integracao/dp/status", async (req, res) => {
     const expected = process.env.MURADE_INTEGRATION_TOKEN;
     if (!expected) {
       return res.status(503).json({ conectado: false, motivo: "MURADE_INTEGRATION_TOKEN não configurado." });
@@ -78,13 +165,75 @@ async function startServer() {
       return res.status(401).json({ conectado: false, motivo: "Credencial de integração inválida." });
     }
 
+    let armazenamento: { disponivel: boolean; folhasRecebidas: number; ultimoRecebimento: string | null };
+    try {
+      armazenamento = await verificarEstadoStoreDP();
+    } catch {
+      armazenamento = { disponivel: false, folhasRecebidas: 0, ultimoRecebimento: null };
+    }
     return res.json({
       conectado: true,
       sistema: "Murade Contábil",
       integracao: "Murade Departamento Pessoal",
-      dadosCompartilhados: false,
+      recebimentoDPConfigurado: armazenamento.disponivel,
+      dadosCompartilhados: armazenamento.folhasRecebidas > 0,
+      folhasDPRecebidas: armazenamento.folhasRecebidas,
+      ultimoRecebimentoDP: armazenamento.ultimoRecebimento,
       timestamp: new Date().toISOString(),
     });
+  });
+
+  // Accepts only accounting aggregates. Employee identifiers, names, CPF and
+  // bank details are rejected by the payload validator and never persisted.
+  app.post("/api/integracao/dp/folhas", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Vary", "Authorization");
+    if (negarIntegracao(req, res)) return;
+    if (!dpStoreConfigurado()) {
+      return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil para receber folhas agregadas com persistência." });
+    }
+    const cnpj = String(req.body?.cnpj || "").replace(/\D/g, "");
+    if (!/^\d{14}$/.test(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
+    try {
+      const resultado = await gravarResumoDP(cnpj, req.body);
+      return res.json({
+        sucesso: true,
+        persistencia: "postgresql",
+        cnpj,
+        novo: resultado.novo,
+        registro: resultado.registro,
+        lancamentosContabeisGerados: 0,
+        pendente: "Mapeamento das contas, validação do fechamento e geração de partidas contábeis.",
+      });
+    } catch (error: any) {
+      const status = error instanceof ErroValidacaoResumoDP ? 422 : 503;
+      return res.status(status).json({ sucesso: false, motivo: error?.message || "Não foi possível persistir o resumo agregado do DP." });
+    }
+  });
+
+  // Authenticated readback for DP-to-Accounting reconciliation.
+  app.get("/api/integracao/dp/folhas", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Vary", "Authorization");
+    if (negarIntegracao(req, res)) return;
+    if (!dpStoreConfigurado()) {
+      return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil." });
+    }
+    const cnpj = String(req.query.cnpj || "").replace(/\D/g, "");
+    const desde = String(req.query.desde || "");
+    const ate = String(req.query.ate || "");
+    const limite = req.query.limite == null ? 50 : Number(req.query.limite);
+    if (!/^\d{14}$/.test(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
+    if ((desde && !/^\d{4}-(0[1-9]|1[0-2])$/.test(desde)) || (ate && !/^\d{4}-(0[1-9]|1[0-2])$/.test(ate)) || (desde && ate && desde > ate)) {
+      return res.status(400).json({ sucesso: false, motivo: "Período inválido; use AAAA-MM." });
+    }
+    if (!Number.isInteger(limite) || limite < 1 || limite > 200) return res.status(400).json({ sucesso: false, motivo: "Limite deve estar entre 1 e 200." });
+    try {
+      const folhas = await lerResumosDP(cnpj, desde, ate, limite);
+      return res.json({ sucesso: true, cnpj, retornados: folhas.length, folhas });
+    } catch (error: any) {
+      return res.status(503).json({ sucesso: false, motivo: error?.message || "Não foi possível consultar folhas agregadas do DP." });
+    }
   });
 
   // In-memory store for shared Murad companies across Fiscal, DP and Contábil

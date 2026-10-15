@@ -55,46 +55,19 @@ export const VisualizarModal: React.FC<VisualizarModalProps> = ({
   };
 
   const getStatusBadge = () => {
-    if (item.statusExecucao === "pago") {
-      return (
-        <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs px-2.5 py-1 rounded-full font-bold flex items-center gap-1">
-          <CheckCircle2 className="w-3.5 h-3.5" /> Pago / Liquidado
-        </span>
-      );
-    }
-    if (item.statusExecucao === "transmitido") {
-      return (
-        <span className="bg-blue-100 text-blue-800 border border-blue-300 text-xs px-2.5 py-1 rounded-full font-bold flex items-center gap-1">
-          <CheckCircle2 className="w-3.5 h-3.5" /> Transmitido com Sucesso
-        </span>
-      );
-    }
-    if (item.tipo === "vencido") {
-      return (
-        <span className="bg-rose-100 text-rose-800 border border-rose-300 text-xs px-2.5 py-1 rounded-full font-bold flex items-center gap-1">
-          <AlertCircle className="w-3.5 h-3.5" /> Vencido
-        </span>
-      );
-    }
-    if (item.tipo === "hoje") {
-      return (
-        <span className="bg-purple-100 text-purple-800 border border-purple-300 text-xs px-2.5 py-1 rounded-full font-bold flex items-center gap-1">
-          <Clock className="w-3.5 h-3.5" /> Vence Hoje
-        </span>
-      );
-    }
-    if (item.tipo === "proximo") {
-      return (
-        <span className="bg-amber-100 text-amber-900 border border-amber-300 text-xs px-2.5 py-1 rounded-full font-bold flex items-center gap-1">
-          <Clock className="w-3.5 h-3.5" /> A Vencer (Urgente)
-        </span>
-      );
-    }
-    return (
-      <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs px-2.5 py-1 rounded-full font-bold flex items-center gap-1">
-        <CheckCircle2 className="w-3.5 h-3.5" /> No Prazo
-      </span>
-    );
+    const temStatusLocalNaoVerificado = Boolean(item.statusExecucao && item.statusExecucao !== "pendente");
+    const classificacaoLocal: Record<string, string> = {
+      vencido: "Data cadastrada como vencida",
+      hoje: "Data cadastrada para hoje",
+      proximo: "Data cadastrada como próxima",
+      futuro: "Lembrete cadastrado",
+    };
+    const rotulo = temStatusLocalNaoVerificado
+      ? "Situação não confirmada por fonte oficial"
+      : classificacaoLocal[item.tipo] || "Lembrete cadastrado";
+    return <span className="bg-amber-100 text-amber-900 border border-amber-300 text-xs px-2.5 py-1 rounded-full font-bold flex items-center gap-1">
+      <AlertCircle className="w-3.5 h-3.5" /> {rotulo}
+    </span>;
   };
 
   return (
@@ -113,7 +86,7 @@ export const VisualizarModal: React.FC<VisualizarModalProps> = ({
               {item.nome}
             </h3>
             <p className="text-xs text-slate-300">
-              Competência: <strong>{item.competencia || "09/2026"}</strong> • Vencimento: <strong>{item.dataVencimento}</strong>
+              Competência: <strong>{item.competencia || "não informada"}</strong> • Vencimento: <strong>{item.dataVencimento}</strong>
             </p>
           </div>
           <button
@@ -141,7 +114,7 @@ export const VisualizarModal: React.FC<VisualizarModalProps> = ({
           {/* Dados Fiscais */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
             <div className="bg-white border border-slate-200 p-3 rounded-xl">
-              <span className="text-slate-500 block mb-1">Valor Principal</span>
+              <span className="text-slate-500 block mb-1">Valor anotado</span>
               <div className="text-lg font-black text-slate-900">
                 {item.valor && item.valor > 0
                   ? `R$ ${item.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
@@ -152,15 +125,15 @@ export const VisualizarModal: React.FC<VisualizarModalProps> = ({
             <div className="bg-white border border-slate-200 p-3 rounded-xl">
               <span className="text-slate-500 block mb-1">Código de Receita</span>
               <div className="text-sm font-bold text-blue-800 font-mono">
-                {item.codigoReceita || "Geral RFB"}
+                {item.codigoReceita || "não informado"}
               </div>
             </div>
 
             <div className="bg-white border border-slate-200 p-3 rounded-xl">
-              <span className="text-slate-500 block mb-1">Situação Cadastral</span>
-              <div className="text-sm font-bold text-emerald-700 flex items-center gap-1">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                Regular
+              <span className="text-slate-500 block mb-1">Consulta cadastral</span>
+              <div className="text-sm font-bold text-amber-700 flex items-center gap-1">
+                <AlertCircle className="w-4 h-4 text-amber-600" />
+                Não consultada
               </div>
             </div>
           </div>
@@ -168,7 +141,7 @@ export const VisualizarModal: React.FC<VisualizarModalProps> = ({
           {/* Detalhes e Observações */}
           <div className="bg-blue-50/60 border border-blue-200/80 rounded-xl p-4 text-xs text-slate-700 leading-relaxed space-y-1">
             <strong className="text-blue-900 block font-bold">Informações Operacionais:</strong>
-            <p>{item.detalhes || "Obrigação monitorada pelos robôs contábil e fiscal."}</p>
+            <p>{item.detalhes || "Nenhuma consulta oficial foi confirmada para este lembrete."}</p>
             {item.chaveAcesso && (
               <p className="font-mono text-[11px] text-slate-600 pt-1">
                 Identificador Único: <strong>{item.chaveAcesso}</strong>
@@ -176,7 +149,7 @@ export const VisualizarModal: React.FC<VisualizarModalProps> = ({
             )}
             {item.protocolo && (
               <p className="font-mono text-[11px] text-emerald-700 font-bold pt-1">
-                Protocolo de Transmissão: {item.protocolo}
+                Protocolo informado (não confirmado): {item.protocolo}
               </p>
             )}
           </div>
@@ -184,17 +157,17 @@ export const VisualizarModal: React.FC<VisualizarModalProps> = ({
           {/* Linha Digitável se existir */}
           {item.linhaDigitavel && (
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Linha Digitável / Código de Barras:</label>
+              <label className="text-xs font-bold text-slate-700">Linha digitável informada (não validada):</label>
               <div className="flex items-center gap-2">
                 <input
                   type="text"
                   readOnly
-                  value={item.linhaDigitavel}
+                  value="Não verificada; código oculto para evitar pagamento incorreto"
                   className="w-full font-mono text-xs p-2.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none"
                 />
                 <button
-                  onClick={() => copiarLinha(item.linhaDigitavel!)}
-                  className="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold flex items-center gap-1.5 shrink-0 transition cursor-pointer border border-slate-300"
+                  disabled
+                  className="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg text-xs font-bold flex items-center gap-1.5 shrink-0 transition cursor-not-allowed border border-slate-300 opacity-50"
                 >
                   {copiado ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
                   <span>{copiado ? "Copiado!" : "Copiar"}</span>
@@ -270,171 +243,60 @@ export const VisualizarModal: React.FC<VisualizarModalProps> = ({
 };
 
 // ==========================================================
-// 2. MODAL APURAR TRIBUTO (Ação "Apurar")
+// 2. MODAL APURAR TRIBUTO (prévia matemática manual)
 // ==========================================================
 interface ApurarModalProps {
   item: LembreteItem;
   empresa: EmpresaDados;
   onClose: () => void;
-  onConcluirApuracao: (novoValor: number) => void;
+
 }
 
-export const ApurarModal: React.FC<ApurarModalProps> = ({
-  item,
-  empresa,
-  onClose,
-  onConcluirApuracao,
-}) => {
-  const [faturamento, setFaturamento] = useState(148500.0);
-  const [aliquota, setAliquota] = useState(18.0);
-  const [creditos, setCreditos] = useState(12800.0);
-  const [calculando, setCalculando] = useState(false);
-  const [apurado, setApurado] = useState(false);
+export const ApurarModal: React.FC<ApurarModalProps> = ({ item, empresa, onClose }) => {
+  const [faturamento, setFaturamento] = useState(0);
+  const [aliquota, setAliquota] = useState(0);
+  const [creditos, setCreditos] = useState(0);
+  const [calculado, setCalculado] = useState(false);
+  const debito = faturamento * aliquota / 100;
+  const resultado = Math.max(0, debito - creditos);
 
-  const debitoBruto = (faturamento * aliquota) / 100;
-  const impostoLiquido = Math.max(0, debitoBruto - creditos);
-
-  const executarCalculo = () => {
-    setCalculando(true);
-    setTimeout(() => {
-      setCalculando(false);
-      setApurado(true);
-    }, 1200);
-  };
-
-  const finalizar = () => {
-    onConcluirApuracao(impostoLiquido);
-    onClose();
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-xl w-full shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 max-h-[90vh] flex flex-col">
-        <div className="bg-gradient-to-r from-amber-700 to-amber-900 text-white p-5 flex items-center justify-between">
-          <div>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-white/20 text-white">
-              Apuração Automatizada 2026
-            </span>
-            <h3 className="text-lg font-bold text-white mt-1">{item.nome}</h3>
-            <p className="text-xs text-amber-100">
-              Competência: <strong>{item.competencia || "09/2026"}</strong> • Regime: <strong>{empresa.regime}</strong>
-            </p>
-          </div>
-          <button onClick={onClose} className="text-amber-200 hover:text-white p-1 rounded-lg">
-            <X className="w-5 h-5" />
-          </button>
+  return <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div className="bg-white rounded-2xl max-w-xl w-full shadow-2xl border border-slate-200 overflow-hidden">
+      <div className="bg-amber-800 text-white p-5 flex items-center justify-between">
+        <div><span className="text-xs font-semibold">Prévia matemática manual</span><h3 className="text-lg font-bold mt-1">{item.nome}</h3>
+          <p className="text-xs text-amber-100">Competência: {item.competencia || "não informada"} · Regime cadastrado: {empresa.regime || "não informado"}</p></div>
+        <button type="button" onClick={onClose} aria-label="Fechar"><X className="w-5 h-5" /></button>
+      </div>
+      <div className="p-6 space-y-4 text-xs">
+        <div role="note" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950">
+          Esta conta usa apenas os números digitados. Não consulta notas, regras fiscais nem créditos oficiais, não apura tributo e não libera guia.
         </div>
-
-        <div className="p-6 space-y-5 overflow-y-auto flex-1 text-xs">
-          <div className="bg-amber-50 border border-amber-200 p-3.5 rounded-xl text-amber-900 leading-relaxed">
-            💡 O Robô Fiscal cruzou automaticamente as <strong>NF-e de entrada e saída</strong> com os créditos da Reforma Tributária (IBS/CBS) para determinar o imposto líquido a recolher.
-          </div>
-
-          <div className="space-y-3">
-            <div>
-              <label className="font-bold text-slate-700 block mb-1">Faturamento Bruto da Competência (R$)</label>
-              <input
-                type="number"
-                value={faturamento}
-                onChange={(e) => {
-                  setFaturamento(parseFloat(e.target.value) || 0);
-                  setApurado(false);
-                }}
-                className="w-full p-2.5 border border-slate-300 rounded-lg font-mono font-bold text-slate-900 focus:outline-none focus:border-amber-600"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="font-bold text-slate-700 block mb-1">Alíquota Efetiva (%)</label>
-                <input
-                  type="number"
-                  value={aliquota}
-                  onChange={(e) => {
-                    setAliquota(parseFloat(e.target.value) || 0);
-                    setApurado(false);
-                  }}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg font-mono font-bold text-slate-900 focus:outline-none focus:border-amber-600"
-                />
-              </div>
-              <div>
-                <label className="font-bold text-slate-700 block mb-1">Créditos de Entrada (R$)</label>
-                <input
-                  type="number"
-                  value={creditos}
-                  onChange={(e) => {
-                    setCreditos(parseFloat(e.target.value) || 0);
-                    setApurado(false);
-                  }}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg font-mono font-bold text-slate-900 focus:outline-none focus:border-amber-600"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Resumo do Cálculo */}
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
-            <div className="flex justify-between text-slate-600">
-              <span>Débito Bruto de Saídas:</span>
-              <strong className="font-mono text-slate-900">
-                R$ {debitoBruto.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-              </strong>
-            </div>
-            <div className="flex justify-between text-slate-600">
-              <span>(-) Créditos Fiscais Apropriados:</span>
-              <strong className="font-mono text-emerald-700">
-                - R$ {creditos.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-              </strong>
-            </div>
-            <div className="pt-2 border-t border-slate-200 flex justify-between items-center text-sm">
-              <span className="font-bold text-slate-900">(=) Saldo Líquido a Recolher:</span>
-              <span className="text-base font-black text-amber-900 font-mono">
-                R$ {impostoLiquido.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-          </div>
-
-          {apurado && (
-            <div className="bg-emerald-50 border border-emerald-300 text-emerald-800 p-3.5 rounded-xl flex items-center gap-2 font-bold animate-in fade-in">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-              <span>Apuração consolidada e validada pelo Fisco IA! Pronto para gerar a guia.</span>
-            </div>
-          )}
+        <label className="block font-bold text-slate-700">Base informada (R$)
+          <input type="number" min="0" value={faturamento} onChange={e => { setFaturamento(Number(e.target.value) || 0); setCalculado(false); }} className="mt-1 w-full rounded-lg border border-slate-300 p-2.5 font-mono" />
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block font-bold text-slate-700">Alíquota informada (%)
+            <input type="number" min="0" value={aliquota} onChange={e => { setAliquota(Number(e.target.value) || 0); setCalculado(false); }} className="mt-1 w-full rounded-lg border border-slate-300 p-2.5 font-mono" />
+          </label>
+          <label className="block font-bold text-slate-700">Créditos informados (R$)
+            <input type="number" min="0" value={creditos} onChange={e => { setCreditos(Number(e.target.value) || 0); setCalculado(false); }} className="mt-1 w-full rounded-lg border border-slate-300 p-2.5 font-mono" />
+          </label>
         </div>
-
-        <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2.5">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition cursor-pointer"
-          >
-            Cancelar
-          </button>
-          {!apurado ? (
-            <button
-              onClick={executarCalculo}
-              disabled={calculando}
-              className="px-5 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition flex items-center gap-2 cursor-pointer shadow-xs disabled:opacity-50"
-            >
-              <CpuIcon className="w-4 h-4" />
-              <span>{calculando ? "Apuração em Processamento..." : "⚡ Apurar Agora pelo Robô"}</span>
-            </button>
-          ) : (
-            <button
-              onClick={finalizar}
-              className="px-5 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition flex items-center gap-2 cursor-pointer shadow-xs"
-            >
-              <Check className="w-4 h-4" />
-              <span>Salvar Apuração & Liberar Guia</span>
-            </button>
-          )}
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex justify-between"><span>Resultado matemático</span><strong>R$ {resultado.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</strong></div>
+          {calculado && <p className="mt-2 font-semibold text-amber-900">Prévia calculada; não é apuração validada e não altera os registros.</p>}
         </div>
       </div>
+      <div className="flex justify-end gap-2 border-t bg-slate-50 p-4">
+        <button type="button" onClick={onClose} className="rounded-lg px-4 py-2 text-xs font-bold text-slate-700">Fechar</button>
+        <button type="button" onClick={() => setCalculado(true)} className="rounded-lg bg-amber-700 px-4 py-2 text-xs font-bold text-white">Calcular prévia</button>
+      </div>
     </div>
-  );
+  </div>;
 };
 
 // ==========================================================
-// 3. MODAL GERAR GUIA / DARF (Ação "Gerar" ou "Gerar DARF")
+// 3. MODAL RESUMO DE OBRIGAÇÃO (não gera guia oficial)
 // ==========================================================
 interface GerarGuiaModalProps {
   item: LembreteItem;
@@ -443,200 +305,35 @@ interface GerarGuiaModalProps {
   onPagar?: () => void;
 }
 
-export const GerarGuiaModal: React.FC<GerarGuiaModalProps> = ({
-  item,
-  empresa,
-  onClose,
-  onPagar,
-}) => {
-  const [copiado, setCopiado] = useState(false);
-  const valorTotal = item.valor || 3840.5;
-
-  const copiarCodigoBarras = () => {
-    const linha = item.linhaDigitavel || "85870000038-4 40500179202-6 6092026000-5 0010820100-9";
-    navigator.clipboard.writeText(linha);
-    setCopiado(true);
-    setTimeout(() => setCopiado(false), 2500);
-  };
-
-  const handleImprimir = () => {
-    window.print();
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 max-h-[95vh] flex flex-col">
-        {/* Topo do Modal */}
-        <div className="bg-gradient-to-r from-blue-900 to-indigo-900 text-white p-4 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <FileText className="w-5 h-5 text-blue-300" />
-            <div>
-              <h3 className="text-base font-bold text-white">Guia Oficial de Recolhimento</h3>
-              <p className="text-[11px] text-blue-200">
-                Ministério da Fazenda • Secretaria Especial da Receita Federal do Brasil
-              </p>
-            </div>
-          </div>
-          <button onClick={onClose} className="text-blue-300 hover:text-white p-1 rounded-lg">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Modelo da Guia Oficial (DARF / GPS / GRF) */}
-        <div className="p-6 space-y-4 overflow-y-auto flex-1 text-xs">
-          <div className="border-2 border-slate-800 rounded-xl p-4 bg-white space-y-4 shadow-xs">
-            {/* Cabeçalho da Guia */}
-            <div className="flex items-start justify-between border-b-2 border-slate-800 pb-3">
-              <div className="space-y-0.5">
-                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                  República Federativa do Brasil
-                </div>
-                <div className="text-base font-black text-slate-900">
-                  {item.nome.includes("GPS") ? "GPS — GUIA DA PREVIDÊNCIA SOCIAL" : "DARF — DOCUMENTO DE ARRECADAÇÃO DE RECEITAS FEDERAIS"}
-                </div>
-                <div className="text-[11px] text-slate-600 font-semibold">
-                  Competência: {item.competencia || "09/2026"}
-                </div>
-              </div>
-              <div className="text-right">
-                <span className="text-[11px] font-mono font-bold bg-slate-100 border border-slate-300 px-2 py-1 rounded">
-                  Via Contribuinte
-                </span>
-              </div>
-            </div>
-
-            {/* Grid dos Campos Oficiais */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <div className="border border-slate-300 p-2.5 rounded-lg bg-slate-50">
-                <span className="text-[10px] font-bold text-slate-500 block">01. Razão Social</span>
-                <span className="font-bold text-slate-900 truncate block">{empresa.razaoSocial}</span>
-              </div>
-              <div className="border border-slate-300 p-2.5 rounded-lg bg-slate-50">
-                <span className="text-[10px] font-bold text-slate-500 block">02. CNPJ</span>
-                <span className="font-mono font-bold text-slate-900">{empresa.cnpj}</span>
-              </div>
-              <div className="border border-slate-300 p-2.5 rounded-lg bg-slate-50">
-                <span className="text-[10px] font-bold text-slate-500 block">03. Código da Receita</span>
-                <span className="font-mono font-bold text-blue-900">{item.codigoReceita || "1082-01"}</span>
-              </div>
-              <div className="border border-slate-300 p-2.5 rounded-lg bg-slate-50">
-                <span className="text-[10px] font-bold text-slate-500 block">04. Período de Apuração</span>
-                <span className="font-bold text-slate-900">{item.competencia || "09/2026"}</span>
-              </div>
-              <div className="border border-slate-300 p-2.5 rounded-lg bg-slate-50">
-                <span className="text-[10px] font-bold text-slate-500 block">05. Data de Vencimento</span>
-                <span className="font-bold text-rose-700">{item.dataVencimento}</span>
-              </div>
-              <div className="border-2 border-slate-800 p-2.5 rounded-lg bg-emerald-50">
-                <span className="text-[10px] font-bold text-emerald-800 block">06. Valor Total a Pagar</span>
-                <span className="font-black text-emerald-900 text-sm font-mono">
-                  R$ {valorTotal.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                </span>
-              </div>
-            </div>
-
-            {/* Linha Digitável e Código de Barras */}
-            <div className="border border-slate-300 p-3 rounded-xl bg-slate-50 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-700">Linha Digitável Oficial:</span>
-                <button
-                  onClick={copiarCodigoBarras}
-                  className="text-blue-700 hover:text-blue-900 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
-                >
-                  {copiado ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiado ? "Linha Copiada!" : "Copiar Linha"}</span>
-                </button>
-              </div>
-              <div className="font-mono text-[11px] p-2 bg-white border border-slate-300 rounded font-semibold text-slate-800 text-center tracking-wider">
-                {item.linhaDigitavel || "85870000038-4 40500179202-6 6092026000-5 0010820100-9"}
-              </div>
-
-              {/* Simulação de Código de Barras */}
-              <div className="pt-2 flex flex-col items-center">
-                <div className="h-10 w-full max-w-sm flex justify-between items-end bg-white p-1 border border-slate-200">
-                  {Array.from({ length: 50 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="bg-slate-900"
-                      style={{
-                        width: (i % 3 === 0 ? "3px" : i % 2 === 0 ? "1.5px" : "2px"),
-                        height: "100%",
-                      }}
-                    />
-                  ))}
-                </div>
-                <span className="text-[9px] text-slate-400 font-mono mt-1">Autenticação Mecânica / SISBB</span>
-              </div>
-            </div>
-
-            {/* PIX Copia e Cola / QR Code */}
-            <div className="bg-emerald-50/60 border border-emerald-200 p-3 rounded-xl flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-white rounded-lg border border-emerald-300 text-emerald-700">
-                  <QrCode className="w-6 h-6" />
-                </div>
-                <div>
-                  <span className="font-bold text-emerald-900 block text-xs">Pague com PIX Instantâneo</span>
-                  <span className="text-[11px] text-emerald-700">Baixa automática em até 5 minutos no e-CAC</span>
-                </div>
-              </div>
-              {onPagar && (
-                <button
-                  onClick={onPagar}
-                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition cursor-pointer shrink-0 shadow-2xs"
-                >
-                  Pagar via PIX
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Rodapé com Botões */}
-        <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2">
-          <button
-            onClick={copiarCodigoBarras}
-            className="px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg transition cursor-pointer flex items-center gap-1.5"
-          >
-            {copiado ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-            <span>{copiado ? "Copiado!" : "Copiar Linha"}</span>
-          </button>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleImprimir}
-              className="px-3.5 py-2 text-xs font-bold bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg transition flex items-center gap-1.5 cursor-pointer"
-            >
-              <Printer className="w-4 h-4" />
-              <span>Imprimir</span>
-            </button>
-            <button
-              onClick={() => {
-                alert("📥 Download do PDF da Guia iniciado com sucesso!");
-              }}
-              className="px-3.5 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-xs"
-            >
-              <Download className="w-4 h-4" />
-              <span>Baixar PDF</span>
-            </button>
-            {onPagar && (
-              <button
-                onClick={onPagar}
-                className="px-4 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-xs"
-              >
-                <CreditCard className="w-4 h-4" />
-                <span>Pagar</span>
-              </button>
-            )}
-          </div>
-        </div>
+export const GerarGuiaModal: React.FC<GerarGuiaModalProps> = ({ item, empresa, onClose }) => {
+  const valorValido = Number.isFinite(item.valor) && item.valor > 0;
+  return <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+      <div className="flex items-center justify-between bg-blue-900 p-5 text-white">
+        <div><h3 className="text-base font-bold">Resumo do lembrete — não é guia oficial</h3><p className="text-xs text-blue-200">{item.nome}</p></div>
+        <button type="button" onClick={onClose} aria-label="Fechar"><X className="h-5 w-5" /></button>
       </div>
+      <div className="space-y-4 p-6 text-xs">
+        <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
+          <strong>Não use esta tela para pagar tributos.</strong> A emissão de DARF/GPS, linha digitável, código de barras e PIX não está integrada nem validada por órgão oficial.
+        </div>
+        <dl className="grid grid-cols-2 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div><dt className="text-slate-500">Empresa</dt><dd className="font-bold">{empresa.razaoSocial || "não informada"}</dd></div>
+          <div><dt className="text-slate-500">CNPJ</dt><dd className="font-mono">{empresa.cnpj || "não informado"}</dd></div>
+          <div><dt className="text-slate-500">Competência anotada</dt><dd>{item.competencia || "não informada"}</dd></div>
+          <div><dt className="text-slate-500">Vencimento anotado</dt><dd>{item.dataVencimento || "não informado"}</dd></div>
+          <div><dt className="text-slate-500">Código de receita anotado</dt><dd>{item.codigoReceita || "não informado"}</dd></div>
+          <div><dt className="text-slate-500">Valor anotado</dt><dd>{valorValido ? "R$ " + item.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 }) : "não calculado"}</dd></div>
+        </dl>
+        {item.linhaDigitavel && <p className="rounded-lg border border-slate-200 p-3 text-slate-700">Há uma linha digitável anotada no cadastro, mas ela não foi validada. Por segurança, não será apresentada como código de pagamento.</p>}
+      </div>
+      <div className="flex justify-end border-t bg-slate-50 p-4"><button type="button" onClick={onClose} className="rounded-lg bg-slate-800 px-4 py-2 text-xs font-bold text-white">Fechar</button></div>
     </div>
-  );
+  </div>;
 };
 
 // ==========================================================
-// 4. MODAL PREPARAR OBRIGAÇÃO (Ação "Preparar" — ECD / SPED)
+// 4. MODAL PREPARAR OBRIGAÇÃO (ECD / SPED indisponível)
 // ==========================================================
 interface PrepararModalProps {
   item: LembreteItem;
@@ -645,138 +342,24 @@ interface PrepararModalProps {
   onConcluirPreparacao: () => void;
 }
 
-export const PrepararModal: React.FC<PrepararModalProps> = ({
-  item,
-  empresa,
-  onClose,
-  onConcluirPreparacao,
-}) => {
-  const [etapa, setEtapa] = useState<"checklist" | "gerando" | "pronto">("checklist");
-
-  const executarPreparacao = () => {
-    setEtapa("gerando");
-    setTimeout(() => {
-      setEtapa("pronto");
-    }, 1500);
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-xl w-full shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 max-h-[90vh] flex flex-col text-xs">
-        <div className="bg-gradient-to-r from-purple-800 to-indigo-900 text-white p-5 flex items-center justify-between">
-          <div>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-white/20 text-white">
-              PVA SPED Contábil 2026
-            </span>
-            <h3 className="text-lg font-bold text-white mt-1">{item.nome}</h3>
-            <p className="text-xs text-purple-200">
-              Validador Oficial PVA • Empresa: <strong>{empresa.razaoSocial}</strong>
-            </p>
-          </div>
-          <button onClick={onClose} className="text-purple-200 hover:text-white p-1 rounded-lg">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-4 overflow-y-auto flex-1">
-          <p className="text-slate-600 leading-relaxed">
-            O preparador automático compila os lançamentos contábeis, o balancete de verificação e a DRE nos blocos oficiais do SPED (PVA Receita Federal).
-          </p>
-
-          <div className="space-y-2 border border-slate-200 rounded-xl p-4 bg-slate-50">
-            <span className="font-bold text-slate-800 block text-xs">Checagem de Consistência dos Blocos:</span>
-
-            <div className="space-y-2 pt-1">
-              <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-slate-200">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span><strong>Bloco 0:</strong> Abertura e Identificação da Entidade</span>
-                </div>
-                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
-                  100% Válido
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-slate-200">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span><strong>Bloco I:</strong> Livro Diário Geral & Partidas Dobradas (D = C)</span>
-                </div>
-                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
-                  Sem Erros
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-slate-200">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span><strong>Bloco J:</strong> Balanço Patrimonial & DRE da Competência</span>
-                </div>
-                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
-                  Consistente
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-slate-200">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span><strong>Bloco 9:</strong> Encerramento do Arquivo Digital SPED</span>
-                </div>
-                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
-                  OK
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {etapa === "pronto" && (
-            <div className="bg-emerald-50 border border-emerald-300 text-emerald-800 p-4 rounded-xl space-y-1 animate-in fade-in">
-              <div className="flex items-center gap-2 font-bold text-sm">
-                <CheckCheck className="w-5 h-5 text-emerald-600" />
-                <span>Arquivo SPED Gerado e Pré-Validado com Sucesso!</span>
-              </div>
-              <p className="text-[11px] text-emerald-700">
-                Hash SHA-256: <span className="font-mono font-bold">9e8a7b6c5d4e3f21a0b1c2d3e4f5a6b7c8d9e0f1</span>
-              </p>
-            </div>
-          )}
-        </div>
-
-        <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2.5">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition cursor-pointer"
-          >
-            Cancelar
-          </button>
-          {etapa !== "pronto" ? (
-            <button
-              onClick={executarPreparacao}
-              disabled={etapa === "gerando"}
-              className="px-5 py-2 text-xs font-bold bg-purple-700 hover:bg-purple-800 text-white rounded-lg transition flex items-center gap-2 cursor-pointer shadow-xs disabled:opacity-50"
-            >
-              <span>{etapa === "gerando" ? "Gerando Arquivo SPED..." : "⚙️ Compilar & Preparar Arquivo"}</span>
-            </button>
-          ) : (
-            <button
-              onClick={() => {
-                onConcluirPreparacao();
-                onClose();
-              }}
-              className="px-5 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition flex items-center gap-2 cursor-pointer shadow-xs"
-            >
-              <Check className="w-4 h-4" />
-              <span>Concluir Preparação & Liberar Envio</span>
-            </button>
-          )}
-        </div>
+export const PrepararModal: React.FC<PrepararModalProps> = ({ item, empresa, onClose }) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+    <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+      <div className="flex items-center justify-between bg-indigo-900 p-5 text-white">
+        <div><h3 className="text-base font-bold">Preparação SPED indisponível</h3><p className="text-xs text-indigo-200">{item.nome} · {empresa.razaoSocial || "empresa não informada"}</p></div>
+        <button type="button" onClick={onClose} aria-label="Fechar"><X className="h-5 w-5" /></button>
       </div>
+      <div className="space-y-3 p-6 text-sm">
+        <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950"><strong>Nenhum arquivo ou validação foi produzido.</strong><p className="mt-2">A geração de ECD/SPED e a validação pelo PVA não estão integradas. Não há blocos, hash ou arquivo pronto para transmissão.</p></div>
+        <p className="text-xs text-slate-600">Competência: {item.competencia || "não informada"}. A integração depende de dados contábeis persistidos, leiaute oficial e execução/validação no PVA.</p>
+      </div>
+      <div className="flex justify-end border-t bg-slate-50 p-4"><button type="button" onClick={onClose} className="rounded-lg bg-slate-800 px-4 py-2 text-xs font-bold text-white">Fechar</button></div>
     </div>
-  );
-};
+  </div>
+);
 
 // ==========================================================
-// 5. MODAL TRANSMITIR / ENVIAR (Ação "Transmitir" ou "Enviar")
+// 5. MODAL TRANSMITIR / ENVIAR (integração oficial indisponível)
 // ==========================================================
 interface TransmitirModalProps {
   item: LembreteItem;
@@ -785,120 +368,24 @@ interface TransmitirModalProps {
   onConcluirTransmissao: (protocolo: string) => void;
 }
 
-export const TransmitirModal: React.FC<TransmitirModalProps> = ({
-  item,
-  empresa,
-  onClose,
-  onConcluirTransmissao,
-}) => {
-  const [transmitindo, setTransmitindo] = useState(false);
-  const [concluido, setConcluido] = useState(false);
-  const [protocoloGerado, setProtocoloGerado] = useState("");
-
-  const executarEnvio = () => {
-    setTransmitindo(true);
-    setTimeout(() => {
-      const proto = `REC-2026-${Math.floor(100000 + Math.random() * 900000)}-${Date.now().toString().slice(-4)}`;
-      setProtocoloGerado(proto);
-      setTransmitindo(false);
-      setConcluido(true);
-    }, 1600);
-  };
-
-  const finalizar = () => {
-    onConcluirTransmissao(protocoloGerado);
-    onClose();
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 max-h-[90vh] flex flex-col text-xs">
-        <div className="bg-gradient-to-r from-blue-700 to-indigo-800 text-white p-5 flex items-center justify-between">
-          <div>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-white/20 text-white">
-              Transmissão com Certificado Digital A1
-            </span>
-            <h3 className="text-lg font-bold text-white mt-1">{item.nome}</h3>
-            <p className="text-xs text-blue-200">
-              Destino: <strong>Receita Federal / eSocial / Serpro</strong>
-            </p>
-          </div>
-          <button onClick={onClose} className="text-blue-200 hover:text-white p-1 rounded-lg">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-4 overflow-y-auto flex-1">
-          {/* Card do Certificado */}
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-100 border border-blue-300 text-blue-800 flex items-center justify-center font-black">
-              A1
-            </div>
-            <div>
-              <span className="font-bold text-slate-900 block">Certificado e-CNPJ Ativo</span>
-              <span className="text-[11px] text-slate-500 font-mono">
-                {empresa.razaoSocial} • Validade: Dez/2026 (ICP-Brasil)
-              </span>
-            </div>
-          </div>
-
-          <div className="bg-blue-50 border border-blue-200 p-3.5 rounded-xl text-slate-700 leading-relaxed space-y-1">
-            <strong className="text-blue-900 block font-bold">Assinatura Eletrônica em Lote:</strong>
-            <p>
-              O sistema assinará digitalmente a declaração com a chave privada da empresa e enviará diretamente ao ambiente de recepção seguro (mTLS / WSDL).
-            </p>
-          </div>
-
-          {concluido && (
-            <div className="bg-emerald-50 border-2 border-emerald-400 p-4 rounded-xl space-y-2 animate-in fade-in">
-              <div className="flex items-center gap-2 font-black text-emerald-900 text-sm">
-                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                <span>Declaração Homologada com Sucesso!</span>
-              </div>
-              <div className="bg-white p-3 rounded-lg border border-emerald-300 text-slate-800 space-y-1">
-                <div className="text-[10px] text-slate-500 font-bold uppercase">Recibo Oficial de Entrega</div>
-                <div className="text-xs font-mono font-black text-emerald-800">{protocoloGerado}</div>
-                <div className="text-[10px] text-slate-500">
-                  Data/Hora: {new Date().toLocaleDateString("pt-BR")} às {new Date().toLocaleTimeString("pt-BR")}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2.5">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition cursor-pointer"
-          >
-            Cancelar
-          </button>
-          {!concluido ? (
-            <button
-              onClick={executarEnvio}
-              disabled={transmitindo}
-              className="px-5 py-2 text-xs font-bold bg-blue-700 hover:bg-blue-800 text-white rounded-lg transition flex items-center gap-2 cursor-pointer shadow-xs disabled:opacity-50"
-            >
-              <Send className="w-4 h-4" />
-              <span>{transmitindo ? "Assinando e Transmitindo..." : "🚀 Transmitir Agora"}</span>
-            </button>
-          ) : (
-            <button
-              onClick={finalizar}
-              className="px-5 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition flex items-center gap-2 cursor-pointer shadow-xs"
-            >
-              <Check className="w-4 h-4" />
-              <span>Concluir & Atualizar Status</span>
-            </button>
-          )}
-        </div>
+export const TransmitirModal: React.FC<TransmitirModalProps> = ({ item, empresa, onClose }) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+    <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+      <div className="flex items-center justify-between bg-blue-900 p-5 text-white">
+        <div><h3 className="text-base font-bold">Transmissão oficial indisponível</h3><p className="text-xs text-blue-200">{item.nome}</p></div>
+        <button type="button" onClick={onClose} aria-label="Fechar"><X className="h-5 w-5" /></button>
       </div>
+      <div className="space-y-3 p-6 text-sm">
+        <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950"><strong>Nenhum evento foi assinado ou enviado.</strong><p className="mt-2">A integração com o órgão, uso do certificado e obtenção de recibo oficial não estão configurados. Nenhum protocolo foi criado.</p></div>
+        <p className="text-xs text-slate-600">Empresa: {empresa.razaoSocial || "não informada"} · CNPJ: {empresa.cnpj || "não informado"} · Competência: {item.competencia || "não informada"}</p>
+      </div>
+      <div className="flex justify-end border-t bg-slate-50 p-4"><button type="button" onClick={onClose} className="rounded-lg bg-slate-800 px-4 py-2 text-xs font-bold text-white">Fechar</button></div>
     </div>
-  );
-};
+  </div>
+);
 
 // ==========================================================
-// 6. MODAL PAGAR GUIA (Ação "Pagar")
+// 6. MODAL PAGAR GUIA (pagamento bancário indisponível)
 // ==========================================================
 interface PagarModalProps {
   item: LembreteItem;
@@ -907,152 +394,21 @@ interface PagarModalProps {
   onConcluirPagamento: () => void;
 }
 
-export const PagarModal: React.FC<PagarModalProps> = ({
-  item,
-  empresa,
-  onClose,
-  onConcluirPagamento,
-}) => {
-  const [metodo, setMetodo] = useState<"pix" | "banco" | "debito">("pix");
-  const [processando, setProcessando] = useState(false);
-  const [pago, setPago] = useState(false);
-  const valorTotal = item.valor || 3840.5;
-
-  const confirmarPagamento = () => {
-    setProcessando(true);
-    setTimeout(() => {
-      setProcessando(false);
-      setPago(true);
-    }, 1400);
-  };
-
-  const finalizar = () => {
-    onConcluirPagamento();
-    onClose();
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 max-h-[90vh] flex flex-col text-xs">
-        <div className="bg-gradient-to-r from-emerald-700 to-teal-800 text-white p-5 flex items-center justify-between">
-          <div>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-white/20 text-white">
-              Liquidação de Tributo
-            </span>
-            <h3 className="text-lg font-bold text-white mt-1">{item.nome}</h3>
-            <p className="text-xs text-emerald-100">
-              Valor: <strong>R$ {valorTotal.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</strong>
-            </p>
-          </div>
-          <button onClick={onClose} className="text-emerald-200 hover:text-white p-1 rounded-lg">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-4 overflow-y-auto flex-1">
-          {/* Seletor de Método */}
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              onClick={() => setMetodo("pix")}
-              className={`p-3 rounded-xl border text-center transition cursor-pointer ${
-                metodo === "pix"
-                  ? "border-emerald-600 bg-emerald-50 text-emerald-900 font-bold"
-                  : "border-slate-200 bg-white text-slate-700"
-              }`}
-            >
-              <QrCode className="w-5 h-5 mx-auto mb-1 text-emerald-600" />
-              <span>PIX</span>
-            </button>
-
-            <button
-              onClick={() => setMetodo("banco")}
-              className={`p-3 rounded-xl border text-center transition cursor-pointer ${
-                metodo === "banco"
-                  ? "border-emerald-600 bg-emerald-50 text-emerald-900 font-bold"
-                  : "border-slate-200 bg-white text-slate-700"
-              }`}
-            >
-              <CreditCard className="w-5 h-5 mx-auto mb-1 text-blue-600" />
-              <span>Boleto/Guia</span>
-            </button>
-
-            <button
-              onClick={() => setMetodo("debito")}
-              className={`p-3 rounded-xl border text-center transition cursor-pointer ${
-                metodo === "debito"
-                  ? "border-emerald-600 bg-emerald-50 text-emerald-900 font-bold"
-                  : "border-slate-200 bg-white text-slate-700"
-              }`}
-            >
-              <Building2 className="w-5 h-5 mx-auto mb-1 text-purple-600" />
-              <span>Débito Auto</span>
-            </button>
-          </div>
-
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2">
-            <div className="flex justify-between text-slate-600">
-              <span>Beneficiário:</span>
-              <strong className="text-slate-900">Secretaria da Receita Federal</strong>
-            </div>
-            <div className="flex justify-between text-slate-600">
-              <span>Pagador:</span>
-              <strong className="text-slate-900">{empresa.razaoSocial}</strong>
-            </div>
-            <div className="flex justify-between text-slate-600">
-              <span>Data de Liquidação:</span>
-              <strong className="text-slate-900">{new Date().toLocaleDateString("pt-BR")}</strong>
-            </div>
-            <div className="pt-2 border-t border-slate-200 flex justify-between items-center">
-              <span className="font-bold text-slate-800">Total a Debitar:</span>
-              <span className="font-black text-emerald-800 text-sm font-mono">
-                R$ {valorTotal.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-          </div>
-
-          {pago && (
-            <div className="bg-emerald-100 border border-emerald-400 p-3.5 rounded-xl text-emerald-900 space-y-1 animate-in fade-in">
-              <div className="flex items-center gap-2 font-black text-sm">
-                <CheckCircle2 className="w-5 h-5 text-emerald-700" />
-                <span>Pagamento Confirmado pelo Banco!</span>
-              </div>
-              <p className="text-[11px]">
-                Autenticação Bancária: <span className="font-mono font-bold">BB.2026.0915.84920193.OK</span>
-              </p>
-            </div>
-          )}
-        </div>
-
-        <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2.5">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition cursor-pointer"
-          >
-            Cancelar
-          </button>
-          {!pago ? (
-            <button
-              onClick={confirmarPagamento}
-              disabled={processando}
-              className="px-5 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition flex items-center gap-2 cursor-pointer shadow-xs disabled:opacity-50"
-            >
-              <CreditCard className="w-4 h-4" />
-              <span>{processando ? "Processando Pagamento..." : "Efetivar Pagamento"}</span>
-            </button>
-          ) : (
-            <button
-              onClick={finalizar}
-              className="px-5 py-2 text-xs font-bold bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg transition flex items-center gap-2 cursor-pointer shadow-xs"
-            >
-              <Check className="w-4 h-4" />
-              <span>Concluir</span>
-            </button>
-          )}
-        </div>
+export const PagarModal: React.FC<PagarModalProps> = ({ item, empresa, onClose }) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+    <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+      <div className="flex items-center justify-between bg-emerald-900 p-5 text-white">
+        <div><h3 className="text-base font-bold">Pagamento indisponível</h3><p className="text-xs text-emerald-200">{item.nome}</p></div>
+        <button type="button" onClick={onClose} aria-label="Fechar"><X className="h-5 w-5" /></button>
       </div>
+      <div className="space-y-3 p-6 text-sm">
+        <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950"><strong>Nenhum pagamento foi iniciado ou confirmado.</strong><p className="mt-2">O sistema não tem integração bancária nem consulta de confirmação de pagamentos. Não há autenticação bancária ou status de quitação.</p></div>
+        <p className="text-xs text-slate-600">Empresa: {empresa.razaoSocial || "não informada"} · Valor anotado: {Number.isFinite(item.valor) && item.valor > 0 ? "R$ " + item.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 }) : "não calculado"}</p>
+      </div>
+      <div className="flex justify-end border-t bg-slate-50 p-4"><button type="button" onClick={onClose} className="rounded-lg bg-slate-800 px-4 py-2 text-xs font-bold text-white">Fechar</button></div>
     </div>
-  );
-};
+  </div>
+);
 
 // ==========================================================
 // 7. MODAL CONFIRMAR EXCLUSÃO (Lixeira)
