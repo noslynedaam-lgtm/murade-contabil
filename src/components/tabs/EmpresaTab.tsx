@@ -67,7 +67,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
             e.cnpj !== "00.000.000/0001-00" &&
             (e.cnpj || e.razaoSocial)
         );
-        return limpas;
+        return limpas.map((item: EmpresaDados) => ({ ...item, certificadoAtivo: false }));
       }
     } catch (e) {
       console.warn("Erro ao carregar lista de empresas:", e);
@@ -298,12 +298,13 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     setFonteDados(emp.fonteDados || "Dados da Empresa");
 
     // Certificado
-    setFormCertAtivo(emp.certificadoAtivo ?? false);
+    // A saved filename is not proof of upload, validation, or server-side storage.
+    setFormCertAtivo(false);
     setFormCertNome(emp.certificadoNomeArquivo || "");
     setFormCertTamanho(emp.certificadoTamanho || "");
-    setFormCertValidade(emp.certificadoValidade || "");
-    setFormCertTipo(emp.certificadoTipo || "ICP-Brasil A1");
-    setFormCertEmissor(emp.certificadoEmissor || "AC SERPRO v5");
+    setFormCertValidade("");
+    setFormCertTipo("Não validado");
+    setFormCertEmissor("");
 
     setFormularioAberto(true);
 
@@ -397,18 +398,14 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
   const processarArquivoCertificado = (file: File) => {
     const tamanhoKb = (file.size / 1024).toFixed(1) + " KB";
     const nome = file.name;
-    const tipo = nome.toLowerCase().includes("a3") ? "ICP-Brasil A3" : "ICP-Brasil A1";
-
-    setFormCertAtivo(true);
+    setFormCertAtivo(false);
     setFormCertNome(nome);
     setFormCertTamanho(tamanhoKb);
-    setFormCertValidade("18/12/2027");
-    setFormCertTipo(tipo);
-    setFormCertEmissor("AC SERPRO v5");
+    setFormCertValidade("");
+    setFormCertTipo("Não validado");
+    setFormCertEmissor("");
 
-    showToast(
-      `✅ Certificado '${nome}' (${tamanhoKb}) selecionado do computador com sucesso!`
-    );
+    showToast(`Arquivo '${nome}' selecionado localmente; não foi enviado, validado ou ativado.`);
   };
 
   const handleDirectFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -595,13 +592,13 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
       dataSituacao: dataSituacao.trim(),
       dataAbertura: dataAbertura.trim(),
       qsa: qsaList,
-      certificadoAtivo: formCertAtivo,
+      certificadoAtivo: false,
       certificadoNomeArquivo: formCertNome || undefined,
       certificadoTamanho: formCertTamanho || undefined,
-      certificadoValidade: formCertValidade || undefined,
-      certificadoTipo: formCertTipo || "ICP-Brasil A1",
-      certificadoEmissor: formCertEmissor || "AC SERPRO v5",
-      certificadoDataUpload: formCertAtivo ? new Date().toLocaleDateString("pt-BR") : undefined,
+      certificadoValidade: undefined,
+      certificadoTipo: "Não validado",
+      certificadoEmissor: undefined,
+      certificadoDataUpload: undefined,
       fonteDados: fonteDados || "Cadastrado pelo Usuário",
       competencia: "2026-10",
     };
@@ -965,10 +962,10 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
                         Certificado & Reforma 2026
                       </span>
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        {emp.certificadoAtivo ? (
-                          <span className="font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 text-[10px] flex items-center gap-1">
-                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                            <span>{emp.certificadoNomeArquivo || "A1 Ativo"}</span>
+                        {emp.certificadoNomeArquivo ? (
+                          <span className="font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 text-[10px] flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3 text-amber-600" />
+                            <span>{emp.certificadoNomeArquivo} · não validado</span>
                           </span>
                         ) : (
                           <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
@@ -1341,14 +1338,14 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
               </h4>
             </div>
 
-            {formCertAtivo && formCertNome ? (
-              <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Vinculado: {formCertNome}</span>
+            {formCertNome ? (
+              <span className="text-[11px] font-bold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                <span>Selecionado; não enviado: {formCertNome}</span>
               </span>
             ) : (
               <span className="text-[11px] text-slate-500">
-                Opcional para cadastro inicial • Necessário para emissão e transmissão
+                Certificado ainda não conectado neste módulo
               </span>
             )}
           </div>
@@ -1377,15 +1374,15 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
                 <UploadCloud className="w-5 h-5" />
               </div>
 
-              {formCertAtivo && formCertNome ? (
+              {formCertNome ? (
                 <div className="space-y-1">
                   <div className="font-bold text-xs text-slate-900 flex items-center justify-center gap-1.5">
-                    <Key className="w-3.5 h-3.5 text-emerald-600" />
+                    <Key className="w-3.5 h-3.5 text-amber-600" />
                     <span>{formCertNome}</span>
-                    <span className="text-[10px] text-slate-500 font-mono">({formCertTamanho || "A1"})</span>
+                    <span className="text-[10px] text-slate-500 font-mono">({formCertTamanho || "arquivo"})</span>
                   </div>
-                  <p className="text-[11px] text-emerald-700 font-semibold">
-                    Certificado carregado! Válido até {formCertValidade || "18/12/2027"}.
+                  <p className="text-[11px] text-amber-700 font-semibold">
+                    Seleção local apenas. O certificado não foi enviado, validado nem armazenado pelo sistema.
                   </p>
                   <div className="flex items-center justify-center gap-2 pt-1">
                     <button
@@ -1402,11 +1399,11 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
                         setFormCertAtivo(false);
                         setFormCertNome("");
                         setFormCertTamanho("");
-                        showToast("Certificado desvinculado deste cadastro.");
+                        showToast("Seleção local do arquivo removida.");
                       }}
                       className="text-xs text-rose-600 hover:underline font-semibold cursor-pointer"
                     >
-                      Remover Certificado
+                      Limpar seleção
                     </button>
                   </div>
                 </div>
@@ -1416,7 +1413,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
                     Arraste o arquivo do Certificado Digital (.pfx / .p12) aqui
                   </p>
                   <p className="text-[11px] text-slate-500">
-                    ou clique no botão abaixo para buscar nos seus arquivos locais
+                    A seleção não envia o certificado. Para usar A1, faça o vínculo no Murade Fiscal.
                   </p>
                   <button
                     type="button"

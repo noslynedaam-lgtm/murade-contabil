@@ -57,17 +57,13 @@ export const CertificadoDigitalModal: React.FC<CertificadoDigitalModalProps> = (
   const [senha, setSenha] = useState("");
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [tipoCert, setTipoCert] = useState(empresa.certificadoTipo || "ICP-Brasil A1");
-  const [validade, setValidade] = useState(empresa.certificadoValidade || "18/12/2027");
-  const [emissor, setEmissor] = useState(empresa.certificadoEmissor || "AC SERPRO v5");
+  const [validade, setValidade] = useState(empresa.certificadoValidade || "");
+  const [emissor, setEmissor] = useState(empresa.certificadoEmissor || "");
   const [usarProcuracao, setUsarProcuracao] = useState(true);
 
   const [isDragging, setIsDragging] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
-  const [validacaoSucesso, setValidacaoSucesso] = useState<string | null>(
-    empresa.certificadoAtivo
-      ? "Certificado ativo e homologado para transmissões com RFB, SEFAZ e eSocial."
-      : null
-  );
+  const [validacaoSucesso, setValidacaoSucesso] = useState<string | null>(null);
   const [erroValidacao, setErroValidacao] = useState<string | null>(null);
 
   // Abertura do seletor nativo do sistema operacional (Windows Explorer / Finder / Linux)
@@ -80,7 +76,6 @@ export const CertificadoDigitalModal: React.FC<CertificadoDigitalModalProps> = (
   };
 
   const processarArquivo = (file: File) => {
-    const ext = file.name.split(".").pop()?.toLowerCase();
     const tamanhoKb = (file.size / 1024).toFixed(1) + " KB";
 
     setArquivoSelecionado({
@@ -98,7 +93,7 @@ export const CertificadoDigitalModal: React.FC<CertificadoDigitalModalProps> = (
 
     setErroValidacao(null);
     setValidacaoSucesso(
-      `Arquivo '${file.name}' (${tamanhoKb}) carregado do seu computador! Pronto para validação.`
+      `Arquivo '${file.name}' (${tamanhoKb}) selecionado localmente. Ainda não foi enviado nem validado.`
     );
   };
 
@@ -127,23 +122,16 @@ export const CertificadoDigitalModal: React.FC<CertificadoDigitalModalProps> = (
     }
   };
 
-  // Testar comunicação e integridade da chave privada
+  // No backend de Contábil não há rota para validar e armazenar um A1.
   const handleTestarCertificado = () => {
     if (!arquivoSelecionado) {
       setErroValidacao("Selecione primeiro o arquivo do certificado digital no seu computador!");
       return;
     }
 
-    setIsValidating(true);
-    setErroValidacao(null);
+    setIsValidating(false);
+    setErroValidacao("A validação real do A1 ainda não está integrada no Contábil. Nenhum teste ou conexão foi executado.");
     setValidacaoSucesso(null);
-
-    setTimeout(() => {
-      setIsValidating(false);
-      setValidacaoSucesso(
-        "✅ Certificado verificado com sucesso!\n• Cadeia ICP-Brasil válida.\n• Chave privada compatível com mTLS.\n• Conexões testadas com e-CAC (RFB), SEFAZ e eSocial."
-      );
-    }, 1100);
   };
 
   const handleSalvar = () => {
@@ -155,11 +143,11 @@ export const CertificadoDigitalModal: React.FC<CertificadoDigitalModalProps> = (
     onSalvarCertificado({
       nomeArquivo: arquivoSelecionado.nome,
       tamanho: arquivoSelecionado.tamanho,
-      validade,
-      tipo: tipoCert,
-      emissor,
-      senha: senha || undefined,
-      ativo: true,
+      validade: "",
+      tipo: "Não validado",
+      emissor: "",
+      senha: undefined,
+      ativo: false,
     });
   };
 
@@ -177,7 +165,7 @@ export const CertificadoDigitalModal: React.FC<CertificadoDigitalModalProps> = (
                 Cadastro de Certificado Digital (A1 / A3)
               </h3>
               <p className="text-xs text-slate-500">
-                Importe o arquivo <strong>.pfx</strong> ou <strong>.p12</strong> do seu computador para autenticação automática
+                Cadastro informativo. Este módulo ainda não envia nem valida o certificado.
               </p>
             </div>
           </div>
@@ -208,22 +196,22 @@ export const CertificadoDigitalModal: React.FC<CertificadoDigitalModalProps> = (
               isDragging
                 ? "border-blue-600 bg-blue-50/80 scale-[1.01]"
                 : arquivoSelecionado
-                ? "border-emerald-400 bg-emerald-50/40"
+                ? "border-amber-400 bg-amber-50/40"
                 : "border-slate-300 bg-slate-50/70 hover:bg-blue-50/30 hover:border-blue-400"
             }`}
           >
             {arquivoSelecionado ? (
               <div className="space-y-3">
-                <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 mx-auto flex items-center justify-center shadow-xs">
+                  <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-700 mx-auto flex items-center justify-center shadow-xs">
                   <ShieldCheck className="w-6 h-6" />
                 </div>
                 <div>
                   <div className="text-sm font-black text-slate-900 flex items-center justify-center gap-1.5">
-                    <FileText className="w-4 h-4 text-emerald-700" />
+                    <FileText className="w-4 h-4 text-amber-700" />
                     <span>{arquivoSelecionado.nome}</span>
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Tamanho: <strong>{arquivoSelecionado.tamanho}</strong> • Formato: ICP-Brasil (.pfx/.p12)
+                    Tamanho: <strong>{arquivoSelecionado.tamanho}</strong> • seleção local, não enviada
                   </p>
                 </div>
 
@@ -259,7 +247,7 @@ export const CertificadoDigitalModal: React.FC<CertificadoDigitalModalProps> = (
                     Clique no botão abaixo para buscar nos arquivos do seu computador
                   </div>
                   <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-                    Formatos aceitos: <strong>.pfx</strong>, <strong>.p12</strong> (Certificados Digitais padrão ICP-Brasil)
+                    Formatos de arquivo A1: <strong>.pfx</strong>, <strong>.p12</strong>. O arquivo não será enviado nem ativado nesta tela.
                   </p>
                 </div>
 
@@ -304,7 +292,7 @@ export const CertificadoDigitalModal: React.FC<CertificadoDigitalModalProps> = (
                 </button>
               </div>
               <span className="text-[10px] text-slate-500">
-                A senha é armazenada localmente com criptografia de ponta a ponta.
+                Senha não persistida. Envio, validação e armazenamento seguro ainda não integrados.
               </span>
             </div>
 
@@ -356,7 +344,7 @@ export const CertificadoDigitalModal: React.FC<CertificadoDigitalModalProps> = (
 
           {/* CHECKBOX PROCURAÇÃO ELETRÔNICA RFB */}
           <div className="flex items-start gap-2 p-3 bg-blue-50/70 border border-blue-200 rounded-lg">
-            <input
+              <input
               type="checkbox"
               id="check-procuracao-modal"
               checked={usarProcuracao}
@@ -364,7 +352,7 @@ export const CertificadoDigitalModal: React.FC<CertificadoDigitalModalProps> = (
               className="rounded text-blue-600 cursor-pointer w-4 h-4 mt-0.5"
             />
             <label htmlFor="check-procuracao-modal" className="text-xs text-slate-700 cursor-pointer">
-              <strong>Habilitar Procuração Eletrônica e-CAC / RFB:</strong> Permite ao Robô Murade acessar e conciliar todas as filiais e empresas vinculadas sem intervenção manual.
+              <strong>Procuração eletrônica e-CAC / RFB:</strong> esta opção é apenas informativa e não concede acesso ao governo.
             </label>
           </div>
 
@@ -423,7 +411,7 @@ export const CertificadoDigitalModal: React.FC<CertificadoDigitalModalProps> = (
               className="px-5 py-2 bg-[#2E7D32] hover:bg-[#1B5E20] text-white rounded-lg text-xs font-bold cursor-pointer transition shadow-xs flex items-center gap-1.5"
             >
               <CheckCircle2 className="w-4 h-4" />
-              <span>💾 Salvar e Ativar no Sistema</span>
+              <span>Salvar dados do arquivo (sem ativar)</span>
             </button>
           </div>
         </div>
