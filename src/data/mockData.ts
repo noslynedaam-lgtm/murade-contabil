@@ -1,4 +1,5 @@
 import { ContaPlano, EmpresaDados, LancamentoContabil, LivroContabil, OrgaoConectado, SistemaConectavel, LembreteItem } from "../types";
+import { planoContasModelo } from "./planoContasModelo";
 
 export const initialEmpresa: EmpresaDados = {
   cnpj: "",
@@ -247,53 +248,7 @@ export const orgaosIniciais: OrgaoConectado[] = ([
 
 export const lancamentosIniciais: LancamentoContabil[] = [];
 
-export const planoContasPadrao: ContaPlano[] = [
-  // 1 - ATIVO
-  { codigo: "1", descricao: "ATIVO", nivel: 1, tipo: "sintetica", natureza: "D" },
-  { codigo: "1.1", descricao: "Ativo Circulante", nivel: 2, tipo: "sintetica", natureza: "D" },
-  { codigo: "1.1.1", descricao: "Caixa e Equivalentes de Caixa", nivel: 3, tipo: "analitica", natureza: "D" },
-  { codigo: "1.1.2", descricao: "Bancos Conta Movimento", nivel: 3, tipo: "analitica", natureza: "D" },
-  { codigo: "1.1.3", descricao: "Aplicações Financeiras de Liquidez Imediata", nivel: 3, tipo: "analitica", natureza: "D" },
-  { codigo: "1.1.4", descricao: "Créditos Tributários (ICMS / IBS / CBS a Recuperar)", nivel: 3, tipo: "analitica", natureza: "D" },
-  { codigo: "1.1.5", descricao: "Clientes e Duplicatas a Receber", nivel: 3, tipo: "analitica", natureza: "D" },
-  { codigo: "1.2", descricao: "Ativo Não Circulante", nivel: 2, tipo: "sintetica", natureza: "D" },
-  { codigo: "1.2.1", descricao: "Estoques de Mercadorias e Produtos", nivel: 3, tipo: "analitica", natureza: "D" },
-  { codigo: "1.2.2", descricao: "Investimentos em Participações", nivel: 3, tipo: "analitica", natureza: "D" },
-  { codigo: "1.2.3", descricao: "Imobilizado (Máquinas, Veículos e Equipamentos)", nivel: 3, tipo: "analitica", natureza: "D" },
-  { codigo: "1.2.4", descricao: "Intangível e Softwares", nivel: 3, tipo: "analitica", natureza: "D" },
-
-  // 2 - PASSIVO
-  { codigo: "2", descricao: "PASSIVO", nivel: 1, tipo: "sintetica", natureza: "C" },
-  { codigo: "2.1", descricao: "Passivo Circulante", nivel: 2, tipo: "sintetica", natureza: "C" },
-  { codigo: "2.1.1", descricao: "Fornecedores e Contas a Pagar", nivel: 3, tipo: "analitica", natureza: "C" },
-  { codigo: "2.1.2", descricao: "Salários e Encargos Trabalhistas a Pagar", nivel: 3, tipo: "analitica", natureza: "C" },
-  { codigo: "2.1.3", descricao: "Obrigações Fiscais e Tributos a Recolher (IBS/CBS/ICMS)", nivel: 3, tipo: "analitica", natureza: "C" },
-  { codigo: "2.2", descricao: "Passivo Não Circulante", nivel: 2, tipo: "sintetica", natureza: "C" },
-  { codigo: "2.2.1", descricao: "INSS e Previdência Social a Recolher", nivel: 3, tipo: "analitica", natureza: "C" },
-  { codigo: "2.2.2", descricao: "FGTS a Recolher (FGTS Digital)", nivel: 3, tipo: "analitica", natureza: "C" },
-  { codigo: "2.2.3", descricao: "Empréstimos e Financiamentos Bancários a Longo Prazo", nivel: 3, tipo: "analitica", natureza: "C" },
-
-  // 3 - PATRIMÔNIO LÍQUIDO
-  { codigo: "3", descricao: "PATRIMÔNIO LÍQUIDO", nivel: 1, tipo: "sintetica", natureza: "C" },
-  { codigo: "3.1", descricao: "Capital Social Subscrito e Realizado", nivel: 2, tipo: "analitica", natureza: "C" },
-  { codigo: "3.2", descricao: "Reservas de Capital e Incentivos", nivel: 2, tipo: "analitica", natureza: "C" },
-  { codigo: "3.3", descricao: "Reservas de Lucros e Lucros Acumulados", nivel: 2, tipo: "analitica", natureza: "C" },
-
-  // 4 - RECEITAS
-  { codigo: "4", descricao: "RECEITAS", nivel: 1, tipo: "sintetica", natureza: "C" },
-  { codigo: "4.1", descricao: "Receita Operacional Bruta", nivel: 2, tipo: "sintetica", natureza: "C" },
-  { codigo: "4.1.1", descricao: "Receita de Venda de Mercadorias", nivel: 3, tipo: "analitica", natureza: "C" },
-  { codigo: "4.1.2", descricao: "Receita de Prestação de Serviços", nivel: 3, tipo: "analitica", natureza: "C" },
-  { codigo: "4.2", descricao: "Receitas Financeiras e Outras", nivel: 2, tipo: "analitica", natureza: "C" },
-
-  // 5 - CUSTOS E DESPESAS
-  { codigo: "5", descricao: "CUSTOS E DESPESAS OPERACIONAIS", nivel: 1, tipo: "sintetica", natureza: "D" },
-  { codigo: "5.1", descricao: "Custo das Mercadorias Vendidas (CMV)", nivel: 2, tipo: "analitica", natureza: "D" },
-  { codigo: "5.2", descricao: "Despesas Operacionais e Administrativas", nivel: 2, tipo: "sintetica", natureza: "D" },
-  { codigo: "5.2.1", descricao: "Despesas com Pessoal e Encargos", nivel: 3, tipo: "analitica", natureza: "D" },
-  { codigo: "5.2.2", descricao: "Despesas Gerais Administrativas e Ocupação", nivel: 3, tipo: "analitica", natureza: "D" },
-  { codigo: "5.2.3", descricao: "Despesas Tributárias e Compensações", nivel: 3, tipo: "analitica", natureza: "D" },
-];
+export const planoContasPadrao: ContaPlano[] = planoContasModelo;
 
 export const livrosIniciais: LivroContabil[] = [];
 

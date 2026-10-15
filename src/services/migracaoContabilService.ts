@@ -143,9 +143,9 @@ function parseAccount(row: Record<string, string>, index: number, fileName: stri
   }
   const depth = codigo.split(/[./-]/).filter(Boolean).length;
   const compactLength = codigo.replace(/\D/g, "").length;
-  const inferredLevel = Math.min(4, Math.max(1, depth > 1 ? depth : compactLength <= 1 ? 1 : compactLength <= 4 ? 2 : compactLength <= 7 ? 3 : 4)) as 1 | 2 | 3 | 4;
+  const inferredLevel = Math.min(5, Math.max(1, depth > 1 ? depth : compactLength <= 1 ? 1 : compactLength <= 4 ? 2 : compactLength <= 7 ? 3 : compactLength <= 10 ? 4 : 5)) as 1 | 2 | 3 | 4 | 5;
   const explicitLevel = Number(buscar(row, aliases.nivel));
-  const nivel = Number.isInteger(explicitLevel) && explicitLevel >= 1 && explicitLevel <= 4 ? explicitLevel as 1 | 2 | 3 | 4 : inferredLevel;
+  const nivel = Number.isInteger(explicitLevel) && explicitLevel >= 1 && explicitLevel <= 5 ? explicitLevel as 1 | 2 | 3 | 4 | 5 : inferredLevel;
   const typeRaw = normalizarChave(buscar(row, aliases.tipoConta));
   const hasChild = allRows.some((other) => {
     const otherCode = buscar(other, aliases.codigoConta).replace(/\s/g, "");
