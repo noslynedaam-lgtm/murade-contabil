@@ -17,38 +17,24 @@ import {
   ArrowRight,
   X,
 } from "lucide-react";
-import { LancamentoContabil } from "../../types";
-
 interface FluxoPreviticoTabProps {
   empresaNome?: string;
-  lancamentos?: LancamentoContabil[];
-  onAdicionarLancamento?: (lancamento: Omit<LancamentoContabil, "id">) => void;
   onVoltar?: () => void;
 }
 
 export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
-  empresaNome = "Empresa XYZ Ltda",
-  lancamentos = [],
-  onAdicionarLancamento,
+  empresaNome = "Empresa sem cadastro",
   onVoltar,
 }) => {
   // Valores editáveis direto na tela com persistência em localStorage
-  const [saldoAtual, setSaldoAtual] = useState<string>("R$ 89.200,00");
-  const [entradasPrevistas, setEntradasPrevistas] = useState<string>("+ R$ 520.000,00");
-  const [saidasPrevistas, setSaidasPrevistas] = useState<string>("− R$ 475.000,00");
-  const [resultadoProjecao, setResultadoProjecao] = useState<string>("R$ 534.200,00");
-  const [isPositivo, setIsPositivo] = useState<boolean>(true);
+  const [saldoAtual, setSaldoAtual] = useState<string>("");
+  const [entradasPrevistas, setEntradasPrevistas] = useState<string>("");
+  const [saidasPrevistas, setSaidasPrevistas] = useState<string>("");
+  const [resultadoProjecao, setResultadoProjecao] = useState<string>("—");
+  const [isPositivo, setIsPositivo] = useState<boolean>(false);
 
   // Estados da interface e câmera
   const [mensagemToast, setMensagemToast] = useState<string | null>(null);
-  const [processandoOCR, setProcessandoOCR] = useState<boolean>(false);
-  const [documentoProcessado, setDocumentoProcessado] = useState<{
-    nome: string;
-    valorSugerido: number;
-    tipo: "entrada" | "saida";
-    descricao: string;
-    fornecedor: string;
-  } | null>(null);
 
   // Modal de câmera ao vivo (desktop/webcam)
   const [modalCameraAberta, setModalCameraAberta] = useState<boolean>(false);
@@ -99,9 +85,14 @@ export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
     ePrev = entradasPrevistas,
     sPrev = saidasPrevistas
   ) => {
+    if (!sAtual.trim() || !ePrev.trim() || !sPrev.trim()) {
+      setResultadoProjecao("—");
+      setIsPositivo(false);
+      return;
+    }
     const s = extrairValor(sAtual);
     const e = extrairValor(ePrev);
-    const sa = extrairValor(sPrev);
+    const sa = Math.abs(extrairValor(sPrev));
     const final = s + e - sa;
     setIsPositivo(final >= 0);
     setResultadoProjecao(formatarMoeda(final));
@@ -110,8 +101,8 @@ export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
   // Salvar valor editado no localStorage
   const salvarValor = (campo: "saldoAtual" | "entradasPrevistas" | "saidasPrevistas", valor: string) => {
     try {
-      localStorage.setItem(`murade_${campo}`, valor);
-      mostrarMensagem(`✅ Valor salvo com sucesso: ${valor}`);
+      localStorage.setItem(`murade_fluxo_manual_${campo}`, valor);
+      mostrarMensagem(`Valor local salvo neste navegador: ${valor}`);
       if (campo === "saldoAtual") {
         setSaldoAtual(valor);
         calcularProjecao(valor, entradasPrevistas, saidasPrevistas);
@@ -129,65 +120,31 @@ export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
 
   // Atualizar do banco / lançamentos reais do sistema
   const atualizarAutomatico = () => {
-    mostrarMensagem("🔄 Buscando dados no banco e lançamentos contábeis... ⏳");
-    setTimeout(() => {
-      // Se houver lançamentos, calcula saldo real ou aplica média ponderada inteligente
-      let novoSaldo = 92450.8;
-      let novasEntradas = 545000.0;
-      let novasSaidas = 482000.0;
-
-      if (lancamentos && lancamentos.length > 0) {
-        const totalCreditos = lancamentos.reduce((acc, l) => acc + (l.credito || 0), 0);
-        const totalDebitos = lancamentos.reduce((acc, l) => acc + (l.debito || 0), 0);
-        if (totalCreditos > 0 || totalDebitos > 0) {
-          novoSaldo = Math.max(85000, totalCreditos - totalDebitos + 50000);
-          novasEntradas = Math.max(450000, totalCreditos * 1.35);
-          novasSaidas = Math.max(380000, totalDebitos * 1.25);
-        }
-      }
-
-      const strSaldo = formatarMoeda(novoSaldo);
-      const strEntradas = formatarMoeda(novasEntradas, true);
-      const strSaidas = `− ${formatarMoeda(novasSaidas)}`;
-
-      setSaldoAtual(strSaldo);
-      setEntradasPrevistas(strEntradas);
-      setSaidasPrevistas(strSaidas);
-
-      try {
-        localStorage.setItem("murade_saldoAtual", strSaldo);
-        localStorage.setItem("murade_entradasPrevistas", strEntradas);
-        localStorage.setItem("murade_saidasPrevistas", strSaidas);
-      } catch {
-        // storage fallback
-      }
-
-      calcularProjecao(strSaldo, strEntradas, strSaidas);
-      mostrarMensagem("✅ Dados atualizados do banco contábil com sucesso!");
-    }, 1500);
+    mostrarMensagem("Atualização bancária indisponível: não há conexão com banco neste sistema. Informe os valores manualmente.");
   };
 
   // Limpar / Zerar tudo
   const limparValores = () => {
     if (window.confirm("Tem certeza que deseja ZERAR todos os valores do Fluxo Prevítico?")) {
-      const zSaldo = "R$ 0,00";
-      const zEntradas = "+ R$ 0,00";
-      const zSaidas = "− R$ 0,00";
+      const zSaldo = "";
+      const zEntradas = "";
+      const zSaidas = "";
 
       setSaldoAtual(zSaldo);
       setEntradasPrevistas(zEntradas);
       setSaidasPrevistas(zSaidas);
 
       try {
-        localStorage.removeItem("murade_saldoAtual");
-        localStorage.removeItem("murade_entradasPrevistas");
-        localStorage.removeItem("murade_saidasPrevistas");
+        localStorage.removeItem("murade_fluxo_manual_saldoAtual");
+        localStorage.removeItem("murade_fluxo_manual_entradasPrevistas");
+        localStorage.removeItem("murade_fluxo_manual_saidasPrevistas");
       } catch {
         // fallback
       }
 
-      calcularProjecao(zSaldo, zEntradas, zSaidas);
-      mostrarMensagem("✅ Todos os valores foram zerados!");
+      setResultadoProjecao("—");
+      setIsPositivo(false);
+      mostrarMensagem("Valores locais removidos.");
     }
   };
 
@@ -244,7 +201,7 @@ export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
         ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
       }
       fecharCamera();
-      simularOCRDocumento("Captura_Camera_NFe_" + Date.now() + ".jpg");
+      mostrarMensagem("Foto capturada, mas OCR e leitura fiscal ainda não estão implementados; nenhum lançamento foi criado.");
     }
   };
 
@@ -252,99 +209,24 @@ export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
   const processarArquivo = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      simularOCRDocumento(file.name);
+      mostrarMensagem(`Arquivo “${file.name}” selecionado. OCR/leitura ainda não está implementado; nenhum dado foi extraído.`);
+      e.target.value = "";
     }
-  };
-
-  // Simular OCR inteligente de documento / NF-e
-  const simularOCRDocumento = (nomeArquivo: string) => {
-    setProcessandoOCR(true);
-    mostrarMensagem(`📂 "${nomeArquivo}" carregado! Reconhecendo texto e valores com OCR IA... ⏳`);
-
-    setTimeout(() => {
-      setProcessandoOCR(false);
-      // Simula detecção de NF-e ou fatura
-      const valoresPossiveis = [3420.5, 7850.0, 12400.0, 1580.9, 4560.2];
-      const val = valoresPossiveis[Math.floor(Math.random() * valoresPossiveis.length)];
-      const tipo = Math.random() > 0.4 ? "entrada" : "saida";
-      const fornecedores = [
-        "Tech Solutions do Brasil Ltda",
-        "Distribuidora Mercantil Central",
-        "Posto Petrobras Express",
-        "Softwares & Nuvem S.A.",
-        "Consultoria Tributária Integrada",
-      ];
-      const fornecedor = fornecedores[Math.floor(Math.random() * fornecedores.length)];
-
-      setDocumentoProcessado({
-        nome: nomeArquivo,
-        valorSugerido: val,
-        tipo,
-        descricao:
-          tipo === "entrada"
-            ? `Recebimento Ref. NF-e Prestação de Serviços — ${fornecedor}`
-            : `Pagamento Fornecedor / Despesa Operacional — ${fornecedor}`,
-        fornecedor,
-      });
-
-      mostrarMensagem("✅ Documento reconhecido! Lançamento sugerido pronto para aprovar.");
-    }, 2000);
-  };
-
-  // Aprovar e incorporar lançamento sugerido
-  const aprovarLancamentoSugerido = () => {
-    if (!documentoProcessado) return;
-
-    if (onAdicionarLancamento) {
-      onAdicionarLancamento({
-        data: new Date().toISOString().split("T")[0],
-        contaDebito: documentoProcessado.tipo === "entrada" ? "1.1.01.002 - Banco Conta Movimento" : "3.1.01.001 - Despesas Gerais",
-        contaCredito: documentoProcessado.tipo === "entrada" ? "3.1.01.001 - Receita Bruta" : "1.1.01.002 - Banco Conta Movimento",
-        historico: `[OCR IA] ${documentoProcessado.descricao}`,
-        debito: documentoProcessado.valorSugerido,
-        credito: documentoProcessado.valorSugerido,
-        tipo: "Automatico",
-        status: "Conciliado",
-      });
-    }
-
-    // Atualiza projeção adicionando o valor nas entradas ou saídas
-    if (documentoProcessado.tipo === "entrada") {
-      const eAtual = extrairValor(entradasPrevistas);
-      const novaEntrada = eAtual + documentoProcessado.valorSugerido;
-      const strE = formatarMoeda(novaEntrada, true);
-      setEntradasPrevistas(strE);
-      salvarValor("entradasPrevistas", strE);
-    } else {
-      const sAtual = extrairValor(saidasPrevistas);
-      const novaSaida = sAtual + documentoProcessado.valorSugerido;
-      const strS = `− ${formatarMoeda(novaSaida)}`;
-      setSaidasPrevistas(strS);
-      salvarValor("saidasPrevistas", strS);
-    }
-
-    mostrarMensagem(`✅ Lançamento de ${formatarMoeda(documentoProcessado.valorSugerido)} incorporado ao Fluxo Prevítico!`);
-    setDocumentoProcessado(null);
   };
 
   // Carregar dados salvos ao montar
   useEffect(() => {
     try {
-      const sSaldo = localStorage.getItem("murade_saldoAtual");
-      const sEntradas = localStorage.getItem("murade_entradasPrevistas");
-      const sSaidas = localStorage.getItem("murade_saidasPrevistas");
-
-      const finalSaldo = sSaldo || saldoAtual;
-      const finalEntradas = sEntradas || entradasPrevistas;
-      const finalSaidas = sSaidas || saidasPrevistas;
+      const sSaldo = localStorage.getItem("murade_fluxo_manual_saldoAtual");
+      const sEntradas = localStorage.getItem("murade_fluxo_manual_entradasPrevistas");
+      const sSaidas = localStorage.getItem("murade_fluxo_manual_saidasPrevistas");
 
       if (sSaldo) setSaldoAtual(sSaldo);
       if (sEntradas) setEntradasPrevistas(sEntradas);
       if (sSaidas) setSaidasPrevistas(sSaidas);
-
-      calcularProjecao(finalSaldo, finalEntradas, finalSaidas);
+      if (sSaldo && sEntradas && sSaidas) calcularProjecao(sSaldo, sEntradas, sSaidas);
     } catch {
-      calcularProjecao();
+      setResultadoProjecao("—");
     }
   }, []);
 
@@ -401,8 +283,8 @@ export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
               <Wallet className="w-3.5 h-3.5 text-emerald-600" />
               <span>💰 Saldo Atual</span>
             </span>
-            <span className="text-[10px] text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-300 font-semibold">
-              Disponível
+              <span className="text-[10px] text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-300 font-semibold">
+              Informado manualmente
             </span>
           </div>
 
@@ -422,7 +304,7 @@ export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
 
           <div className="flex items-center justify-between pt-1.5 border-t border-slate-300 text-[10px] text-slate-500">
             <span className="text-emerald-700 font-bold flex items-center gap-0.5">
-              <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Positivo
+              {resultadoProjecao !== "—" ? (isPositivo ? "Projeção positiva" : "Projeção negativa") : "Aguardando valores"}
             </span>
             <span>Editar direto na tela</span>
           </div>
@@ -504,7 +386,7 @@ export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
           className="flex-1 min-w-[140px] py-2 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
         >
           <RefreshCw className="w-3.5 h-3.5" />
-          <span>🔄 Atualizar do Banco</span>
+          <span>🔄 Verificar conexão bancária</span>
         </button>
 
         <button
@@ -533,8 +415,8 @@ export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
           <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
             <span>📊 Projeção Final de Saldo (90 dias)</span>
           </div>
-          <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded border border-emerald-300 shadow-2xs">
-            Precisão estimada 95%
+          <span className="text-[10px] bg-amber-100 text-amber-900 font-bold px-2 py-0.5 rounded border border-amber-300 shadow-2xs">
+            Cálculo simples com valores informados
           </span>
         </div>
 
@@ -552,8 +434,8 @@ export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
         </div>
 
         <div className="mt-2 text-[10px] text-slate-500 flex items-center justify-between">
-          <span>* Histórico bancário + notas fiscais + provisões fiscais</span>
-          <span className="font-semibold text-emerald-700">Cenário: Saudável</span>
+          <span>* Sem conexão bancária ou previsão automática de notas e provisões</span>
+          <span className="font-semibold text-slate-700">Resultado não é previsão validada</span>
         </div>
       </div>
 
@@ -564,8 +446,8 @@ export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
             <Camera className="w-4 h-4 text-blue-600" />
             <span>📷 Envio de Documento (Foto NF-e / Boleto / PDF)</span>
           </div>
-          <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded border border-blue-300 font-semibold shadow-2xs">
-            OCR Integrado
+          <span className="text-[10px] bg-amber-100 text-amber-900 px-2 py-0.5 rounded border border-amber-300 font-semibold shadow-2xs">
+            OCR indisponível
           </span>
         </div>
 
@@ -621,67 +503,7 @@ export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
           </button>
         </div>
 
-        {/* Estado de Processamento OCR */}
-        {processandoOCR && (
-          <div className="mt-4 p-4 rounded-xl bg-blue-50 border border-blue-300 flex items-center gap-3 animate-pulse shadow-2xs">
-            <RefreshCw className="w-5 h-5 text-blue-600 animate-spin" />
-            <div className="text-xs text-blue-900">
-              <strong>Processando documento com IA...</strong> Extraindo CNPJ, valores, alíquotas e vencimento para o Fluxo Prevítico.
-            </div>
-          </div>
-        )}
-
-        {/* Card do Documento Reconhecido / Sugestão */}
-        {documentoProcessado && (
-          <div className="mt-5 bg-white border border-emerald-400 rounded-2xl p-5 shadow-sm animate-fade-in">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200 mb-3">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                <span className="font-bold text-sm text-slate-900">Documento Reconhecido por OCR</span>
-              </div>
-              <span className="text-xs bg-emerald-100 text-emerald-800 font-bold px-2.5 py-0.5 rounded-md border border-emerald-300">
-                {documentoProcessado.tipo === "entrada" ? "Receita / Entrada" : "Despesa / Saída"}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs mb-4">
-              <div className="bg-[#EEF4F9] border border-slate-200 p-2.5 rounded-lg">
-                <div className="text-slate-500">Arquivo:</div>
-                <div className="font-semibold text-slate-800 truncate">{documentoProcessado.nome}</div>
-              </div>
-              <div className="bg-[#EEF4F9] border border-slate-200 p-2.5 rounded-lg">
-                <div className="text-slate-500">Fornecedor/Cliente:</div>
-                <div className="font-semibold text-slate-800 truncate">{documentoProcessado.fornecedor}</div>
-              </div>
-              <div className="bg-[#EEF4F9] border border-slate-200 p-2.5 rounded-lg">
-                <div className="text-slate-500">Valor Identificado:</div>
-                <div className="font-extrabold text-emerald-700 font-mono text-sm">
-                  {formatarMoeda(documentoProcessado.valorSugerido)}
-                </div>
-              </div>
-            </div>
-
-            <div className="text-xs text-slate-700 mb-4 bg-blue-50 p-3 rounded-lg border border-blue-200">
-              <strong>Sugestão Contábil:</strong> {documentoProcessado.descricao}
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                onClick={aprovarLancamentoSugerido}
-                className="flex-1 py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Aprovar & Lançar no Fluxo</span>
-              </button>
-              <button
-                onClick={() => setDocumentoProcessado(null)}
-                className="py-2 px-4 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold transition cursor-pointer border border-slate-300"
-              >
-                Descartar
-              </button>
-            </div>
-          </div>
-        )}
+        <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">A foto e o arquivo ficam no navegador; leitura automática por OCR e integração bancária ainda não estão disponíveis. Nenhum lançamento é criado ao selecionar um arquivo.</p>
       </div>
 
       {/* Modal de Câmera Direta no Navegador (Webcam Desktop / Tablet) */}
@@ -721,7 +543,7 @@ export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
                 className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
               >
                 <Camera className="w-5 h-5" />
-                <span>Capturar Foto & Ler OCR</span>
+                <span>Capturar Foto</span>
               </button>
               <button
                 onClick={fecharCamera}
