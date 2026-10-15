@@ -41,7 +41,7 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
 
   // Contas sintéticas disponíveis para servirem de "Conta Pai"
   const contasSinteticas = useMemo(() => {
-    return contasOrdenadas.filter((c) => c.tipo === "sintetica");
+    return contasOrdenadas.filter((c) => c.tipo === "sintetica" && c.nivel < 5);
   }, [contasOrdenadas]);
 
   // Estado do formulário de nova conta manual
@@ -49,7 +49,7 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
   const [travarSequencia, setTravarSequencia] = useState(true);
   const [novoCodigo, setNovoCodigo] = useState("1.1.6");
   const [novaDescricao, setNovaDescricao] = useState("");
-  const [novoNivel, setNovoNivel] = useState<1 | 2 | 3 | 4>(3);
+  const [novoNivel, setNovoNivel] = useState<1 | 2 | 3 | 4 | 5>(3);
   const [novoTipo, setNovoTipo] = useState<"sintetica" | "analitica">("analitica");
   const [novaNatureza, setNovaNatureza] = useState<"D" | "C">("D");
   const [erroFeedback, setErroFeedback] = useState<string | null>(null);
@@ -71,7 +71,7 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
     const info = calcularProximoCodigoSequencial(contas, codigoPai);
 
     setNovoCodigo(info.proximoCodigo);
-    setNovoNivel(((pai?.nivel || 2) + 1) as 1 | 2 | 3 | 4);
+    setNovoNivel(Math.min(5, (pai?.nivel || 1) + 1) as 1 | 2 | 3 | 4 | 5);
     setNovoTipo("analitica");
 
     // Determina a natureza a partir do grupo raiz
@@ -145,6 +145,15 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
     if (filtroGrupo === "todos") return matchBusca;
     return matchBusca && c.codigo.startsWith(filtroGrupo);
   });
+  const codigosConta = new Set(contas.map((conta) => conta.codigo));
+  const paisAusentes = [...new Set(contas.flatMap((conta) => {
+    const partes = conta.codigo.split(".");
+    if (partes.length <= 1) return [];
+    return partes.slice(1).flatMap((_, index) => {
+      const codigoSuperior = partes.slice(0, index + 1).join(".");
+      return codigosConta.has(codigoSuperior) ? [] : [codigoSuperior];
+    });
+  }))].sort();
 
   return (
     <div className="bg-white rounded-xl p-5 sm:p-6 shadow-xs border border-slate-200">
@@ -158,16 +167,16 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
             </span>
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
               <ShieldCheck className="w-3 h-3 text-emerald-600" />
-              <span>Padrão SPED / CPC</span>
+              <span>Modelo padrão importado</span>
             </span>
           </div>
 
           <h3 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
             <ListTree className="w-5 h-5 text-blue-600" />
-            <span>📑 PLANO DE CONTAS COMPLETO — CPC/PCAS</span>
+            <span>📑 PLANO DE CONTAS — MODELO DA EMPRESA</span>
           </h3>
           <p className="text-xs text-slate-600 mt-0.5">
-            Ao realizar um <strong>lançamento ou cadastro manual</strong>, a numeração segue rigorosamente a sequência de números da conta pai para manter a integridade da sequência numérica.
+            Modelo importado do arquivo fornecido, com cinco níveis. A numeração preserva a largura dos códigos por nível.
           </p>
         </div>
 
@@ -179,6 +188,12 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
           <span>+ Nova Conta na Sequência</span>
         </button>
       </div>
+
+      {paisAusentes.length > 0 && (
+        <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
+          <strong>Revisão da estrutura do modelo:</strong> faltam contas sintéticas superiores para os códigos {paisAusentes.join(", ")}. As contas originais foram preservadas; confirme esses grupos antes de usá-las em lançamentos.
+        </div>
+      )}
 
       {/* Banner Informativo da Regra de Sequência Numérica */}
       <div className="mb-4 p-3.5 rounded-xl bg-[#EEF4F9] border border-[#CBD5E1] text-xs text-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -228,12 +243,10 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
             value={filtroGrupo}
             onChange={(e) => setFiltroGrupo(e.target.value)}
           >
-            <option value="todos">Todos os Grupos (1 ao 5)</option>
-            <option value="1">1 — Ativo</option>
-            <option value="2">2 — Passivo</option>
-            <option value="3">3 — Patrimônio Líquido</option>
-            <option value="4">4 — Receitas</option>
-            <option value="5">5 — Custos e Despesas</option>
+            <option value="todos">Todos os grupos</option>
+            {contasOrdenadas.filter((conta) => conta.nivel === 1).map((conta) => (
+              <option key={conta.codigo} value={conta.codigo}>{conta.codigo} — {conta.descricao}</option>
+            ))}
           </select>
         </div>
       </div>
@@ -260,6 +273,7 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
                   ? "bg-slate-50/90 font-semibold text-slate-800 pl-6 border-l-2 border-l-blue-400"
                   : "hover:bg-blue-50/40 text-slate-700 pl-10"
               }`}
+              style={conta.nivel >= 3 ? { paddingLeft: `${Math.min(5, conta.nivel) * 0.8}rem` } : undefined}
             >
               <div className="flex items-center gap-2 min-w-0">
                 <span className="font-mono font-bold text-slate-900 shrink-0">{conta.codigo}</span>

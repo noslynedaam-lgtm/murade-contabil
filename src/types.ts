@@ -137,7 +137,7 @@ export interface CentroCustoContabil {
 export interface ContaPlano {
   codigo: string;
   descricao: string;
-  nivel: 1 | 2 | 3 | 4;
+  nivel: 1 | 2 | 3 | 4 | 5;
   tipo: "sintetica" | "analitica";
   natureza: "D" | "C";
   saldoInicial?: number;

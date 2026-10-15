@@ -83,10 +83,17 @@ export function calcularProximoCodigoSequencial(
 
   const maiorNumero = numeros.length > 0 ? Math.max(...numeros) : 0;
   const proximoNumero = maiorNumero + 1;
-  const ultimaConta = filhas.find((f) => f.codigo === `${codigoPai}.${maiorNumero}`);
+  const profundidadeFilha = codigoPai.split(".").length + 1;
+  const contasMesmoNivel = contas.filter((conta) => conta.codigo.split(".").length === profundidadeFilha);
+  const larguraCodigo = contasMesmoNivel.reduce((maior, filha) => {
+    const sufixo = filha.codigo.split(".").at(-1) || "";
+    return /^\d+$/.test(sufixo) ? Math.max(maior, sufixo.length) : maior;
+  }, 1);
+  const proximoSufixo = String(proximoNumero).padStart(larguraCodigo, "0");
+  const ultimaConta = filhas.find((f) => Number.parseInt(f.codigo.split(".").at(-1) || "", 10) === maiorNumero);
 
   return {
-    proximoCodigo: `${codigoPai}.${proximoNumero}`,
+    proximoCodigo: `${codigoPai}.${proximoSufixo}`,
     ultimoExistente: ultimaConta ? `${ultimaConta.codigo} — ${ultimaConta.descricao}` : null,
     numeroSequencial: proximoNumero,
   };
