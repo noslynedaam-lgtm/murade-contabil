@@ -475,7 +475,8 @@ export default function App() {
 
               {tabAtiva === "modulos-finais" && (
                 <ModulosFinaisTab
-                  onNotificar={(msg) => showToast(msg)}
+                  empresa={empresa}
+                  lancamentos={lancamentos}
                 />
               )}
 
