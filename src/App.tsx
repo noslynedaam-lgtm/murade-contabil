@@ -547,6 +547,10 @@ export default function App() {
               {tabAtiva === "plano-contas" && (
                 <PlanoContasTab
                   contas={contas}
+                  onEditarDescricao={(codigo, descricao) => {
+                    setContas((prev) => prev.map((conta) => conta.codigo === codigo ? { ...conta, descricao } : conta));
+                    showToast(`Nome da conta ${codigo} atualizado para esta empresa.`);
+                  }}
                   onAdicionarConta={(nova) => {
                     setContas((prev) => ordenarContasPorSequenciaNumerica([...prev, nova]));
                     showToast(

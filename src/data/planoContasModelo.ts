@@ -1649,6 +1649,20 @@ export const planoContasModelo: ContaPlano[] = [
     "natureza": "C"
   },
   {
+    "codigo": "2.2.02",
+    "descricao": "",
+    "nivel": 3,
+    "tipo": "sintetica",
+    "natureza": "C"
+  },
+  {
+    "codigo": "2.2.02.01",
+    "descricao": "",
+    "nivel": 4,
+    "tipo": "sintetica",
+    "natureza": "C"
+  },
+  {
     "codigo": "2.2.02.01.01",
     "descricao": "Capital Social - Cotas",
     "nivel": 5,
@@ -3339,6 +3353,13 @@ export const planoContasModelo: ContaPlano[] = [
     "codigo": "4.3.06",
     "descricao": "Despesas com Tributos",
     "nivel": 3,
+    "tipo": "sintetica",
+    "natureza": "D"
+  },
+  {
+    "codigo": "4.4",
+    "descricao": "",
+    "nivel": 2,
     "tipo": "sintetica",
     "natureza": "D"
   },

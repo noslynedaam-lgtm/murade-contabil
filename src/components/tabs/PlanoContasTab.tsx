@@ -14,6 +14,9 @@ import {
   Hash,
   ShieldCheck,
   ArrowRight,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react";
 import { IbsCbsReformaCard } from "../IbsCbsReformaCard";
 import {
@@ -27,12 +30,15 @@ import {
 interface PlanoContasTabProps {
   contas: ContaPlano[];
   onAdicionarConta: (conta: ContaPlano) => void;
+  onEditarDescricao: (codigo: string, descricao: string) => void;
 }
 
-export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicionarConta }) => {
+export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicionarConta, onEditarDescricao }) => {
   const [busca, setBusca] = useState("");
   const [filtroGrupo, setFiltroGrupo] = useState("todos");
   const [modalNovaConta, setModalNovaConta] = useState(false);
+  const [codigoEmEdicao, setCodigoEmEdicao] = useState<string | null>(null);
+  const [descricaoEmEdicao, setDescricaoEmEdicao] = useState("");
 
   // Lista de contas sempre ordenada em estrita sequência numérica
   const contasOrdenadas = useMemo(() => {
@@ -136,6 +142,17 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
     });
 
     setModalNovaConta(false);
+  };
+
+  const iniciarEdicaoDescricao = (conta: ContaPlano) => {
+    setCodigoEmEdicao(conta.codigo);
+    setDescricaoEmEdicao(conta.descricao);
+  };
+
+  const salvarDescricao = (codigo: string) => {
+    onEditarDescricao(codigo, descricaoEmEdicao.trim());
+    setCodigoEmEdicao(null);
+    setDescricaoEmEdicao("");
   };
 
   const contasFiltradas = contasOrdenadas.filter((c) => {
@@ -278,12 +295,42 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
               <div className="flex items-center gap-2 min-w-0">
                 <span className="font-mono font-bold text-slate-900 shrink-0">{conta.codigo}</span>
                 <span className="text-slate-400">—</span>
-                <span className={`truncate ${isNivel1 ? "tracking-wide uppercase font-black" : ""}`}>
-                  {conta.descricao}
-                </span>
+                {codigoEmEdicao === conta.codigo ? (
+                  <input
+                    autoFocus
+                    aria-label={`Descrição da conta ${conta.codigo}`}
+                    className="min-w-36 rounded border border-blue-400 bg-white px-2 py-1 text-xs font-normal text-slate-900 outline-none focus:ring-2 focus:ring-blue-200"
+                    value={descricaoEmEdicao}
+                    onChange={(event) => setDescricaoEmEdicao(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") salvarDescricao(conta.codigo);
+                      if (event.key === "Escape") setCodigoEmEdicao(null);
+                    }}
+                    placeholder="Nome desta conta nesta empresa"
+                  />
+                ) : (
+                  <span className={`truncate ${isNivel1 ? "tracking-wide uppercase font-black" : ""} ${conta.descricao ? "" : "italic text-amber-700"}`}>
+                    {conta.descricao || "Nome não definido para esta empresa"}
+                  </span>
+                )}
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
+                {codigoEmEdicao === conta.codigo ? (
+                  <>
+                    <button type="button" onClick={() => salvarDescricao(conta.codigo)} className="rounded bg-emerald-50 p-1 text-emerald-700 hover:bg-emerald-100" title="Salvar nome para esta empresa" aria-label={`Salvar nome da conta ${conta.codigo}`}>
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
+                    <button type="button" onClick={() => setCodigoEmEdicao(null)} className="rounded bg-slate-100 p-1 text-slate-600 hover:bg-slate-200" title="Cancelar edição" aria-label={`Cancelar edição da conta ${conta.codigo}`}>
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => iniciarEdicaoDescricao(conta)} className="rounded bg-slate-100 p-1 text-slate-600 opacity-70 hover:bg-blue-50 hover:text-blue-700 group-hover:opacity-100" title="Editar nome somente para esta empresa" aria-label={`Editar nome da conta ${conta.codigo}`}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                )}
+
                 {/* Botão de atalho para adicionar conta filha na sequência */}
                 {!isAnalitica && proximoCodSintetica && (
                   <button
