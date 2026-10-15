@@ -25,7 +25,8 @@ Não ativar compartilhamento de A1 enviando apenas CNPJ, token global ao navegad
 ## Plano de contas por empresa
 
 - O usuário forneceu `ExpPContas.XLS` para servir de modelo padrão. O arquivo tem 569 contas, cinco níveis, códigos, descrições, natureza D/C e tipo sintética/analítica; não inclui saldos.
-- Foram encontrados quatro registros com pai ausente: `2.2.02.01.01`, `2.2.02.01.02`, `2.2.02.01.03` e `4.4.01`. Isso corresponde aos grupos ausentes `2.2.02`, `2.2.02.01` e `4.4`. O Contábil deve preservar os registros e exibir aviso, sem inventar nomes ou contas de compensação.
+- Foram encontrados quatro registros com pai ausente: `2.2.02.01.01`, `2.2.02.01.02`, `2.2.02.01.03` e `4.4.01`. Os ancestrais ausentes são `2.2.02`, `2.2.02.01` e `4.4`; o Contábil preserva os registros e avisa sobre a lacuna.
+- Os nomes informados posteriormente pelo usuário (`2.2.02` = Obrigações Trabalhistas, `2.2.02.01` = FGTS a Recolher e `4.4` = Patrimônio Líquido) ainda não foram aplicados porque entram em conflito com as contas filhas do XLS: `2.2.02.01.01` a `.03` são Capital Social/Cotas e Ações Ordinárias/Preferenciais, todas credoras; `4.4.01` é Tributos, sintética e devedora. O arquivo já contém `2.1.05.01.06` = FGTS a Recolher e `2.3` = Patrimônio líquido. Confirmar ou corrigir os códigos antes de alterar o modelo evita apresentar despesas como patrimônio líquido ou classificar capital social como FGTS.
 - Este é o modelo operacional do usuário, não uma declaração de que o arquivo seja o plano referencial oficial do SPED/CPC. O modelo não deve gerar lançamentos ou mapeamentos automáticos sem revisão.
 - O Contábil agora usa esse modelo como conjunto padrão para empresas sem plano persistido, com suporte a cinco níveis e códigos com segmentos preenchidos por zero. Dados de empresas já salvos no navegador são preservados e não são sobrescritos por uma atualização.
 
