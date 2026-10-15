@@ -219,13 +219,6 @@ export default function App() {
     showToast("Não foi possível verificar o endereço deste órgão.", "info");
   };
 
-  const handleAtualizarOrgao = (id: string, updates: Partial<OrgaoConectado>) => {
-    setOrgaos((prev) =>
-      prev.map((org) => (org.id === id ? { ...org, ...updates } : org))
-    );
-    showToast("⚙️ Configurações do órgão atualizadas e salvas com sucesso!");
-  };
-
   // 2. Rodar Auditoria Completa pelo Robô
   const handleRunAudit = () => {
     setIsAuditing(true);
@@ -429,12 +422,7 @@ export default function App() {
                   orgaos={orgaos}
                   onTestarTodas={handleTestarConexoes}
                   onTestarIndividual={handleTestarOrgaoIndividual}
-                  onAtualizarOrgao={handleAtualizarOrgao}
                   isTesting={isTestingOrgaos}
-                  empresa={empresa}
-                  onUpdateEmpresa={(novosDados) =>
-                    setEmpresa((prev) => ({ ...prev, ...novosDados }))
-                  }
                   onConectarFiscal={handleConectarMuradFiscal}
                   onConectarDP={handleConectarMuradDP}
                 />
@@ -510,10 +498,9 @@ export default function App() {
               {tabAtiva === "balancete" && (
                 <BalanceteTab
                   competencia={empresa.competencia}
+                  lancamentos={lancamentos}
+                  contas={contas}
                   onFecharMes={handleFecharMes}
-                  onGerarBalancete={() =>
-                    showToast("Balancete recalculado com todos os lançamentos ativos!")
-                  }
                 />
               )}
 

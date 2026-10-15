@@ -27,6 +27,8 @@ async function startServer() {
 
   // API Health
   app.get("/api/health", (req, res) => {
+    // Resposta pública sem dados de clientes, consultada pelo painel central entre domínios.
+    res.setHeader("Access-Control-Allow-Origin", "*");
     res.json({
       status: "ok",
       system: "Murad Contábil",
@@ -438,6 +440,9 @@ async function startServer() {
 
   // Vite middleware em desenvolvimento
   if (process.env.NODE_ENV !== "production") {
+    app.use("/api", (_req, res) => {
+      return res.status(404).json({ sucesso: false, error: "Endpoint da API não encontrado." });
+    });
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -445,6 +450,9 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
+    app.use("/api", (_req, res) => {
+      return res.status(404).json({ sucesso: false, error: "Endpoint da API não encontrado." });
+    });
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));

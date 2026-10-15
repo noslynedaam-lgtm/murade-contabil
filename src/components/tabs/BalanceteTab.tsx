@@ -1,279 +1,230 @@
-import React, { useState } from "react";
-import { CheckCircle2, FileText, Download, Printer, Sparkles, Lock, ArrowUpDown } from "lucide-react";
-import { BalancoCompletoModal, baixarArquivoTexto } from "../modals/DemonstrativosModals";
+import React, { useMemo, useState } from "react";
+import { AlertTriangle, ArrowUpDown, CheckCircle2, Download, Lock, RefreshCw } from "lucide-react";
+import { ContaPlano, LancamentoContabil } from "../../types";
 
 interface BalanceteTabProps {
   competencia: string;
+  lancamentos: LancamentoContabil[];
+  contas: ContaPlano[];
   onFecharMes: () => void;
-  onGerarBalancete: () => void;
 }
 
-export const BalanceteTab: React.FC<BalanceteTabProps> = ({
-  competencia,
-  onFecharMes,
-  onGerarBalancete,
-}) => {
-  const [exportFeedback, setExportFeedback] = useState<string | null>(null);
+interface LinhaBalancete {
+  codigo: string;
+  descricao: string;
+  nivel: number;
+  tipo: ContaPlano["tipo"];
+  movimentosDebito: number;
+  movimentosCredito: number;
+  saldoDevedor: number;
+  saldoCredor: number;
+}
+
+function obterCompetencia(data: string): string {
+  const valor = String(data || "").trim();
+  const iso = /^(\d{4})-(\d{2})/.exec(valor);
+  if (iso) return `${iso[1]}-${iso[2]}`;
+  const br = /^(\d{2})\/(\d{4})$/.exec(valor);
+  return br ? `${br[2]}-${br[1]}` : "";
+}
+
+function centavos(valor: unknown): number {
+  const numero = Number(valor);
+  return Number.isFinite(numero) ? Math.round(numero * 100) : 0;
+}
+
+function moeda(valorEmCentavos: number): string {
+  return (valorEmCentavos / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function escaparCsv(valor: string): string {
+  return `"${String(valor).replace(/"/g, '""')}"`;
+}
+
+export const BalanceteTab: React.FC<BalanceteTabProps> = ({ competencia, lancamentos, contas, onFecharMes }) => {
+  const [competenciaSelecionada, setCompetenciaSelecionada] = useState(competencia || "");
   const [modoVisualizacao, setModoVisualizacao] = useState<"resumido" | "analitico">("analitico");
-  const [modalBalancoAberto, setModalBalancoAberto] = useState(false);
+  const [geradoEm, setGeradoEm] = useState<string | null>(null);
+  const [feedbackExportacao, setFeedbackExportacao] = useState<string | null>(null);
 
-  const handleExportPDF = () => {
-    const texto = `BALANCETE DE VERIFICAÇÃO OFICIAL — COMPETÊNCIA ${competencia}
-MURADE CONTÁBIL — SISTEMA AUTÔNOMO 2026
-CONFORMIDADE TOTAL COM CPC 00 E PARTIDAS DOBRADAS (DEVE = CR)
+  const resumo = useMemo(() => {
+    const contasPorCodigo = new Map(contas.map((conta) => [conta.codigo, conta]));
+    const movimentos = new Map<string, { debito: number; credito: number }>();
+    const doPeriodo = lancamentos.filter((lancamento) => !competenciaSelecionada || obterCompetencia(lancamento.data) === competenciaSelecionada);
+    let lancamentosValidos = 0;
+    let lancamentosInvalidos = 0;
+    let totalDebitos = 0;
+    let totalCreditos = 0;
 
-TOTAL DE DÉBITOS:   R$ 258.492,00
-TOTAL DE CRÉDITOS:  R$ 258.492,00
-DIFERENÇA:          R$ 0,00 (EQUILIBRADO)
+    const adicionar = (codigo: string, debito: number, credito: number) => {
+      const atual = movimentos.get(codigo) || { debito: 0, credito: 0 };
+      atual.debito += debito;
+      atual.credito += credito;
+      movimentos.set(codigo, atual);
+    };
 
-Assinado digitalmente por Murade Contábil via Certificado Digital ICP-Brasil.`;
-    baixarArquivoTexto(`Balancete_Oficial_${competencia.replace("/", "-")}.txt`, texto);
-    setExportFeedback("✅ Arquivo oficial do Balancete baixado com sucesso!");
-    setTimeout(() => setExportFeedback(null), 3000);
-  };
+    for (const conta of contas) {
+      const saldoInicial = centavos(conta.saldoInicial || 0);
+      if (saldoInicial > 0) adicionar(conta.codigo, conta.natureza === "D" ? saldoInicial : 0, conta.natureza === "C" ? saldoInicial : 0);
+    }
 
-  const handleExportExcel = () => {
-    const csv = `Conta;Descricao;Natureza;Debito;Credito\n1;ATIVO;D;258492.00;0.00\n1.1;ATIVO CIRCULANTE;D;180000.00;0.00\n2;PASSIVO;C;0.00;58492.00\n3;PATRIMONIO LIQUIDO;C;0.00;200000.00\nTOTAL GERAL (DEVE = CR);;258492.00;258492.00\n`;
-    baixarArquivoTexto(`Balancete_Excel_${competencia.replace("/", "-")}.csv`, csv, "text/csv;charset=utf-8");
-    setExportFeedback("✅ Planilha Excel exportada com sucesso!");
-    setTimeout(() => setExportFeedback(null), 3000);
+    for (const lancamento of doPeriodo) {
+      const valor = centavos(lancamento.valor);
+      const debitoExiste = contasPorCodigo.has(lancamento.contaDebitoCodigo);
+      const creditoExiste = contasPorCodigo.has(lancamento.contaCreditoCodigo);
+      if (valor <= 0 || !debitoExiste || !creditoExiste) {
+        lancamentosInvalidos += 1;
+        continue;
+      }
+      adicionar(lancamento.contaDebitoCodigo, valor, 0);
+      adicionar(lancamento.contaCreditoCodigo, 0, valor);
+      totalDebitos += valor;
+      totalCreditos += valor;
+      lancamentosValidos += 1;
+    }
+
+    const linhas: LinhaBalancete[] = contas.map((conta) => {
+      let movimentosDaConta = { ...(movimentos.get(conta.codigo) || { debito: 0, credito: 0 }) };
+      for (const filha of contas) {
+        if (filha.codigo.startsWith(`${conta.codigo}.`)) {
+          const movimentoFilha = movimentos.get(filha.codigo);
+          if (movimentoFilha) {
+            movimentosDaConta.debito += movimentoFilha.debito;
+            movimentosDaConta.credito += movimentoFilha.credito;
+          }
+        }
+      }
+      const saldo = movimentosDaConta.debito - movimentosDaConta.credito;
+      return {
+        codigo: conta.codigo,
+        descricao: conta.descricao,
+        nivel: conta.nivel,
+        tipo: conta.tipo,
+        movimentosDebito: movimentosDaConta.debito,
+        movimentosCredito: movimentosDaConta.credito,
+        saldoDevedor: Math.max(0, saldo),
+        saldoCredor: Math.max(0, -saldo),
+      };
+    });
+
+    const contasAnaliticas = linhas.filter((linha) => linha.tipo === "analitica");
+    const totalSaldoDevedor = contasAnaliticas.reduce((total, linha) => total + linha.saldoDevedor, 0);
+    const totalSaldoCredor = contasAnaliticas.reduce((total, linha) => total + linha.saldoCredor, 0);
+    const temSaldosIniciais = contas.some((conta) => centavos(conta.saldoInicial || 0) > 0);
+    const temDados = lancamentosValidos > 0 || temSaldosIniciais;
+    return {
+      linhas,
+      doPeriodo: doPeriodo.length,
+      lancamentosValidos,
+      lancamentosInvalidos,
+      totalDebitos,
+      totalCreditos,
+      totalSaldoDevedor,
+      totalSaldoCredor,
+      temDados,
+      diferencaSaldos: Math.abs(totalSaldoDevedor - totalSaldoCredor),
+    };
+  }, [competenciaSelecionada, contas, lancamentos]);
+
+  const linhasVisiveis = resumo.linhas.filter((linha) => modoVisualizacao === "analitico" || linha.tipo === "sintetica");
+  const equilibrado = resumo.temDados && resumo.lancamentosInvalidos === 0 && resumo.diferencaSaldos === 0;
+
+  const exportarCsv = () => {
+    if (!resumo.temDados || resumo.lancamentosInvalidos > 0) {
+      setFeedbackExportacao("Não exportei: confira os lançamentos inválidos e informe dados contábeis válidos.");
+      return;
+    }
+    const linhasCsv = [
+      ["Balancete local — não é documento oficial"],
+      [`Competência;${competenciaSelecionada || "Todas"}`],
+      ["Conta", "Descrição", "Movimentos débito", "Movimentos crédito", "Saldo devedor", "Saldo credor"],
+      ...resumo.linhas.filter((linha) => linha.tipo === "analitica").map((linha) => [
+        escaparCsv(linha.codigo), escaparCsv(linha.descricao),
+        (linha.movimentosDebito / 100).toFixed(2), (linha.movimentosCredito / 100).toFixed(2),
+        (linha.saldoDevedor / 100).toFixed(2), (linha.saldoCredor / 100).toFixed(2),
+      ]),
+      ["Totais", "", (resumo.totalDebitos / 100).toFixed(2), (resumo.totalCreditos / 100).toFixed(2), (resumo.totalSaldoDevedor / 100).toFixed(2), (resumo.totalSaldoCredor / 100).toFixed(2)],
+    ].map((linha) => linha.join(";"));
+    const blob = new Blob(["\uFEFF", linhasCsv.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `balancete-local-${competenciaSelecionada || "todas"}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setFeedbackExportacao("Arquivo CSV local baixado. Ele não é assinado, transmitido ou validado por órgão oficial.");
   };
 
   return (
-    <div className="bg-white rounded-xl p-3.5 sm:p-4 shadow-xs border border-slate-200">
-      {/* Cabeçalho Compacto */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 pb-2.5 border-b border-slate-100">
+    <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+      <header className="flex flex-col justify-between gap-3 border-b border-slate-100 pb-3 sm:flex-row sm:items-center">
         <div>
-          <h3 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-1.5">
-            <span>📊</span> Balancete de Verificação
-          </h3>
-          <p className="text-xs text-slate-500">
-            Demonstração contábil por partidas dobradas em conformidade com o CPC 00.
-          </p>
+          <h3 className="flex items-center gap-2 text-base font-bold text-slate-900">📊 Balancete local de verificação</h3>
+          <p className="mt-1 text-xs text-slate-600">Calculado dos lançamentos e saldos iniciais registrados neste Contábil. Não consulta Fiscal, DP, bancos ou órgãos oficiais.</p>
         </div>
+        <button type="button" onClick={() => setModoVisualizacao((atual) => atual === "analitico" ? "resumido" : "analitico")} className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
+          <ArrowUpDown className="h-3.5 w-3.5 text-blue-600" /> {modoVisualizacao === "analitico" ? "Visão analítica" : "Visão sintética"}
+        </button>
+      </header>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setModoVisualizacao(modoVisualizacao === "analitico" ? "resumido" : "analitico")}
-            className="text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-lg transition flex items-center gap-1 cursor-pointer border border-slate-200"
-          >
-            <ArrowUpDown className="w-3.5 h-3.5 text-blue-600" />
-            <span>Modo: {modoVisualizacao === "analitico" ? "Analítico" : "Sintético"}</span>
+      <section className="flex flex-wrap items-end justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <label className="text-xs font-bold text-slate-700">Competência
+          <input type="month" value={competenciaSelecionada} onChange={(evento) => setCompetenciaSelecionada(evento.target.value)} className="mt-1 block rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm font-medium" />
+        </label>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => setGeradoEm(new Date().toISOString())} className="flex items-center gap-1.5 rounded-md bg-blue-700 px-3 py-2 text-xs font-bold text-white">
+            <RefreshCw className="h-3.5 w-3.5" /> Atualizar balancete
+          </button>
+          <button type="button" onClick={onFecharMes} className="flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">
+            <Lock className="h-3.5 w-3.5" /> Fechar mês
           </button>
         </div>
-      </div>
+      </section>
 
-      {/* Barra Superior de Controles — Compacta */}
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-3 bg-slate-50 p-2 rounded-lg border border-slate-200 text-xs">
-        <div className="flex items-center gap-1.5">
-          <label className="text-xs font-bold text-slate-700">Competência:</label>
-          <input
-            type="month"
-            className="bg-white border border-slate-300 rounded-md px-2 py-1 text-xs text-slate-900 font-semibold"
-            defaultValue={competencia}
-          />
-        </div>
+      {geradoEm && <p role="status" className="text-xs text-slate-600">Resumo local atualizado em {new Date(geradoEm).toLocaleString("pt-BR")}.</p>}
+      {feedbackExportacao && <p role="status" className="rounded-md border border-blue-200 bg-blue-50 p-2 text-xs text-blue-900">{feedbackExportacao}</p>}
 
-        <div className="flex flex-wrap gap-1.5">
-          <button
-            id="btn-gerar-balancete"
-            onClick={onGerarBalancete}
-            className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-2.5 py-1 rounded-md transition flex items-center gap-1 cursor-pointer shadow-xs"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-            <span>Gerar Balancete</span>
-          </button>
-
-          <button
-            id="btn-fechar-mes"
-            onClick={onFecharMes}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-2.5 py-1 rounded-md transition flex items-center gap-1 cursor-pointer shadow-xs"
-          >
-            <Lock className="w-3.5 h-3.5" />
-            <span>Fechar Mês</span>
-          </button>
-        </div>
-      </div>
-
-      {exportFeedback && (
-        <div className="mb-3 p-2 bg-blue-50 border border-blue-200 text-blue-900 rounded-lg text-xs font-semibold flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
-          <span>{exportFeedback}</span>
-        </div>
-      )}
-
-      {/* Cartão de Sucesso DEVE = CR — Compacto */}
-      <div className="bg-emerald-50/80 border-l-3 border-emerald-600 p-2.5 rounded-r-lg rounded-l-xs mb-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
-          <div>
-            <div className="font-bold text-emerald-950 text-xs sm:text-sm flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              <span>BALANCETE EQUILIBRADO — DEVE = CR = R$ 258.492,00</span>
-            </div>
-            <div className="text-[11px] text-emerald-800 font-medium">
-              Competência: 10/2026 — Fechamento sem divergências contábeis.
-            </div>
+      <section className={`rounded-lg border p-3 ${equilibrado ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+        <div className="flex items-start gap-2">
+          {equilibrado ? <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-700" /> : <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-700" />}
+          <div className="text-xs">
+            <strong>{equilibrado ? "Movimentos locais equilibrados" : resumo.temDados ? "Balancete local requer conferência" : "Sem dados contábeis para calcular"}</strong>
+            <p className="mt-1 text-slate-700">Competência {competenciaSelecionada || "não selecionada"} · {resumo.lancamentosValidos} lançamento(s) válidos · {resumo.lancamentosInvalidos} inválido(s) · {resumo.doPeriodo} no período.</p>
+            {resumo.temDados && <p className="mt-1 text-slate-700">Saldo devedor {moeda(resumo.totalSaldoDevedor)} · saldo credor {moeda(resumo.totalSaldoCredor)} · diferença {moeda(resumo.diferencaSaldos)}.</p>}
+            {!resumo.temDados && <p className="mt-1 text-slate-700">Um balancete vazio não confirma que a contabilidade esteja regular ou sem pendências.</p>}
           </div>
-          <span className="text-[11px] font-bold text-emerald-900 bg-emerald-200/70 px-2 py-0.5 rounded self-start sm:self-auto">
-            Divergência: R$ 0,00
-          </span>
         </div>
-      </div>
+      </section>
 
-      {/* Tabela do Balancete — Linhas Compactas */}
-      <div className="overflow-x-auto border border-slate-200 rounded-lg shadow-2xs mb-3">
-        <table className="w-full text-left text-xs border-collapse">
-          <thead className="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200">
-            <tr>
-              <th className="py-1.5 px-3 w-24">Conta</th>
-              <th className="py-1.5 px-3">Descrição da Conta</th>
-              <th className="py-1.5 px-3 text-right w-32">Saldo Débito (R$)</th>
-              <th className="py-1.5 px-3 text-right w-32">Saldo Crédito (R$)</th>
-            </tr>
+      <div className="overflow-x-auto rounded-lg border border-slate-200">
+        <table className="w-full min-w-[650px] border-collapse text-left text-xs">
+          <thead className="border-b border-slate-200 bg-slate-50 text-slate-700">
+            <tr><th className="px-3 py-2">Conta</th><th className="px-3 py-2">Descrição</th><th className="px-3 py-2 text-right">Mov. débito</th><th className="px-3 py-2 text-right">Mov. crédito</th><th className="px-3 py-2 text-right">Saldo devedor</th><th className="px-3 py-2 text-right">Saldo credor</th></tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 text-slate-800 text-xs">
-            {/* 1 - ATIVO */}
-            <tr className="bg-slate-50/70 font-bold text-slate-900">
-              <td className="py-1.5 px-3 font-mono">1</td>
-              <td className="py-1.5 px-3">ATIVO TOTAL</td>
-              <td className="py-1.5 px-3 text-right text-rose-700">158.700,00</td>
-              <td className="py-1.5 px-3 text-right text-slate-400">—</td>
-            </tr>
-
-            <tr className="font-semibold text-slate-800">
-              <td className="py-1.5 px-3 pl-5 font-mono text-slate-600">1.1</td>
-              <td className="py-1.5 px-3 pl-5">Ativo Circulante</td>
-              <td className="py-1.5 px-3 text-right text-rose-700">158.700,00</td>
-              <td className="py-1.5 px-3 text-right text-slate-400">—</td>
-            </tr>
-
-            {modoVisualizacao === "analitico" && (
-              <>
-                <tr className="hover:bg-blue-50/30">
-                  <td className="py-1 px-3 pl-8 font-mono text-slate-500 text-[11px]">1.1.1</td>
-                  <td className="py-1 px-3 pl-8 text-slate-700 text-[11px]">Caixa Geral da Empresa</td>
-                  <td className="py-1 px-3 text-right text-rose-700 font-medium text-[11px]">45.000,00</td>
-                  <td className="py-1 px-3 text-right text-slate-400 text-[11px]">—</td>
-                </tr>
-
-                <tr className="hover:bg-blue-50/30">
-                  <td className="py-1 px-3 pl-8 font-mono text-slate-500 text-[11px]">1.1.2</td>
-                  <td className="py-1 px-3 pl-8 text-slate-700 text-[11px]">Bancos Conta Movimento (Itaú / Bradesco)</td>
-                  <td className="py-1 px-3 text-right text-rose-700 font-medium text-[11px]">68.200,00</td>
-                  <td className="py-1 px-3 text-right text-slate-400 text-[11px]">—</td>
-                </tr>
-
-                <tr className="hover:bg-blue-50/30">
-                  <td className="py-1 px-3 pl-8 font-mono text-slate-500 text-[11px]">1.2.1</td>
-                  <td className="py-1 px-3 pl-8 text-slate-700 text-[11px]">Estoques de Mercadorias para Revenda</td>
-                  <td className="py-1 px-3 text-right text-rose-700 font-medium text-[11px]">45.500,00</td>
-                  <td className="py-1 px-3 text-right text-slate-400 text-[11px]">—</td>
-                </tr>
-              </>
-            )}
-
-            {/* 2 - PASSIVO */}
-            <tr className="bg-slate-50/70 font-bold text-slate-900">
-              <td className="py-2.5 px-4 font-mono">2</td>
-              <td className="py-2.5 px-4">PASSIVO EXIGÍVEL</td>
-              <td className="py-2.5 px-4 text-right text-slate-400">—</td>
-              <td className="py-2.5 px-4 text-right text-emerald-700">58.492,00</td>
-            </tr>
-
-            {modoVisualizacao === "analitico" && (
-              <>
-                <tr className="hover:bg-blue-50/30">
-                  <td className="py-2 px-4 pl-10 font-mono text-slate-500">2.1.1</td>
-                  <td className="py-2 px-4 pl-10 text-slate-700">Fornecedores Nacionais a Pagar</td>
-                  <td className="py-2 px-4 text-right text-slate-400">—</td>
-                  <td className="py-2 px-4 text-right text-emerald-700 font-medium">45.500,00</td>
-                </tr>
-
-                <tr className="hover:bg-blue-50/30">
-                  <td className="py-2 px-4 pl-10 font-mono text-slate-500">2.1.2</td>
-                  <td className="py-2 px-4 pl-10 text-slate-700">Salários e Ordenados a Pagar (DP)</td>
-                  <td className="py-2 px-4 text-right text-slate-400">—</td>
-                  <td className="py-2 px-4 text-right text-emerald-700 font-medium">18.200,00</td>
-                </tr>
-
-                <tr className="hover:bg-blue-50/30">
-                  <td className="py-2 px-4 pl-10 font-mono text-slate-500">2.2.1</td>
-                  <td className="py-2 px-4 pl-10 text-slate-700">INSS e Contribuição Previdenciária a Recolher</td>
-                  <td className="py-2 px-4 text-right text-slate-400">—</td>
-                  <td className="py-2 px-4 text-right text-emerald-700 font-medium">5.096,00</td>
-                </tr>
-
-                <tr className="hover:bg-blue-50/30">
-                  <td className="py-2 px-4 pl-10 font-mono text-slate-500">2.2.2</td>
-                  <td className="py-2 px-4 pl-10 text-slate-700">FGTS a Recolher (FGTS Digital)</td>
-                  <td className="py-2 px-4 text-right text-slate-400">—</td>
-                  <td className="py-2 px-4 text-right text-emerald-700 font-medium">1.456,00</td>
-                </tr>
-              </>
-            )}
-
-            {/* 3 - PATRIMÔNIO LÍQUIDO */}
-            <tr className="bg-slate-50/70 font-bold text-slate-900">
-              <td className="py-2.5 px-4 font-mono">3</td>
-              <td className="py-2.5 px-4">PATRIMÔNIO LÍQUIDO</td>
-              <td className="py-2.5 px-4 text-right text-slate-400">—</td>
-              <td className="py-2.5 px-4 text-right text-emerald-700">200.000,00</td>
-            </tr>
-
-            {modoVisualizacao === "analitico" && (
-              <tr className="hover:bg-blue-50/30">
-                <td className="py-2 px-4 pl-10 font-mono text-slate-500">3.1</td>
-                <td className="py-2 px-4 pl-10 text-slate-700">Capital Social Subscrito e Realizado</td>
-                <td className="py-2 px-4 text-right text-slate-400">—</td>
-                <td className="py-2 px-4 text-right text-emerald-700 font-medium">200.000,00</td>
+          <tbody className="divide-y divide-slate-100">
+            {linhasVisiveis.filter((linha) => linha.movimentosDebito || linha.movimentosCredito).map((linha) => (
+              <tr key={linha.codigo}>
+                <td className="px-3 py-2 font-mono">{linha.codigo}</td>
+                <td className="px-3 py-2" style={{ paddingLeft: `${12 + (linha.nivel - 1) * 16}px` }}>{linha.descricao}</td>
+                <td className="px-3 py-2 text-right">{moeda(linha.movimentosDebito)}</td>
+                <td className="px-3 py-2 text-right">{moeda(linha.movimentosCredito)}</td>
+                <td className="px-3 py-2 text-right">{moeda(linha.saldoDevedor)}</td>
+                <td className="px-3 py-2 text-right">{moeda(linha.saldoCredor)}</td>
               </tr>
-            )}
-
-            {/* LINHA DE TOTAIS */}
-            <tr className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-300 text-sm">
-              <td colSpan={2} className="py-3 px-4 uppercase tracking-wider">
-                T O T A L &nbsp; G E R A L &nbsp; ( D E V E = C R )
-              </td>
-              <td className="py-3 px-4 text-right text-rose-800">258.492,00</td>
-              <td className="py-3 px-4 text-right text-emerald-800">258.492,00</td>
-            </tr>
+            ))}
+            {linhasVisiveis.every((linha) => !linha.movimentosDebito && !linha.movimentosCredito) && <tr><td colSpan={6} className="px-3 py-8 text-center text-slate-500">Nenhum movimento ou saldo inicial informado para esta competência.</td></tr>}
           </tbody>
+          <tfoot className="border-t-2 border-slate-300 bg-slate-100 font-bold text-slate-900">
+            <tr><td colSpan={2} className="px-3 py-2">Totais dos movimentos do período</td><td className="px-3 py-2 text-right">{moeda(resumo.totalDebitos)}</td><td className="px-3 py-2 text-right">{moeda(resumo.totalCreditos)}</td><td className="px-3 py-2 text-right">{moeda(resumo.totalSaldoDevedor)}</td><td className="px-3 py-2 text-right">{moeda(resumo.totalSaldoCredor)}</td></tr>
+          </tfoot>
         </table>
       </div>
 
-      {/* Botões Inferiores — Compactos */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-        <button
-          onClick={() => setModalBalancoAberto(true)}
-          className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 rounded-lg text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-        >
-          <FileText className="w-3.5 h-3.5" />
-          <span>Visualizar Completo</span>
-        </button>
-
-        <button
-          onClick={handleExportPDF}
-          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1.5 px-3 rounded-lg text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-        >
-          <Download className="w-3.5 h-3.5" />
-          <span>Gerar PDF Oficial</span>
-        </button>
-
-        <button
-          onClick={handleExportExcel}
-          className="bg-amber-600 hover:bg-amber-700 text-white font-bold py-1.5 px-3 rounded-lg text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-        >
-          <Printer className="w-3.5 h-3.5" />
-          <span>Exportar Excel</span>
+      <div className="flex flex-wrap justify-end gap-2">
+        <button type="button" onClick={exportarCsv} className="flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-2 text-xs font-bold text-white">
+          <Download className="h-3.5 w-3.5" /> Exportar CSV local
         </button>
       </div>
-
-      {modalBalancoAberto && (
-        <BalancoCompletoModal
-          onClose={() => setModalBalancoAberto(false)}
-          empresaNome="Murade Contábil — Empresa Modelo"
-        />
-      )}
     </div>
   );
 };

@@ -1,13 +1,9 @@
-import React, { useState, useRef } from "react";
-import { OrgaoConectado, EmpresaDados } from "../../types";
+import React, { useState } from "react";
+import { OrgaoConectado } from "../../types";
 import {
-  CheckCircle2,
-  Shield,
-  Key,
   RefreshCw,
   Server,
   AlertTriangle,
-  FileCode,
   Bot,
   Sparkles,
   Building,
@@ -16,23 +12,14 @@ import {
   Zap,
   Cpu,
   Layers,
-  ArrowRight,
-  FolderOpen,
-  UploadCloud,
   ExternalLink,
-  Settings,
-  X,
-  Lock,
 } from "lucide-react";
 
 interface ConexoesTabProps {
   orgaos: OrgaoConectado[];
   onTestarTodas: () => void;
   onTestarIndividual?: (id: string) => void;
-  onAtualizarOrgao?: (id: string, updates: Partial<OrgaoConectado>) => void;
   isTesting: boolean;
-  empresa?: EmpresaDados;
-  onUpdateEmpresa?: (dados: Partial<EmpresaDados>) => void;
   onConectarFiscal?: () => void;
   onConectarDP?: () => void;
 }
@@ -41,59 +28,15 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
   orgaos,
   onTestarTodas,
   onTestarIndividual,
-  onAtualizarOrgao,
   isTesting,
-  empresa,
-  onUpdateEmpresa,
   onConectarFiscal,
   onConectarDP,
 }) => {
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [certFileName, setCertFileName] = useState(
-    empresa?.certificadoNomeArquivo || "certificado_matriz_2026.pfx"
-  );
-  const [certPassword, setCertPassword] = useState("••••••••••••");
-  const [usarProcuracao, setUsarProcuracao] = useState(true);
-  const [certStatus, setCertStatus] = useState(
-    empresa?.certificadoValidade
-      ? `Validade: ${empresa.certificadoValidade} (${empresa.certificadoTipo || "ICP-Brasil A1"})`
-      : "Validade: 18/12/2026 (ICP-Brasil A1)"
-  );
   const [filtroEsfera, setFiltroEsfera] = useState<string>("todos");
-  const [pilotoAutomaticoAtivo, setPilotoAutomaticoAtivo] = useState(true);
   const [testandoId, setTestandoId] = useState<string | null>(null);
-  const [modalConfigOrgao, setModalConfigOrgao] = useState<OrgaoConectado | null>(null);
-
-  // Form states do modal de configuração do órgão
-  const [cfgAmbiente, setCfgAmbiente] = useState("Produção");
-  const [cfgToken, setCfgToken] = useState("");
-  const [cfgEndpoint, setCfgEndpoint] = useState("");
-
-  const abrirSeletorArquivos = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-      fileInputRef.current.click();
-    }
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      const tamanho = (file.size / 1024).toFixed(1) + " KB";
-      setCertFileName(file.name);
-      setCertStatus(`Certificado '${file.name}' (${tamanho}) carregado do computador — Pronto para assinatura digital`);
-      if (onUpdateEmpresa) {
-        onUpdateEmpresa({
-          certificadoAtivo: true,
-          certificadoNomeArquivo: file.name,
-          certificadoTamanho: tamanho,
-          certificadoValidade: "18/12/2027",
-          certificadoTipo: file.name.toLowerCase().includes("a3") ? "ICP-Brasil A3" : "ICP-Brasil A1",
-          certificadoEmissor: "AC SERPRO v5",
-        });
-      }
-    }
-  };
+  const respondendo = orgaos.filter((orgao) => orgao.status === "alerta" || orgao.status === "conectado").length;
+  const latencias = orgaos.map((orgao) => orgao.pingMs).filter((ping): ping is number => Number.isFinite(ping) && ping > 0);
+  const latenciaMedia = latencias.length ? `${Math.round(latencias.reduce((total, ping) => total + ping, 0) / latencias.length)} ms` : "Sem medição";
 
   const orgaosFiltrados = orgaos.filter((org) => {
     if (filtroEsfera === "todos") return true;
@@ -135,13 +78,12 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
             <div>
               <h3 className="text-base sm:text-lg font-black text-slate-900 flex items-center gap-2">
                 <span>Conexões Públicas Governamentais</span>
-                <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full uppercase flex items-center gap-1 border border-emerald-300/40">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  100% Automatizado pelo Robô
+                <span className="text-[10px] bg-amber-100 text-amber-900 font-bold px-2 py-0.5 rounded-full uppercase flex items-center gap-1 border border-amber-300/40">
+                  Verificação sob demanda
                 </span>
               </h3>
               <p className="text-xs text-slate-500">
-                O Robô Murade executa todas as conexões, capturas e conciliações sozinho. <strong>O contador apenas confere</strong>.
+                Os testes desta tela verificam resposta de rede. Eles não autenticam nos órgãos, não consultam dados fiscais e não transmitem declarações.
               </p>
             </div>
           </div>
@@ -171,7 +113,7 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
         </div>
       </div>
 
-      {/* 2. CARD DO ROBÔ MURADE — PILOTO AUTOMÁTICO COMPLETO */}
+      {/* 2. STATUS REAL DAS VERIFICAÇÕES */}
       <div className="bg-gradient-to-r from-[#EBF2F7] via-[#E2EAF2] to-[#DFE8F2] text-slate-800 rounded-xl p-3.5 sm:p-4 shadow-xs relative overflow-hidden border border-[#CBD5E1]">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 relative z-10">
           <div className="flex items-start sm:items-center gap-3">
@@ -180,52 +122,35 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-extrabold text-blue-900 uppercase tracking-wider">
-                  Robô Piloto Automático Murad:
-                </span>
-                <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full border border-emerald-300 font-bold shadow-2xs">
-                  Sincronização 24/7 Ativa
+                <span className="text-xs font-extrabold text-blue-900 uppercase tracking-wider">Estado das integrações</span>
+                <span className="text-[10px] bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full border border-amber-300 font-bold shadow-2xs">
+                  Sem automação governamental configurada
                 </span>
               </div>
               <p className="text-xs text-slate-700 mt-0.5">
-                Conectado com <strong className="text-slate-900">Federal (RFB, PGFN, FGTS, eSocial)</strong>, <strong className="text-slate-900">Estadual (SEFAZ, Sintegra, Junta)</strong>, <strong className="text-slate-900">Prefeituras (ISS, CND)</strong>, <strong className="text-blue-800 font-bold">Murade fiscal</strong>, <strong className="text-blue-800 font-bold">Murade DP</strong> e <strong className="text-blue-800 font-bold">Murade fisco IA</strong>.
+                Fiscal, DP e portais oficiais permanecem desconectados até que cada integração seja implementada e autenticada.
               </p>
             </div>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-between sm:justify-end border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-300">
-            <span className="text-[11px] text-slate-600 font-semibold">Modo Autônomo:</span>
-            <button
-              onClick={() => setPilotoAutomaticoAtivo(!pilotoAutomaticoAtivo)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs ${
-                pilotoAutomaticoAtivo
-                  ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                  : "bg-slate-200 text-slate-700 hover:bg-slate-300 border border-slate-300"
-              }`}
-            >
-              <Zap className="w-3.5 h-3.5" />
-              <span>{pilotoAutomaticoAtivo ? "Robô Faz Tudo Sozinho" : "Pausado"}</span>
-            </button>
           </div>
         </div>
 
         {/* Mini Métricas do Robô */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 pt-3 border-t border-slate-300/80 text-center">
           <div className="bg-white/90 border border-slate-300/80 rounded-lg p-1.5 shadow-2xs">
-            <div className="text-[10px] text-slate-600 uppercase font-bold">Órgãos Conectados</div>
-            <div className="text-sm font-black text-slate-900">{orgaos.length} de {orgaos.length} (100%)</div>
+            <div className="text-[10px] text-slate-600 uppercase font-bold">Endereços respondendo</div>
+            <div className="text-sm font-black text-slate-900">{respondendo} de {orgaos.length}</div>
           </div>
           <div className="bg-white/90 border border-slate-300/80 rounded-lg p-1.5 shadow-2xs">
-            <div className="text-[10px] text-slate-600 uppercase font-bold">Esferas Integradas</div>
-            <div className="text-sm font-black text-blue-700">4 Âmbitos Completos</div>
+            <div className="text-[10px] text-slate-600 uppercase font-bold">Autenticação oficial</div>
+            <div className="text-sm font-black text-amber-700">Não configurada</div>
           </div>
           <div className="bg-white/90 border border-slate-300/80 rounded-lg p-1.5 shadow-2xs">
-            <div className="text-[10px] text-slate-600 uppercase font-bold">Trabalho do Contador</div>
-            <div className="text-sm font-black text-emerald-700">Apenas Conferir</div>
+            <div className="text-[10px] text-slate-600 uppercase font-bold">Dados compartilhados</div>
+            <div className="text-sm font-black text-amber-700">Não configurados</div>
           </div>
           <div className="bg-white/90 border border-slate-300/80 rounded-lg p-1.5 shadow-2xs">
-            <div className="text-[10px] text-slate-600 uppercase font-bold">Latência Média</div>
-            <div className="text-sm font-black text-blue-600">28ms (Tempo Real)</div>
+            <div className="text-[10px] text-slate-600 uppercase font-bold">Latência média</div>
+            <div className="text-sm font-black text-blue-600">{latenciaMedia}</div>
           </div>
         </div>
       </div>
@@ -368,7 +293,7 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
                 )}
               </div>
 
-              {/* Ação autônoma executada pelo robô */}
+              {/* Situação informativa; não representa ação automática */}
               <div className="mt-2.5 p-2 rounded-lg bg-purple-50/60 border border-purple-200/70 text-[11px] text-purple-900 flex items-start gap-1.5">
                 <Bot className="w-3.5 h-3.5 text-purple-600 shrink-0 mt-0.5" />
                 <div>
@@ -417,99 +342,15 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
                   </a>
                 )}
 
-                {/* Botão Configurar Credenciais */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setModalConfigOrgao(orgao);
-                    setCfgAmbiente(orgao.ambiente || "Produção");
-                    setCfgEndpoint(orgao.url || "");
-                    setCfgToken("");
-                  }}
-                  className="p-1 bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 rounded text-[11px] transition cursor-pointer shadow-2xs"
-                  title="Configurar WSDL, Token e Ambiente"
-                >
-                  <Settings className="w-3.5 h-3.5" />
-                </button>
               </div>
             </div>
           </div>
         ))}
       </div>
 
-      {/* 5. CARD DO CERTIFICADO DIGITAL E PROCURAÇÃO */}
-      <div className="bg-amber-50/70 border-l-3 border-amber-500 p-3.5 rounded-r-xl rounded-l-xs text-xs">
-        <div className="flex items-center justify-between font-bold text-amber-950 text-xs mb-2.5">
-          <div className="flex items-center gap-1.5">
-            <Key className="w-4 h-4 text-amber-600" />
-            <span>Certificado Digital ICP-Brasil & Procuração Eletrônica</span>
-          </div>
-          <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">
-            Autenticado
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-              Certificado Digital (.pfx / .p12 / A1)
-            </label>
-            <div className="flex items-center gap-2">
-              <input
-                type="file"
-                ref={fileInputRef}
-                id="cert-file-input"
-                className="hidden"
-                accept=".pfx,.p12,.cer,.crt,.pem"
-                onChange={handleFileUpload}
-              />
-              <button
-                type="button"
-                onClick={abrirSeletorArquivos}
-                className="flex-1 bg-white border border-slate-300 hover:border-blue-500 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-700 cursor-pointer flex items-center justify-between transition text-left shadow-2xs"
-                title="Clique para buscar o arquivo no seu computador"
-              >
-                <span className="truncate max-w-[200px] flex items-center gap-1.5 font-mono text-[11px]">
-                  <Key className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                  <span>{certFileName}</span>
-                </span>
-                <span className="bg-blue-600 hover:bg-blue-700 text-white font-bold ml-1 text-[10px] px-2 py-0.5 rounded flex items-center gap-1 shrink-0">
-                  <FolderOpen className="w-3 h-3" />
-                  <span>Buscar no PC</span>
-                </span>
-              </button>
-            </div>
-            <div className="text-[10px] text-emerald-700 font-semibold mt-1 flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-              <span className="truncate">{certStatus}</span>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-              Senha do Certificado Digital
-            </label>
-            <input
-              type="password"
-              className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-blue-600 font-mono"
-              value={certPassword}
-              onChange={(e) => setCertPassword(e.target.value)}
-              placeholder="Digite a senha..."
-            />
-            <div className="mt-1 flex items-center gap-1.5">
-              <input
-                type="checkbox"
-                id="check-procuracao"
-                checked={usarProcuracao}
-                onChange={(e) => setUsarProcuracao(e.target.checked)}
-                className="rounded text-blue-600 cursor-pointer w-3.5 h-3.5"
-              />
-              <label htmlFor="check-procuracao" className="text-[10px] font-medium text-slate-700 cursor-pointer">
-                Usar Procuração Eletrônica RFB (Acesso multiclientes ativo)
-              </label>
-            </div>
-          </div>
-        </div>
+      {/* 5. STATUS DO CERTIFICADO */}
+      <div className="bg-amber-50/70 border-l-3 border-amber-500 p-3.5 rounded-r-xl rounded-l-xs text-xs text-amber-950">
+        <strong>Certificado e procuração:</strong> este módulo não valida, armazena ou usa certificados digitais, nem consulta procurações da RFB. Selecionar um arquivo aqui não autenticaria a empresa; use apenas o fluxo de certificado de uma integração que confirme a validação no servidor.
       </div>
 
       {/* 6. RODAPÉ DE OPERAÇÃO */}
@@ -525,121 +366,10 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
         </button>
 
         <span className="text-[11px] text-slate-600">
-          Verificação de alcance não autentica integrações. {orgaos.filter((org) => org.status === "conectado").length} conexão(ões) autenticada(s) configurada(s).
+          Verificação de alcance não autentica integrações. {respondendo} endereço(s) respondeu(ram) ao último teste.
         </span>
       </div>
 
-      {/* MODAL DE CONFIGURAÇÃO DE CREDENCIAIS / WEBSERVICE DO ÓRGÃO */}
-      {modalConfigOrgao && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
-                  <Settings className="w-4 h-4" />
-                </div>
-                <div>
-                  <h4 className="font-bold text-slate-900 text-sm">
-                    Configurar Integração: {modalConfigOrgao.sigla}
-                  </h4>
-                  <p className="text-[11px] text-slate-500">{modalConfigOrgao.nome}</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setModalConfigOrgao(null)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Ambiente Operacional
-                </label>
-                <select
-                  value={cfgAmbiente}
-                  onChange={(e) => setCfgAmbiente(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-800 bg-white focus:outline-none focus:border-blue-600 font-medium"
-                >
-                  <option value="Produção">Produção Oficial Governamental</option>
-                  <option value="Homologação">Homologação / Testes (Sandbox)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  URL Endpoint WSDL / REST
-                </label>
-                <input
-                  type="text"
-                  value={cfgEndpoint}
-                  onChange={(e) => setCfgEndpoint(e.target.value)}
-                  placeholder="https://servicos.orgao.gov.br/ws"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-800 font-mono text-xs focus:outline-none focus:border-blue-600"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Chave de API / Token de Acesso / Client ID (Opcional)
-                </label>
-                <div className="relative">
-                  <input
-                    type="password"
-                    value={cfgToken}
-                    onChange={(e) => setCfgToken(e.target.value)}
-                    placeholder="Token seguro do órgão ou em branco para Certificado A1"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-800 font-mono text-xs focus:outline-none focus:border-blue-600"
-                  />
-                  <Lock className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5" />
-                </div>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Se deixado em branco, o robô autentica usando o Certificado ICP-Brasil ({certFileName}).
-                </p>
-              </div>
-
-              <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl space-y-1">
-                <div className="font-bold text-blue-950 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-blue-700" />
-                  <span>Criptografia Ativa</span>
-                </div>
-                <p className="text-[11px] text-blue-900/80">
-                  Comunicação direta com canal TLS 1.3 autenticada pelo CNPJ da matriz e procuração eletrônica.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setModalConfigOrgao(null)}
-                className="px-3 py-1.5 rounded-lg text-slate-600 hover:bg-slate-100 font-medium text-xs cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (onAtualizarOrgao && modalConfigOrgao) {
-                    onAtualizarOrgao(modalConfigOrgao.id, {
-                      ambiente: cfgAmbiente,
-                      url: cfgEndpoint || modalConfigOrgao.url,
-                      detalhes: `Configurado para ${cfgAmbiente}. Endpoint: ${cfgEndpoint || modalConfigOrgao.url}`,
-                    });
-                  }
-                  setModalConfigOrgao(null);
-                }}
-                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs cursor-pointer shadow-xs"
-              >
-                Salvar Configurações
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
