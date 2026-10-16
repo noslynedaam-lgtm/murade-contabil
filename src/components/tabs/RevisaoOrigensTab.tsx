@@ -25,6 +25,35 @@ const dinheiro = (value: unknown) => typeof value === "number" && Number.isFinit
   ? value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
   : value === null ? "Não apurado" : "—";
 const texto = (value: unknown) => value == null || value === "" ? "—" : String(value);
+const valorNumerico = (value: unknown): number | null => {
+  const numero = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
+  return Number.isFinite(numero) && numero >= 0 ? numero : null;
+};
+const eventoCancelamentoConfirmado = (doc: DocumentoFiscal) => Array.isArray(doc.eventosSefaz) && doc.eventosSefaz.some((evento: any) =>
+  evento?.confirmado === true && (/(cancelamento|cancelada)/i.test(String(evento.descricao || "")) || ["110111", "110112"].includes(String(evento.tipoEvento || ""))),
+);
+const documentoCancelado = (doc: DocumentoFiscal) => /cancelad/i.test(String(doc.statusSefaz || "")) || eventoCancelamentoConfirmado(doc);
+const documentoAutorizado = (doc: DocumentoFiscal) => doc.statusVerificadoSefaz === true && /autorizad/i.test(String(doc.statusSefaz || "")) && !documentoCancelado(doc);
+const situacaoDocumento = (doc: DocumentoFiscal) => {
+  if (documentoCancelado(doc)) return "Cancelada";
+  if (doc.statusVerificadoSefaz === true && /autorizad/i.test(String(doc.statusSefaz || ""))) return "Autorizada (SEFAZ)";
+  if (doc.statusVerificadoSefaz === true && doc.statusSefaz) return String(doc.statusSefaz);
+  if (/autorizad/i.test(String(doc.statusSefaz || ""))) return "Autorização não confirmada";
+  return String(doc.statusSefaz || "Pendente de conferência");
+};
+const tipoDocumentoFiscal = (doc: DocumentoFiscal): "entrada" | "saida" | null => {
+  const tipo = String(doc.tipo || "").toLowerCase();
+  if (tipo.includes("entrada")) return "entrada";
+  if (tipo.includes("saída") || tipo.includes("saida")) return "saida";
+  return null;
+};
+const camposTributariosFiscal = [
+  { campo: "valorIcms", titulo: "ICMS" },
+  { campo: "valorIss", titulo: "ISS" },
+  { campo: "valorIpi", titulo: "IPI" },
+  { campo: "valorPis", titulo: "PIS" },
+  { campo: "valorCofins", titulo: "COFINS" },
+] as const;
 
 export const RevisaoOrigensTab: React.FC<{
   cnpj: string;
@@ -79,12 +108,33 @@ export const RevisaoOrigensTab: React.FC<{
 
   useEffect(() => { void carregar(); }, [carregar]);
 
-  const totaisFiscal = useMemo(() => dados.documentos.reduce((acc, doc) => {
-    const tipo = String(doc.tipo || "").toLowerCase();
-    if (tipo.includes("entrada")) acc.entradas += 1;
-    if (tipo.includes("saída") || tipo.includes("saida")) acc.saidas += 1;
-    return acc;
-  }, { entradas: 0, saidas: 0 }), [dados.documentos]);
+  const totaisFiscal = useMemo(() => {
+    const resumo = {
+      entrada: { total: 0, autorizadas: 0, pendentes: 0, canceladas: 0, valorBruto: 0, valorBrutoIncompletos: 0, impostos: {} as Record<string, { total: number; incompletos: number }> },
+      saida: { total: 0, autorizadas: 0, pendentes: 0, canceladas: 0, valorBruto: 0, valorBrutoIncompletos: 0, impostos: {} as Record<string, { total: number; incompletos: number }> },
+    };
+    for (const tributo of camposTributariosFiscal) {
+      for (const grupo of [resumo.entrada, resumo.saida]) grupo.impostos[tributo.campo] = { total: 0, incompletos: 0 };
+    }
+    for (const doc of dados.documentos) {
+      const tipo = tipoDocumentoFiscal(doc);
+      if (!tipo) continue;
+      const grupo = resumo[tipo];
+      grupo.total += 1;
+      if (documentoCancelado(doc)) { grupo.canceladas += 1; continue; }
+      if (!documentoAutorizado(doc)) { grupo.pendentes += 1; continue; }
+      grupo.autorizadas += 1;
+      const valorBruto = valorNumerico(doc.valorTotal ?? doc.valor ?? doc.total);
+      if (valorBruto !== null) grupo.valorBruto = Math.round((grupo.valorBruto + valorBruto + Number.EPSILON) * 100) / 100;
+      else grupo.valorBrutoIncompletos += 1;
+      for (const tributo of camposTributariosFiscal) {
+        const valor = doc.dadosTributariosDisponiveis === true ? valorNumerico(doc[tributo.campo]) : null;
+        if (valor === null) grupo.impostos[tributo.campo].incompletos += 1;
+        else grupo.impostos[tributo.campo].total = Math.round((grupo.impostos[tributo.campo].total + valor + Number.EPSILON) * 100) / 100;
+      }
+    }
+    return resumo;
+  }, [dados.documentos]);
 
   const contasAnaliticas = useMemo(() => contas.filter((conta) => conta.tipo === "analitica"), [contas]);
   const contaNome = (codigo: string) => contasAnaliticas.find((conta) => conta.codigo === codigo)?.descricao || "Conta não encontrada no plano atual";
@@ -163,14 +213,12 @@ export const RevisaoOrigensTab: React.FC<{
       const competenciaExibicao = competencia || "sem competência";
       const dataObjeto = new Date(`${data}T00:00:00Z`);
       const dataCalendarioValida = /^\d{4}-\d{2}-\d{2}$/.test(data) && Number.isFinite(dataObjeto.getTime()) && dataObjeto.toISOString().slice(0, 10) === data;
-      const eventoCancelamento = Array.isArray(doc.eventosSefaz) && doc.eventosSefaz.some((evento: any) =>
-        evento?.confirmado === true && (/(cancelamento|cancelada)/i.test(String(evento.descricao || "")) || ["110111", "110112"].includes(String(evento.tipoEvento || ""))),
-      );
+      const eventoCancelamento = eventoCancelamentoConfirmado(doc);
       if (!tipo || !chave || !/^\d{4}-(0[1-9]|1[0-2])$/.test(competencia) || !dataCalendarioValida) {
         pendencias.push({ competencia: competenciaExibicao, motivo: "Identificação ou data inválida; documento mantido fora da prévia fiscal." });
         continue;
       }
-      if (doc.statusVerificadoSefaz !== true || doc.statusSefaz !== "Autorizada" || eventoCancelamento) {
+      if (!documentoAutorizado(doc) || eventoCancelamento) {
         pendencias.push({ competencia, motivo: `A NF-e não tem autorização oficial confirmada ou consta cancelamento${eventoCancelamento ? " registrado" : ""}; não foi preparada.` });
         continue;
       }
@@ -389,10 +437,32 @@ export const RevisaoOrigensTab: React.FC<{
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Metric title="Notas fiscais recebidas" value={String(dados.documentos.length)} detail={`${totaisFiscal.entradas} entradas • ${totaisFiscal.saidas} saídas`} />
+        <Metric title="Notas fiscais no período" value={String(totaisFiscal.entrada.total + totaisFiscal.saida.total)} detail={`${totaisFiscal.entrada.total} entradas • ${totaisFiscal.saida.total} saídas`} />
         <Metric title="Resumos de folha recebidos" value={String(dados.folhas.length)} detail="Totais agregados por competência" />
         <Metric title="Lançamentos automáticos" value="0" detail="Aguardam mapeamento e aprovação" />
         <Metric title="Status da conferência" value="Pendente" detail="Revisão do contador necessária" />
+      </section>
+
+      <section className="overflow-hidden rounded-xl border border-emerald-200 bg-white">
+        <div className="border-b border-emerald-100 px-4 py-3"><h2 className="font-bold text-slate-900">Resumo fiscal do período selecionado</h2><p className="mt-1 text-xs text-slate-600">Valores calculados a partir dos documentos persistidos para este CNPJ. Totais brutos e tributos destacados aparecem separados; notas sem autorização SEFAZ confirmada e canceladas ficam fora dos valores autorizados.</p></div>
+        <div className="grid gap-3 p-4 md:grid-cols-2">
+          {([ ["entrada", "Entradas"], ["saida", "Saídas"] ] as const).map(([tipo, titulo]) => {
+            const grupo = totaisFiscal[tipo];
+            return <article key={tipo} className="rounded-lg border border-slate-200 p-3">
+              <div className="flex flex-wrap items-baseline justify-between gap-2"><h3 className="font-bold text-slate-900">Notas de {titulo.toLowerCase()}</h3><strong className="text-lg tabular-nums">{grupo.autorizadas === 0 ? "—" : grupo.valorBrutoIncompletos === grupo.autorizadas ? "Não apurado" : dinheiro(grupo.valorBruto)}{grupo.valorBrutoIncompletos > 0 && grupo.valorBrutoIncompletos < grupo.autorizadas ? "*" : ""}</strong></div>
+              <p className="mt-1 text-xs text-slate-600">{grupo.autorizadas} autorizadas • {grupo.pendentes} pendentes/não confirmadas • {grupo.canceladas} canceladas • {grupo.total} no total</p>
+              <p className="mt-1 text-[11px] text-slate-500">Soma bruta das notas com autorização confirmada. Não representa imposto apurado nem valor a pagar.{grupo.valorBrutoIncompletos > 0 && ` Valor ausente em ${grupo.valorBrutoIncompletos} nota(s).`}</p>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">{camposTributariosFiscal.map((tributo) => {
+                const item = grupo.impostos[tributo.campo];
+                const incompleto = item.incompletos > 0;
+                const conhecidos = grupo.autorizadas - item.incompletos;
+                const valorExibido = !grupo.autorizadas ? "—" : conhecidos === 0 ? "Não apurado" : `${dinheiro(item.total)}${incompleto ? "*" : ""}`;
+                return <div key={tributo.campo} className="rounded bg-slate-50 p-2"><div className="text-slate-500">{tributo.titulo}{incompleto && conhecidos > 0 ? " • parcial" : ""}</div><div className="mt-1 font-semibold text-slate-800">{valorExibido}</div>{incompleto && <div className="mt-1 text-[10px] text-amber-800">Sem composição em {item.incompletos} autorizada(s)</div>}</div>;
+              })}</div>
+            </article>;
+          })}
+        </div>
+        <p className="px-4 pb-4 text-[11px] text-slate-500">Os tributos são apenas valores destacados nos dados recebidos. Quando faltam campos, o total fica marcado como parcial; nenhum campo ausente é assumido como zero.</p>
       </section>
 
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -405,7 +475,10 @@ export const RevisaoOrigensTab: React.FC<{
               <td className="max-w-64 truncate px-4 py-3 font-mono text-xs">{texto(doc.numero || doc.numeroNota || doc.chaveAcesso || doc.id)}</td>
               <td className="max-w-64 truncate px-4 py-3">{texto(doc.destinatario || doc.remetente || doc.participante || doc.nomeParticipante)}</td>
               <td className="px-4 py-3 text-right tabular-nums">{dinheiro(doc.valorTotal ?? doc.valor ?? doc.total)}</td>
-              <td className="px-4 py-3 text-amber-800">Aguardando conferência</td>
+              <td className={`px-4 py-3 ${documentoCancelado(doc) ? "font-semibold text-red-700" : documentoAutorizado(doc) ? "font-semibold text-emerald-700" : "text-amber-800"}`}>
+                <div>{situacaoDocumento(doc)}</div>
+                {Array.isArray(doc.eventosSefaz) && doc.eventosSefaz.length > 0 && <div className="mt-1 text-[11px] font-normal text-slate-500">{doc.eventosSefaz.length} evento(s) SEFAZ</div>}
+              </td>
             </tr>)}</tbody>
           </table></div>
         )}
