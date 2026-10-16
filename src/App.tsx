@@ -35,6 +35,11 @@ export default function App() {
 
 function AppWorkspace() {
   const auth = useContabilAuth();
+  const versoesWorkspaceRef = React.useRef(new Map<string, number | null>());
+  const filaGravacaoWorkspaceRef = React.useRef<Promise<void>>(Promise.resolve());
+  const workspacePendenteRef = React.useRef<{ cnpj: string; dados: Record<string, unknown> } | null>(null);
+  const workspaceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushWorkspaceRef = React.useRef<() => Promise<void>>(async () => undefined);
   const [assistenteAberta, setAssistenteAberta] = useState(false);
   const [tabAtiva, setTabAtiva] = useState<TabId>("inicio");
   const [empresa, setEmpresa] = useState<EmpresaDados>(initialEmpresa);
@@ -98,6 +103,7 @@ function AppWorkspace() {
         const remote = await response.json().catch(() => ({}));
         if (!response.ok || remote.sucesso !== true) throw new Error(remote.motivo || "Não foi possível carregar a empresa do banco.");
         let dados = remote.dados;
+        versoesWorkspaceRef.current.set(cnpj, Number.isSafeInteger(remote.versao) ? remote.versao : null);
         if (!dados) {
           // Migração de compatibilidade: importa somente dados locais da empresa
           // autorizada e mantém o navegador como cópia após a confirmação do PG.
@@ -116,10 +122,11 @@ function AppWorkspace() {
             lembretes: Array.isArray(dados?.lembretes) ? dados.lembretes : [],
           };
           const migracao = await fetch(`/api/workspaces/${encodeURIComponent(cnpj)}`, {
-            method: "PUT", credentials: "include", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ dados }),
+            method: "PUT", credentials: "include", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ dados, versaoAnterior: null }),
           });
           const confirmacao = await migracao.json().catch(() => ({}));
           if (!migracao.ok || confirmacao.sucesso !== true) throw new Error(confirmacao.motivo || "O banco não confirmou a migração dos dados locais.");
+          versoesWorkspaceRef.current.set(cnpj, confirmacao.versao);
         }
         if (!ativo) return;
         if (dados.empresa && String(dados.empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase() === cnpj) {
@@ -148,27 +155,15 @@ function AppWorkspace() {
     if (!cnpj || dadosEmpresaCarregadosCnpj !== cnpj) return;
     if (!auth.cnpjs.includes(cnpj)) return;
     const dados = { empresa: { ...empresa, certificadoAtivo: false, certificadoNomeArquivo: undefined }, contas, centrosCusto, lancamentos, livros, lembretes };
-    let cancelado = false;
     try {
       localStorage.setItem(`murade_contabil_dados_${cnpj}`, JSON.stringify(dados));
       localStorage.setItem("murad_empresa_salva", JSON.stringify(dados.empresa));
     } catch (error) {
       console.warn("Não foi possível manter cópia local dos dados contábeis:", error);
     }
-    const timer = setTimeout(async () => {
-      if (cancelado) return;
-      try {
-        const response = await fetch(`/api/workspaces/${encodeURIComponent(cnpj)}`, {
-          method: "PUT", credentials: "include", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ dados }),
-        });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok || result.sucesso !== true) throw new Error(result.motivo || "Persistência não confirmada.");
-      } catch (error) {
-        console.warn("Falha ao persistir dados contábeis no PostgreSQL:", error);
-        if (!cancelado) showToast("Alterações guardadas neste navegador, mas o PostgreSQL não confirmou a gravação.", "info");
-      }
-    }, 600);
-    return () => { cancelado = true; clearTimeout(timer); };
+    workspacePendenteRef.current = { cnpj, dados };
+    if (workspaceTimerRef.current) clearTimeout(workspaceTimerRef.current);
+    workspaceTimerRef.current = setTimeout(() => { void flushWorkspaceRef.current(); }, 600);
   }, [empresa, dadosEmpresaCarregadosCnpj, contas, centrosCusto, lancamentos, livros, lembretes, auth.cnpjs.join(",")]);
 
   const handleImportarDadosContabeis = (dados: { contas: ContaPlano[]; centrosCusto: CentroCustoContabil[]; lancamentos: LancamentoContabil[] }) => {
@@ -199,6 +194,39 @@ function AppWorkspace() {
     setToastMessage({ text, type });
     setTimeout(() => setToastMessage(null), 4000);
   };
+
+  flushWorkspaceRef.current = async () => {
+    if (workspaceTimerRef.current) clearTimeout(workspaceTimerRef.current);
+    workspaceTimerRef.current = null;
+    const pendente = workspacePendenteRef.current;
+    workspacePendenteRef.current = null;
+    if (!pendente) return filaGravacaoWorkspaceRef.current;
+    filaGravacaoWorkspaceRef.current = filaGravacaoWorkspaceRef.current.then(async () => {
+      const versaoAnterior = versoesWorkspaceRef.current.get(pendente.cnpj) ?? null;
+      const body = JSON.stringify({ dados: pendente.dados, versaoAnterior });
+      const response = await fetch(`/api/workspaces/${encodeURIComponent(pendente.cnpj)}`, {
+        method: "PUT", credentials: "include", keepalive: body.length <= 60_000,
+        headers: { "Content-Type": "application/json", Accept: "application/json" }, body,
+      });
+      const result = await response.json().catch(() => ({}));
+      if (response.status === 409) {
+        showToast("Os dados mudaram em outra sessão. Recarregue esta empresa antes de continuar, para evitar sobrescrever alterações.", "info");
+        return;
+      }
+      if (!response.ok || result.sucesso !== true) throw new Error(result.motivo || "Persistência não confirmada.");
+      versoesWorkspaceRef.current.set(pendente.cnpj, result.versao);
+    }).catch((error) => {
+      console.warn("Falha ao persistir dados contábeis no PostgreSQL:", error);
+      showToast("Alterações guardadas neste navegador, mas o PostgreSQL não confirmou a gravação.", "info");
+    });
+    return filaGravacaoWorkspaceRef.current;
+  };
+
+  const workspaceCnpjAtual = String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
+  const workspaceAutorizado = auth.cnpjs.includes(workspaceCnpjAtual);
+  React.useEffect(() => () => {
+    if (workspacePendenteRef.current?.cnpj === workspaceCnpjAtual) void flushWorkspaceRef.current();
+  }, [workspaceCnpjAtual, workspaceAutorizado]);
 
   const autorizarCnpj = async (valor: unknown): Promise<boolean> => {
     const cnpj = String(valor || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
@@ -551,6 +579,20 @@ function AppWorkspace() {
                   empresa={empresa}
                   cnpjsAutorizados={auth.cnpjs}
                   onAutorizarCnpj={autorizarCnpj}
+                  onRemoverEmpresa={async (cnpj) => {
+                    try {
+                      const response = await fetch(`/api/auth/companies/${encodeURIComponent(cnpj)}`, {
+                        method: "DELETE", credentials: "include", headers: { Accept: "application/json" },
+                      });
+                      const result = await response.json().catch(() => ({}));
+                      if (!response.ok || result.sucesso !== true) throw new Error(result.motivo || "Não foi possível remover o acesso.");
+                      await auth.atualizarAcesso();
+                      return true;
+                    } catch (error) {
+                      showToast(error instanceof Error ? error.message : "Não foi possível remover o acesso da empresa.", "info");
+                      return false;
+                    }
+                  }}
                   onVoltar={() => setTabAtiva("conexoes")}
                   onIrParaAgenda={() => setTabAtiva("agenda")}
                   onUpdateEmpresa={(novosDados) =>

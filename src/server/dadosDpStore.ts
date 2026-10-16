@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { cnpjContabilValido, normalizarCnpjAcesso } from "./authContabil";
 
 let pool: Pool | null | undefined;
 let inicializacao: Promise<void> | null = null;
@@ -60,7 +61,7 @@ export function normalizarResumoDPContrato(cnpj: string, body: any) {
     throw new ErroValidacaoResumoDP("O contrato não aceita dados pessoais ou campos adicionais no envelope.");
   }
   if (body.versaoContrato !== 1) throw new ErroValidacaoResumoDP("Versão do contrato DP não suportada.");
-  if (String(body.cnpj || "").replace(/\D/g, "") !== cnpj) {
+  if (normalizarCnpjAcesso(body.cnpj) !== cnpj) {
     throw new ErroValidacaoResumoDP("O CNPJ do lote não corresponde à empresa solicitada.");
   }
   if (typeof body.competencia !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(body.competencia)) {
@@ -114,7 +115,7 @@ async function inicializar(): Promise<void> {
   if (!inicializacao) {
     inicializacao = db.query(`
       CREATE TABLE IF NOT EXISTS murade_folhas_dp_origem (
-        cnpj char(14) NOT NULL CHECK (cnpj ~ '^[0-9]{14}$'),
+        cnpj char(14) NOT NULL CHECK (cnpj ~ '^[A-Z0-9]{12}[0-9]{2}$'),
         competencia char(7) NOT NULL CHECK (competencia ~ '^\\d{4}-(0[1-9]|1[0-2])$'),
         processamento_id varchar(128) NOT NULL,
         calculado_em timestamptz NOT NULL,
@@ -125,6 +126,10 @@ async function inicializar(): Promise<void> {
         PRIMARY KEY (cnpj, competencia, processamento_id)
       )
     `).then(() => db.query(`
+      ALTER TABLE murade_folhas_dp_origem DROP CONSTRAINT IF EXISTS murade_folhas_dp_origem_cnpj_check;
+      ALTER TABLE murade_folhas_dp_origem DROP CONSTRAINT IF EXISTS murade_folhas_dp_origem_cnpj_format_check;
+      ALTER TABLE murade_folhas_dp_origem ADD CONSTRAINT murade_folhas_dp_origem_cnpj_format_check CHECK (cnpj ~ '^[A-Z0-9]{12}[0-9]{2}$');
+    `)).then(() => db.query(`
       CREATE INDEX IF NOT EXISTS murade_folhas_dp_origem_competencia_idx
       ON murade_folhas_dp_origem (cnpj, competencia)
     `)).then(() => undefined).catch((error) => {
@@ -159,7 +164,7 @@ export async function verificarEstadoStoreDP(): Promise<{
 export async function gravarResumoDP(cnpj: string, body: any): Promise<{ novo: boolean; registro: Record<string, unknown> }> {
   const db = obterPool();
   if (!db) throw new Error("DATABASE_URL não configurada no Murade Contábil.");
-  if (!/^\d{14}$/.test(cnpj)) throw new ErroValidacaoResumoDP("CNPJ inválido.");
+  if (!cnpjContabilValido(cnpj)) throw new ErroValidacaoResumoDP("CNPJ inválido.");
   const preparado = normalizarResumoDPContrato(cnpj, body);
   await inicializar();
   const resultado = await db.query(`
@@ -189,7 +194,7 @@ export async function gravarResumoDP(cnpj: string, body: any): Promise<{ novo: b
 export async function lerResumosDP(cnpj: string, desde: string, ate: string, limite: number): Promise<Record<string, unknown>[]> {
   const db = obterPool();
   if (!db) throw new Error("DATABASE_URL não configurada no Murade Contábil.");
-  if (!/^\d{14}$/.test(cnpj)) throw new Error("CNPJ inválido.");
+  if (!cnpjContabilValido(cnpj)) throw new Error("CNPJ inválido.");
   await inicializar();
   const resultado = await db.query(`
     SELECT competencia, processamento_id, calculado_em, resumo, recebido_em, atualizado_em

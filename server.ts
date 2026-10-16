@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 import { timingSafeEqual } from "node:crypto";
 import { ErroValidacaoDocumentoFiscal, fiscalStoreConfigurado, gravarDocumentosFiscais, lerDocumentosFiscais, verificarEstadoStoreFiscal } from "./src/server/documentosFiscaisStore";
 import { dpStoreConfigurado, ErroValidacaoResumoDP, gravarResumoDP, lerResumosDP, verificarEstadoStoreDP } from "./src/server/dadosDpStore";
-import { adicionarEmpresaAcessoContabil, bootstrapAuthContabil, exigirSessaoContabil, lerWorkspaceContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil } from "./src/server/authContabil";
+import { adicionarEmpresaAcessoContabil, bootstrapAuthContabil, cnpjContabilValido, exigirSessaoContabil, lerWorkspaceContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil } from "./src/server/authContabil";
 
 dotenv.config();
 
@@ -67,18 +67,19 @@ async function startServer() {
   app.post("/api/auth/login", exigirOrigemNavegador, loginAuthContabil);
   app.post("/api/auth/logout", exigirOrigemNavegador, logoutAuthContabil);
   app.post("/api/auth/companies", exigirOrigemNavegador, exigirSessaoContabil, adicionarEmpresaAcessoContabil);
+  app.delete("/api/auth/companies/:cnpj", exigirOrigemNavegador, exigirSessaoContabil, removerEmpresaAcessoContabil);
   app.get("/api/workspaces", exigirSessaoContabil, listarWorkspacesContabil);
   app.get("/api/workspaces/:cnpj", exigirSessaoContabil, lerWorkspaceContabil);
   app.put("/api/workspaces/:cnpj", exigirOrigemNavegador, exigirSessaoContabil, salvarWorkspaceContabil);
   app.get("/api/revisao/origens", exigirSessaoContabil, async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     const sessao = (req as express.Request & { sessaoContabil?: { cnpjs: string[] } }).sessaoContabil;
-    const cnpj = String(req.query.cnpj || "").replace(/\D/g, "");
+    const cnpj = normalizarCnpjAcesso(req.query.cnpj);
     const desde = String(req.query.desde || "");
     const ate = String(req.query.ate || "");
     const limiteFiscal = req.query.limiteFiscal == null ? 200 : Number(req.query.limiteFiscal);
     const limiteDP = req.query.limiteDP == null ? 50 : Number(req.query.limiteDP);
-    if (!/^\d{14}$/.test(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
+    if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
     if (!sessao?.cnpjs.includes(cnpj)) return res.status(403).json({ sucesso: false, motivo: "Empresa fora do seu acesso." });
     if ((desde && !/^\d{4}-(0[1-9]|1[0-2])$/.test(desde)) || (ate && !/^\d{4}-(0[1-9]|1[0-2])$/.test(ate)) || (desde && ate && desde > ate)) {
       return res.status(400).json({ sucesso: false, motivo: "Período inválido; use AAAA-MM." });
@@ -155,8 +156,8 @@ async function startServer() {
     if (!fiscalStoreConfigurado()) {
       return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil para receber documentos com persistência." });
     }
-    const cnpj = String(req.body?.cnpj || "").replace(/\D/g, "");
-    if (!/^\d{14}$/.test(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
+    const cnpj = normalizarCnpjAcesso(req.body?.cnpj);
+    if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
     if (req.body?.versaoContrato !== 1) return res.status(400).json({ sucesso: false, motivo: "Versão de contrato de integração não suportada." });
     try {
       if (!await verificarCnpjAutorizadoContabil(cnpj)) return res.status(403).json({ sucesso: false, motivo: "CNPJ não autorizado no cadastro seguro do Contábil." });
@@ -184,8 +185,8 @@ async function startServer() {
     if (!fiscalStoreConfigurado()) {
       return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil." });
     }
-    const cnpj = String(req.query.cnpj || "").replace(/\D/g, "");
-    if (!/^\d{14}$/.test(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
+    const cnpj = normalizarCnpjAcesso(req.query.cnpj);
+    if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
     const desde = String(req.query.desde || "");
     const ate = String(req.query.ate || "");
     const limite = req.query.limite == null ? 200 : Number(req.query.limite);
@@ -245,8 +246,8 @@ async function startServer() {
     if (!dpStoreConfigurado()) {
       return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil para receber folhas agregadas com persistência." });
     }
-    const cnpj = String(req.body?.cnpj || "").replace(/\D/g, "");
-    if (!/^\d{14}$/.test(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
+    const cnpj = normalizarCnpjAcesso(req.body?.cnpj);
+    if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
     try {
       if (!await verificarCnpjAutorizadoContabil(cnpj)) return res.status(403).json({ sucesso: false, motivo: "CNPJ não autorizado no cadastro seguro do Contábil." });
       const resultado = await gravarResumoDP(cnpj, req.body);
@@ -273,11 +274,11 @@ async function startServer() {
     if (!dpStoreConfigurado()) {
       return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil." });
     }
-    const cnpj = String(req.query.cnpj || "").replace(/\D/g, "");
+    const cnpj = normalizarCnpjAcesso(req.query.cnpj);
     const desde = String(req.query.desde || "");
     const ate = String(req.query.ate || "");
     const limite = req.query.limite == null ? 50 : Number(req.query.limite);
-    if (!/^\d{14}$/.test(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
+    if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
     if ((desde && !/^\d{4}-(0[1-9]|1[0-2])$/.test(desde)) || (ate && !/^\d{4}-(0[1-9]|1[0-2])$/.test(ate)) || (desde && ate && desde > ate)) {
       return res.status(400).json({ sucesso: false, motivo: "Período inválido; use AAAA-MM." });
     }
@@ -591,7 +592,7 @@ async function startServer() {
   });
 
   // API do Agente IA Murad (Contabilidade, Fisco e Reforma Tributária 2026)
-  app.post("/api/ai/chat", async (req, res) => {
+  app.post("/api/ai/chat", exigirSessaoContabil, async (req, res) => {
     const { message, context, module: requestedModule } = req.body;
     const moduleName = requestedModule === "fiscal" || requestedModule === "dp" ? requestedModule : "contabil";
 

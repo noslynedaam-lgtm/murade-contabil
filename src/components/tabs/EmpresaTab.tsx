@@ -46,6 +46,7 @@ interface EmpresaTabProps {
   onConectarDP?: () => void;
   cnpjsAutorizados?: string[];
   onAutorizarCnpj?: (cnpj: string) => Promise<boolean>;
+  onRemoverEmpresa?: (cnpj: string) => Promise<boolean>;
 }
 
 export const EmpresaTab: React.FC<EmpresaTabProps> = ({
@@ -57,6 +58,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
   onConectarDP,
   cnpjsAutorizados = [],
   onAutorizarCnpj,
+  onRemoverEmpresa,
 }) => {
   // Lista de empresas cadastradas no sistema (persistência real em localStorage)
   const [empresasCadastradas, setEmpresasCadastradas] = useState<EmpresaDados[]>(() => {
@@ -369,9 +371,12 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     setEmpresaParaExcluir({ id: empIdOuCnpj, nome: empNome });
   };
 
-  const confirmarExclusaoEmpresa = () => {
+  const confirmarExclusaoEmpresa = async () => {
     if (!empresaParaExcluir) return;
     const { id: empIdOuCnpj, nome: empNome } = empresaParaExcluir;
+    const registro = empresasCadastradas.find((e) => (e.id || e.cnpj) === empIdOuCnpj || e.cnpj === empIdOuCnpj);
+    const cnpj = String(registro?.cnpj || (empIdOuCnpj.length >= 14 ? empIdOuCnpj : "")).toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (cnpj && onRemoverEmpresa && !await onRemoverEmpresa(cnpj)) return;
     const novaLista = empresasCadastradas.filter(
       (e) => (e.id || e.cnpj) !== empIdOuCnpj && e.cnpj !== empIdOuCnpj
     );
@@ -473,9 +478,9 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
 
   // Consulta real na Receita Federal
   const buscarDadosReceita = async () => {
-    const rawCnpj = cnpj.replace(/\D/g, "");
-    if (rawCnpj.length !== 14) {
-      showToast("⚠️ Digite um CNPJ válido com 14 dígitos para consultar.");
+    const rawCnpj = cnpj.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!/^\d{14}$/.test(rawCnpj)) {
+      showToast("A consulta automática por CNPJ alfanumérico ainda não é oferecida pelos provedores atuais. Você pode cadastrar a empresa manualmente.");
       return;
     }
 
@@ -601,8 +606,8 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     }
 
     const idFinal = modoEdicaoId || `emp-${cnpj.toUpperCase().replace(/[^0-9A-Z]/g, "") || Date.now()}`;
-    const cnpjLimpo = cnpj.trim();
-    if (!/^[A-Z0-9]{12}\d{2}$/.test(cnpjLimpo.toUpperCase().replace(/[^0-9A-Z]/g, ""))) {
+    const cnpjLimpo = cnpj.trim().toUpperCase();
+    if (!/^[A-Z0-9]{12}\d{2}$/.test(cnpjLimpo.replace(/[^0-9A-Z]/g, ""))) {
       showToast("⚠️ Informe um CNPJ com 14 caracteres para manter o cadastro separado por empresa.");
       return;
     }

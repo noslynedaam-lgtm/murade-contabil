@@ -18,9 +18,10 @@ export const RevisaoOrigensTab: React.FC<{ cnpj: string }> = ({ cnpj }) => {
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [atualizadoEm, setAtualizadoEm] = useState("");
+  const cnpjNormalizado = cnpj.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
   const carregar = useCallback(async () => {
-    if (!/^\d{14}$/.test(cnpj.replace(/\D/g, ""))) {
+    if (!/^[A-Z0-9]{12}\d{2}$/.test(cnpjNormalizado)) {
       setDados({ documentos: [], folhas: [] });
       setErro("Selecione ou cadastre uma empresa autorizada com CNPJ válido.");
       return;
@@ -28,7 +29,7 @@ export const RevisaoOrigensTab: React.FC<{ cnpj: string }> = ({ cnpj }) => {
     setCarregando(true);
     setErro("");
     try {
-      const query = new URLSearchParams({ cnpj: cnpj.replace(/\D/g, ""), desde, ate });
+      const query = new URLSearchParams({ cnpj: cnpjNormalizado, desde, ate });
       const response = await fetch(`/api/revisao/origens?${query}`, { credentials: "include", cache: "no-store" });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || result.sucesso !== true) throw new Error(result.motivo || "Não foi possível ler as origens persistidas.");
@@ -39,7 +40,7 @@ export const RevisaoOrigensTab: React.FC<{ cnpj: string }> = ({ cnpj }) => {
     } finally {
       setCarregando(false);
     }
-  }, [cnpj, desde, ate]);
+  }, [cnpjNormalizado, cnpj, desde, ate]);
 
   useEffect(() => { void carregar(); }, [carregar]);
 
