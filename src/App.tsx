@@ -761,7 +761,7 @@ function AppWorkspace() {
                 />
               )}
 
-              {tabAtiva === "revisao-origens" && <RevisaoOrigensTab cnpj={empresa.cnpj} contas={contas} mapeamentos={mapeamentosOrigem} onSalvarMapeamentos={setMapeamentosOrigem} preLancamentos={preLancamentos} onSalvarPreLancamentos={setPreLancamentos} onContabilizar={handleContabilizarPreLancamentos} />}
+              {tabAtiva === "revisao-origens" && <RevisaoOrigensTab cnpj={empresa.cnpj} workspaceCarregado={dadosEmpresaCarregadosCnpj === empresa.cnpj.toUpperCase().replace(/[^A-Z0-9]/g, "")} contas={contas} mapeamentos={mapeamentosOrigem} onSalvarMapeamentos={setMapeamentosOrigem} preLancamentos={preLancamentos} onSalvarPreLancamentos={setPreLancamentos} onContabilizar={handleContabilizarPreLancamentos} />}
 
               {tabAtiva === "agente" && (
                 <AgenteTab

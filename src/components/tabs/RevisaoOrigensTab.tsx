@@ -28,13 +28,14 @@ const texto = (value: unknown) => value == null || value === "" ? "—" : String
 
 export const RevisaoOrigensTab: React.FC<{
   cnpj: string;
+  workspaceCarregado: boolean;
   contas: ContaPlano[];
   mapeamentos: MapeamentoOrigemContabil[];
   onSalvarMapeamentos: (mapeamentos: MapeamentoOrigemContabil[]) => void;
   preLancamentos: PreLancamentoContabil[];
   onSalvarPreLancamentos: (preLancamentos: PreLancamentoContabil[]) => void;
   onContabilizar: (referencias: string[]) => Promise<boolean>;
-}> = ({ cnpj, contas, mapeamentos, onSalvarMapeamentos, preLancamentos, onSalvarPreLancamentos, onContabilizar }) => {
+}> = ({ cnpj, workspaceCarregado, contas, mapeamentos, onSalvarMapeamentos, preLancamentos, onSalvarPreLancamentos, onContabilizar }) => {
   const [desde, setDesde] = useState(competenciaAtual);
   const [ate, setAte] = useState(competenciaAtual);
   const [dados, setDados] = useState<LoteOrigens>({ documentos: [], folhas: [] });
@@ -230,59 +231,82 @@ export const RevisaoOrigensTab: React.FC<{
     onSalvarMapeamentos([...mapeamentos.filter((item) => item.origem !== origem), mapeamento]);
   };
 
-  const salvarPreviaDP = () => {
-    const novos = previaContabilDP.partidas.map((partida): PreLancamentoContabil => {
-      const campo = partida.referencia.split(":").at(-1);
-      const origem: PreLancamentoContabil["origem"] = campo === "folhaBruta" ? "DP — Folha"
-        : campo === "descontosINSS" ? "DP — INSS"
-          : campo === "descontosIRRF" ? "DP — IRRF" : "DP — FGTS";
-      return {
+  const referenciasElegiveis = useMemo(() => new Set([
+    ...previaContabilDP.partidas.map((partida) => partida.referencia),
+    ...previaContabilFiscal.partidas.map((partida) => partida.referencia),
+  ]), [previaContabilDP.partidas, previaContabilFiscal.partidas]);
+
+  useEffect(() => {
+    if (!workspaceCarregado) return;
+    const agora = new Date().toISOString();
+    const candidatos: PreLancamentoContabil[] = [
+      ...previaContabilDP.partidas.map((partida): PreLancamentoContabil => {
+        const campo = partida.referencia.split(":").at(-1);
+        const origem: PreLancamentoContabil["origem"] = campo === "folhaBruta" ? "DP — Folha"
+          : campo === "descontosINSS" ? "DP — INSS"
+            : campo === "descontosIRRF" ? "DP — IRRF" : "DP — FGTS";
+        return {
+          id: partida.referencia,
+          referenciaOrigem: partida.referencia,
+          competencia: partida.competencia,
+          data: `${partida.competencia}-01`,
+          origem,
+          contaDebitoCodigo: partida.contaDebitoCodigo,
+          contaCreditoCodigo: partida.contaCreditoCodigo,
+          valor: partida.valor,
+          historico: `${partida.origem} — pré-lançamento para conferência`,
+          status: "pendente_conferencia",
+          criadoEm: agora,
+        };
+      }),
+      ...previaContabilFiscal.partidas.map((partida): PreLancamentoContabil => ({
         id: partida.referencia,
         referenciaOrigem: partida.referencia,
         competencia: partida.competencia,
-        data: `${partida.competencia}-01`,
-        origem,
+        data: partida.data,
+        origem: partida.origem as PreLancamentoContabil["origem"],
         contaDebitoCodigo: partida.contaDebitoCodigo,
         contaCreditoCodigo: partida.contaCreditoCodigo,
         valor: partida.valor,
-        historico: `${partida.origem} — pré-lançamento para conferência`,
+        historico: `${partida.origem} NF-e ${partida.chave} — valor bruto, pré-lançamento para conferência`,
         status: "pendente_conferencia",
-        criadoEm: new Date().toISOString(),
-      };
-    });
-    const referenciasNovas = new Set(novos.map((item) => item.referenciaOrigem));
-    onSalvarPreLancamentos([...preLancamentos.filter((item) => !referenciasNovas.has(item.referenciaOrigem)), ...novos]);
-    setMensagemPrevia(`${novos.length} pré-lançamento(s) enviado(s) para persistência neste CNPJ. Permanecem pendentes de conferência e fora do balancete.`);
-  };
-
-  const salvarPreviaFiscal = () => {
-    const novos = previaContabilFiscal.partidas.map((partida): PreLancamentoContabil => ({
-      id: partida.referencia,
-      referenciaOrigem: partida.referencia,
-      competencia: partida.competencia,
-      data: partida.data,
-      origem: partida.origem as PreLancamentoContabil["origem"],
-      contaDebitoCodigo: partida.contaDebitoCodigo,
-      contaCreditoCodigo: partida.contaCreditoCodigo,
-      valor: partida.valor,
-      historico: `${partida.origem} NF-e ${partida.chave} — valor bruto, pré-lançamento para conferência`,
-      status: "pendente_conferencia",
-      criadoEm: new Date().toISOString(),
-    }));
-    const referenciasNovas = new Set(novos.map((item) => item.referenciaOrigem));
-    onSalvarPreLancamentos([...preLancamentos.filter((item) => !referenciasNovas.has(item.referenciaOrigem)), ...novos]);
-    setMensagemPrevia(`${novos.length} pré-lançamento(s) fiscal(is) salvo(s) para esta empresa. São valores brutos sem tributos destacados; permanecem fora do balancete até conferência.`);
-  };
+        criadoEm: agora,
+      })),
+    ];
+    const porReferencia = new Map<string, number>(preLancamentos.map((item, index) => [item.referenciaOrigem, index]));
+    const atualizados = [...preLancamentos];
+    let alterou = false;
+    for (const candidato of candidatos) {
+      const indice = porReferencia.get(candidato.referenciaOrigem);
+      const existente = indice === undefined ? undefined : atualizados[indice];
+      if (existente?.status === "contabilizado") continue;
+      if (existente && existente.data === candidato.data && existente.competencia === candidato.competencia && existente.origem === candidato.origem &&
+        existente.contaDebitoCodigo === candidato.contaDebitoCodigo && existente.contaCreditoCodigo === candidato.contaCreditoCodigo &&
+        existente.valor === candidato.valor && existente.historico === candidato.historico) continue;
+      const proximo = { ...candidato, criadoEm: existente?.criadoEm || agora };
+      if (indice === undefined) {
+        porReferencia.set(candidato.referenciaOrigem, atualizados.length);
+        atualizados.push(proximo);
+      } else atualizados[indice] = proximo;
+      alterou = true;
+    }
+    if (alterou) {
+      onSalvarPreLancamentos(atualizados);
+      setMensagemPrevia("Pré-lançamentos elegíveis foram gerados e salvos automaticamente para esta empresa. Eles continuam pendentes de conferência.");
+    }
+  }, [workspaceCarregado, previaContabilDP.partidas, previaContabilFiscal.partidas, preLancamentos, onSalvarPreLancamentos]);
 
   const contabilizarPendentes = async () => {
-    const pendentes = preLancamentos.filter((item) => item.status === "pendente_conferencia");
+    const todosPendentes = preLancamentos.filter((item) => item.status === "pendente_conferencia");
+    const pendentes = todosPendentes.filter((item) => referenciasElegiveis.has(item.referenciaOrigem));
     if (!pendentes.length) return;
-    const confirmado = window.confirm(`Conferiu os ${pendentes.length} pré-lançamento(s) desta empresa e competência? A confirmação cria lançamentos no Contábil e altera o balancete após salvar no banco.`);
+    const bloqueados = todosPendentes.length - pendentes.length;
+    const confirmado = window.confirm(`Conferiu os ${pendentes.length} pré-lançamento(s) elegíveis desta empresa e período? ${bloqueados ? `${bloqueados} rascunho(s) não atende(m) mais à prévia carregada e ficará(ão) bloqueado(s). ` : ""}A confirmação contabiliza apenas os elegíveis e atualiza o balancete após salvar no banco.`);
     if (!confirmado) return;
     setMensagemPrevia("Salvando os lançamentos aprovados no banco permanente…");
     const persistido = await onContabilizar(pendentes.map((item) => item.referenciaOrigem));
     setMensagemPrevia(persistido
-      ? `${pendentes.length} lançamento(s) contabilizado(s) e confirmado(s) no PostgreSQL.`
+      ? `${pendentes.length} lançamento(s) elegível(is) contabilizado(s) e confirmado(s) no PostgreSQL${bloqueados ? `; ${bloqueados} rascunho(s) preservado(s) para revisão` : ""}.`
       : "A gravação no PostgreSQL não foi confirmada. Os dados continuam apenas na cópia local; atualize a empresa antes de tentar novamente.");
   };
 
@@ -294,7 +318,7 @@ export const RevisaoOrigensTab: React.FC<{
           <h1 className="mt-1 text-2xl font-black text-slate-900">Revisão Fiscal e Departamento Pessoal</h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-600">Consulta dados persistidos desta empresa e prepara pré-lançamentos quando origem, autorização, dados e mapeamentos permitem. Todo lançamento continua pendente de conferência; esta tela não transmite obrigações.</p>
         </div>
-        <button type="button" onClick={() => void carregar()} disabled={carregando} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">
+        <button type="button" onClick={() => void carregar()} disabled={carregando || !workspaceCarregado} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">
           <RefreshCw className={`h-4 w-4 ${carregando ? "animate-spin" : ""}`} /> Atualizar
         </button>
       </header>
@@ -313,7 +337,7 @@ export const RevisaoOrigensTab: React.FC<{
           <p className="text-sm text-slate-600">A prévia usa o valor bruto da nota e o mapeamento selecionado para este CNPJ. Só entram NF-e oficialmente autorizadas, não canceladas, com composição tributária disponível e sem tributos destacados. As demais ficam listadas como pendência para classificação manual.</p>
           {previaContabilFiscal.pendencias.map((item, index) => <div key={`${item.competencia}-fiscal-${index}`} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"><strong>{item.competencia}:</strong> {item.motivo}</div>)}
           {previaContabilFiscal.partidas.length === 0 ? <Empty text="Nenhuma nota atende aos critérios para prévia fiscal no período e nos mapeamentos atuais." /> : <>
-            <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-blue-800">{previaContabilFiscal.partidas.length} partida(s) sugerida(s); nenhuma contabilizada.</p><button type="button" onClick={salvarPreviaFiscal} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white"><Save className="h-4 w-4" /> Salvar pré-lançamentos fiscais</button></div>
+            <p className="text-xs text-blue-800">{previaContabilFiscal.partidas.length} partida(s) sugerida(s); os rascunhos são gerados e salvos automaticamente, sempre pendentes de conferência.</p>
             <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Data</th><th className="px-3 py-2">Origem / chave</th><th className="px-3 py-2">Débito</th><th className="px-3 py-2">Crédito</th><th className="px-3 py-2 text-right">Valor bruto</th></tr></thead><tbody>{previaContabilFiscal.partidas.map((partida) => <tr key={partida.referencia} className="border-t border-slate-100"><td className="px-3 py-2">{new Date(`${partida.data}T12:00:00`).toLocaleDateString("pt-BR")}</td><td className="max-w-72 truncate px-3 py-2" title={partida.chave}>{partida.origem} • {partida.chave}</td><td className="px-3 py-2">{partida.contaDebitoCodigo} — {contaNome(partida.contaDebitoCodigo)}</td><td className="px-3 py-2">{partida.contaCreditoCodigo} — {contaNome(partida.contaCreditoCodigo)}</td><td className="px-3 py-2 text-right tabular-nums">{dinheiro(partida.valor)}</td></tr>)}</tbody></table></div>
             <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">Rascunho bruto: essa regra não separa estoque, custo, contas a receber/pagar ou tributos. Confira o documento e a classificação antes de contabilizar.</p>
           </>}
@@ -343,11 +367,11 @@ export const RevisaoOrigensTab: React.FC<{
       <section className="overflow-hidden rounded-xl border border-indigo-200 bg-white">
         <div className="flex items-center gap-2 border-b border-indigo-100 px-4 py-3"><ClipboardCheck className="h-4 w-4 text-indigo-700" /><h2 className="font-bold text-slate-900">Prévia contábil da folha</h2></div>
         <div className="space-y-3 p-4">
-          <p className="text-sm text-slate-600">Sugestões calculadas a partir dos resumos persistidos e dos mapeamentos desta empresa. Esta prévia não é salva como lançamento, não altera o balancete e não substitui a conferência do contador.</p>
+          <p className="text-sm text-slate-600">Sugestões calculadas a partir dos resumos persistidos e dos mapeamentos desta empresa. Os rascunhos elegíveis são salvos automaticamente; permanecem fora do balancete até a conferência do contador.</p>
           {previaContabilDP.pendencias.map((item, index) => <div key={`${item.competencia}-${index}`} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"><strong>{item.competencia}:</strong> {item.motivo}</div>)}
           {previaContabilDP.partidas.length === 0 ? <Empty text="Ainda não há partidas de folha prontas para prévia com os dados e mapeamentos disponíveis." /> : (
             <>
-            <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-indigo-800">{previaContabilDP.partidas.length} partida(s) sugerida(s); nenhuma contabilizada.</p><button type="button" onClick={salvarPreviaDP} className="inline-flex items-center gap-2 rounded-lg bg-indigo-700 px-4 py-2 text-sm font-bold text-white"><Save className="h-4 w-4" /> Salvar pré-lançamentos pendentes</button></div>
+            <p className="text-xs text-indigo-800">{previaContabilDP.partidas.length} partida(s) sugerida(s); os rascunhos são gerados e salvos automaticamente, sem alterar o balancete.</p>
             <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Competência</th><th className="px-3 py-2">Origem</th><th className="px-3 py-2">Débito</th><th className="px-3 py-2">Crédito</th><th className="px-3 py-2 text-right">Valor</th></tr></thead>
               <tbody>{previaContabilDP.partidas.map((partida) => <tr key={partida.referencia} className="border-t border-slate-100"><td className="px-3 py-2">{partida.competencia}</td><td className="px-3 py-2">{partida.origem}</td><td className="px-3 py-2">{partida.contaDebitoCodigo} — {contaNome(partida.contaDebitoCodigo)}</td><td className="px-3 py-2">{partida.contaCreditoCodigo} — {contaNome(partida.contaCreditoCodigo)}</td><td className="px-3 py-2 text-right tabular-nums">{dinheiro(partida.valor)}</td></tr>)}</tbody>
@@ -356,10 +380,10 @@ export const RevisaoOrigensTab: React.FC<{
           )}
           {mensagemPrevia && <p role="status" className="text-xs text-indigo-800">{mensagemPrevia}</p>}
           {preLancamentos.length > 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
-            <div className="flex flex-wrap items-center justify-between gap-3"><strong>{preLancamentos.filter((item) => item.status === "pendente_conferencia").length} pendente(s) e {preLancamentos.filter((item) => item.status === "contabilizado").length} contabilizado(s) no workspace desta empresa.</strong>
-              {preLancamentos.some((item) => item.status === "pendente_conferencia") && <button type="button" onClick={contabilizarPendentes} className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white"><CheckCircle2 className="h-4 w-4" /> Conferir e contabilizar pendentes</button>}
+            <div className="flex flex-wrap items-center justify-between gap-3"><strong>{preLancamentos.filter((item) => item.status === "pendente_conferencia" && referenciasElegiveis.has(item.referenciaOrigem)).length} pendente(s) elegível(is), {preLancamentos.filter((item) => item.status === "pendente_conferencia" && !referenciasElegiveis.has(item.referenciaOrigem)).length} bloqueado(s) para revalidação e {preLancamentos.filter((item) => item.status === "contabilizado").length} contabilizado(s) no workspace desta empresa.</strong>
+              {preLancamentos.some((item) => item.status === "pendente_conferencia" && referenciasElegiveis.has(item.referenciaOrigem)) && <button type="button" onClick={contabilizarPendentes} disabled={carregando || !workspaceCarregado} className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><CheckCircle2 className="h-4 w-4" /> Conferir e contabilizar elegíveis</button>}
             </div>
-            <p className="mt-2">A contabilização requer confirmação do contador; cada referência de origem só pode gerar um lançamento. A gravação no PostgreSQL é feita pelo autosave do workspace.</p>
+            <p className="mt-2">A contabilização requer confirmação do contador. Cada referência só pode ser lançada uma vez. Rascunhos bloqueados são mantidos no banco até nova validação dos dados de origem.</p>
           </div>}
         </div>
       </section>
