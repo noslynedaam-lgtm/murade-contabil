@@ -42,7 +42,7 @@ const camposMonetarios = [
 ] as const;
 
 const camposResumoPermitidos = new Set(["quantidadeFuncionarios", ...camposMonetarios]);
-const camposAindaNaoApurados = new Set(["provisaoFerias", "provisao13", "encargosOutros"]);
+const camposAindaNaoApurados = new Set(["inssPatronal", "provisaoFerias", "provisao13", "encargosOutros"]);
 
 function arredondarCentavos(valor: number): number {
   return Math.round((valor + Number.EPSILON) * 100) / 100;
