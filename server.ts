@@ -70,6 +70,34 @@ async function startServer() {
   app.get("/api/workspaces", exigirSessaoContabil, listarWorkspacesContabil);
   app.get("/api/workspaces/:cnpj", exigirSessaoContabil, lerWorkspaceContabil);
   app.put("/api/workspaces/:cnpj", exigirOrigemNavegador, exigirSessaoContabil, salvarWorkspaceContabil);
+  app.get("/api/revisao/origens", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const sessao = (req as express.Request & { sessaoContabil?: { cnpjs: string[] } }).sessaoContabil;
+    const cnpj = String(req.query.cnpj || "").replace(/\D/g, "");
+    const desde = String(req.query.desde || "");
+    const ate = String(req.query.ate || "");
+    const limiteFiscal = req.query.limiteFiscal == null ? 200 : Number(req.query.limiteFiscal);
+    const limiteDP = req.query.limiteDP == null ? 50 : Number(req.query.limiteDP);
+    if (!/^\d{14}$/.test(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
+    if (!sessao?.cnpjs.includes(cnpj)) return res.status(403).json({ sucesso: false, motivo: "Empresa fora do seu acesso." });
+    if ((desde && !/^\d{4}-(0[1-9]|1[0-2])$/.test(desde)) || (ate && !/^\d{4}-(0[1-9]|1[0-2])$/.test(ate)) || (desde && ate && desde > ate)) {
+      return res.status(400).json({ sucesso: false, motivo: "Período inválido; use AAAA-MM." });
+    }
+    if (!Number.isInteger(limiteFiscal) || limiteFiscal < 1 || limiteFiscal > 500 || !Number.isInteger(limiteDP) || limiteDP < 1 || limiteDP > 200) {
+      return res.status(400).json({ sucesso: false, motivo: "Limites inválidos." });
+    }
+    if (!fiscalStoreConfigurado() || !dpStoreConfigurado()) return res.status(503).json({ sucesso: false, motivo: "O PostgreSQL não está configurado para as duas origens." });
+    try {
+      const [documentos, folhas] = await Promise.all([
+        lerDocumentosFiscais(cnpj, desde, ate, limiteFiscal),
+        lerResumosDP(cnpj, desde, ate, limiteDP),
+      ]);
+      return res.json({ sucesso: true, cnpj, periodo: { desde: desde || null, ate: ate || null }, documentos, folhas, lancamentosGerados: 0, revisaoNecessaria: true });
+    } catch (error: any) {
+      console.error("Falha ao montar fila de revisão das origens:", error);
+      return res.status(503).json({ sucesso: false, motivo: error?.message || "Não foi possível carregar os dados recebidos." });
+    }
+  });
 
   // API Health
   app.get("/api/health", (req, res) => {

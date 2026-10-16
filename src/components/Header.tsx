@@ -10,6 +10,7 @@ import {
   Calendar,
   Globe,
   FileSpreadsheet,
+  ClipboardCheck,
   Scale,
   Home,
 } from "lucide-react";
@@ -31,6 +32,7 @@ const navBotoes: Array<{ id: TabId; label: string; icon: React.FC<{ className?: 
   { id: "fluxo-previtico", label: "Fluxo", icon: Zap, badge: "90D", corBadge: "bg-emerald-400 text-slate-950" },
   { id: "modulos-finais", label: "Obrigação & Gestão", icon: FileText, badge: "2026", corBadge: "bg-emerald-300 text-slate-950" },
   { id: "conexoes", label: "Operação (Órgãos)", icon: Globe },
+  { id: "revisao-origens", label: "Revisão Fiscal + DP", icon: ClipboardCheck },
   { id: "lancamentos", label: "Lançamento", icon: FileSpreadsheet },
   { id: "calculadora", label: "Calculadora 3D", icon: Calculator, badge: "3D Pro" },
   { id: "ia-premium", label: "IA Murade Premium", icon: Sparkles, badge: "Voz v3", corBadge: "bg-amber-300 text-slate-900" },

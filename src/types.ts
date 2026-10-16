@@ -12,6 +12,7 @@ export type TabId =
   | "fluxo-previtico"
   | "modulos-finais"
   | "integracao"
+  | "revisao-origens"
   | "agente"
   | "ia-premium";
 

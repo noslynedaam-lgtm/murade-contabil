@@ -20,6 +20,7 @@ import { CalculadoraTab } from "./components/tabs/CalculadoraTab";
 import { FluxoPreviticoTab } from "./components/tabs/FluxoPreviticoTab";
 import { ModulosFinaisTab } from "./components/tabs/ModulosFinaisTab";
 import { MigracaoContabilTab } from "./components/tabs/MigracaoContabilTab";
+import { RevisaoOrigensTab } from "./components/tabs/RevisaoOrigensTab";
 import { IAFloatingButton } from "./components/IAFloatingButton";
 import { IAMuradModal } from "./components/IAMuradModal";
 import { ordenarContasPorSequenciaNumerica } from "./utils/planoContasUtils";
@@ -657,6 +658,8 @@ function AppWorkspace() {
                   onConectarDP={handleConectarMuradDP}
                 />
               )}
+
+              {tabAtiva === "revisao-origens" && <RevisaoOrigensTab cnpj={empresa.cnpj} />}
 
               {tabAtiva === "agente" && (
                 <AgenteTab
