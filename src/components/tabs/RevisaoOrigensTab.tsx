@@ -6,6 +6,8 @@ type DocumentoFiscal = Record<string, unknown>;
 type ResumoFolha = { competencia: string; calculadoEm: string; recebidoEm: string; resumo: Record<string, number | null> };
 type LoteOrigens = { documentos: DocumentoFiscal[]; folhas: ResumoFolha[] };
 type RascunhoMapeamento = { contaDebitoCodigo: string; contaCreditoCodigo: string };
+type PreviaPartidaDP = { competencia: string; origem: string; contaDebitoCodigo: string; contaCreditoCodigo: string; valor: number; referencia: string };
+type EstadoPreviaDP = { partidas: PreviaPartidaDP[]; pendencias: Array<{ competencia: string; motivo: string }> };
 
 const origensMapeaveis: Array<{ id: OrigemMapeadaContabil; titulo: string; descricao: string }> = [
   { id: "fiscal_entrada", titulo: "NF-e de entrada", descricao: "A conta de estoque/despesa varia por operação e CFOP; revise a conta de débito para esta empresa." },
@@ -79,6 +81,61 @@ export const RevisaoOrigensTab: React.FC<{
 
   const contasAnaliticas = useMemo(() => contas.filter((conta) => conta.tipo === "analitica"), [contas]);
   const contaNome = (codigo: string) => contasAnaliticas.find((conta) => conta.codigo === codigo)?.descricao || "Conta não encontrada no plano atual";
+  const previaContabilDP = useMemo<EstadoPreviaDP>(() => {
+    const partidas: PreviaPartidaDP[] = [];
+    const pendencias: EstadoPreviaDP["pendencias"] = [];
+    const porOrigem = new Map<OrigemMapeadaContabil, MapeamentoOrigemContabil>(mapeamentos.map((item) => [item.origem, item]));
+    const origens = [
+      { campo: "folhaBruta", origem: "dp_folha_bruta" as const, titulo: "Folha bruta" },
+      { campo: "descontosINSS", origem: "dp_descontos_inss" as const, titulo: "INSS descontado do empregado" },
+      { campo: "descontosIRRF", origem: "dp_descontos_irrf" as const, titulo: "IRRF descontado" },
+      { campo: "fgts", origem: "dp_fgts" as const, titulo: "FGTS informado pelo DP" },
+    ];
+    for (const folha of dados.folhas) {
+      const valores = folha.resumo || {};
+      const camposObrigatorios = ["folhaBruta", "descontosINSS", "descontosIRRF", "descontosOutros", "liquidoFolha", "fgts"];
+      if (camposObrigatorios.some((campo) => typeof valores[campo] !== "number" || !Number.isFinite(valores[campo]))) {
+        pendencias.push({ competencia: folha.competencia, motivo: "Há totais essenciais não apurados; nenhuma prévia foi montada." });
+        continue;
+      }
+      const folhaBruta = valores.folhaBruta as number;
+      const descontosINSS = valores.descontosINSS as number;
+      const descontosIRRF = valores.descontosIRRF as number;
+      const descontosOutros = valores.descontosOutros as number;
+      const liquidoFolha = valores.liquidoFolha as number;
+      const saldoLiquidoCalculado = Math.round((folhaBruta - descontosINSS - descontosIRRF - descontosOutros + Number.EPSILON) * 100) / 100;
+      if (descontosOutros > 0 || Math.abs(saldoLiquidoCalculado - liquidoFolha) > 0.01) {
+        pendencias.push({ competencia: folha.competencia, motivo: "Descontos ou líquido não conciliam com os mapeamentos disponíveis; classifique todos os descontos antes de preparar partidas." });
+        continue;
+      }
+      const candidatas: PreviaPartidaDP[] = [];
+      let incompleta = false;
+      for (const origem of origens) {
+        const valor = valores[origem.campo] as number;
+        if (valor < 0) { incompleta = true; break; }
+        if (valor === 0) continue;
+        const mapeamento = porOrigem.get(origem.origem);
+        const debitoExiste = Boolean(mapeamento && contasAnaliticas.some((conta) => conta.codigo === mapeamento.contaDebitoCodigo));
+        const creditoExiste = Boolean(mapeamento && contasAnaliticas.some((conta) => conta.codigo === mapeamento.contaCreditoCodigo));
+        if (!mapeamento || !debitoExiste || !creditoExiste || mapeamento.contaDebitoCodigo === mapeamento.contaCreditoCodigo) {
+          pendencias.push({ competencia: folha.competencia, motivo: `Mapeamento válido de débito e crédito pendente para ${origem.titulo}.` });
+          incompleta = true;
+          break;
+        }
+        candidatas.push({
+          competencia: folha.competencia,
+          origem: origem.titulo,
+          contaDebitoCodigo: mapeamento.contaDebitoCodigo,
+          contaCreditoCodigo: mapeamento.contaCreditoCodigo,
+          valor,
+          referencia: `DP:${cnpjNormalizado}:${folha.competencia}:${origem.campo}`,
+        });
+      }
+      if (!incompleta) partidas.push(...candidatas);
+    }
+    return { partidas, pendencias };
+  }, [dados.folhas, mapeamentos, contasAnaliticas, cnpjNormalizado]);
+
   const selecionarConta = (origem: OrigemMapeadaContabil, lado: keyof RascunhoMapeamento, valor: string) => {
     const salvo = mapeamentos.find((item) => item.origem === origem);
     const atual = rascunhos[origem] || {
@@ -146,6 +203,20 @@ export const RevisaoOrigensTab: React.FC<{
             </article>;
           })}
           <p className="text-xs text-slate-500">Contas sintéticas, contas removidas do plano e lançamentos com débito igual ao crédito não são aceitos como mapeamento válido.</p>
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-xl border border-indigo-200 bg-white">
+        <div className="flex items-center gap-2 border-b border-indigo-100 px-4 py-3"><ClipboardCheck className="h-4 w-4 text-indigo-700" /><h2 className="font-bold text-slate-900">Prévia contábil da folha</h2></div>
+        <div className="space-y-3 p-4">
+          <p className="text-sm text-slate-600">Sugestões calculadas a partir dos resumos persistidos e dos mapeamentos desta empresa. Esta prévia não é salva como lançamento, não altera o balancete e não substitui a conferência do contador.</p>
+          {previaContabilDP.pendencias.map((item, index) => <div key={`${item.competencia}-${index}`} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"><strong>{item.competencia}:</strong> {item.motivo}</div>)}
+          {previaContabilDP.partidas.length === 0 ? <Empty text="Ainda não há partidas de folha prontas para prévia com os dados e mapeamentos disponíveis." /> : (
+            <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Competência</th><th className="px-3 py-2">Origem</th><th className="px-3 py-2">Débito</th><th className="px-3 py-2">Crédito</th><th className="px-3 py-2 text-right">Valor</th></tr></thead>
+              <tbody>{previaContabilDP.partidas.map((partida) => <tr key={partida.referencia} className="border-t border-slate-100"><td className="px-3 py-2">{partida.competencia}</td><td className="px-3 py-2">{partida.origem}</td><td className="px-3 py-2">{partida.contaDebitoCodigo} — {contaNome(partida.contaDebitoCodigo)}</td><td className="px-3 py-2">{partida.contaCreditoCodigo} — {contaNome(partida.contaCreditoCodigo)}</td><td className="px-3 py-2 text-right tabular-nums">{dinheiro(partida.valor)}</td></tr>)}</tbody>
+            </table></div>
+          )}
         </div>
       </section>
 
