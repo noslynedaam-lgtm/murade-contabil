@@ -337,7 +337,7 @@ function workspaceValido(value: unknown): value is Record<string, unknown> {
     for (const item of payload.preLancamentos) {
       if (!item || typeof item !== "object" || Array.isArray(item)) return false;
       const lancamento = item as Record<string, unknown>;
-      const camposPermitidos = ["id", "referenciaOrigem", "competencia", "data", "origem", "contaDebitoCodigo", "contaCreditoCodigo", "valor", "historico", "status", "criadoEm"];
+      const camposPermitidos = ["id", "referenciaOrigem", "competencia", "data", "origem", "contaDebitoCodigo", "contaCreditoCodigo", "valor", "historico", "status", "criadoEm", "contabilizadoEm"];
       if (Object.keys(lancamento).some((key) => !camposPermitidos.includes(key))) return false;
       const referencia = typeof lancamento.referenciaOrigem === "string" ? lancamento.referenciaOrigem : "";
       if (!/^DP:[A-Z0-9]{12}\d{2}:\d{4}-(0[1-9]|1[0-2]):(folhaBruta|descontosINSS|descontosIRRF|fgts)$/.test(referencia) || referencias.has(referencia) || lancamento.id !== referencia) return false;
@@ -349,9 +349,19 @@ function workspaceValido(value: unknown): value is Record<string, unknown> {
       if (lancamento.origem !== origemEsperada) return false;
       if (typeof lancamento.contaDebitoCodigo !== "string" || typeof lancamento.contaCreditoCodigo !== "string" || lancamento.contaDebitoCodigo === lancamento.contaCreditoCodigo || !contasAnaliticas.has(lancamento.contaDebitoCodigo) || !contasAnaliticas.has(lancamento.contaCreditoCodigo)) return false;
       if (typeof lancamento.valor !== "number" || !Number.isFinite(lancamento.valor) || lancamento.valor <= 0 || lancamento.valor > 999999999999) return false;
-      if (typeof lancamento.historico !== "string" || lancamento.historico.length > 240 || lancamento.status !== "pendente_conferencia") return false;
+      if (typeof lancamento.historico !== "string" || lancamento.historico.length > 240 || !["pendente_conferencia", "contabilizado"].includes(String(lancamento.status))) return false;
       if (typeof lancamento.criadoEm !== "string" || !Number.isFinite(Date.parse(lancamento.criadoEm))) return false;
+      if (lancamento.status === "contabilizado" && (typeof lancamento.contabilizadoEm !== "string" || !Number.isFinite(Date.parse(lancamento.contabilizadoEm)))) return false;
+      if (lancamento.status === "pendente_conferencia" && lancamento.contabilizadoEm !== undefined) return false;
       referencias.add(referencia);
+    }
+    const lancamentos = payload.lancamentos as Array<Record<string, unknown>>;
+    const lancamentosPorReferencia = new Map(lancamentos.filter((item) => item && typeof item === "object" && typeof item.documentoRef === "string").map((item) => [String(item.documentoRef), item]));
+    for (const item of payload.preLancamentos as Array<Record<string, unknown>>) {
+      const referencia = String(item.referenciaOrigem);
+      const lancamento = lancamentosPorReferencia.get(referencia);
+      if (item.status === "contabilizado" && (!lancamento || lancamento.id !== referencia || lancamento.valor !== item.valor || lancamento.data !== item.data || lancamento.competencia !== item.competencia || lancamento.contaDebitoCodigo !== item.contaDebitoCodigo || lancamento.contaCreditoCodigo !== item.contaCreditoCodigo || lancamento.origem !== item.origem)) return false;
+      if (item.status === "pendente_conferencia" && lancamento) return false;
     }
   }
   if (payload.empresa !== undefined && (!payload.empresa || typeof payload.empresa !== "object" || Array.isArray(payload.empresa))) return false;

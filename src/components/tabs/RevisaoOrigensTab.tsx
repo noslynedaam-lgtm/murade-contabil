@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowDownToLine, ClipboardCheck, RefreshCw, Save } from "lucide-react";
+import { AlertTriangle, ArrowDownToLine, CheckCircle2, ClipboardCheck, RefreshCw, Save } from "lucide-react";
 import type { ContaPlano, MapeamentoOrigemContabil, OrigemMapeadaContabil, PreLancamentoContabil } from "../../types";
 
 type DocumentoFiscal = Record<string, unknown>;
@@ -31,7 +31,8 @@ export const RevisaoOrigensTab: React.FC<{
   onSalvarMapeamentos: (mapeamentos: MapeamentoOrigemContabil[]) => void;
   preLancamentos: PreLancamentoContabil[];
   onSalvarPreLancamentos: (preLancamentos: PreLancamentoContabil[]) => void;
-}> = ({ cnpj, contas, mapeamentos, onSalvarMapeamentos, preLancamentos, onSalvarPreLancamentos }) => {
+  onContabilizar: (referencias: string[]) => Promise<boolean>;
+}> = ({ cnpj, contas, mapeamentos, onSalvarMapeamentos, preLancamentos, onSalvarPreLancamentos, onContabilizar }) => {
   const [desde, setDesde] = useState(competenciaAtual);
   const [ate, setAte] = useState(competenciaAtual);
   const [dados, setDados] = useState<LoteOrigens>({ documentos: [], folhas: [] });
@@ -193,6 +194,18 @@ export const RevisaoOrigensTab: React.FC<{
     setMensagemPrevia(`${novos.length} pré-lançamento(s) enviado(s) para persistência neste CNPJ. Permanecem pendentes de conferência e fora do balancete.`);
   };
 
+  const contabilizarPendentes = async () => {
+    const pendentes = preLancamentos.filter((item) => item.status === "pendente_conferencia");
+    if (!pendentes.length) return;
+    const confirmado = window.confirm(`Conferiu os ${pendentes.length} pré-lançamento(s) desta empresa e competência? A confirmação cria lançamentos no Contábil e altera o balancete após salvar no banco.`);
+    if (!confirmado) return;
+    setMensagemPrevia("Salvando os lançamentos aprovados no banco permanente…");
+    const persistido = await onContabilizar(pendentes.map((item) => item.referenciaOrigem));
+    setMensagemPrevia(persistido
+      ? `${pendentes.length} lançamento(s) contabilizado(s) e confirmado(s) no PostgreSQL.`
+      : "A gravação no PostgreSQL não foi confirmada. Os dados continuam apenas na cópia local; atualize a empresa antes de tentar novamente.");
+  };
+
   return (
     <div className="space-y-5 p-4 md:p-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -249,7 +262,12 @@ export const RevisaoOrigensTab: React.FC<{
             </>
           )}
           {mensagemPrevia && <p role="status" className="text-xs text-indigo-800">{mensagemPrevia}</p>}
-          {preLancamentos.length > 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950"><strong>{preLancamentos.length} pré-lançamento(s) pendente(s) no workspace desta empresa.</strong> A tela não os contabiliza; o envio é confirmado pelo autosave do PostgreSQL. Eles não entram no balancete até conferência e contabilização explícitas.</div>}
+          {preLancamentos.length > 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
+            <div className="flex flex-wrap items-center justify-between gap-3"><strong>{preLancamentos.filter((item) => item.status === "pendente_conferencia").length} pendente(s) e {preLancamentos.filter((item) => item.status === "contabilizado").length} contabilizado(s) no workspace desta empresa.</strong>
+              {preLancamentos.some((item) => item.status === "pendente_conferencia") && <button type="button" onClick={contabilizarPendentes} className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white"><CheckCircle2 className="h-4 w-4" /> Conferir e contabilizar pendentes</button>}
+            </div>
+            <p className="mt-2">A contabilização requer confirmação do contador; cada referência de origem só pode gerar um lançamento. A gravação no PostgreSQL é feita pelo autosave do workspace.</p>
+          </div>}
         </div>
       </section>
 

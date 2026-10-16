@@ -36,10 +36,10 @@ export default function App() {
 function AppWorkspace() {
   const auth = useContabilAuth();
   const versoesWorkspaceRef = React.useRef(new Map<string, number | null>());
-  const filaGravacaoWorkspaceRef = React.useRef<Promise<void>>(Promise.resolve());
+  const filaGravacaoWorkspaceRef = React.useRef<Promise<boolean>>(Promise.resolve(true));
   const workspacePendenteRef = React.useRef<{ cnpj: string; dados: Record<string, unknown> } | null>(null);
   const workspaceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const flushWorkspaceRef = React.useRef<() => Promise<void>>(async () => undefined);
+  const flushWorkspaceRef = React.useRef<() => Promise<boolean>>(async () => true);
   const [assistenteAberta, setAssistenteAberta] = useState(false);
   const [tabAtiva, setTabAtiva] = useState<TabId>("inicio");
   const [empresa, setEmpresa] = useState<EmpresaDados>(initialEmpresa);
@@ -227,13 +227,15 @@ function AppWorkspace() {
       const result = await response.json().catch(() => ({}));
       if (response.status === 409) {
         showToast("Os dados mudaram em outra sessão. Recarregue esta empresa antes de continuar, para evitar sobrescrever alterações.", "info");
-        return;
+        return false;
       }
       if (!response.ok || result.sucesso !== true) throw new Error(result.motivo || "Persistência não confirmada.");
       versoesWorkspaceRef.current.set(pendente.cnpj, result.versao);
+      return true;
     }).catch((error) => {
       console.warn("Falha ao persistir dados contábeis no PostgreSQL:", error);
       showToast("Alterações guardadas neste navegador, mas o PostgreSQL não confirmou a gravação.", "info");
+      return false;
     });
     return filaGravacaoWorkspaceRef.current;
   };
@@ -391,6 +393,47 @@ function AppWorkspace() {
         : `Conferência local encontrou ${invalidos.length} lançamento(s) com valor ou conta inválidos.`,
       invalidos.length === 0 ? "info" : "success"
     );
+  };
+
+  const handleContabilizarPreLancamentos = async (referencias: string[]): Promise<boolean> => {
+    const solicitadas = new Set(referencias);
+    const agora = new Date().toISOString();
+    const empresaCnpj = empresa.cnpj.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const jaLancadas = new Set(lancamentos.map((item) => item.documentoRef).filter((ref): ref is string => Boolean(ref)));
+    const aprovados = preLancamentos.filter((item) =>
+      item.status === "pendente_conferencia" && solicitadas.has(item.referenciaOrigem) &&
+      item.referenciaOrigem.startsWith(`DP:${empresaCnpj}:`) && !jaLancadas.has(item.referenciaOrigem) &&
+      Number.isFinite(item.valor) && item.valor > 0 && item.contaDebitoCodigo !== item.contaCreditoCodigo &&
+      /^\d{4}-(0[1-9]|1[0-2])$/.test(item.competencia) && item.data === `${item.competencia}-01`
+    );
+    if (!aprovados.length) {
+      showToast("Nenhum pré-lançamento elegível foi encontrado; confira empresa, contas e situação.", "info");
+      return false;
+    }
+    const nomeConta = (codigo: string) => contas.find((conta) => conta.codigo === codigo)?.descricao || "Conta";
+    const novos: LancamentoContabil[] = aprovados.map((item) => ({
+      id: item.referenciaOrigem,
+      data: item.data,
+      competencia: item.competencia,
+      contaDebitoCodigo: item.contaDebitoCodigo,
+      contaDebitoNome: nomeConta(item.contaDebitoCodigo),
+      contaCreditoCodigo: item.contaCreditoCodigo,
+      contaCreditoNome: nomeConta(item.contaCreditoCodigo),
+      valor: item.valor,
+      historico: item.historico.replace("pré-lançamento para conferência", "aprovado pelo contador"),
+      origem: item.origem,
+      documentoRef: item.referenciaOrigem,
+    }));
+    const porReferencia = new Map(lancamentos.map((item) => [item.documentoRef || item.id, item]));
+    novos.forEach((item) => porReferencia.set(item.documentoRef || item.id, item));
+    setLancamentos([...porReferencia.values()]);
+    setPreLancamentos(preLancamentos.map((item) => aprovados.some((aprovado) => aprovado.referenciaOrigem === item.referenciaOrigem)
+      ? { ...item, status: "contabilizado", contabilizadoEm: agora }
+      : item));
+    await new Promise((resolve) => setTimeout(resolve, 650));
+    const persistido = await flushWorkspaceRef.current();
+    if (persistido) showToast(`${novos.length} lançamento(s) contabilizado(s) e confirmados no PostgreSQL desta empresa.`, "success");
+    return persistido;
   };
 
   // 3. Importar do Fiscal
@@ -717,7 +760,7 @@ function AppWorkspace() {
                 />
               )}
 
-              {tabAtiva === "revisao-origens" && <RevisaoOrigensTab cnpj={empresa.cnpj} contas={contas} mapeamentos={mapeamentosOrigem} onSalvarMapeamentos={setMapeamentosOrigem} preLancamentos={preLancamentos} onSalvarPreLancamentos={setPreLancamentos} />}
+              {tabAtiva === "revisao-origens" && <RevisaoOrigensTab cnpj={empresa.cnpj} contas={contas} mapeamentos={mapeamentosOrigem} onSalvarMapeamentos={setMapeamentosOrigem} preLancamentos={preLancamentos} onSalvarPreLancamentos={setPreLancamentos} onContabilizar={handleContabilizarPreLancamentos} />}
 
               {tabAtiva === "agente" && (
                 <AgenteTab

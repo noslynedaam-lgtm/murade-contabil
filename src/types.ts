@@ -118,7 +118,7 @@ export interface LancamentoContabil {
   contaCreditoNome: string;
   valor: number;
   historico: string;
-  origem: "Cadastro" | "Fiscal — NFe Entrada" | "Fiscal — NFe Saída" | "Fiscal — Apuração ICMS" | "DP — Folha" | "DP — INSS" | "DP — FGTS" | "Financeiro / Bancos" | "Manual";
+  origem: "Cadastro" | "Fiscal — NFe Entrada" | "Fiscal — NFe Saída" | "Fiscal — Apuração ICMS" | "DP — Folha" | "DP — INSS" | "DP — IRRF" | "DP — FGTS" | "Financeiro / Bancos" | "Manual";
   documentoRef?: string;
   competencia?: string;
   centroCustoCodigo?: string;
@@ -169,8 +169,9 @@ export interface PreLancamentoContabil {
   contaCreditoCodigo: string;
   valor: number;
   historico: string;
-  status: "pendente_conferencia";
+  status: "pendente_conferencia" | "contabilizado";
   criadoEm: string;
+  contabilizadoEm?: string;
 }
 
 export interface BalanceteItem {
