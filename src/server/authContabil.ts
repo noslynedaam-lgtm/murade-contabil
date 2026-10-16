@@ -296,8 +296,9 @@ export async function removerEmpresaAcessoContabil(req: Request, res: Response):
   } finally { client?.release(); }
 }
 
-const CAMPOS_WORKSPACE = new Set(["empresa", "contas", "centrosCusto", "mapeamentosOrigem", "lancamentos", "livros", "lembretes"]);
+const CAMPOS_WORKSPACE = new Set(["empresa", "contas", "centrosCusto", "mapeamentosOrigem", "preLancamentos", "lancamentos", "livros", "lembretes"]);
 const ORIGENS_MAPEAVEIS = new Set(["fiscal_entrada", "fiscal_saida", "dp_folha_bruta", "dp_descontos_inss", "dp_descontos_irrf", "dp_fgts"]);
+const ORIGENS_PRELANCAMENTO_DP = new Set(["DP — Folha", "DP — INSS", "DP — IRRF", "DP — FGTS"]);
 const CHAVES_CERTIFICADO_INFORMATIVAS = new Set([
   "certificadoativo", "certificadonomearquivo", "certificadovalidade", "certificadotipo",
   "certificadoemissor", "certificadotamanho", "certificadodataupload",
@@ -327,6 +328,30 @@ function workspaceValido(value: unknown): value is Record<string, unknown> {
       if (typeof mapping.contaDebitoCodigo !== "string" || mapping.contaDebitoCodigo.length > 64 || typeof mapping.contaCreditoCodigo !== "string" || mapping.contaCreditoCodigo.length > 64 || mapping.contaDebitoCodigo === mapping.contaCreditoCodigo || !contasAnaliticas.has(mapping.contaDebitoCodigo) || !contasAnaliticas.has(mapping.contaCreditoCodigo)) return false;
       if (typeof mapping.revisadoEm !== "string" || !Number.isFinite(Date.parse(mapping.revisadoEm))) return false;
       origensVistas.add(mapping.origem);
+    }
+  }
+  if (payload.preLancamentos !== undefined) {
+    if (!Array.isArray(payload.preLancamentos) || payload.preLancamentos.length > 20000) return false;
+    const contasAnaliticas = new Set((payload.contas as Array<Record<string, unknown>>).filter((conta) => conta && conta.tipo === "analitica" && typeof conta.codigo === "string").map((conta) => conta.codigo as string));
+    const referencias = new Set<string>();
+    for (const item of payload.preLancamentos) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+      const lancamento = item as Record<string, unknown>;
+      const camposPermitidos = ["id", "referenciaOrigem", "competencia", "data", "origem", "contaDebitoCodigo", "contaCreditoCodigo", "valor", "historico", "status", "criadoEm"];
+      if (Object.keys(lancamento).some((key) => !camposPermitidos.includes(key))) return false;
+      const referencia = typeof lancamento.referenciaOrigem === "string" ? lancamento.referenciaOrigem : "";
+      if (!/^DP:[A-Z0-9]{12}\d{2}:\d{4}-(0[1-9]|1[0-2]):(folhaBruta|descontosINSS|descontosIRRF|fgts)$/.test(referencia) || referencias.has(referencia) || lancamento.id !== referencia) return false;
+      if (typeof lancamento.competencia !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(lancamento.competencia) || !referencia.includes(`:${lancamento.competencia}:`)) return false;
+      if (typeof lancamento.data !== "string" || lancamento.data !== `${lancamento.competencia}-01`) return false;
+      if (typeof lancamento.origem !== "string" || !ORIGENS_PRELANCAMENTO_DP.has(lancamento.origem)) return false;
+      const campoOrigem = referencia.slice(referencia.lastIndexOf(":") + 1);
+      const origemEsperada = campoOrigem === "folhaBruta" ? "DP — Folha" : campoOrigem === "descontosINSS" ? "DP — INSS" : campoOrigem === "descontosIRRF" ? "DP — IRRF" : "DP — FGTS";
+      if (lancamento.origem !== origemEsperada) return false;
+      if (typeof lancamento.contaDebitoCodigo !== "string" || typeof lancamento.contaCreditoCodigo !== "string" || lancamento.contaDebitoCodigo === lancamento.contaCreditoCodigo || !contasAnaliticas.has(lancamento.contaDebitoCodigo) || !contasAnaliticas.has(lancamento.contaCreditoCodigo)) return false;
+      if (typeof lancamento.valor !== "number" || !Number.isFinite(lancamento.valor) || lancamento.valor <= 0 || lancamento.valor > 999999999999) return false;
+      if (typeof lancamento.historico !== "string" || lancamento.historico.length > 240 || lancamento.status !== "pendente_conferencia") return false;
+      if (typeof lancamento.criadoEm !== "string" || !Number.isFinite(Date.parse(lancamento.criadoEm))) return false;
+      referencias.add(referencia);
     }
   }
   if (payload.empresa !== undefined && (!payload.empresa || typeof payload.empresa !== "object" || Array.isArray(payload.empresa))) return false;
@@ -376,6 +401,9 @@ export async function salvarWorkspaceContabil(req: Request, res: Response): Prom
   if (!workspaceValido(req.body?.dados)) { res.status(422).json({ sucesso: false, motivo: "Workspace inválido, acima do limite ou contendo campos não permitidos." }); return; }
   const cnpjDados = normalizarCnpjAcesso((req.body.dados as any).empresa?.cnpj);
   if (cnpjDados && cnpjDados !== cnpj) { res.status(422).json({ sucesso: false, motivo: "Os dados da empresa não correspondem ao CNPJ autorizado." }); return; }
+  if (Array.isArray((req.body.dados as any).preLancamentos) && (req.body.dados as any).preLancamentos.some((item: any) => !String(item?.referenciaOrigem || "").startsWith(`DP:${cnpj}:`))) {
+    res.status(422).json({ sucesso: false, motivo: "Um pré-lançamento não pertence ao CNPJ autorizado." }); return;
+  }
   const versaoAnterior = req.body?.versaoAnterior;
   if (versaoAnterior !== null && (!Number.isSafeInteger(versaoAnterior) || versaoAnterior < 1)) {
     res.status(400).json({ sucesso: false, motivo: "Informe a versão atual do workspace antes de salvar." }); return;

@@ -159,6 +159,20 @@ export interface MapeamentoOrigemContabil {
   revisadoEm: string;
 }
 
+export interface PreLancamentoContabil {
+  id: string;
+  referenciaOrigem: string;
+  competencia: string;
+  data: string;
+  origem: "DP — Folha" | "DP — INSS" | "DP — IRRF" | "DP — FGTS";
+  contaDebitoCodigo: string;
+  contaCreditoCodigo: string;
+  valor: number;
+  historico: string;
+  status: "pendente_conferencia";
+  criadoEm: string;
+}
+
 export interface BalanceteItem {
   codigo: string;
   descricao: string;

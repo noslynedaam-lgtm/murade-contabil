@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowDownToLine, ClipboardCheck, RefreshCw, Save } from "lucide-react";
-import type { ContaPlano, MapeamentoOrigemContabil, OrigemMapeadaContabil } from "../../types";
+import type { ContaPlano, MapeamentoOrigemContabil, OrigemMapeadaContabil, PreLancamentoContabil } from "../../types";
 
 type DocumentoFiscal = Record<string, unknown>;
 type ResumoFolha = { competencia: string; calculadoEm: string; recebidoEm: string; resumo: Record<string, number | null> };
@@ -29,13 +29,16 @@ export const RevisaoOrigensTab: React.FC<{
   contas: ContaPlano[];
   mapeamentos: MapeamentoOrigemContabil[];
   onSalvarMapeamentos: (mapeamentos: MapeamentoOrigemContabil[]) => void;
-}> = ({ cnpj, contas, mapeamentos, onSalvarMapeamentos }) => {
+  preLancamentos: PreLancamentoContabil[];
+  onSalvarPreLancamentos: (preLancamentos: PreLancamentoContabil[]) => void;
+}> = ({ cnpj, contas, mapeamentos, onSalvarMapeamentos, preLancamentos, onSalvarPreLancamentos }) => {
   const [desde, setDesde] = useState(competenciaAtual);
   const [ate, setAte] = useState(competenciaAtual);
   const [dados, setDados] = useState<LoteOrigens>({ documentos: [], folhas: [] });
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [atualizadoEm, setAtualizadoEm] = useState("");
+  const [mensagemPrevia, setMensagemPrevia] = useState("");
   const [rascunhos, setRascunhos] = useState<Record<string, RascunhoMapeamento>>(() => Object.fromEntries(
     mapeamentos.map((item) => [item.origem, { contaDebitoCodigo: item.contaDebitoCodigo, contaCreditoCodigo: item.contaCreditoCodigo }]),
   ));
@@ -165,6 +168,31 @@ export const RevisaoOrigensTab: React.FC<{
     onSalvarMapeamentos([...mapeamentos.filter((item) => item.origem !== origem), mapeamento]);
   };
 
+  const salvarPreviaDP = () => {
+    const novos = previaContabilDP.partidas.map((partida): PreLancamentoContabil => {
+      const campo = partida.referencia.split(":").at(-1);
+      const origem: PreLancamentoContabil["origem"] = campo === "folhaBruta" ? "DP — Folha"
+        : campo === "descontosINSS" ? "DP — INSS"
+          : campo === "descontosIRRF" ? "DP — IRRF" : "DP — FGTS";
+      return {
+        id: partida.referencia,
+        referenciaOrigem: partida.referencia,
+        competencia: partida.competencia,
+        data: `${partida.competencia}-01`,
+        origem,
+        contaDebitoCodigo: partida.contaDebitoCodigo,
+        contaCreditoCodigo: partida.contaCreditoCodigo,
+        valor: partida.valor,
+        historico: `${partida.origem} — pré-lançamento para conferência`,
+        status: "pendente_conferencia",
+        criadoEm: new Date().toISOString(),
+      };
+    });
+    const referenciasNovas = new Set(novos.map((item) => item.referenciaOrigem));
+    onSalvarPreLancamentos([...preLancamentos.filter((item) => !referenciasNovas.has(item.referenciaOrigem)), ...novos]);
+    setMensagemPrevia(`${novos.length} pré-lançamento(s) enviado(s) para persistência neste CNPJ. Permanecem pendentes de conferência e fora do balancete.`);
+  };
+
   return (
     <div className="space-y-5 p-4 md:p-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -212,11 +240,16 @@ export const RevisaoOrigensTab: React.FC<{
           <p className="text-sm text-slate-600">Sugestões calculadas a partir dos resumos persistidos e dos mapeamentos desta empresa. Esta prévia não é salva como lançamento, não altera o balancete e não substitui a conferência do contador.</p>
           {previaContabilDP.pendencias.map((item, index) => <div key={`${item.competencia}-${index}`} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"><strong>{item.competencia}:</strong> {item.motivo}</div>)}
           {previaContabilDP.partidas.length === 0 ? <Empty text="Ainda não há partidas de folha prontas para prévia com os dados e mapeamentos disponíveis." /> : (
+            <>
+            <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-indigo-800">{previaContabilDP.partidas.length} partida(s) sugerida(s); nenhuma contabilizada.</p><button type="button" onClick={salvarPreviaDP} className="inline-flex items-center gap-2 rounded-lg bg-indigo-700 px-4 py-2 text-sm font-bold text-white"><Save className="h-4 w-4" /> Salvar pré-lançamentos pendentes</button></div>
             <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Competência</th><th className="px-3 py-2">Origem</th><th className="px-3 py-2">Débito</th><th className="px-3 py-2">Crédito</th><th className="px-3 py-2 text-right">Valor</th></tr></thead>
               <tbody>{previaContabilDP.partidas.map((partida) => <tr key={partida.referencia} className="border-t border-slate-100"><td className="px-3 py-2">{partida.competencia}</td><td className="px-3 py-2">{partida.origem}</td><td className="px-3 py-2">{partida.contaDebitoCodigo} — {contaNome(partida.contaDebitoCodigo)}</td><td className="px-3 py-2">{partida.contaCreditoCodigo} — {contaNome(partida.contaCreditoCodigo)}</td><td className="px-3 py-2 text-right tabular-nums">{dinheiro(partida.valor)}</td></tr>)}</tbody>
             </table></div>
+            </>
           )}
+          {mensagemPrevia && <p role="status" className="text-xs text-indigo-800">{mensagemPrevia}</p>}
+          {preLancamentos.length > 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950"><strong>{preLancamentos.length} pré-lançamento(s) pendente(s) no workspace desta empresa.</strong> A tela não os contabiliza; o envio é confirmado pelo autosave do PostgreSQL. Eles não entram no balancete até conferência e contabilização explícitas.</div>}
         </div>
       </section>
 
