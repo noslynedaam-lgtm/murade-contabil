@@ -402,9 +402,10 @@ function AppWorkspace() {
     const jaLancadas = new Set(lancamentos.map((item) => item.documentoRef).filter((ref): ref is string => Boolean(ref)));
     const aprovados = preLancamentos.filter((item) =>
       item.status === "pendente_conferencia" && solicitadas.has(item.referenciaOrigem) &&
-      item.referenciaOrigem.startsWith(`DP:${empresaCnpj}:`) && !jaLancadas.has(item.referenciaOrigem) &&
+      (item.referenciaOrigem.startsWith(`DP:${empresaCnpj}:`) || item.referenciaOrigem.startsWith(`FISCAL:${empresaCnpj}:`)) && !jaLancadas.has(item.referenciaOrigem) &&
       Number.isFinite(item.valor) && item.valor > 0 && item.contaDebitoCodigo !== item.contaCreditoCodigo &&
-      /^\d{4}-(0[1-9]|1[0-2])$/.test(item.competencia) && item.data === `${item.competencia}-01`
+      /^\d{4}-(0[1-9]|1[0-2])$/.test(item.competencia) &&
+      (item.referenciaOrigem.startsWith(`DP:${empresaCnpj}:`) ? item.data === `${item.competencia}-01` : /^\d{4}-\d{2}-\d{2}$/.test(item.data) && item.data.slice(0, 7) === item.competencia)
     );
     if (!aprovados.length) {
       showToast("Nenhum pré-lançamento elegível foi encontrado; confira empresa, contas e situação.", "info");

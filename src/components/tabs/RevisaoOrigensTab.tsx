@@ -8,6 +8,8 @@ type LoteOrigens = { documentos: DocumentoFiscal[]; folhas: ResumoFolha[] };
 type RascunhoMapeamento = { contaDebitoCodigo: string; contaCreditoCodigo: string };
 type PreviaPartidaDP = { competencia: string; origem: string; contaDebitoCodigo: string; contaCreditoCodigo: string; valor: number; referencia: string };
 type EstadoPreviaDP = { partidas: PreviaPartidaDP[]; pendencias: Array<{ competencia: string; motivo: string }> };
+type PreviaPartidaFiscal = PreviaPartidaDP & { data: string; chave: string };
+type EstadoPreviaFiscal = { partidas: PreviaPartidaFiscal[]; pendencias: Array<{ competencia: string; motivo: string }> };
 
 const origensMapeaveis: Array<{ id: OrigemMapeadaContabil; titulo: string; descricao: string }> = [
   { id: "fiscal_entrada", titulo: "NF-e de entrada", descricao: "A conta de estoque/despesa varia por operação e CFOP; revise a conta de débito para esta empresa." },
@@ -140,6 +142,65 @@ export const RevisaoOrigensTab: React.FC<{
     return { partidas, pendencias };
   }, [dados.folhas, mapeamentos, contasAnaliticas, cnpjNormalizado]);
 
+  const previaContabilFiscal = useMemo<EstadoPreviaFiscal>(() => {
+    const partidas: PreviaPartidaFiscal[] = [];
+    const pendencias: EstadoPreviaFiscal["pendencias"] = [];
+    const porOrigem = new Map<OrigemMapeadaContabil, MapeamentoOrigemContabil>(mapeamentos.map((item) => [item.origem, item]));
+    const camposTributarios = ["valorIcms", "valorIpi", "valorPis", "valorCofins", "valorIss"];
+    for (const doc of dados.documentos) {
+      const tipo = doc.tipo === "Entrada" ? "Entrada" : doc.tipo === "Saída" ? "Saida" : "";
+      const chave = String(doc.chaveAcesso || doc.id || "").trim();
+      const dataTexto = String(doc.dataEmissao || doc.emissao || "").trim();
+      const dataBr = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(dataTexto);
+      const dataIso = /^(\d{4})-(\d{2})-(\d{2})/.exec(dataTexto);
+      const ano = dataBr?.[3] || dataIso?.[1] || "";
+      const mes = dataBr?.[2] || dataIso?.[2] || "";
+      const dia = dataBr?.[1] || dataIso?.[3] || "01";
+      const competencia = ano && mes ? `${ano}-${mes}` : "";
+      const data = ano && mes ? `${ano}-${mes}-${dia}` : "";
+      const rotulo = tipo === "Entrada" ? "Fiscal — Entrada" : "Fiscal — Saída";
+      const competenciaExibicao = competencia || "sem competência";
+      const dataObjeto = new Date(`${data}T00:00:00Z`);
+      const dataCalendarioValida = /^\d{4}-\d{2}-\d{2}$/.test(data) && Number.isFinite(dataObjeto.getTime()) && dataObjeto.toISOString().slice(0, 10) === data;
+      const eventoCancelamento = Array.isArray(doc.eventosSefaz) && doc.eventosSefaz.some((evento: any) =>
+        evento?.confirmado === true && (/(cancelamento|cancelada)/i.test(String(evento.descricao || "")) || ["110111", "110112"].includes(String(evento.tipoEvento || ""))),
+      );
+      if (!tipo || !chave || !/^\d{4}-(0[1-9]|1[0-2])$/.test(competencia) || !dataCalendarioValida) {
+        pendencias.push({ competencia: competenciaExibicao, motivo: "Identificação ou data inválida; documento mantido fora da prévia fiscal." });
+        continue;
+      }
+      if (doc.statusVerificadoSefaz !== true || doc.statusSefaz !== "Autorizada" || eventoCancelamento) {
+        pendencias.push({ competencia, motivo: `A NF-e não tem autorização oficial confirmada ou consta cancelamento${eventoCancelamento ? " registrado" : ""}; não foi preparada.` });
+        continue;
+      }
+      const valor = Number(doc.valorTotal);
+      if (!Number.isFinite(valor) || valor <= 0 || doc.dadosTributariosDisponiveis !== true || camposTributarios.some((campo) => typeof doc[campo] !== "number" || !Number.isFinite(doc[campo]) || doc[campo] !== 0)) {
+        pendencias.push({ competencia, motivo: "Valor inválido, composição tributária incompleta ou tributo destacado. Revise o XML e faça a classificação fiscal antes de lançar." });
+        continue;
+      }
+      const origemMapeada: OrigemMapeadaContabil = tipo === "Entrada" ? "fiscal_entrada" : "fiscal_saida";
+      const mapeamento = porOrigem.get(origemMapeada);
+      const debitoExiste = Boolean(mapeamento && contasAnaliticas.some((conta) => conta.codigo === mapeamento.contaDebitoCodigo));
+      const creditoExiste = Boolean(mapeamento && contasAnaliticas.some((conta) => conta.codigo === mapeamento.contaCreditoCodigo));
+      if (!mapeamento || !debitoExiste || !creditoExiste || mapeamento.contaDebitoCodigo === mapeamento.contaCreditoCodigo) {
+        pendencias.push({ competencia, motivo: `Mapeamento válido de débito e crédito pendente para ${rotulo}.` });
+        continue;
+      }
+      const tipoReferencia = tipo === "Entrada" ? "Entrada" : "Saida";
+      partidas.push({
+        competencia,
+        data,
+        origem: rotulo,
+        contaDebitoCodigo: mapeamento.contaDebitoCodigo,
+        contaCreditoCodigo: mapeamento.contaCreditoCodigo,
+        valor: Math.round((valor + Number.EPSILON) * 100) / 100,
+        chave,
+        referencia: `FISCAL:${cnpjNormalizado}:${competencia}:${tipoReferencia}:${chave}`,
+      });
+    }
+    return { partidas, pendencias };
+  }, [dados.documentos, mapeamentos, contasAnaliticas, cnpjNormalizado]);
+
   const selecionarConta = (origem: OrigemMapeadaContabil, lado: keyof RascunhoMapeamento, valor: string) => {
     const salvo = mapeamentos.find((item) => item.origem === origem);
     const atual = rascunhos[origem] || {
@@ -194,6 +255,25 @@ export const RevisaoOrigensTab: React.FC<{
     setMensagemPrevia(`${novos.length} pré-lançamento(s) enviado(s) para persistência neste CNPJ. Permanecem pendentes de conferência e fora do balancete.`);
   };
 
+  const salvarPreviaFiscal = () => {
+    const novos = previaContabilFiscal.partidas.map((partida): PreLancamentoContabil => ({
+      id: partida.referencia,
+      referenciaOrigem: partida.referencia,
+      competencia: partida.competencia,
+      data: partida.data,
+      origem: partida.origem as PreLancamentoContabil["origem"],
+      contaDebitoCodigo: partida.contaDebitoCodigo,
+      contaCreditoCodigo: partida.contaCreditoCodigo,
+      valor: partida.valor,
+      historico: `${partida.origem} NF-e ${partida.chave} — valor bruto, pré-lançamento para conferência`,
+      status: "pendente_conferencia",
+      criadoEm: new Date().toISOString(),
+    }));
+    const referenciasNovas = new Set(novos.map((item) => item.referenciaOrigem));
+    onSalvarPreLancamentos([...preLancamentos.filter((item) => !referenciasNovas.has(item.referenciaOrigem)), ...novos]);
+    setMensagemPrevia(`${novos.length} pré-lançamento(s) fiscal(is) salvo(s) para esta empresa. São valores brutos sem tributos destacados; permanecem fora do balancete até conferência.`);
+  };
+
   const contabilizarPendentes = async () => {
     const pendentes = preLancamentos.filter((item) => item.status === "pendente_conferencia");
     if (!pendentes.length) return;
@@ -212,7 +292,7 @@ export const RevisaoOrigensTab: React.FC<{
         <div>
           <p className="text-xs font-bold uppercase tracking-wide text-blue-700">Dados recebidos • {cnpj || "sem empresa"}</p>
           <h1 className="mt-1 text-2xl font-black text-slate-900">Revisão Fiscal e Departamento Pessoal</h1>
-          <p className="mt-1 max-w-3xl text-sm text-slate-600">Consulta os registros persistidos para esta empresa. Os dados ficam aguardando conferência e mapeamento; esta tela não cria partidas nem transmite obrigações.</p>
+          <p className="mt-1 max-w-3xl text-sm text-slate-600">Consulta dados persistidos desta empresa e prepara pré-lançamentos quando origem, autorização, dados e mapeamentos permitem. Todo lançamento continua pendente de conferência; esta tela não transmite obrigações.</p>
         </div>
         <button type="button" onClick={() => void carregar()} disabled={carregando} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">
           <RefreshCw className={`h-4 w-4 ${carregando ? "animate-spin" : ""}`} /> Atualizar
@@ -226,6 +306,19 @@ export const RevisaoOrigensTab: React.FC<{
       </section>
 
       {erro && <div role="alert" className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{erro}</div>}
+
+      <section className="overflow-hidden rounded-xl border border-blue-200 bg-white">
+        <div className="flex items-center gap-2 border-b border-blue-100 px-4 py-3"><ClipboardCheck className="h-4 w-4 text-blue-700" /><h2 className="font-bold text-slate-900">Prévia contábil das notas fiscais</h2></div>
+        <div className="space-y-3 p-4">
+          <p className="text-sm text-slate-600">A prévia usa o valor bruto da nota e o mapeamento selecionado para este CNPJ. Só entram NF-e oficialmente autorizadas, não canceladas, com composição tributária disponível e sem tributos destacados. As demais ficam listadas como pendência para classificação manual.</p>
+          {previaContabilFiscal.pendencias.map((item, index) => <div key={`${item.competencia}-fiscal-${index}`} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"><strong>{item.competencia}:</strong> {item.motivo}</div>)}
+          {previaContabilFiscal.partidas.length === 0 ? <Empty text="Nenhuma nota atende aos critérios para prévia fiscal no período e nos mapeamentos atuais." /> : <>
+            <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-blue-800">{previaContabilFiscal.partidas.length} partida(s) sugerida(s); nenhuma contabilizada.</p><button type="button" onClick={salvarPreviaFiscal} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white"><Save className="h-4 w-4" /> Salvar pré-lançamentos fiscais</button></div>
+            <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Data</th><th className="px-3 py-2">Origem / chave</th><th className="px-3 py-2">Débito</th><th className="px-3 py-2">Crédito</th><th className="px-3 py-2 text-right">Valor bruto</th></tr></thead><tbody>{previaContabilFiscal.partidas.map((partida) => <tr key={partida.referencia} className="border-t border-slate-100"><td className="px-3 py-2">{new Date(`${partida.data}T12:00:00`).toLocaleDateString("pt-BR")}</td><td className="max-w-72 truncate px-3 py-2" title={partida.chave}>{partida.origem} • {partida.chave}</td><td className="px-3 py-2">{partida.contaDebitoCodigo} — {contaNome(partida.contaDebitoCodigo)}</td><td className="px-3 py-2">{partida.contaCreditoCodigo} — {contaNome(partida.contaCreditoCodigo)}</td><td className="px-3 py-2 text-right tabular-nums">{dinheiro(partida.valor)}</td></tr>)}</tbody></table></div>
+            <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">Rascunho bruto: essa regra não separa estoque, custo, contas a receber/pagar ou tributos. Confira o documento e a classificação antes de contabilizar.</p>
+          </>}
+        </div>
+      </section>
 
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3"><Save className="h-4 w-4 text-blue-700" /><h2 className="font-bold text-slate-900">Mapeamento de contas por empresa</h2></div>
