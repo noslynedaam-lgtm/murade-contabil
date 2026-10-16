@@ -42,6 +42,7 @@ const camposMonetarios = [
 ] as const;
 
 const camposResumoPermitidos = new Set(["quantidadeFuncionarios", ...camposMonetarios]);
+const camposAindaNaoApurados = new Set(["provisaoFerias", "provisao13", "encargosOutros"]);
 
 function arredondarCentavos(valor: number): number {
   return Math.round((valor + Number.EPSILON) * 100) / 100;
@@ -79,13 +80,20 @@ export function normalizarResumoDPContrato(cnpj: string, body: any) {
   if (camposRecebidos.some((campo) => !camposResumoPermitidos.has(campo))) {
     throw new ErroValidacaoResumoDP("O resumo aceita apenas totais agregados; remova nomes, CPF, dados bancários ou outros dados pessoais.");
   }
+  if ([...camposResumoPermitidos].some((campo) => !Object.prototype.hasOwnProperty.call(body.resumo, campo))) {
+    throw new ErroValidacaoResumoDP("O resumo precisa informar todos os totais do contrato; campos ainda não apurados devem ser null, não zero.");
+  }
   if (typeof body.resumo.quantidadeFuncionarios !== "number" || !Number.isInteger(body.resumo.quantidadeFuncionarios) || body.resumo.quantidadeFuncionarios < 0 || body.resumo.quantidadeFuncionarios > 100000) {
     throw new ErroValidacaoResumoDP("Quantidade de funcionários inválida.");
   }
 
-  const resumo: Record<string, number> = { quantidadeFuncionarios: body.resumo.quantidadeFuncionarios };
+  const resumo: Record<string, number | null> = { quantidadeFuncionarios: body.resumo.quantidadeFuncionarios };
   for (const campo of camposMonetarios) {
     const valor = body.resumo[campo];
+    if (valor === null && camposAindaNaoApurados.has(campo)) {
+      resumo[campo] = null;
+      continue;
+    }
     if (typeof valor !== "number" || !Number.isFinite(valor) || valor < 0 || valor > 999999999999) {
       throw new ErroValidacaoResumoDP(`Valor agregado inválido: ${campo}.`);
     }
