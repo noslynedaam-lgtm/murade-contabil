@@ -164,7 +164,7 @@ export interface PreLancamentoContabil {
   referenciaOrigem: string;
   competencia: string;
   data: string;
-  origem: "DP — Folha" | "DP — INSS" | "DP — IRRF" | "DP — FGTS";
+  origem: "DP — Folha" | "DP — INSS" | "DP — IRRF" | "DP — FGTS" | "Fiscal — Entrada" | "Fiscal — Saída";
   contaDebitoCodigo: string;
   contaCreditoCodigo: string;
   valor: number;
