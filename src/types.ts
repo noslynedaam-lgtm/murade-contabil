@@ -12,6 +12,7 @@ export type TabId =
   | "fluxo-previtico"
   | "modulos-finais"
   | "integracao"
+  | "revisao-origens"
   | "agente"
   | "ia-premium";
 
@@ -117,7 +118,7 @@ export interface LancamentoContabil {
   contaCreditoNome: string;
   valor: number;
   historico: string;
-  origem: "Cadastro" | "Fiscal — NFe Entrada" | "Fiscal — NFe Saída" | "Fiscal — Apuração ICMS" | "DP — Folha" | "DP — INSS" | "DP — FGTS" | "Financeiro / Bancos" | "Manual";
+  origem: "Cadastro" | "Fiscal — NFe Entrada" | "Fiscal — NFe Saída" | "Fiscal — Apuração ICMS" | "DP — Folha" | "DP — INSS" | "DP — IRRF" | "DP — FGTS" | "Financeiro / Bancos" | "Manual";
   documentoRef?: string;
   competencia?: string;
   centroCustoCodigo?: string;
@@ -141,6 +142,36 @@ export interface ContaPlano {
   tipo: "sintetica" | "analitica";
   natureza: "D" | "C";
   saldoInicial?: number;
+}
+
+export type OrigemMapeadaContabil =
+  | "fiscal_entrada"
+  | "fiscal_saida"
+  | "dp_folha_bruta"
+  | "dp_descontos_inss"
+  | "dp_descontos_irrf"
+  | "dp_fgts";
+
+export interface MapeamentoOrigemContabil {
+  origem: OrigemMapeadaContabil;
+  contaDebitoCodigo: string;
+  contaCreditoCodigo: string;
+  revisadoEm: string;
+}
+
+export interface PreLancamentoContabil {
+  id: string;
+  referenciaOrigem: string;
+  competencia: string;
+  data: string;
+  origem: "DP — Folha" | "DP — INSS" | "DP — IRRF" | "DP — FGTS";
+  contaDebitoCodigo: string;
+  contaCreditoCodigo: string;
+  valor: number;
+  historico: string;
+  status: "pendente_conferencia" | "contabilizado";
+  criadoEm: string;
+  contabilizadoEm?: string;
 }
 
 export interface BalanceteItem {

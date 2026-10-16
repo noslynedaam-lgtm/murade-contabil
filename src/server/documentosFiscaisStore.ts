@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { cnpjContabilValido, normalizarCnpjAcesso } from "./authContabil";
 
 let pool: Pool | null | undefined;
 
@@ -42,7 +43,7 @@ async function inicializar(): Promise<void> {
   if (!inicializacao) {
     inicializacao = db.query(`
       CREATE TABLE IF NOT EXISTS murade_documentos_fiscais_origem (
-        cnpj char(14) NOT NULL CHECK (cnpj ~ '^[0-9]{14}$'),
+        cnpj char(14) NOT NULL CHECK (cnpj ~ '^[A-Z0-9]{12}[0-9]{2}$'),
         chave_documento varchar(128) NOT NULL,
         competencia char(7) NOT NULL CHECK (competencia ~ '^[0-9]{4}-[0-9]{2}$'),
         tipo varchar(16) NOT NULL CHECK (tipo IN ('Entrada', 'Saída')),
@@ -53,6 +54,10 @@ async function inicializar(): Promise<void> {
         PRIMARY KEY (cnpj, chave_documento)
       )
     `).then(() => db.query(`
+      ALTER TABLE murade_documentos_fiscais_origem DROP CONSTRAINT IF EXISTS murade_documentos_fiscais_origem_cnpj_check;
+      ALTER TABLE murade_documentos_fiscais_origem DROP CONSTRAINT IF EXISTS murade_documentos_fiscais_origem_cnpj_format_check;
+      ALTER TABLE murade_documentos_fiscais_origem ADD CONSTRAINT murade_documentos_fiscais_origem_cnpj_format_check CHECK (cnpj ~ '^[A-Z0-9]{12}[0-9]{2}$');
+    `)).then(() => db.query(`
       CREATE INDEX IF NOT EXISTS murade_documentos_fiscais_origem_competencia_idx
       ON murade_documentos_fiscais_origem (cnpj, competencia, tipo)
     `)).then(() => undefined).catch((error) => {
@@ -99,7 +104,7 @@ export async function gravarDocumentosFiscais(
 ): Promise<ResultadoGravacaoFiscal> {
   const db = obterPool();
   if (!db) throw new Error("DATABASE_URL não configurada no Murade Contábil.");
-  if (!/^\d{14}$/.test(cnpj)) throw new ErroValidacaoDocumentoFiscal("CNPJ inválido.");
+  if (!cnpjContabilValido(cnpj)) throw new ErroValidacaoDocumentoFiscal("CNPJ inválido.");
   if (!Array.isArray(documentos) || documentos.length < 1 || documentos.length > 200) {
     throw new ErroValidacaoDocumentoFiscal("O lote precisa conter de 1 a 200 documentos.");
   }
@@ -108,7 +113,7 @@ export async function gravarDocumentosFiscais(
     if (!documento || typeof documento !== "object" || Array.isArray(documento)) {
       throw new ErroValidacaoDocumentoFiscal("Documento fiscal inválido; nenhum registro foi gravado.");
     }
-    if (String(documento.cnpjEmpresa || "").replace(/\D/g, "") !== cnpj) {
+    if (normalizarCnpjAcesso(documento.cnpjEmpresa) !== cnpj) {
       throw new ErroValidacaoDocumentoFiscal("O CNPJ do documento não corresponde à empresa do lote; nenhum registro foi gravado.");
     }
     if (documento.tipo !== "Entrada" && documento.tipo !== "Saída") {
@@ -176,7 +181,7 @@ export async function lerDocumentosFiscais(
 ): Promise<any[]> {
   const db = obterPool();
   if (!db) throw new Error("DATABASE_URL não configurada no Murade Contábil.");
-  if (!/^\d{14}$/.test(cnpj)) throw new Error("CNPJ inválido.");
+  if (!cnpjContabilValido(cnpj)) throw new Error("CNPJ inválido.");
   await inicializar();
   const resultado = await db.query(`
     SELECT documento

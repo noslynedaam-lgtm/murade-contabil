@@ -10,6 +10,7 @@ import {
   Calendar,
   Globe,
   FileSpreadsheet,
+  ClipboardCheck,
   Scale,
   Home,
 } from "lucide-react";
@@ -20,6 +21,8 @@ interface HeaderProps {
   onSelectTab?: (tab: TabId) => void;
   onToggleMobileSidebar?: () => void;
   onConectarFiscal?: () => void;
+  usuario?: string;
+  onLogout?: () => void;
 }
 
 const navBotoes: Array<{ id: TabId; label: string; icon: React.FC<{ className?: string }>; badge?: string; corBadge?: string }> = [
@@ -29,6 +32,7 @@ const navBotoes: Array<{ id: TabId; label: string; icon: React.FC<{ className?: 
   { id: "fluxo-previtico", label: "Fluxo", icon: Zap, badge: "90D", corBadge: "bg-emerald-400 text-slate-950" },
   { id: "modulos-finais", label: "Obrigação & Gestão", icon: FileText, badge: "2026", corBadge: "bg-emerald-300 text-slate-950" },
   { id: "conexoes", label: "Operação (Órgãos)", icon: Globe },
+  { id: "revisao-origens", label: "Revisão Fiscal + DP", icon: ClipboardCheck },
   { id: "lancamentos", label: "Lançamento", icon: FileSpreadsheet },
   { id: "calculadora", label: "Calculadora 3D", icon: Calculator, badge: "3D Pro" },
   { id: "ia-premium", label: "IA Murade Premium", icon: Sparkles, badge: "Voz v3", corBadge: "bg-amber-300 text-slate-900" },
@@ -39,6 +43,8 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectTab,
   onToggleMobileSidebar,
   onConectarFiscal,
+  usuario,
+  onLogout,
 }) => {
   return (
     <header className="bg-[#082B66] border-b border-[#0A357D] sticky top-0 z-30 text-white shadow-md shrink-0">
@@ -76,6 +82,8 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         <div className="flex items-center gap-2 font-medium text-[11px]">
+          {usuario && <span className="hidden lg:inline text-blue-100">{usuario}</span>}
+          {onLogout && <button onClick={onLogout} className="rounded-lg border border-blue-300/30 px-2 py-1 text-blue-100 hover:bg-white/10">Sair</button>}
           {onConectarFiscal && (
             <button
               onClick={onConectarFiscal}

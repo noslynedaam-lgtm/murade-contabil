@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { TabId, OrgaoConectado, EmpresaDados, LancamentoContabil, ContaPlano, LivroContabil, LembreteItem, CentroCustoContabil } from "./types";
+import { TabId, OrgaoConectado, EmpresaDados, LancamentoContabil, ContaPlano, LivroContabil, LembreteItem, CentroCustoContabil, MapeamentoOrigemContabil, PreLancamentoContabil } from "./types";
 import { initialEmpresa, orgaosIniciais, lancamentosIniciais, planoContasPadrao, livrosIniciais, lembretesIniciais } from "./data/mockData";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
@@ -20,14 +20,26 @@ import { CalculadoraTab } from "./components/tabs/CalculadoraTab";
 import { FluxoPreviticoTab } from "./components/tabs/FluxoPreviticoTab";
 import { ModulosFinaisTab } from "./components/tabs/ModulosFinaisTab";
 import { MigracaoContabilTab } from "./components/tabs/MigracaoContabilTab";
+import { RevisaoOrigensTab } from "./components/tabs/RevisaoOrigensTab";
 import { IAFloatingButton } from "./components/IAFloatingButton";
 import { IAMuradModal } from "./components/IAMuradModal";
 import { ordenarContasPorSequenciaNumerica } from "./utils/planoContasUtils";
 import { ModalConexaoMuradFiscal } from "./components/modals/ModalConexaoMuradFiscal";
 import { conectarEPuxarEmpresaMuradFiscal, conectarMuradDP } from "./services/integracaoMuradService";
 import { CheckCircle2, X } from "lucide-react";
+import { ContabilAccessGate, useContabilAuth } from "./components/ContabilAccessGate";
 
 export default function App() {
+  return <ContabilAccessGate><AppWorkspace /></ContabilAccessGate>;
+}
+
+function AppWorkspace() {
+  const auth = useContabilAuth();
+  const versoesWorkspaceRef = React.useRef(new Map<string, number | null>());
+  const filaGravacaoWorkspaceRef = React.useRef<Promise<boolean>>(Promise.resolve(true));
+  const workspacePendenteRef = React.useRef<{ cnpj: string; dados: Record<string, unknown> } | null>(null);
+  const workspaceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushWorkspaceRef = React.useRef<() => Promise<boolean>>(async () => true);
   const [assistenteAberta, setAssistenteAberta] = useState(false);
   const [tabAtiva, setTabAtiva] = useState<TabId>("inicio");
   const [empresa, setEmpresa] = useState<EmpresaDados>(initialEmpresa);
@@ -50,6 +62,8 @@ export default function App() {
     ordenarContasPorSequenciaNumerica(planoContasPadrao)
   );
   const [centrosCusto, setCentrosCusto] = useState<CentroCustoContabil[]>([]);
+  const [mapeamentosOrigem, setMapeamentosOrigem] = useState<MapeamentoOrigemContabil[]>([]);
+  const [preLancamentos, setPreLancamentos] = useState<PreLancamentoContabil[]>([]);
   const [livros, setLivros] = useState<LivroContabil[]>(livrosIniciais);
   const [lembretes, setLembretes] = useState<LembreteItem[]>(lembretesIniciais);
   const [dadosEmpresaCarregadosCnpj, setDadosEmpresaCarregadosCnpj] = useState("");
@@ -68,6 +82,8 @@ export default function App() {
     const dadosVazios = () => {
       setContas(ordenarContasPorSequenciaNumerica(planoContasPadrao));
       setCentrosCusto([]);
+      setMapeamentosOrigem([]);
+      setPreLancamentos([]);
       setLancamentos(lancamentosIniciais);
       setLivros(livrosIniciais);
       setLembretes(lembretesIniciais);
@@ -80,44 +96,91 @@ export default function App() {
       dadosVazios();
       return;
     }
-    try {
-      const salvo = localStorage.getItem(`murade_contabil_dados_${cnpj}`);
-      if (!salvo) {
-        dadosVazios();
-        setDadosEmpresaCarregadosCnpj(cnpj);
-        return;
-      }
-      const dados = JSON.parse(salvo);
-      setContas(Array.isArray(dados.contas) ? ordenarContasPorSequenciaNumerica(dados.contas) : ordenarContasPorSequenciaNumerica(planoContasPadrao));
-      setCentrosCusto(Array.isArray(dados.centrosCusto) ? dados.centrosCusto : []);
-      setLancamentos(Array.isArray(dados.lancamentos) ? dados.lancamentos : []);
-      setLivros(Array.isArray(dados.livros) ? dados.livros : livrosIniciais);
-      setLembretes(Array.isArray(dados.lembretes) ? dados.lembretes : lembretesIniciais);
-      setDadosEmpresaCarregadosCnpj(cnpj);
-    } catch (error) {
-      console.warn("Não foi possível carregar os dados contábeis migrados desta empresa:", error);
+    if (!auth.cnpjs.includes(cnpj)) {
       dadosVazios();
-      setDadosEmpresaCarregadosCnpj(cnpj);
+      return;
     }
-  }, [empresa.cnpj]);
+    let ativo = true;
+    void (async () => {
+      try {
+        const response = await fetch(`/api/workspaces/${encodeURIComponent(cnpj)}`, { credentials: "include", cache: "no-store" });
+        const remote = await response.json().catch(() => ({}));
+        if (!response.ok || remote.sucesso !== true) throw new Error(remote.motivo || "Não foi possível carregar a empresa do banco.");
+        let dados = remote.dados;
+        versoesWorkspaceRef.current.set(cnpj, Number.isSafeInteger(remote.versao) ? remote.versao : null);
+        if (!dados) {
+          // Migração de compatibilidade: importa somente dados locais da empresa
+          // autorizada e mantém o navegador como cópia após a confirmação do PG.
+          try {
+            const salvo = localStorage.getItem(`murade_contabil_dados_${cnpj}`);
+            if (salvo) dados = JSON.parse(salvo);
+          } catch (error) {
+            console.warn("Dados locais antigos da empresa não puderam ser lidos:", error);
+          }
+          dados = {
+            empresa: { ...empresa, certificadoAtivo: false, certificadoNomeArquivo: undefined },
+            contas: Array.isArray(dados?.contas) ? dados.contas : ordenarContasPorSequenciaNumerica(planoContasPadrao),
+            centrosCusto: Array.isArray(dados?.centrosCusto) ? dados.centrosCusto : [],
+            mapeamentosOrigem: Array.isArray(dados?.mapeamentosOrigem) ? dados.mapeamentosOrigem : [],
+            preLancamentos: Array.isArray(dados?.preLancamentos) ? dados.preLancamentos : [],
+            lancamentos: Array.isArray(dados?.lancamentos) ? dados.lancamentos : [],
+            livros: Array.isArray(dados?.livros) ? dados.livros : [],
+            lembretes: Array.isArray(dados?.lembretes) ? dados.lembretes : [],
+          };
+          const migracao = await fetch(`/api/workspaces/${encodeURIComponent(cnpj)}`, {
+            method: "PUT", credentials: "include", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ dados, versaoAnterior: null }),
+          });
+          const confirmacao = await migracao.json().catch(() => ({}));
+          if (!migracao.ok || confirmacao.sucesso !== true) throw new Error(confirmacao.motivo || "O banco não confirmou a migração dos dados locais.");
+          versoesWorkspaceRef.current.set(cnpj, confirmacao.versao);
+        }
+        if (!ativo) return;
+        if (dados.empresa && String(dados.empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase() === cnpj) {
+          setEmpresa((anterior) => ({ ...anterior, ...dados.empresa, certificadoAtivo: false, certificadoNomeArquivo: undefined }));
+        }
+        setContas(Array.isArray(dados.contas) ? ordenarContasPorSequenciaNumerica(dados.contas) : ordenarContasPorSequenciaNumerica(planoContasPadrao));
+        setCentrosCusto(Array.isArray(dados.centrosCusto) ? dados.centrosCusto : []);
+        setMapeamentosOrigem(Array.isArray(dados.mapeamentosOrigem) ? dados.mapeamentosOrigem : []);
+        setPreLancamentos(Array.isArray(dados.preLancamentos) ? dados.preLancamentos : []);
+        setLancamentos(Array.isArray(dados.lancamentos) ? dados.lancamentos : []);
+        setLivros(Array.isArray(dados.livros) ? dados.livros : []);
+        setLembretes(Array.isArray(dados.lembretes) ? dados.lembretes : []);
+        setDadosEmpresaCarregadosCnpj(cnpj);
+      } catch (error) {
+        if (!ativo) return;
+        console.warn("Não foi possível carregar dados persistentes do Contábil:", error);
+        dadosVazios();
+        showToast("O banco não confirmou a leitura desta empresa. Os dados não foram apresentados para evitar mistura entre CNPJs.", "info");
+      }
+    })();
+    return () => { ativo = false; };
+  }, [empresa.cnpj, auth.cnpjs.join(",")]);
 
   React.useEffect(() => {
     const cnpj = String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
     // A hidratação roda antes da persistência. Esta trava impede gravar o estado
     // antigo no CNPJ novo durante a troca de empresa.
     if (!cnpj || dadosEmpresaCarregadosCnpj !== cnpj) return;
+    if (!auth.cnpjs.includes(cnpj)) return;
+    const dados = { empresa: { ...empresa, certificadoAtivo: false, certificadoNomeArquivo: undefined }, contas, centrosCusto, mapeamentosOrigem, preLancamentos, lancamentos, livros, lembretes };
     try {
-      localStorage.setItem(`murade_contabil_dados_${cnpj}`, JSON.stringify({
-        contas,
-        centrosCusto,
-        lancamentos,
-        livros,
-        lembretes,
-      }));
+      localStorage.setItem(`murade_contabil_dados_${cnpj}`, JSON.stringify(dados));
+      localStorage.setItem("murad_empresa_salva", JSON.stringify(dados.empresa));
     } catch (error) {
-      console.warn("Não foi possível salvar localmente os dados contábeis desta empresa:", error);
+      console.warn("Não foi possível manter cópia local dos dados contábeis:", error);
     }
-  }, [empresa.cnpj, dadosEmpresaCarregadosCnpj, contas, centrosCusto, lancamentos, livros, lembretes]);
+    workspacePendenteRef.current = { cnpj, dados };
+    if (workspaceTimerRef.current) clearTimeout(workspaceTimerRef.current);
+    workspaceTimerRef.current = setTimeout(() => { void flushWorkspaceRef.current(); }, 600);
+  }, [empresa, dadosEmpresaCarregadosCnpj, contas, centrosCusto, mapeamentosOrigem, preLancamentos, lancamentos, livros, lembretes, auth.cnpjs.join(",")]);
+
+  React.useEffect(() => {
+    const analiticas = new Set(contas.filter((conta) => conta.tipo === "analitica").map((conta) => conta.codigo));
+    setMapeamentosOrigem((atuais) => {
+      const validos = atuais.filter((item) => analiticas.has(item.contaDebitoCodigo) && analiticas.has(item.contaCreditoCodigo));
+      return validos.length === atuais.length ? atuais : validos;
+    });
+  }, [contas]);
 
   const handleImportarDadosContabeis = (dados: { contas: ContaPlano[]; centrosCusto: CentroCustoContabil[]; lancamentos: LancamentoContabil[] }) => {
     const contasPorCodigo = new Map<string, ContaPlano>(contas.map((item) => [item.codigo, item]));
@@ -148,6 +211,59 @@ export default function App() {
     setTimeout(() => setToastMessage(null), 4000);
   };
 
+  flushWorkspaceRef.current = async () => {
+    if (workspaceTimerRef.current) clearTimeout(workspaceTimerRef.current);
+    workspaceTimerRef.current = null;
+    const pendente = workspacePendenteRef.current;
+    workspacePendenteRef.current = null;
+    if (!pendente) return filaGravacaoWorkspaceRef.current;
+    filaGravacaoWorkspaceRef.current = filaGravacaoWorkspaceRef.current.then(async () => {
+      const versaoAnterior = versoesWorkspaceRef.current.get(pendente.cnpj) ?? null;
+      const body = JSON.stringify({ dados: pendente.dados, versaoAnterior });
+      const response = await fetch(`/api/workspaces/${encodeURIComponent(pendente.cnpj)}`, {
+        method: "PUT", credentials: "include", keepalive: body.length <= 60_000,
+        headers: { "Content-Type": "application/json", Accept: "application/json" }, body,
+      });
+      const result = await response.json().catch(() => ({}));
+      if (response.status === 409) {
+        showToast("Os dados mudaram em outra sessão. Recarregue esta empresa antes de continuar, para evitar sobrescrever alterações.", "info");
+        return false;
+      }
+      if (!response.ok || result.sucesso !== true) throw new Error(result.motivo || "Persistência não confirmada.");
+      versoesWorkspaceRef.current.set(pendente.cnpj, result.versao);
+      return true;
+    }).catch((error) => {
+      console.warn("Falha ao persistir dados contábeis no PostgreSQL:", error);
+      showToast("Alterações guardadas neste navegador, mas o PostgreSQL não confirmou a gravação.", "info");
+      return false;
+    });
+    return filaGravacaoWorkspaceRef.current;
+  };
+
+  const workspaceCnpjAtual = String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
+  const workspaceAutorizado = auth.cnpjs.includes(workspaceCnpjAtual);
+  React.useEffect(() => () => {
+    if (workspacePendenteRef.current?.cnpj === workspaceCnpjAtual) void flushWorkspaceRef.current();
+  }, [workspaceCnpjAtual, workspaceAutorizado]);
+
+  const autorizarCnpj = async (valor: unknown): Promise<boolean> => {
+    const cnpj = String(valor || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
+    if (!/^[A-Z0-9]{12}\d{2}$/.test(cnpj)) return false;
+    if (auth.cnpjs.includes(cnpj)) return true;
+    try {
+      const response = await fetch("/api/auth/companies", {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ cnpj }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.sucesso !== true) throw new Error(result.motivo || "CNPJ não autorizado.");
+      await auth.atualizarAcesso();
+      return true;
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Não foi possível liberar acesso a este CNPJ.", "info");
+      return false;
+    }
+  };
+
   // Carregar dados salvos no localStorage na inicialização (expurgando mocks de teste)
   React.useEffect(() => {
     try {
@@ -160,15 +276,20 @@ export default function App() {
         ) {
           localStorage.removeItem("murad_empresa_salva");
           localStorage.removeItem("murad_empresas_lista");
-          setEmpresa(initialEmpresa);
+          setEmpresa({ ...initialEmpresa, cnpj: auth.cnpjs[0] || "" });
         } else if (parsed.razaoSocial || parsed.cnpj) {
+          const cnpjSalvo = String(parsed.cnpj || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
+          if (!auth.cnpjs.includes(cnpjSalvo)) {
+            setEmpresa({ ...initialEmpresa, cnpj: auth.cnpjs[0] || "" });
+            return;
+          }
           setEmpresa((prev) => ({ ...prev, ...parsed }));
         }
-      }
+      } else if (auth.cnpjs[0]) setEmpresa({ ...initialEmpresa, cnpj: auth.cnpjs[0] });
     } catch (e) {
       console.warn("Erro ao restaurar do localStorage:", e);
     }
-  }, []);
+  }, [auth.cnpjs.join(",")]);
 
   // 1. Testar conexões com todos os órgãos em TEMPO REAL (Chamada ao Gateway Oficial)
   const handleTestarConexoes = async () => {
@@ -274,6 +395,47 @@ export default function App() {
     );
   };
 
+  const handleContabilizarPreLancamentos = async (referencias: string[]): Promise<boolean> => {
+    const solicitadas = new Set(referencias);
+    const agora = new Date().toISOString();
+    const empresaCnpj = empresa.cnpj.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const jaLancadas = new Set(lancamentos.map((item) => item.documentoRef).filter((ref): ref is string => Boolean(ref)));
+    const aprovados = preLancamentos.filter((item) =>
+      item.status === "pendente_conferencia" && solicitadas.has(item.referenciaOrigem) &&
+      item.referenciaOrigem.startsWith(`DP:${empresaCnpj}:`) && !jaLancadas.has(item.referenciaOrigem) &&
+      Number.isFinite(item.valor) && item.valor > 0 && item.contaDebitoCodigo !== item.contaCreditoCodigo &&
+      /^\d{4}-(0[1-9]|1[0-2])$/.test(item.competencia) && item.data === `${item.competencia}-01`
+    );
+    if (!aprovados.length) {
+      showToast("Nenhum pré-lançamento elegível foi encontrado; confira empresa, contas e situação.", "info");
+      return false;
+    }
+    const nomeConta = (codigo: string) => contas.find((conta) => conta.codigo === codigo)?.descricao || "Conta";
+    const novos: LancamentoContabil[] = aprovados.map((item) => ({
+      id: item.referenciaOrigem,
+      data: item.data,
+      competencia: item.competencia,
+      contaDebitoCodigo: item.contaDebitoCodigo,
+      contaDebitoNome: nomeConta(item.contaDebitoCodigo),
+      contaCreditoCodigo: item.contaCreditoCodigo,
+      contaCreditoNome: nomeConta(item.contaCreditoCodigo),
+      valor: item.valor,
+      historico: item.historico.replace("pré-lançamento para conferência", "aprovado pelo contador"),
+      origem: item.origem,
+      documentoRef: item.referenciaOrigem,
+    }));
+    const porReferencia = new Map(lancamentos.map((item) => [item.documentoRef || item.id, item]));
+    novos.forEach((item) => porReferencia.set(item.documentoRef || item.id, item));
+    setLancamentos([...porReferencia.values()]);
+    setPreLancamentos(preLancamentos.map((item) => aprovados.some((aprovado) => aprovado.referenciaOrigem === item.referenciaOrigem)
+      ? { ...item, status: "contabilizado", contabilizadoEm: agora }
+      : item));
+    await new Promise((resolve) => setTimeout(resolve, 650));
+    const persistido = await flushWorkspaceRef.current();
+    if (persistido) showToast(`${novos.length} lançamento(s) contabilizado(s) e confirmados no PostgreSQL desta empresa.`, "success");
+    return persistido;
+  };
+
   // 3. Importar do Fiscal
   const handleImportarFiscal = () => {
     showToast("Integração com o módulo Fiscal não configurada. Nenhum lançamento foi importado.", "info");
@@ -306,6 +468,7 @@ export default function App() {
     try {
       const res = await conectarEPuxarEmpresaMuradFiscal();
       if (res.sucesso && res.empresa) {
+        if (!await autorizarCnpj(res.empresa.cnpj)) throw new Error("Este CNPJ não foi autorizado na sessão do Contábil.");
         setEmpresaFiscalDetectada(res.empresa);
         setEmpresa(res.empresa);
         setModalFiscalAberto(true);
@@ -318,7 +481,7 @@ export default function App() {
             (e: any) =>
               e.cnpj &&
               res.empresa.cnpj &&
-              e.cnpj.replace(/\D/g, "") !== res.empresa.cnpj.replace(/\D/g, "")
+              e.cnpj.toUpperCase().replace(/[^0-9A-Z]/g, "") !== res.empresa.cnpj.toUpperCase().replace(/[^0-9A-Z]/g, "")
           );
           localStorage.setItem(
             "murad_empresas_lista",
@@ -412,6 +575,8 @@ export default function App() {
           onSelectTab={(tab) => setTabAtiva(tab)}
           onToggleMobileSidebar={() => setMobileSidebarOpen(true)}
           onConectarFiscal={handleConectarMuradFiscal}
+          usuario={auth.usuario}
+          onLogout={auth.sair}
         />
 
         {/* Notificação Toast */}
@@ -471,6 +636,22 @@ export default function App() {
               {tabAtiva === "empresa" && (
                 <EmpresaTab
                   empresa={empresa}
+                  cnpjsAutorizados={auth.cnpjs}
+                  onAutorizarCnpj={autorizarCnpj}
+                  onRemoverEmpresa={async (cnpj) => {
+                    try {
+                      const response = await fetch(`/api/auth/companies/${encodeURIComponent(cnpj)}`, {
+                        method: "DELETE", credentials: "include", headers: { Accept: "application/json" },
+                      });
+                      const result = await response.json().catch(() => ({}));
+                      if (!response.ok || result.sucesso !== true) throw new Error(result.motivo || "Não foi possível remover o acesso.");
+                      await auth.atualizarAcesso();
+                      return true;
+                    } catch (error) {
+                      showToast(error instanceof Error ? error.message : "Não foi possível remover o acesso da empresa.", "info");
+                      return false;
+                    }
+                  }}
                   onVoltar={() => setTabAtiva("conexoes")}
                   onIrParaAgenda={() => setTabAtiva("agenda")}
                   onUpdateEmpresa={(novosDados) =>
@@ -578,6 +759,8 @@ export default function App() {
                   onConectarDP={handleConectarMuradDP}
                 />
               )}
+
+              {tabAtiva === "revisao-origens" && <RevisaoOrigensTab cnpj={empresa.cnpj} contas={contas} mapeamentos={mapeamentosOrigem} onSalvarMapeamentos={setMapeamentosOrigem} preLancamentos={preLancamentos} onSalvarPreLancamentos={setPreLancamentos} onContabilizar={handleContabilizarPreLancamentos} />}
 
               {tabAtiva === "agente" && (
                 <AgenteTab

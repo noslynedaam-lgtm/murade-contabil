@@ -19,6 +19,7 @@ import {
   Scale,
   Home,
   Database,
+  ClipboardCheck,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -101,6 +102,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab }) => {
       icon: Network,
       badge: "Pendente",
       badgeColor: "bg-amber-400/25 text-amber-100",
+    },
+    {
+      id: "revisao-origens" as TabId,
+      label: "Revisar dados recebidos",
+      icon: ClipboardCheck,
+      badge: "Fiscal + DP",
+      badgeColor: "bg-cyan-300 text-cyan-950 font-bold",
     },
     {
       id: "calculadora" as TabId,
