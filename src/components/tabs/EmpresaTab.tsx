@@ -44,6 +44,8 @@ interface EmpresaTabProps {
   onIrParaAgenda?: () => void;
   onConectarFiscal?: () => void;
   onConectarDP?: () => void;
+  cnpjsAutorizados?: string[];
+  onAutorizarCnpj?: (cnpj: string) => Promise<boolean>;
 }
 
 export const EmpresaTab: React.FC<EmpresaTabProps> = ({
@@ -53,6 +55,8 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
   onIrParaAgenda,
   onConectarFiscal,
   onConectarDP,
+  cnpjsAutorizados = [],
+  onAutorizarCnpj,
 }) => {
   // Lista de empresas cadastradas no sistema (persistência real em localStorage)
   const [empresasCadastradas, setEmpresasCadastradas] = useState<EmpresaDados[]>(() => {
@@ -67,7 +71,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
             e.cnpj !== "00.000.000/0001-00" &&
             (e.cnpj || e.razaoSocial)
         );
-        return limpas.map((item: EmpresaDados) => ({ ...item, certificadoAtivo: false }));
+        return limpas.filter((item: EmpresaDados) => cnpjsAutorizados.includes(String(item.cnpj || "").toUpperCase().replace(/[^0-9A-Z]/g, ""))).map((item: EmpresaDados) => ({ ...item, certificadoAtivo: false }));
       }
     } catch (e) {
       console.warn("Erro ao carregar lista de empresas:", e);
@@ -83,6 +87,35 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     }
     return [];
   });
+
+  useEffect(() => {
+    let ativo = true;
+    void (async () => {
+      try {
+        const response = await fetch("/api/workspaces", { credentials: "include", cache: "no-store" });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || result.sucesso !== true || !Array.isArray(result.empresas)) return;
+        if (!ativo) return;
+        setEmpresasCadastradas((atuais) => {
+          const porCnpj = new Map<string, EmpresaDados>();
+          for (const item of atuais) {
+            const cnpj = String(item.cnpj || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
+            if (cnpjsAutorizados.includes(cnpj)) porCnpj.set(cnpj, item);
+          }
+          for (const item of result.empresas as EmpresaDados[]) {
+            const cnpj = String(item.cnpj || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
+            if (cnpjsAutorizados.includes(cnpj)) porCnpj.set(cnpj, { ...porCnpj.get(cnpj), ...item, certificadoAtivo: false });
+          }
+          const lista = [...porCnpj.values()];
+          try { localStorage.setItem("murad_empresas_lista", JSON.stringify(lista)); } catch { /* dados permanecem no PostgreSQL */ }
+          return lista;
+        });
+      } catch (error) {
+        console.warn("Não foi possível sincronizar a lista de empresas do PostgreSQL:", error);
+      }
+    })();
+    return () => { ativo = false; };
+  }, [cnpjsAutorizados.join(",")]);
 
   // ID da empresa em modo de edição (null = novo cadastro limpo)
   const [modoEdicaoId, setModoEdicaoId] = useState<string | null>(null);
@@ -151,6 +184,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     try {
       const res = await conectarEPuxarEmpresaMuradFiscal();
       if (res.sucesso && res.empresa) {
+        if (onAutorizarCnpj && !await onAutorizarCnpj(res.empresa.cnpj)) throw new Error("A empresa do Fiscal não foi autorizada para este usuário do Contábil.");
         setEmpresaDetectadaModal(res.empresa);
         setModalFiscalAberto(true);
 
@@ -161,7 +195,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
         // Insere na lista se não estiver
         setEmpresasCadastradas((prev) => {
           const semEla = prev.filter(
-            (e) => (e.cnpj && res.empresa.cnpj && e.cnpj.replace(/\D/g, "") !== res.empresa.cnpj.replace(/\D/g, "")) && e.id !== res.empresa.id
+            (e) => (e.cnpj && res.empresa.cnpj && e.cnpj.toUpperCase().replace(/[^0-9A-Z]/g, "") !== res.empresa.cnpj.toUpperCase().replace(/[^0-9A-Z]/g, "")) && e.id !== res.empresa.id
           );
           const nova = [res.empresa, ...semEla];
           persistirEmpresas(nova);
@@ -213,6 +247,11 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
         certificadoTipo: item.certificado?.tipo,
         certificadoAtivo: false,
       }));
+      if (onAutorizarCnpj) {
+        for (const item of importadas) {
+          if (!await onAutorizarCnpj(item.cnpj)) throw new Error(`O CNPJ ${item.cnpj} não foi autorizado; o pacote não foi importado.`);
+        }
+      }
       const porCnpj = new Map<string, EmpresaDados>(empresasCadastradas.map((item) => [item.cnpj.replace(/\W/g, ''), item]));
       importadas.forEach((item) => {
         const chave = item.cnpj.replace(/\W/g, '');
@@ -555,14 +594,19 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
   };
 
   // SALVAR EMPRESA (COM LIMPEZA AUTOMÁTICA OBRIGATÓRIA PARA NÃO DUPLICAR)
-  const handleSalvarEmpresa = () => {
+  const handleSalvarEmpresa = async () => {
     if (!razaoSocial.trim() && !cnpj.trim()) {
       showToast("⚠️ Por favor, informe pelo menos a Razão Social ou o CNPJ da empresa.");
       return;
     }
 
-    const idFinal = modoEdicaoId || `emp-${cnpj.replace(/\D/g, "") || Date.now()}`;
+    const idFinal = modoEdicaoId || `emp-${cnpj.toUpperCase().replace(/[^0-9A-Z]/g, "") || Date.now()}`;
     const cnpjLimpo = cnpj.trim();
+    if (!/^[A-Z0-9]{12}\d{2}$/.test(cnpjLimpo.toUpperCase().replace(/[^0-9A-Z]/g, ""))) {
+      showToast("⚠️ Informe um CNPJ com 14 caracteres para manter o cadastro separado por empresa.");
+      return;
+    }
+    if (onAutorizarCnpj && !await onAutorizarCnpj(cnpjLimpo)) return;
 
     const dadosParaSalvar: EmpresaDados = {
       id: idFinal,
@@ -608,7 +652,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     const indexExistente = empresasCadastradas.findIndex(
       (e) =>
         (modoEdicaoId && (e.id === modoEdicaoId || e.cnpj === modoEdicaoId)) ||
-        (cnpjLimpo && e.cnpj && e.cnpj.replace(/\D/g, "") === cnpjLimpo.replace(/\D/g, ""))
+        (cnpjLimpo && e.cnpj && e.cnpj.toUpperCase().replace(/[^0-9A-Z]/g, "") === cnpjLimpo.toUpperCase().replace(/[^0-9A-Z]/g, ""))
     );
 
     if (indexExistente >= 0) {

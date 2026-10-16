@@ -26,8 +26,14 @@ import { ordenarContasPorSequenciaNumerica } from "./utils/planoContasUtils";
 import { ModalConexaoMuradFiscal } from "./components/modals/ModalConexaoMuradFiscal";
 import { conectarEPuxarEmpresaMuradFiscal, conectarMuradDP } from "./services/integracaoMuradService";
 import { CheckCircle2, X } from "lucide-react";
+import { ContabilAccessGate, useContabilAuth } from "./components/ContabilAccessGate";
 
 export default function App() {
+  return <ContabilAccessGate><AppWorkspace /></ContabilAccessGate>;
+}
+
+function AppWorkspace() {
+  const auth = useContabilAuth();
   const [assistenteAberta, setAssistenteAberta] = useState(false);
   const [tabAtiva, setTabAtiva] = useState<TabId>("inicio");
   const [empresa, setEmpresa] = useState<EmpresaDados>(initialEmpresa);
@@ -80,44 +86,89 @@ export default function App() {
       dadosVazios();
       return;
     }
-    try {
-      const salvo = localStorage.getItem(`murade_contabil_dados_${cnpj}`);
-      if (!salvo) {
-        dadosVazios();
-        setDadosEmpresaCarregadosCnpj(cnpj);
-        return;
-      }
-      const dados = JSON.parse(salvo);
-      setContas(Array.isArray(dados.contas) ? ordenarContasPorSequenciaNumerica(dados.contas) : ordenarContasPorSequenciaNumerica(planoContasPadrao));
-      setCentrosCusto(Array.isArray(dados.centrosCusto) ? dados.centrosCusto : []);
-      setLancamentos(Array.isArray(dados.lancamentos) ? dados.lancamentos : []);
-      setLivros(Array.isArray(dados.livros) ? dados.livros : livrosIniciais);
-      setLembretes(Array.isArray(dados.lembretes) ? dados.lembretes : lembretesIniciais);
-      setDadosEmpresaCarregadosCnpj(cnpj);
-    } catch (error) {
-      console.warn("Não foi possível carregar os dados contábeis migrados desta empresa:", error);
+    if (!auth.cnpjs.includes(cnpj)) {
       dadosVazios();
-      setDadosEmpresaCarregadosCnpj(cnpj);
+      return;
     }
-  }, [empresa.cnpj]);
+    let ativo = true;
+    void (async () => {
+      try {
+        const response = await fetch(`/api/workspaces/${encodeURIComponent(cnpj)}`, { credentials: "include", cache: "no-store" });
+        const remote = await response.json().catch(() => ({}));
+        if (!response.ok || remote.sucesso !== true) throw new Error(remote.motivo || "Não foi possível carregar a empresa do banco.");
+        let dados = remote.dados;
+        if (!dados) {
+          // Migração de compatibilidade: importa somente dados locais da empresa
+          // autorizada e mantém o navegador como cópia após a confirmação do PG.
+          try {
+            const salvo = localStorage.getItem(`murade_contabil_dados_${cnpj}`);
+            if (salvo) dados = JSON.parse(salvo);
+          } catch (error) {
+            console.warn("Dados locais antigos da empresa não puderam ser lidos:", error);
+          }
+          dados = {
+            empresa: { ...empresa, certificadoAtivo: false, certificadoNomeArquivo: undefined },
+            contas: Array.isArray(dados?.contas) ? dados.contas : ordenarContasPorSequenciaNumerica(planoContasPadrao),
+            centrosCusto: Array.isArray(dados?.centrosCusto) ? dados.centrosCusto : [],
+            lancamentos: Array.isArray(dados?.lancamentos) ? dados.lancamentos : [],
+            livros: Array.isArray(dados?.livros) ? dados.livros : [],
+            lembretes: Array.isArray(dados?.lembretes) ? dados.lembretes : [],
+          };
+          const migracao = await fetch(`/api/workspaces/${encodeURIComponent(cnpj)}`, {
+            method: "PUT", credentials: "include", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ dados }),
+          });
+          const confirmacao = await migracao.json().catch(() => ({}));
+          if (!migracao.ok || confirmacao.sucesso !== true) throw new Error(confirmacao.motivo || "O banco não confirmou a migração dos dados locais.");
+        }
+        if (!ativo) return;
+        if (dados.empresa && String(dados.empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase() === cnpj) {
+          setEmpresa((anterior) => ({ ...anterior, ...dados.empresa, certificadoAtivo: false, certificadoNomeArquivo: undefined }));
+        }
+        setContas(Array.isArray(dados.contas) ? ordenarContasPorSequenciaNumerica(dados.contas) : ordenarContasPorSequenciaNumerica(planoContasPadrao));
+        setCentrosCusto(Array.isArray(dados.centrosCusto) ? dados.centrosCusto : []);
+        setLancamentos(Array.isArray(dados.lancamentos) ? dados.lancamentos : []);
+        setLivros(Array.isArray(dados.livros) ? dados.livros : []);
+        setLembretes(Array.isArray(dados.lembretes) ? dados.lembretes : []);
+        setDadosEmpresaCarregadosCnpj(cnpj);
+      } catch (error) {
+        if (!ativo) return;
+        console.warn("Não foi possível carregar dados persistentes do Contábil:", error);
+        dadosVazios();
+        showToast("O banco não confirmou a leitura desta empresa. Os dados não foram apresentados para evitar mistura entre CNPJs.", "info");
+      }
+    })();
+    return () => { ativo = false; };
+  }, [empresa.cnpj, auth.cnpjs.join(",")]);
 
   React.useEffect(() => {
     const cnpj = String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
     // A hidratação roda antes da persistência. Esta trava impede gravar o estado
     // antigo no CNPJ novo durante a troca de empresa.
     if (!cnpj || dadosEmpresaCarregadosCnpj !== cnpj) return;
+    if (!auth.cnpjs.includes(cnpj)) return;
+    const dados = { empresa: { ...empresa, certificadoAtivo: false, certificadoNomeArquivo: undefined }, contas, centrosCusto, lancamentos, livros, lembretes };
+    let cancelado = false;
     try {
-      localStorage.setItem(`murade_contabil_dados_${cnpj}`, JSON.stringify({
-        contas,
-        centrosCusto,
-        lancamentos,
-        livros,
-        lembretes,
-      }));
+      localStorage.setItem(`murade_contabil_dados_${cnpj}`, JSON.stringify(dados));
+      localStorage.setItem("murad_empresa_salva", JSON.stringify(dados.empresa));
     } catch (error) {
-      console.warn("Não foi possível salvar localmente os dados contábeis desta empresa:", error);
+      console.warn("Não foi possível manter cópia local dos dados contábeis:", error);
     }
-  }, [empresa.cnpj, dadosEmpresaCarregadosCnpj, contas, centrosCusto, lancamentos, livros, lembretes]);
+    const timer = setTimeout(async () => {
+      if (cancelado) return;
+      try {
+        const response = await fetch(`/api/workspaces/${encodeURIComponent(cnpj)}`, {
+          method: "PUT", credentials: "include", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ dados }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || result.sucesso !== true) throw new Error(result.motivo || "Persistência não confirmada.");
+      } catch (error) {
+        console.warn("Falha ao persistir dados contábeis no PostgreSQL:", error);
+        if (!cancelado) showToast("Alterações guardadas neste navegador, mas o PostgreSQL não confirmou a gravação.", "info");
+      }
+    }, 600);
+    return () => { cancelado = true; clearTimeout(timer); };
+  }, [empresa, dadosEmpresaCarregadosCnpj, contas, centrosCusto, lancamentos, livros, lembretes, auth.cnpjs.join(",")]);
 
   const handleImportarDadosContabeis = (dados: { contas: ContaPlano[]; centrosCusto: CentroCustoContabil[]; lancamentos: LancamentoContabil[] }) => {
     const contasPorCodigo = new Map<string, ContaPlano>(contas.map((item) => [item.codigo, item]));
@@ -148,6 +199,24 @@ export default function App() {
     setTimeout(() => setToastMessage(null), 4000);
   };
 
+  const autorizarCnpj = async (valor: unknown): Promise<boolean> => {
+    const cnpj = String(valor || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
+    if (!/^[A-Z0-9]{12}\d{2}$/.test(cnpj)) return false;
+    if (auth.cnpjs.includes(cnpj)) return true;
+    try {
+      const response = await fetch("/api/auth/companies", {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ cnpj }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.sucesso !== true) throw new Error(result.motivo || "CNPJ não autorizado.");
+      await auth.atualizarAcesso();
+      return true;
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Não foi possível liberar acesso a este CNPJ.", "info");
+      return false;
+    }
+  };
+
   // Carregar dados salvos no localStorage na inicialização (expurgando mocks de teste)
   React.useEffect(() => {
     try {
@@ -160,15 +229,20 @@ export default function App() {
         ) {
           localStorage.removeItem("murad_empresa_salva");
           localStorage.removeItem("murad_empresas_lista");
-          setEmpresa(initialEmpresa);
+          setEmpresa({ ...initialEmpresa, cnpj: auth.cnpjs[0] || "" });
         } else if (parsed.razaoSocial || parsed.cnpj) {
+          const cnpjSalvo = String(parsed.cnpj || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
+          if (!auth.cnpjs.includes(cnpjSalvo)) {
+            setEmpresa({ ...initialEmpresa, cnpj: auth.cnpjs[0] || "" });
+            return;
+          }
           setEmpresa((prev) => ({ ...prev, ...parsed }));
         }
-      }
+      } else if (auth.cnpjs[0]) setEmpresa({ ...initialEmpresa, cnpj: auth.cnpjs[0] });
     } catch (e) {
       console.warn("Erro ao restaurar do localStorage:", e);
     }
-  }, []);
+  }, [auth.cnpjs.join(",")]);
 
   // 1. Testar conexões com todos os órgãos em TEMPO REAL (Chamada ao Gateway Oficial)
   const handleTestarConexoes = async () => {
@@ -306,6 +380,7 @@ export default function App() {
     try {
       const res = await conectarEPuxarEmpresaMuradFiscal();
       if (res.sucesso && res.empresa) {
+        if (!await autorizarCnpj(res.empresa.cnpj)) throw new Error("Este CNPJ não foi autorizado na sessão do Contábil.");
         setEmpresaFiscalDetectada(res.empresa);
         setEmpresa(res.empresa);
         setModalFiscalAberto(true);
@@ -318,7 +393,7 @@ export default function App() {
             (e: any) =>
               e.cnpj &&
               res.empresa.cnpj &&
-              e.cnpj.replace(/\D/g, "") !== res.empresa.cnpj.replace(/\D/g, "")
+              e.cnpj.toUpperCase().replace(/[^0-9A-Z]/g, "") !== res.empresa.cnpj.toUpperCase().replace(/[^0-9A-Z]/g, "")
           );
           localStorage.setItem(
             "murad_empresas_lista",
@@ -412,6 +487,8 @@ export default function App() {
           onSelectTab={(tab) => setTabAtiva(tab)}
           onToggleMobileSidebar={() => setMobileSidebarOpen(true)}
           onConectarFiscal={handleConectarMuradFiscal}
+          usuario={auth.usuario}
+          onLogout={auth.sair}
         />
 
         {/* Notificação Toast */}
@@ -471,6 +548,8 @@ export default function App() {
               {tabAtiva === "empresa" && (
                 <EmpresaTab
                   empresa={empresa}
+                  cnpjsAutorizados={auth.cnpjs}
+                  onAutorizarCnpj={autorizarCnpj}
                   onVoltar={() => setTabAtiva("conexoes")}
                   onIrParaAgenda={() => setTabAtiva("agenda")}
                   onUpdateEmpresa={(novosDados) =>

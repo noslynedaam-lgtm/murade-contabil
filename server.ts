@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import { timingSafeEqual } from "node:crypto";
 import { ErroValidacaoDocumentoFiscal, fiscalStoreConfigurado, gravarDocumentosFiscais, lerDocumentosFiscais, verificarEstadoStoreFiscal } from "./src/server/documentosFiscaisStore";
 import { dpStoreConfigurado, ErroValidacaoResumoDP, gravarResumoDP, lerResumosDP, verificarEstadoStoreDP } from "./src/server/dadosDpStore";
+import { adicionarEmpresaAcessoContabil, bootstrapAuthContabil, exigirSessaoContabil, lerWorkspaceContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil } from "./src/server/authContabil";
 
 dotenv.config();
 
@@ -25,6 +26,7 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
+  app.set("trust proxy", 1);
   app.use(express.json({ limit: "20mb" }));
 
   const integracaoAutorizada = (req: express.Request): boolean => {
@@ -47,6 +49,27 @@ async function startServer() {
     }
     return false;
   };
+
+  const exigirOrigemNavegador = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const origin = req.get("origin");
+    const expected = `${req.protocol}://${req.get("host")}`;
+    try {
+      if (!origin || new URL(origin).origin !== expected) return res.status(403).json({ sucesso: false, motivo: "Origem da requisição não autorizada." });
+      next();
+    } catch {
+      return res.status(403).json({ sucesso: false, motivo: "Origem da requisição não autorizada." });
+    }
+  };
+
+  app.get("/api/auth/status", statusAuthContabil);
+  app.get("/api/auth/session", sessaoAtualContabil);
+  app.post("/api/auth/bootstrap", exigirOrigemNavegador, bootstrapAuthContabil);
+  app.post("/api/auth/login", exigirOrigemNavegador, loginAuthContabil);
+  app.post("/api/auth/logout", exigirOrigemNavegador, logoutAuthContabil);
+  app.post("/api/auth/companies", exigirOrigemNavegador, exigirSessaoContabil, adicionarEmpresaAcessoContabil);
+  app.get("/api/workspaces", exigirSessaoContabil, listarWorkspacesContabil);
+  app.get("/api/workspaces/:cnpj", exigirSessaoContabil, lerWorkspaceContabil);
+  app.put("/api/workspaces/:cnpj", exigirOrigemNavegador, exigirSessaoContabil, salvarWorkspaceContabil);
 
   // API Health
   app.get("/api/health", (req, res) => {
@@ -108,6 +131,7 @@ async function startServer() {
     if (!/^\d{14}$/.test(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
     if (req.body?.versaoContrato !== 1) return res.status(400).json({ sucesso: false, motivo: "Versão de contrato de integração não suportada." });
     try {
+      if (!await verificarCnpjAutorizadoContabil(cnpj)) return res.status(403).json({ sucesso: false, motivo: "CNPJ não autorizado no cadastro seguro do Contábil." });
       const resultado = await gravarDocumentosFiscais(cnpj, req.body?.documentos);
       return res.json({
         sucesso: true,
@@ -142,6 +166,7 @@ async function startServer() {
     }
     if (!Number.isInteger(limite) || limite < 1 || limite > 500) return res.status(400).json({ sucesso: false, motivo: "Limite deve estar entre 1 e 500." });
     try {
+      if (!await verificarCnpjAutorizadoContabil(cnpj)) return res.status(403).json({ sucesso: false, motivo: "CNPJ não autorizado no cadastro seguro do Contábil." });
       const documentos = await lerDocumentosFiscais(cnpj, desde, ate, limite);
       return res.json({ sucesso: true, cnpj, retornados: documentos.length, documentos });
     } catch (error: any) {
@@ -195,6 +220,7 @@ async function startServer() {
     const cnpj = String(req.body?.cnpj || "").replace(/\D/g, "");
     if (!/^\d{14}$/.test(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
     try {
+      if (!await verificarCnpjAutorizadoContabil(cnpj)) return res.status(403).json({ sucesso: false, motivo: "CNPJ não autorizado no cadastro seguro do Contábil." });
       const resultado = await gravarResumoDP(cnpj, req.body);
       return res.json({
         sucesso: true,
@@ -229,6 +255,7 @@ async function startServer() {
     }
     if (!Number.isInteger(limite) || limite < 1 || limite > 200) return res.status(400).json({ sucesso: false, motivo: "Limite deve estar entre 1 e 200." });
     try {
+      if (!await verificarCnpjAutorizadoContabil(cnpj)) return res.status(403).json({ sucesso: false, motivo: "CNPJ não autorizado no cadastro seguro do Contábil." });
       const folhas = await lerResumosDP(cnpj, desde, ate, limite);
       return res.json({ sucesso: true, cnpj, retornados: folhas.length, folhas });
     } catch (error: any) {

@@ -38,20 +38,22 @@ O arquivo `render.yaml` configura um Web Service Node para este app (build, inic
 
 O plano Free pode suspender o serviço após inatividade, causando demora no primeiro acesso. Para uso contínuo, escolha um plano sempre ativo no painel do Render.
 
+O primeiro acesso administrativo exige `DATABASE_URL` e a variável temporária `CONTABIL_AUTH_BOOTSTRAP_TOKEN` no ambiente privado do serviço. Gere o token localmente com `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`, cadastre-o no Render, faça o deploy e abra o sistema. Na tela inicial, informe um usuário, uma senha com ao menos 12 caracteres e os CNPJs autorizados (um por linha ou separados por vírgula). A senha é armazenada com hash scrypt e a sessão usa cookie `HttpOnly`, `Secure` em produção e `SameSite=Strict`. Depois de criar o primeiro acesso, remova `CONTABIL_AUTH_BOOTSTRAP_TOKEN` do ambiente do Render.
+
 Subir este serviço não conclui por si só a integração com Fiscal e DP. O Contábil tem rotas autenticadas para receber documentos fiscais e resumos agregados de folha, mas elas só funcionam com token válido e PostgreSQL configurado. A transferência depende também do serviço de origem estar configurado e chamar essas rotas.
 
 ## Estado do produto
 
-O cadastro da empresa começa vazio; não há lançamentos, livros ou lembretes de exemplo pré-carregados. O plano de contas é apenas um modelo editável. O PostgreSQL armazena documentos fiscais recebidos e resumos agregados do DP, mas isso não equivale a persistência multiusuário de toda a aplicação. O Contábil ainda não gera partidas automaticamente a partir dessas fontes, não fecha livros oficiais, não transmite obrigações e não substitui autenticação de usuários, conferência profissional ou autorização de acesso aos órgãos. Testar se um site responde por HTTP não comprova autenticação, procuração nem autorização para consultar dados.
+O cadastro da empresa começa vazio; não há lançamentos, livros ou lembretes de exemplo pré-carregados. O plano de contas é apenas um modelo editável. A aplicação possui autenticação com autorização por CNPJ e persistência de workspace no PostgreSQL; para ativá-la em um ambiente, configure o token temporário de primeiro acesso e conclua o cadastro do administrador. Dados locais são enviados somente para CNPJs autorizados e após confirmação do banco. O Contábil ainda não gera partidas automaticamente a partir das fontes, não fecha livros oficiais nem transmite obrigações. Testar se um site responde por HTTP não comprova procuração nem autorização para consultar dados oficiais.
 
 O pipeline atual confere campos básicos dos registros locais. A recepção fiscal preserva documentos por CNPJ e chave; a recepção do DP aceita somente totais agregados por CNPJ e competência. Essas rotas ainda não convertem os dados em lançamentos contábeis nem geram balancete ou livros a partir das fontes integradas. Não use prévias ou registros locais para escrituração oficial sem validação profissional.
 
 ## Próximos passos para produção
 
 1. Configurar e confirmar no Render `DATABASE_URL`, `PGSSLMODE` e o mesmo `MURADE_INTEGRATION_TOKEN` no Contábil e nos serviços de origem.
-2. Implementar no DP a persistência de folhas calculadas e o envio autenticado de totais aprovados; no Fiscal, confirmar a captura real e a transferência por empresa.
-3. Implementar autenticação de usuários, isolamento de empresas e uma tela segura para consultar/revisar dados importados.
-4. Definir mapeamentos contábeis por operação e regime; gerar partidas dobradas auditáveis somente após regras e parâmetros aprovados.
+2. Concluir o primeiro acesso do Contábil e confirmar a persistência dos workspaces por CNPJ no Render.
+3. Construir a fila de revisão de documentos fiscais e resumos DP; nenhuma origem deve virar lançamento contábil sem mapeamento revisado.
+4. Definir mapeamentos por operação e regime; gerar partidas dobradas auditáveis somente após regras e parâmetros aprovados.
 5. Validar tributos e obrigações em homologação com responsáveis técnicos. O workflow do GitHub roda typecheck e build; não publica nem transmite dados.
 
 ## Sobre Next.js

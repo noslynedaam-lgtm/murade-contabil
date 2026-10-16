@@ -20,6 +20,8 @@ interface HeaderProps {
   onSelectTab?: (tab: TabId) => void;
   onToggleMobileSidebar?: () => void;
   onConectarFiscal?: () => void;
+  usuario?: string;
+  onLogout?: () => void;
 }
 
 const navBotoes: Array<{ id: TabId; label: string; icon: React.FC<{ className?: string }>; badge?: string; corBadge?: string }> = [
@@ -39,6 +41,8 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectTab,
   onToggleMobileSidebar,
   onConectarFiscal,
+  usuario,
+  onLogout,
 }) => {
   return (
     <header className="bg-[#082B66] border-b border-[#0A357D] sticky top-0 z-30 text-white shadow-md shrink-0">
@@ -76,6 +80,8 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         <div className="flex items-center gap-2 font-medium text-[11px]">
+          {usuario && <span className="hidden lg:inline text-blue-100">{usuario}</span>}
+          {onLogout && <button onClick={onLogout} className="rounded-lg border border-blue-300/30 px-2 py-1 text-blue-100 hover:bg-white/10">Sair</button>}
           {onConectarFiscal && (
             <button
               onClick={onConectarFiscal}
