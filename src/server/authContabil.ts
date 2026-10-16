@@ -296,7 +296,8 @@ export async function removerEmpresaAcessoContabil(req: Request, res: Response):
   } finally { client?.release(); }
 }
 
-const CAMPOS_WORKSPACE = new Set(["empresa", "contas", "centrosCusto", "lancamentos", "livros", "lembretes"]);
+const CAMPOS_WORKSPACE = new Set(["empresa", "contas", "centrosCusto", "mapeamentosOrigem", "lancamentos", "livros", "lembretes"]);
+const ORIGENS_MAPEAVEIS = new Set(["fiscal_entrada", "fiscal_saida", "dp_folha_bruta", "dp_descontos_inss", "dp_descontos_irrf", "dp_fgts"]);
 const CHAVES_CERTIFICADO_INFORMATIVAS = new Set([
   "certificadoativo", "certificadonomearquivo", "certificadovalidade", "certificadotipo",
   "certificadoemissor", "certificadotamanho", "certificadodataupload",
@@ -314,6 +315,20 @@ function workspaceValido(value: unknown): value is Record<string, unknown> {
   if (Object.keys(payload).some((key) => !CAMPOS_WORKSPACE.has(key))) return false;
   const arrays = ["contas", "centrosCusto", "lancamentos", "livros", "lembretes"];
   if (arrays.some((key) => !Array.isArray(payload[key]) || (payload[key] as unknown[]).length > 20000)) return false;
+  if (payload.mapeamentosOrigem !== undefined) {
+    if (!Array.isArray(payload.mapeamentosOrigem) || payload.mapeamentosOrigem.length > ORIGENS_MAPEAVEIS.size) return false;
+    const contasAnaliticas = new Set((payload.contas as Array<Record<string, unknown>>).filter((conta) => conta && conta.tipo === "analitica" && typeof conta.codigo === "string").map((conta) => conta.codigo as string));
+    const origensVistas = new Set<string>();
+    for (const item of payload.mapeamentosOrigem) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+      const mapping = item as Record<string, unknown>;
+      if (Object.keys(mapping).some((key) => !["origem", "contaDebitoCodigo", "contaCreditoCodigo", "revisadoEm"].includes(key))) return false;
+      if (typeof mapping.origem !== "string" || !ORIGENS_MAPEAVEIS.has(mapping.origem) || origensVistas.has(mapping.origem)) return false;
+      if (typeof mapping.contaDebitoCodigo !== "string" || mapping.contaDebitoCodigo.length > 64 || typeof mapping.contaCreditoCodigo !== "string" || mapping.contaCreditoCodigo.length > 64 || mapping.contaDebitoCodigo === mapping.contaCreditoCodigo || !contasAnaliticas.has(mapping.contaDebitoCodigo) || !contasAnaliticas.has(mapping.contaCreditoCodigo)) return false;
+      if (typeof mapping.revisadoEm !== "string" || !Number.isFinite(Date.parse(mapping.revisadoEm))) return false;
+      origensVistas.add(mapping.origem);
+    }
+  }
   if (payload.empresa !== undefined && (!payload.empresa || typeof payload.empresa !== "object" || Array.isArray(payload.empresa))) return false;
   const serialized = JSON.stringify(payload);
   if (Buffer.byteLength(serialized, "utf8") > 4_000_000) return false;

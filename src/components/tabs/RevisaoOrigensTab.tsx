@@ -1,9 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowDownToLine, ClipboardCheck, RefreshCw } from "lucide-react";
+import { AlertTriangle, ArrowDownToLine, ClipboardCheck, RefreshCw, Save } from "lucide-react";
+import type { ContaPlano, MapeamentoOrigemContabil, OrigemMapeadaContabil } from "../../types";
 
 type DocumentoFiscal = Record<string, unknown>;
 type ResumoFolha = { competencia: string; calculadoEm: string; recebidoEm: string; resumo: Record<string, number | null> };
 type LoteOrigens = { documentos: DocumentoFiscal[]; folhas: ResumoFolha[] };
+type RascunhoMapeamento = { contaDebitoCodigo: string; contaCreditoCodigo: string };
+
+const origensMapeaveis: Array<{ id: OrigemMapeadaContabil; titulo: string; descricao: string }> = [
+  { id: "fiscal_entrada", titulo: "NF-e de entrada", descricao: "A conta de estoque/despesa varia por operação e CFOP; revise a conta de débito para esta empresa." },
+  { id: "fiscal_saida", titulo: "NF-e de saída", descricao: "Mapeia o valor bruto da venda; tributos destacados exigem regras próprias antes de contabilizar." },
+  { id: "dp_folha_bruta", titulo: "Folha bruta do DP", descricao: "Despesa de salários contra salários a pagar." },
+  { id: "dp_descontos_inss", titulo: "INSS descontado do empregado", descricao: "Reduz salários a pagar e credita INSS a recolher; não inclui INSS patronal." },
+  { id: "dp_descontos_irrf", titulo: "IRRF descontado", descricao: "Reduz salários a pagar e credita IRRF a recolher." },
+  { id: "dp_fgts", titulo: "FGTS informado pelo DP", descricao: "Despesa de FGTS contra FGTS a recolher. Valores só chegam após cálculo persistido no DP." },
+];
 
 const competenciaAtual = () => new Date().toISOString().slice(0, 7);
 const dinheiro = (value: unknown) => typeof value === "number" && Number.isFinite(value)
@@ -11,14 +22,29 @@ const dinheiro = (value: unknown) => typeof value === "number" && Number.isFinit
   : value === null ? "Não apurado" : "—";
 const texto = (value: unknown) => value == null || value === "" ? "—" : String(value);
 
-export const RevisaoOrigensTab: React.FC<{ cnpj: string }> = ({ cnpj }) => {
+export const RevisaoOrigensTab: React.FC<{
+  cnpj: string;
+  contas: ContaPlano[];
+  mapeamentos: MapeamentoOrigemContabil[];
+  onSalvarMapeamentos: (mapeamentos: MapeamentoOrigemContabil[]) => void;
+}> = ({ cnpj, contas, mapeamentos, onSalvarMapeamentos }) => {
   const [desde, setDesde] = useState(competenciaAtual);
   const [ate, setAte] = useState(competenciaAtual);
   const [dados, setDados] = useState<LoteOrigens>({ documentos: [], folhas: [] });
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [atualizadoEm, setAtualizadoEm] = useState("");
+  const [rascunhos, setRascunhos] = useState<Record<string, RascunhoMapeamento>>(() => Object.fromEntries(
+    mapeamentos.map((item) => [item.origem, { contaDebitoCodigo: item.contaDebitoCodigo, contaCreditoCodigo: item.contaCreditoCodigo }]),
+  ));
   const cnpjNormalizado = cnpj.toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+  useEffect(() => {
+    setRascunhos(Object.fromEntries(mapeamentos.map((item) => [item.origem, {
+      contaDebitoCodigo: item.contaDebitoCodigo,
+      contaCreditoCodigo: item.contaCreditoCodigo,
+    }])));
+  }, [cnpjNormalizado, mapeamentos]);
 
   const carregar = useCallback(async () => {
     if (!/^[A-Z0-9]{12}\d{2}$/.test(cnpjNormalizado)) {
@@ -51,6 +77,37 @@ export const RevisaoOrigensTab: React.FC<{ cnpj: string }> = ({ cnpj }) => {
     return acc;
   }, { entradas: 0, saidas: 0 }), [dados.documentos]);
 
+  const contasAnaliticas = useMemo(() => contas.filter((conta) => conta.tipo === "analitica"), [contas]);
+  const contaNome = (codigo: string) => contasAnaliticas.find((conta) => conta.codigo === codigo)?.descricao || "Conta não encontrada no plano atual";
+  const selecionarConta = (origem: OrigemMapeadaContabil, lado: keyof RascunhoMapeamento, valor: string) => {
+    const salvo = mapeamentos.find((item) => item.origem === origem);
+    const atual = rascunhos[origem] || {
+      contaDebitoCodigo: salvo?.contaDebitoCodigo || "",
+      contaCreditoCodigo: salvo?.contaCreditoCodigo || "",
+    };
+    const proximo = { ...atual, [lado]: valor };
+    setRascunhos((prev) => ({ ...prev, [origem]: proximo }));
+    if (!proximo.contaDebitoCodigo || !proximo.contaCreditoCodigo) {
+      if (salvo && (!proximo.contaDebitoCodigo || !proximo.contaCreditoCodigo)) {
+        onSalvarMapeamentos(mapeamentos.filter((item) => item.origem !== origem));
+      }
+      return;
+    }
+    const debito = contasAnaliticas.find((conta) => conta.codigo === proximo.contaDebitoCodigo);
+    const credito = contasAnaliticas.find((conta) => conta.codigo === proximo.contaCreditoCodigo);
+    if (!debito || !credito || debito.codigo === credito.codigo) {
+      if (salvo) onSalvarMapeamentos(mapeamentos.filter((item) => item.origem !== origem));
+      return;
+    }
+    const mapeamento: MapeamentoOrigemContabil = {
+      origem,
+      contaDebitoCodigo: debito.codigo,
+      contaCreditoCodigo: credito.codigo,
+      revisadoEm: new Date().toISOString(),
+    };
+    onSalvarMapeamentos([...mapeamentos.filter((item) => item.origem !== origem), mapeamento]);
+  };
+
   return (
     <div className="space-y-5 p-4 md:p-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -71,6 +128,26 @@ export const RevisaoOrigensTab: React.FC<{ cnpj: string }> = ({ cnpj }) => {
       </section>
 
       {erro && <div role="alert" className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{erro}</div>}
+
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3"><Save className="h-4 w-4 text-blue-700" /><h2 className="font-bold text-slate-900">Mapeamento de contas por empresa</h2></div>
+        <div className="space-y-3 p-4">
+          <p className="text-sm text-slate-600">Escolha contas analíticas do plano desta empresa. O mapeamento fica salvo no espaço contábil do CNPJ. Ele prepara a classificação; não cria lançamentos automaticamente nem envia valores ao governo.</p>
+          {origensMapeaveis.map((origem) => {
+            const salvo = mapeamentos.find((item) => item.origem === origem.id);
+            const rascunho = rascunhos[origem.id];
+            const debito = rascunho?.contaDebitoCodigo ?? salvo?.contaDebitoCodigo ?? "";
+            const credito = rascunho?.contaCreditoCodigo ?? salvo?.contaCreditoCodigo ?? "";
+            const valido = Boolean(salvo && contasAnaliticas.some((conta) => conta.codigo === salvo.contaDebitoCodigo) && contasAnaliticas.some((conta) => conta.codigo === salvo.contaCreditoCodigo) && salvo.contaDebitoCodigo !== salvo.contaCreditoCodigo);
+            return <article key={origem.id} className="grid gap-3 rounded-lg border border-slate-200 p-3 md:grid-cols-[minmax(180px,1fr)_1fr_1fr] md:items-end">
+              <div><h3 className="text-sm font-bold text-slate-900">{origem.titulo}</h3><p className="mt-1 text-xs text-slate-500">{origem.descricao}</p><p className={`mt-2 text-xs font-semibold ${valido ? "text-emerald-700" : "text-amber-700"}`}>{valido ? `Revisado em ${new Date(salvo!.revisadoEm).toLocaleDateString("pt-BR")}` : "Pendente de mapeamento"}</p></div>
+              <label className="text-xs font-semibold text-slate-600">Débito<select value={debito} onChange={(event) => selecionarConta(origem.id, "contaDebitoCodigo", event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"><option value="">Selecione uma conta analítica</option>{contasAnaliticas.map((conta) => <option key={conta.codigo} value={conta.codigo}>{conta.codigo} — {contaNome(conta.codigo)}</option>)}</select></label>
+              <label className="text-xs font-semibold text-slate-600">Crédito<select value={credito} onChange={(event) => selecionarConta(origem.id, "contaCreditoCodigo", event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"><option value="">Selecione uma conta analítica</option>{contasAnaliticas.map((conta) => <option key={conta.codigo} value={conta.codigo}>{conta.codigo} — {contaNome(conta.codigo)}</option>)}</select></label>
+            </article>;
+          })}
+          <p className="text-xs text-slate-500">Contas sintéticas, contas removidas do plano e lançamentos com débito igual ao crédito não são aceitos como mapeamento válido.</p>
+        </div>
+      </section>
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric title="Notas fiscais recebidas" value={String(dados.documentos.length)} detail={`${totaisFiscal.entradas} entradas • ${totaisFiscal.saidas} saídas`} />

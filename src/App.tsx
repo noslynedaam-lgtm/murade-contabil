@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { TabId, OrgaoConectado, EmpresaDados, LancamentoContabil, ContaPlano, LivroContabil, LembreteItem, CentroCustoContabil } from "./types";
+import { TabId, OrgaoConectado, EmpresaDados, LancamentoContabil, ContaPlano, LivroContabil, LembreteItem, CentroCustoContabil, MapeamentoOrigemContabil } from "./types";
 import { initialEmpresa, orgaosIniciais, lancamentosIniciais, planoContasPadrao, livrosIniciais, lembretesIniciais } from "./data/mockData";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
@@ -62,6 +62,7 @@ function AppWorkspace() {
     ordenarContasPorSequenciaNumerica(planoContasPadrao)
   );
   const [centrosCusto, setCentrosCusto] = useState<CentroCustoContabil[]>([]);
+  const [mapeamentosOrigem, setMapeamentosOrigem] = useState<MapeamentoOrigemContabil[]>([]);
   const [livros, setLivros] = useState<LivroContabil[]>(livrosIniciais);
   const [lembretes, setLembretes] = useState<LembreteItem[]>(lembretesIniciais);
   const [dadosEmpresaCarregadosCnpj, setDadosEmpresaCarregadosCnpj] = useState("");
@@ -80,6 +81,7 @@ function AppWorkspace() {
     const dadosVazios = () => {
       setContas(ordenarContasPorSequenciaNumerica(planoContasPadrao));
       setCentrosCusto([]);
+      setMapeamentosOrigem([]);
       setLancamentos(lancamentosIniciais);
       setLivros(livrosIniciais);
       setLembretes(lembretesIniciais);
@@ -117,6 +119,7 @@ function AppWorkspace() {
             empresa: { ...empresa, certificadoAtivo: false, certificadoNomeArquivo: undefined },
             contas: Array.isArray(dados?.contas) ? dados.contas : ordenarContasPorSequenciaNumerica(planoContasPadrao),
             centrosCusto: Array.isArray(dados?.centrosCusto) ? dados.centrosCusto : [],
+            mapeamentosOrigem: Array.isArray(dados?.mapeamentosOrigem) ? dados.mapeamentosOrigem : [],
             lancamentos: Array.isArray(dados?.lancamentos) ? dados.lancamentos : [],
             livros: Array.isArray(dados?.livros) ? dados.livros : [],
             lembretes: Array.isArray(dados?.lembretes) ? dados.lembretes : [],
@@ -134,6 +137,7 @@ function AppWorkspace() {
         }
         setContas(Array.isArray(dados.contas) ? ordenarContasPorSequenciaNumerica(dados.contas) : ordenarContasPorSequenciaNumerica(planoContasPadrao));
         setCentrosCusto(Array.isArray(dados.centrosCusto) ? dados.centrosCusto : []);
+        setMapeamentosOrigem(Array.isArray(dados.mapeamentosOrigem) ? dados.mapeamentosOrigem : []);
         setLancamentos(Array.isArray(dados.lancamentos) ? dados.lancamentos : []);
         setLivros(Array.isArray(dados.livros) ? dados.livros : []);
         setLembretes(Array.isArray(dados.lembretes) ? dados.lembretes : []);
@@ -154,7 +158,7 @@ function AppWorkspace() {
     // antigo no CNPJ novo durante a troca de empresa.
     if (!cnpj || dadosEmpresaCarregadosCnpj !== cnpj) return;
     if (!auth.cnpjs.includes(cnpj)) return;
-    const dados = { empresa: { ...empresa, certificadoAtivo: false, certificadoNomeArquivo: undefined }, contas, centrosCusto, lancamentos, livros, lembretes };
+    const dados = { empresa: { ...empresa, certificadoAtivo: false, certificadoNomeArquivo: undefined }, contas, centrosCusto, mapeamentosOrigem, lancamentos, livros, lembretes };
     try {
       localStorage.setItem(`murade_contabil_dados_${cnpj}`, JSON.stringify(dados));
       localStorage.setItem("murad_empresa_salva", JSON.stringify(dados.empresa));
@@ -164,7 +168,15 @@ function AppWorkspace() {
     workspacePendenteRef.current = { cnpj, dados };
     if (workspaceTimerRef.current) clearTimeout(workspaceTimerRef.current);
     workspaceTimerRef.current = setTimeout(() => { void flushWorkspaceRef.current(); }, 600);
-  }, [empresa, dadosEmpresaCarregadosCnpj, contas, centrosCusto, lancamentos, livros, lembretes, auth.cnpjs.join(",")]);
+  }, [empresa, dadosEmpresaCarregadosCnpj, contas, centrosCusto, mapeamentosOrigem, lancamentos, livros, lembretes, auth.cnpjs.join(",")]);
+
+  React.useEffect(() => {
+    const analiticas = new Set(contas.filter((conta) => conta.tipo === "analitica").map((conta) => conta.codigo));
+    setMapeamentosOrigem((atuais) => {
+      const validos = atuais.filter((item) => analiticas.has(item.contaDebitoCodigo) && analiticas.has(item.contaCreditoCodigo));
+      return validos.length === atuais.length ? atuais : validos;
+    });
+  }, [contas]);
 
   const handleImportarDadosContabeis = (dados: { contas: ContaPlano[]; centrosCusto: CentroCustoContabil[]; lancamentos: LancamentoContabil[] }) => {
     const contasPorCodigo = new Map<string, ContaPlano>(contas.map((item) => [item.codigo, item]));
@@ -701,7 +713,7 @@ function AppWorkspace() {
                 />
               )}
 
-              {tabAtiva === "revisao-origens" && <RevisaoOrigensTab cnpj={empresa.cnpj} />}
+              {tabAtiva === "revisao-origens" && <RevisaoOrigensTab cnpj={empresa.cnpj} contas={contas} mapeamentos={mapeamentosOrigem} onSalvarMapeamentos={setMapeamentosOrigem} />}
 
               {tabAtiva === "agente" && (
                 <AgenteTab

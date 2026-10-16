@@ -144,6 +144,21 @@ export interface ContaPlano {
   saldoInicial?: number;
 }
 
+export type OrigemMapeadaContabil =
+  | "fiscal_entrada"
+  | "fiscal_saida"
+  | "dp_folha_bruta"
+  | "dp_descontos_inss"
+  | "dp_descontos_irrf"
+  | "dp_fgts";
+
+export interface MapeamentoOrigemContabil {
+  origem: OrigemMapeadaContabil;
+  contaDebitoCodigo: string;
+  contaCreditoCodigo: string;
+  revisadoEm: string;
+}
+
 export interface BalanceteItem {
   codigo: string;
   descricao: string;
