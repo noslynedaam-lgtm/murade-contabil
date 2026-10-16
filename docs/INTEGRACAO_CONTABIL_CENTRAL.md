@@ -37,4 +37,15 @@ Certificados, senhas, CPF de funcionário, dados bancários e documentos pessoai
 - O Fiscal oferece `GET /api/integracao/fiscal/documentos?cnpj=...`, com autenticação, filtro opcional de período e paginação.
 - O Contábil recebe lotes por `POST /api/integracao/fiscal/documentos` e grava documentos de origem no PostgreSQL em tabela separada por CNPJ, chave e competência. A leitura serviço a serviço usa `GET` autenticado na mesma rota. O Fiscal envia os documentos salvos pela ação “Enviar documentos ao Contábil” na tela Integração Fiscal-Contábil.
 - O Contábil oferece `POST /api/integracao/dp/folhas` e `GET /api/integracao/dp/folhas`, autenticados com o mesmo token serviço a serviço. O contrato aceita somente `quantidadeFuncionarios`, `folhaBruta`, `outrosProventos`, `descontosINSS`, `descontosIRRF`, `descontosOutros`, `liquidoFolha`, `fgts`, `inssPatronal`, `provisaoFerias`, `provisao13` e `encargosOutros`, por CNPJ e competência. O payload é limitado a 16 KB e rejeita campos pessoais ou adicionais. `processamentoId` deve ser UUID; a chave idempotente é CNPJ + competência + identificador. O estado do receptor aparece em `/api/integracao/dp/status` como `recebimentoDPConfigurado`, separado de `dadosCompartilhados`.
-- A gravação de documentos fiscais e de resumos do DP ainda não cria lançamentos contábeis: faltam mapeamentos de contas por operação/regime, uma tela autenticada para o usuário consultar/revisar os dados recebidos e a geração validada das partidas. O endpoint de recepção do Contábil está implementado, mas o DP ainda não persiste nem envia o resumo agregado. Não há fechamento ponta a ponta.
+- O DP persiste prévias salariais individuais no PostgreSQL e, quando todas as pessoas elegíveis de uma competência têm prévia, forma um resumo agregado sem nomes, CPFs ou dados bancários. A fila tenta entregar o resumo ao Contábil com repetição em caso de falha. Encargos patronais e provisões ainda não apurados são enviados como `null`, nunca como zero.
+- A tela autenticada **Revisão das Origens** consulta documentos do Fiscal e resumos do DP por CNPJ e competência. Valores nulos aparecem como “Não apurado”. O recebimento e a revisão não geram lançamentos por si só.
+- A gravação de documentos fiscais e de resumos do DP ainda não cria lançamentos contábeis: faltam mapeamentos de contas por operação/regime e a geração validada das partidas. Livros oficiais, demonstrações e transmissões continuam sem fechamento ponta a ponta.
+
+## Ativar primeiro acesso no Render
+
+1. Gere um token temporário no PowerShell local com `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`. Não envie o resultado pelo chat nem o coloque no repositório.
+2. No serviço web **Murade Contábil** do Render, abra **Environment**, adicione `CONTABIL_AUTH_BOOTSTRAP_TOKEN` e cole o token no campo privado de valor.
+3. Salve e aguarde o deploy terminar. Em seguida, abra o Contábil e use **Primeiro acesso** para criar o administrador; informe somente os CNPJs que esse usuário pode acessar.
+4. Depois que o primeiro acesso for confirmado, remova `CONTABIL_AUTH_BOOTSTRAP_TOKEN` do Render e faça novo deploy. As próximas entradas usam o login normal.
+
+O token é obrigatório antes de publicar a autenticação do Contábil pela primeira vez. A aplicação não aceita login de demonstração nem cria um administrador padrão.
