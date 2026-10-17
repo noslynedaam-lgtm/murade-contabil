@@ -120,7 +120,7 @@ export interface LancamentoContabil {
   contaCreditoNome: string;
   valor: number;
   historico: string;
-  origem: "Cadastro" | "Fiscal — NFe Entrada" | "Fiscal — NFe Saída" | "Fiscal — Apuração ICMS" | "DP — Folha" | "DP — INSS" | "DP — IRRF" | "DP — FGTS" | "Financeiro / Bancos" | "Manual";
+  origem: "Cadastro" | "Fiscal — NFe Entrada" | "Fiscal — NFe Saída" | "Fiscal — Apuração ICMS" | "DP — Folha" | "DP — INSS" | "DP — INSS patronal" | "DP — IRRF" | "DP — FGTS" | "Financeiro / Bancos" | "Manual";
   documentoRef?: string;
   competencia?: string;
   centroCustoCodigo?: string;
@@ -156,6 +156,7 @@ export type OrigemMapeadaContabil =
   | "fiscal_saida"
   | "dp_folha_bruta"
   | "dp_descontos_inss"
+  | "dp_inss_patronal"
   | "dp_descontos_irrf"
   | "dp_fgts";
 
@@ -171,7 +172,7 @@ export interface PreLancamentoContabil {
   referenciaOrigem: string;
   competencia: string;
   data: string;
-  origem: "DP — Folha" | "DP — INSS" | "DP — IRRF" | "DP — FGTS" | "Fiscal — Entrada" | "Fiscal — Saída";
+  origem: "DP — Folha" | "DP — INSS" | "DP — INSS patronal" | "DP — IRRF" | "DP — FGTS" | "Fiscal — Entrada" | "Fiscal — Saída";
   contaDebitoCodigo: string;
   contaCreditoCodigo: string;
   valor: number;

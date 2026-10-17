@@ -21,6 +21,7 @@ const origensMapeaveis: Array<{ id: OrigemMapeadaContabil; titulo: string; descr
   { id: "fiscal_saida", titulo: "NF-e de saída", descricao: "Mapeia o valor bruto da venda; tributos destacados exigem regras próprias antes de contabilizar." },
   { id: "dp_folha_bruta", titulo: "Folha bruta do DP", descricao: "Despesa de salários contra salários a pagar." },
   { id: "dp_descontos_inss", titulo: "INSS descontado do empregado", descricao: "Reduz salários a pagar e credita INSS a recolher; não inclui INSS patronal." },
+  { id: "dp_inss_patronal", titulo: "INSS patronal", descricao: "Encargo da empresa contra INSS patronal a recolher; usa somente o valor apurado e persistido pelo DP." },
   { id: "dp_descontos_irrf", titulo: "IRRF descontado", descricao: "Reduz salários a pagar e credita IRRF a recolher." },
   { id: "dp_fgts", titulo: "FGTS informado pelo DP", descricao: "Despesa de FGTS contra FGTS a recolher. Valores só chegam após cálculo persistido no DP." },
 ];
@@ -278,6 +279,7 @@ export const RevisaoOrigensTab: React.FC<{
     const origens = [
       { campo: "folhaBruta", origem: "dp_folha_bruta" as const, titulo: "Folha bruta" },
       { campo: "descontosINSS", origem: "dp_descontos_inss" as const, titulo: "INSS descontado do empregado" },
+      { campo: "inssPatronal", origem: "dp_inss_patronal" as const, titulo: "INSS patronal", opcional: true },
       { campo: "descontosIRRF", origem: "dp_descontos_irrf" as const, titulo: "IRRF descontado" },
       { campo: "fgts", origem: "dp_fgts" as const, titulo: "FGTS informado pelo DP" },
     ];
@@ -302,7 +304,12 @@ export const RevisaoOrigensTab: React.FC<{
       const candidatas: PreviaPartidaDP[] = [];
       let incompleta = false;
       for (const origem of origens) {
-        const valor = valores[origem.campo] as number;
+        const valorRecebido = valores[origem.campo];
+        if (valorRecebido == null && "opcional" in origem && origem.opcional) {
+          pendencias.push({ competencia: folha.competencia, motivo: `${origem.titulo} não recebido do DP; nenhum valor foi presumido.` });
+          continue;
+        }
+        const valor = valorRecebido as number;
         if (valor < 0) { incompleta = true; break; }
         if (valor === 0) continue;
         const mapeamento = porOrigem.get(origem.origem);
@@ -310,8 +317,8 @@ export const RevisaoOrigensTab: React.FC<{
         const creditoExiste = Boolean(mapeamento && contasAnaliticas.some((conta) => conta.codigo === mapeamento.contaCreditoCodigo));
         if (!mapeamento || !debitoExiste || !creditoExiste || mapeamento.contaDebitoCodigo === mapeamento.contaCreditoCodigo) {
           pendencias.push({ competencia: folha.competencia, motivo: `Mapeamento válido de débito e crédito pendente para ${origem.titulo}.` });
-          incompleta = true;
-          break;
+          if (!("opcional" in origem && origem.opcional)) { incompleta = true; break; }
+          continue;
         }
         candidatas.push({
           competencia: folha.competencia,
