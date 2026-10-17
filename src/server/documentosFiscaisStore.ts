@@ -22,14 +22,15 @@ export function fiscalStoreConfigurado(): boolean {
   return Boolean(obterPool());
 }
 
-export async function verificarEstadoStoreFiscal(): Promise<{ disponivel: boolean; documentosRecebidos: number; ultimoRecebimento: string | null }> {
+export async function verificarEstadoStoreFiscal(cnpjsAutorizados?: string[]): Promise<{ disponivel: boolean; documentosRecebidos: number; ultimoRecebimento: string | null }> {
   const db = obterPool();
   if (!db) return { disponivel: false, documentosRecebidos: 0, ultimoRecebimento: null };
   await inicializar();
   const resultado = await db.query(`
     SELECT COUNT(*)::int AS total, MAX(atualizado_em) AS ultimo_recebimento
     FROM murade_documentos_fiscais_origem
-  `);
+    WHERE $1::text[] IS NULL OR cnpj = ANY($1::text[])
+  `, [cnpjsAutorizados ?? null]);
   return {
     disponivel: true,
     documentosRecebidos: Number(resultado.rows[0]?.total) || 0,

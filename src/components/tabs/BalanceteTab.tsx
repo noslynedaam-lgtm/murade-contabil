@@ -4,10 +4,14 @@ import { ContaPlano, LancamentoContabil } from "../../types";
 import { gerarRelatoriosContabeis } from "../../utils/livrosContabeis";
 
 interface BalanceteTabProps {
+  cnpj: string;
   competencia: string;
   lancamentos: LancamentoContabil[];
   contas: ContaPlano[];
-  onFecharMes: () => void;
+  workspaceCarregado: boolean;
+  workspacePersistido: boolean;
+  competenciasFechadas: string[];
+  onFecharMes: (competencia: string) => Promise<boolean>;
 }
 
 interface LinhaBalancete {
@@ -29,7 +33,7 @@ function escaparCsv(valor: string): string {
   return `"${String(valor).replace(/"/g, '""')}"`;
 }
 
-export const BalanceteTab: React.FC<BalanceteTabProps> = ({ competencia, lancamentos, contas, onFecharMes }) => {
+export const BalanceteTab: React.FC<BalanceteTabProps> = ({ cnpj, competencia, lancamentos, contas, workspaceCarregado, workspacePersistido, competenciasFechadas, onFecharMes }) => {
   const [competenciaSelecionada, setCompetenciaSelecionada] = useState(competencia || "");
   const [modoVisualizacao, setModoVisualizacao] = useState<"resumido" | "analitico">("analitico");
   const [geradoEm, setGeradoEm] = useState<string | null>(null);
@@ -51,8 +55,8 @@ export const BalanceteTab: React.FC<BalanceteTabProps> = ({ competencia, lancame
     const totalCreditos = relatorios.totalCreditosCentavos;
     const totalSaldoDevedor = relatorios.totalSaldoDevedorCentavos;
     const totalSaldoCredor = relatorios.totalSaldoCredorCentavos;
-    const temSaldosIniciais = contas.some((conta) => Number.isFinite(Number(conta.saldoInicial)) && Number(conta.saldoInicial) !== 0);
-    const temDados = relatorios.validos.length > 0 || temSaldosIniciais;
+    const temSaldosIniciais = relatorios.balancete.some((linha) => linha.conta.tipo === "analitica" && (linha.saldoDevedorCentavos !== 0 || linha.saldoCredorCentavos !== 0));
+    const temDados = relatorios.doPeriodo.length > 0 || temSaldosIniciais || relatorios.saldosIniciaisPendentes.length > 0;
     return {
       linhas,
       doPeriodo: relatorios.doPeriodo.length,
@@ -64,15 +68,22 @@ export const BalanceteTab: React.FC<BalanceteTabProps> = ({ competencia, lancame
       totalSaldoCredor,
       temDados,
       diferencaSaldos: Math.abs(totalSaldoDevedor - totalSaldoCredor),
+      saldosIniciaisPendentes: relatorios.saldosIniciaisPendentes,
     };
   }, [competenciaSelecionada, contas, lancamentos]);
 
   const linhasVisiveis = resumo.linhas.filter((linha) => modoVisualizacao === "analitico" || linha.tipo === "sintetica");
-  const equilibrado = resumo.temDados && resumo.lancamentosInvalidos === 0 && resumo.diferencaSaldos === 0;
+  const equilibrado = resumo.temDados && resumo.lancamentosInvalidos === 0 && resumo.diferencaSaldos === 0 && resumo.saldosIniciaisPendentes.length === 0;
+  const competenciaFechada = competenciasFechadas.includes(competenciaSelecionada);
+  const fecharMes = async () => {
+    if (!competenciaSelecionada || competenciaFechada) return;
+    const confirmado = window.confirm(`Fechar a competência ${competenciaSelecionada} da empresa ${cnpj}? O servidor vai validar o PostgreSQL, bloquear alterações nos lançamentos e rascunhos desse mês e registrar quem confirmou. Essa ação não envia nada a órgãos oficiais.`);
+    if (confirmado) await onFecharMes(competenciaSelecionada);
+  };
 
   const exportarCsv = () => {
-    if (!resumo.temDados || resumo.lancamentosInvalidos > 0) {
-      setFeedbackExportacao("Não exportei: confira os lançamentos inválidos e informe dados contábeis válidos.");
+    if (!resumo.temDados || resumo.lancamentosInvalidos > 0 || resumo.saldosIniciaisPendentes.length > 0) {
+      setFeedbackExportacao(resumo.saldosIniciaisPendentes.length > 0 ? "Não exportei: informe a competência-base dos saldos iniciais destacados antes de gerar um balancete completo." : "Não exportei: confira os lançamentos inválidos e informe dados contábeis válidos.");
       return;
     }
     const linhasCsv = [
@@ -116,14 +127,15 @@ export const BalanceteTab: React.FC<BalanceteTabProps> = ({ competencia, lancame
           <button type="button" onClick={() => setGeradoEm(new Date().toISOString())} className="flex items-center gap-1.5 rounded-md bg-blue-700 px-3 py-2 text-xs font-bold text-white">
             <RefreshCw className="h-3.5 w-3.5" /> Atualizar balancete
           </button>
-          <button type="button" onClick={onFecharMes} className="flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">
-            <Lock className="h-3.5 w-3.5" /> Fechar mês
+          <button type="button" onClick={() => void fecharMes()} disabled={!workspaceCarregado || !workspacePersistido || !/^\d{4}-(0[1-9]|1[0-2])$/.test(competenciaSelecionada) || competenciaFechada || !resumo.temDados || resumo.saldosIniciaisPendentes.length > 0 || resumo.diferencaSaldos !== 0} className="flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 disabled:cursor-not-allowed disabled:opacity-50" title={resumo.saldosIniciaisPendentes.length ? "Informe a competência-base de cada saldo inicial pendente" : !resumo.temDados ? "Informe movimentos ou saldos iniciais antes de fechar" : !workspacePersistido ? "Aguarde a confirmação do PostgreSQL" : competenciaFechada ? "Competência já fechada" : ""}>
+            <Lock className="h-3.5 w-3.5" /> {competenciaFechada ? "Mês fechado" : "Fechar mês"}
           </button>
         </div>
       </section>
 
       {geradoEm && <p role="status" className="text-xs text-slate-600">Resumo local atualizado em {new Date(geradoEm).toLocaleString("pt-BR")}.</p>}
       {feedbackExportacao && <p role="status" className="rounded-md border border-blue-200 bg-blue-50 p-2 text-xs text-blue-900">{feedbackExportacao}</p>}
+      {competenciaFechada && <p role="status" className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-xs text-emerald-950"><strong>Competência fechada e bloqueada no PostgreSQL.</strong> Os lançamentos, rascunhos e registros contábeis deste mês não podem ser alterados pelo sistema.</p>}
 
       <section className={`rounded-lg border p-3 ${equilibrado ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
         <div className="flex items-start gap-2">
@@ -132,6 +144,8 @@ export const BalanceteTab: React.FC<BalanceteTabProps> = ({ competencia, lancame
             <strong>{equilibrado ? "Movimentos locais equilibrados" : resumo.temDados ? "Balancete local requer conferência" : "Sem dados contábeis para calcular"}</strong>
             <p className="mt-1 text-slate-700">Competência {competenciaSelecionada || "não selecionada"} · {resumo.lancamentosValidos} lançamento(s) válidos · {resumo.lancamentosInvalidos} inválido(s) · {resumo.doPeriodo} no período.</p>
             {resumo.temDados && <p className="mt-1 text-slate-700">Saldo devedor {moeda(resumo.totalSaldoDevedor)} · saldo credor {moeda(resumo.totalSaldoCredor)} · diferença {moeda(resumo.diferencaSaldos)}.</p>}
+            {resumo.saldosIniciaisPendentes.length > 0 && <p className="mt-1 font-semibold text-amber-900">{resumo.saldosIniciaisPendentes.length} saldo(s) inicial(is) sem competência-base válida ou com datas-base divergentes. Eles não entram nos relatórios finais até a conferência no Plano de Contas.</p>}
+            {!resumo.temDados && <p className="mt-1 text-slate-700">Informe movimentos ou saldos iniciais antes de fechar esta competência.</p>}
             {!resumo.temDados && <p className="mt-1 text-slate-700">Um balancete vazio não confirma que a contabilidade esteja regular ou sem pendências.</p>}
           </div>
         </div>
@@ -143,7 +157,7 @@ export const BalanceteTab: React.FC<BalanceteTabProps> = ({ competencia, lancame
             <tr><th className="px-3 py-2">Conta</th><th className="px-3 py-2">Descrição</th><th className="px-3 py-2 text-right">Mov. débito</th><th className="px-3 py-2 text-right">Mov. crédito</th><th className="px-3 py-2 text-right">Saldo devedor</th><th className="px-3 py-2 text-right">Saldo credor</th></tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {linhasVisiveis.filter((linha) => linha.movimentosDebito || linha.movimentosCredito).map((linha) => (
+            {linhasVisiveis.filter((linha) => linha.movimentosDebito || linha.movimentosCredito || linha.saldoDevedor || linha.saldoCredor).map((linha) => (
               <tr key={linha.codigo}>
                 <td className="px-3 py-2 font-mono">{linha.codigo}</td>
                 <td className="px-3 py-2" style={{ paddingLeft: `${12 + (linha.nivel - 1) * 16}px` }}>{linha.descricao}</td>
@@ -153,7 +167,7 @@ export const BalanceteTab: React.FC<BalanceteTabProps> = ({ competencia, lancame
                 <td className="px-3 py-2 text-right">{moeda(linha.saldoCredor)}</td>
               </tr>
             ))}
-            {linhasVisiveis.every((linha) => !linha.movimentosDebito && !linha.movimentosCredito) && <tr><td colSpan={6} className="px-3 py-8 text-center text-slate-500">Nenhum movimento ou saldo inicial informado para esta competência.</td></tr>}
+            {linhasVisiveis.every((linha) => !linha.movimentosDebito && !linha.movimentosCredito && !linha.saldoDevedor && !linha.saldoCredor) && <tr><td colSpan={6} className="px-3 py-8 text-center text-slate-500">Nenhum movimento ou saldo inicial informado para esta competência.</td></tr>}
           </tbody>
           <tfoot className="border-t-2 border-slate-300 bg-slate-100 font-bold text-slate-900">
             <tr><td colSpan={2} className="px-3 py-2">Totais dos movimentos do período</td><td className="px-3 py-2 text-right">{moeda(resumo.totalDebitos)}</td><td className="px-3 py-2 text-right">{moeda(resumo.totalCreditos)}</td><td className="px-3 py-2 text-right">{moeda(resumo.totalSaldoDevedor)}</td><td className="px-3 py-2 text-right">{moeda(resumo.totalSaldoCredor)}</td></tr>
@@ -162,7 +176,7 @@ export const BalanceteTab: React.FC<BalanceteTabProps> = ({ competencia, lancame
       </div>
 
       <div className="flex flex-wrap justify-end gap-2">
-        <button type="button" onClick={exportarCsv} className="flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-2 text-xs font-bold text-white">
+        <button type="button" onClick={exportarCsv} disabled={resumo.saldosIniciaisPendentes.length > 0 || resumo.lancamentosInvalidos > 0} className="flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
           <Download className="h-3.5 w-3.5" /> Exportar CSV local
         </button>
       </div>

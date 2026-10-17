@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 import { timingSafeEqual } from "node:crypto";
 import { ErroValidacaoDocumentoFiscal, fiscalStoreConfigurado, gravarDocumentosFiscais, lerDocumentosFiscais, verificarEstadoStoreFiscal } from "./src/server/documentosFiscaisStore";
 import { dpStoreConfigurado, ErroValidacaoResumoDP, gravarResumoDP, lerResumosDP, verificarEstadoStoreDP } from "./src/server/dadosDpStore";
-import { adicionarEmpresaAcessoContabil, bootstrapAuthContabil, cnpjContabilValido, criarConviteUsuarioContabil, exigirSessaoContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil } from "./src/server/authContabil";
+import { adicionarEmpresaAcessoContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, exigirSessaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil } from "./src/server/authContabil";
 import { gerarCandidatosRascunhosAutomaticos, mesclarRascunhosNoWorkspace, prepararRascunhosContabeisAutomaticos } from "./src/server/prepararRascunhosContabeis";
 
 dotenv.config();
@@ -76,9 +76,39 @@ async function startServer() {
   app.delete("/api/auth/users/:login", exigirOrigemNavegador, exigirSessaoContabil, revogarUsuarioEmpresaContabil);
   app.get("/api/workspaces", exigirSessaoContabil, listarWorkspacesContabil);
   app.get("/api/workspaces/:cnpj", exigirSessaoContabil, lerWorkspaceContabil);
+  app.get("/api/workspaces/:cnpj/historico-aprovacoes", exigirSessaoContabil, listarHistoricoAprovacoesContabil);
+  app.get("/api/workspaces/:cnpj/fechamentos", exigirSessaoContabil, listarFechamentosContabil);
+  app.post("/api/workspaces/:cnpj/fechamentos", exigirOrigemNavegador, exigirSessaoContabil, fecharCompetenciaContabil);
+  app.get("/api/integracao/status", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const sessao = (req as express.Request & { sessaoContabil?: { cnpjs: string[] } }).sessaoContabil;
+    const cnpjs = (sessao?.cnpjs || []).map(normalizarCnpjAcesso).filter(cnpjContabilValido);
+    if (!cnpjs.length) return res.status(403).json({ sucesso: false, motivo: "Sua sessão não tem empresas autorizadas." });
+    try {
+      const [fiscal, dp] = await Promise.all([
+        verificarEstadoStoreFiscal(cnpjs),
+        verificarEstadoStoreDP(cnpjs),
+      ]);
+      return res.json({
+        sucesso: true,
+        escopo: "Empresas autorizadas nesta sessão",
+        armazenamento: fiscal.disponivel && dp.disponivel ? "postgresql" : "indisponível",
+        tokenServicoConfigurado: Boolean(process.env.MURADE_INTEGRATION_TOKEN?.trim()),
+        fiscal,
+        departamentoPessoal: dp,
+        rascunhosAguardamConferencia: true,
+        transmissaoAutomaticaHabilitada: false,
+        consultadoEm: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Falha ao consultar estado das integrações do Contábil:", error);
+      return res.status(503).json({ sucesso: false, motivo: "Não foi possível consultar o estado das integrações no PostgreSQL." });
+    }
+  });
   app.put("/api/workspaces/:cnpj", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
     const cnpj = normalizarCnpjAcesso(req.params.cnpj);
     const workspaceEnviado = req.body?.dados;
+    let permitirRascunhosServidor = false;
     try {
       const workspaceAtual = await lerWorkspaceInternoContabil(cnpj);
       const mapasAtuais = JSON.stringify(workspaceAtual?.mapeamentosOrigem || []);
@@ -87,12 +117,25 @@ async function startServer() {
         const candidatos = await gerarCandidatosRascunhosAutomaticos(cnpj, workspaceEnviado);
         const mesclado = mesclarRascunhosNoWorkspace(cnpj, workspaceEnviado, candidatos);
         req.body.dados = mesclado.workspace;
+        permitirRascunhosServidor = true;
         res.setHeader("X-Murade-Rascunhos-Preparados", String(mesclado.criados));
       }
     } catch (error) {
       console.error("Falha ao preparar rascunhos durante atualização dos mapeamentos:", error);
     }
-    await salvarWorkspaceContabil(req, res);
+    await salvarWorkspaceContabil(req, res, { dadosPropostosPeloCliente: workspaceEnviado, permitirRascunhosServidor });
+  });
+  app.post("/api/workspaces/:cnpj/contabilizar", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
+    const cnpj = normalizarCnpjAcesso(req.params.cnpj);
+    if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
+    if (!Array.isArray(req.body?.referencias) || req.body.referencias.length < 1 || req.body.referencias.length > 500) return res.status(400).json({ sucesso: false, motivo: "Selecione de 1 a 500 rascunhos para conferência." });
+    try {
+      const candidatos = await gerarCandidatosRascunhosAutomaticos(cnpj);
+      await contabilizarRascunhosAutomaticosContabil(req, res, candidatos, req.body.referencias);
+    } catch (error) {
+      console.error("Falha ao revalidar origens para contabilização:", error);
+      return res.status(503).json({ sucesso: false, motivo: "Não foi possível revalidar os dados de origem. Nenhum lançamento foi contabilizado." });
+    }
   });
   app.get("/api/revisao/origens", exigirSessaoContabil, async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
@@ -708,21 +751,37 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[Murad Contábil] Servidor ativo em http://localhost:${PORT}`);
-    setTimeout(async () => {
+    let reconciliacaoEmCurso = false;
+    const reconciliarRascunhos = async () => {
+      if (reconciliacaoEmCurso) return;
+      reconciliacaoEmCurso = true;
       try {
         const cnpjs = await listarCnpjsComMapeamentoContabil();
         let criados = 0;
         let atualizados = 0;
+        let falhas = 0;
         for (const cnpj of cnpjs) {
-          const resultado = await prepararRascunhosContabeisAutomaticos(cnpj);
-          criados += resultado.criados;
-          atualizados += resultado.atualizados;
+          try {
+            const resultado = await prepararRascunhosContabeisAutomaticos(cnpj);
+            criados += resultado.criados;
+            atualizados += resultado.atualizados;
+          } catch (error) {
+            falhas += 1;
+            console.error(`[Murad Contábil] Falha ao reconciliar rascunhos do CNPJ autorizado ${cnpj}:`, error);
+          }
         }
-        console.log(`[Murad Contábil] Reconciliação automática concluída: ${cnpjs.length} empresa(s), ${criados} rascunho(s) criado(s), ${atualizados} atualizado(s); nenhum lançamento definitivo foi confirmado.`);
+        if (cnpjs.length || falhas) console.log(`[Murad Contábil] Reconciliação automática: ${cnpjs.length} empresa(s), ${criados} rascunho(s) criado(s), ${atualizados} atualizado(s), ${falhas} falha(s); nenhum lançamento definitivo foi confirmado.`);
       } catch (error) {
-        console.error("[Murad Contábil] Reconciliação automática indisponível; nova tentativa ocorrerá na próxima entrada de dados:", error);
+        console.error("[Murad Contábil] Reconciliação automática indisponível; nova tentativa ocorrerá no próximo ciclo:", error);
+      } finally {
+        reconciliacaoEmCurso = false;
       }
-    }, 1_000);
+    };
+    const primeiraRecon = setTimeout(() => void reconciliarRascunhos(), 1_000);
+    primeiraRecon.unref();
+    const reconciliacaoPeriodica = setInterval(() => void reconciliarRascunhos(), 60_000);
+    reconciliacaoPeriodica.unref();
+    console.log("[Murad Contábil] Reconciliação de rascunhos habilitada a cada 60 segundos; lançamentos definitivos continuam exigindo aprovação.");
   });
 }
 

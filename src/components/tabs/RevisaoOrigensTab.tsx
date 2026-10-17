@@ -10,6 +10,10 @@ type PreviaPartidaDP = { competencia: string; origem: string; contaDebitoCodigo:
 type EstadoPreviaDP = { partidas: PreviaPartidaDP[]; pendencias: Array<{ competencia: string; motivo: string }> };
 type PreviaPartidaFiscal = PreviaPartidaDP & { data: string; chave: string };
 type EstadoPreviaFiscal = { partidas: PreviaPartidaFiscal[]; pendencias: Array<{ competencia: string; motivo: string }> };
+type AprovacaoHistorico = { referencia: string; login: string; valor: string; contaDebito: string; contaCredito: string; aprovadoEm: string };
+type AuditoriaLancamentoManual = { lancamentoId: string; evento: "lancamento_manual" | "estorno_manual"; login: string; registradoEm: string; lancamento: Record<string, unknown> };
+type AuditoriaSaldoAbertura = { contaCodigo: string; evento: "saldo_inicial_cadastrado" | "saldo_inicial_alterado"; saldoAnterior: string | null; saldoNovo: string; competencia: string | null; login: string; registradoEm: string };
+type ConferenciaIntegridade = { status: "consistente" | "revisar"; aprovacoesSemLancamento: string[]; lancamentosSemAuditoria: string[]; statusContabilizadosSemLancamento: string[]; lancamentosManuaisSemAuditoria: string[]; auditoriasManuaisSemLancamento: string[] };
 
 const origensMapeaveis: Array<{ id: OrigemMapeadaContabil; titulo: string; descricao: string }> = [
   { id: "fiscal_entrada", titulo: "NF-e de entrada", descricao: "A conta de estoque/despesa varia por operação e CFOP; revise a conta de débito para esta empresa." },
@@ -57,6 +61,7 @@ const camposTributariosFiscal = [
 
 export const RevisaoOrigensTab: React.FC<{
   cnpj: string;
+  regime: string;
   workspaceCarregado: boolean;
   contas: ContaPlano[];
   mapeamentos: MapeamentoOrigemContabil[];
@@ -64,7 +69,7 @@ export const RevisaoOrigensTab: React.FC<{
   preLancamentos: PreLancamentoContabil[];
   onSalvarPreLancamentos: (preLancamentos: PreLancamentoContabil[]) => void;
   onContabilizar: (referencias: string[]) => Promise<boolean>;
-}> = ({ cnpj, workspaceCarregado, contas, mapeamentos, onSalvarMapeamentos, preLancamentos, onSalvarPreLancamentos, onContabilizar }) => {
+}> = ({ cnpj, regime, workspaceCarregado, contas, mapeamentos, onSalvarMapeamentos, preLancamentos, onSalvarPreLancamentos, onContabilizar }) => {
   const [desde, setDesde] = useState(competenciaAtual);
   const [ate, setAte] = useState(competenciaAtual);
   const [dados, setDados] = useState<LoteOrigens>({ documentos: [], folhas: [] });
@@ -72,6 +77,13 @@ export const RevisaoOrigensTab: React.FC<{
   const [erro, setErro] = useState("");
   const [atualizadoEm, setAtualizadoEm] = useState("");
   const [mensagemPrevia, setMensagemPrevia] = useState("");
+  const [historicoAprovacoes, setHistoricoAprovacoes] = useState<AprovacaoHistorico[]>([]);
+  const [historicoLancamentosManuais, setHistoricoLancamentosManuais] = useState<AuditoriaLancamentoManual[]>([]);
+  const [historicoSaldosAbertura, setHistoricoSaldosAbertura] = useState<AuditoriaSaldoAbertura[]>([]);
+  const [lancamentosManuaisSemAuditoria, setLancamentosManuaisSemAuditoria] = useState<string[]>([]);
+  const [erroHistorico, setErroHistorico] = useState("");
+  const [carregandoHistorico, setCarregandoHistorico] = useState(false);
+  const [integridadeAprovacoes, setIntegridadeAprovacoes] = useState<ConferenciaIntegridade | null>(null);
   const [rascunhos, setRascunhos] = useState<Record<string, RascunhoMapeamento>>(() => Object.fromEntries(
     mapeamentos.map((item) => [item.origem, { contaDebitoCodigo: item.contaDebitoCodigo, contaCreditoCodigo: item.contaCreditoCodigo }]),
   ));
@@ -107,6 +119,36 @@ export const RevisaoOrigensTab: React.FC<{
   }, [cnpjNormalizado, cnpj, desde, ate]);
 
   useEffect(() => { void carregar(); }, [carregar]);
+
+  const carregarHistorico = useCallback(async () => {
+    if (!/^[A-Z0-9]{12}\d{2}$/.test(cnpjNormalizado)) {
+      setHistoricoAprovacoes([]);
+      setHistoricoLancamentosManuais([]);
+      setHistoricoSaldosAbertura([]);
+      setLancamentosManuaisSemAuditoria([]);
+      setIntegridadeAprovacoes(null);
+      setErroHistorico("");
+      return;
+    }
+    setCarregandoHistorico(true);
+    setErroHistorico("");
+    try {
+      const response = await fetch(`/api/workspaces/${encodeURIComponent(cnpjNormalizado)}/historico-aprovacoes?limite=100`, { credentials: "include", cache: "no-store" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.sucesso !== true) throw new Error(result.motivo || "Não foi possível consultar o histórico de aprovações.");
+      setHistoricoAprovacoes(Array.isArray(result.aprovacoes) ? result.aprovacoes : []);
+      setHistoricoLancamentosManuais(Array.isArray(result.lancamentosManuais) ? result.lancamentosManuais : []);
+      setHistoricoSaldosAbertura(Array.isArray(result.saldosAbertura) ? result.saldosAbertura : []);
+      setLancamentosManuaisSemAuditoria(Array.isArray(result.lancamentosManuaisSemAuditoria) ? result.lancamentosManuaisSemAuditoria : []);
+      setIntegridadeAprovacoes(result.conferenciaIntegridade && typeof result.conferenciaIntegridade === "object" ? result.conferenciaIntegridade as ConferenciaIntegridade : null);
+    } catch (error) {
+      setErroHistorico(error instanceof Error ? error.message : "Falha ao consultar o histórico de aprovações.");
+    } finally {
+      setCarregandoHistorico(false);
+    }
+  }, [cnpjNormalizado]);
+
+  useEffect(() => { void carregarHistorico(); }, [carregarHistorico]);
 
   const totaisFiscal = useMemo(() => {
     const resumo = {
@@ -287,6 +329,11 @@ export const RevisaoOrigensTab: React.FC<{
     ...previaContabilDP.partidas.map((partida) => partida.referencia),
     ...previaContabilFiscal.partidas.map((partida) => partida.referencia),
   ]), [previaContabilDP.partidas, previaContabilFiscal.partidas]);
+  const aguardandoContador = preLancamentos.filter((item) => item.status === "pendente_conferencia" && referenciasElegiveis.has(item.referenciaOrigem)).length;
+  const bloqueadosRevalidacao = preLancamentos.filter((item) => item.status === "pendente_conferencia" && !referenciasElegiveis.has(item.referenciaOrigem)).length;
+  const contabilizados = preLancamentos.filter((item) => item.status === "contabilizado").length;
+  const aprovadosPeloRobo = previaContabilDP.partidas.length + previaContabilFiscal.partidas.length;
+  const pendenciasRobo = previaContabilDP.pendencias.length + previaContabilFiscal.pendencias.length;
 
   const contabilizarPendentes = async () => {
     const todosPendentes = preLancamentos.filter((item) => item.status === "pendente_conferencia");
@@ -297,6 +344,7 @@ export const RevisaoOrigensTab: React.FC<{
     if (!confirmado) return;
     setMensagemPrevia("Salvando os lançamentos aprovados no banco permanente…");
     const persistido = await onContabilizar(pendentes.map((item) => item.referenciaOrigem));
+    if (persistido) void carregarHistorico();
     setMensagemPrevia(persistido
       ? `${pendentes.length} lançamento(s) elegível(is) contabilizado(s) e confirmado(s) no PostgreSQL${bloqueados ? `; ${bloqueados} rascunho(s) preservado(s) para revisão` : ""}.`
       : "A gravação no PostgreSQL não foi confirmada. Os dados continuam apenas na cópia local; atualize a empresa antes de tentar novamente.");
@@ -310,7 +358,7 @@ export const RevisaoOrigensTab: React.FC<{
           <h1 className="mt-1 text-2xl font-black text-slate-900">Revisão Fiscal e Departamento Pessoal</h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-600">O servidor prepara e persiste pré-lançamentos quando origem, autorização, dados e mapeamentos permitem, mesmo sem esta tela aberta. Tudo aguarda conferência e aprovação; esta tela não transmite obrigações.</p>
         </div>
-        <button type="button" onClick={() => void carregar()} disabled={carregando || !workspaceCarregado} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">
+        <button type="button" onClick={() => { void carregar(); void carregarHistorico(); }} disabled={carregando || carregandoHistorico || !workspaceCarregado} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">
           <RefreshCw className={`h-4 w-4 ${carregando ? "animate-spin" : ""}`} /> Atualizar
         </button>
       </header>
@@ -322,6 +370,59 @@ export const RevisaoOrigensTab: React.FC<{
       </section>
 
       {erro && <div role="alert" className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{erro}</div>}
+
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
+          <div><h2 className="font-bold text-slate-900">Histórico persistente e trilha de auditoria</h2><p className="mt-1 text-xs text-slate-600">Mostra aprovações integradas, lançamentos manuais, estornos e alterações de saldo inicial salvos no banco.</p></div>
+          <button type="button" onClick={() => void carregarHistorico()} disabled={carregandoHistorico || !workspaceCarregado} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${carregandoHistorico ? "animate-spin" : ""}`} /> Atualizar histórico</button>
+        </div>
+        <div className="p-4">
+          {erroHistorico && <div role="alert" className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">{erroHistorico}</div>}
+          {integridadeAprovacoes && <div role="status" className={`mb-3 rounded-lg border p-3 text-sm ${integridadeAprovacoes.status === "consistente" ? "border-emerald-300 bg-emerald-50 text-emerald-950" : "border-amber-300 bg-amber-50 text-amber-950"}`}>
+            <strong>{integridadeAprovacoes.status === "consistente" ? "Vínculos auditados: sem divergência detectada" : "Vínculos auditados: requer revisão"}</strong>
+            {integridadeAprovacoes.status === "revisar" && <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+              {integridadeAprovacoes.aprovacoesSemLancamento.length > 0 && <li>{integridadeAprovacoes.aprovacoesSemLancamento.length} aprovação(ões) sem lançamento correspondente ou com valor/contas diferentes.</li>}
+              {integridadeAprovacoes.lancamentosSemAuditoria.length > 0 && <li>{integridadeAprovacoes.lancamentosSemAuditoria.length} lançamento(s) integrado(s) sem registro de aprovação.</li>}
+              {integridadeAprovacoes.statusContabilizadosSemLancamento.length > 0 && <li>{integridadeAprovacoes.statusContabilizadosSemLancamento.length} rascunho(s) marcados contabilizados sem lançamento correspondente.</li>}
+              {integridadeAprovacoes.auditoriasManuaisSemLancamento.length > 0 && <li>{integridadeAprovacoes.auditoriasManuaisSemLancamento.length} evento(s) manual(is) sem lançamento correspondente ou com conteúdo diferente.</li>}
+            </ul>}
+            <p className="mt-2 text-xs">A checagem compara aprovações integradas com partidas e confere os lançamentos manuais/estornos que já possuem trilha. {lancamentosManuaisSemAuditoria.length > 0 ? `${lancamentosManuaisSemAuditoria.length} lançamento(s) manual(is) são anteriores à trilha e não têm autoria histórica recuperável.` : "Lançamentos manuais anteriores à ativação desta trilha não podem ter sua autoria retroativamente comprovada."} Não é conciliação completa dos documentos do Fiscal ou resumos do DP; nada é alterado ou apagado.</p>
+          </div>}
+          {carregandoHistorico && historicoAprovacoes.length === 0 ? <p className="text-sm text-slate-500">Consultando o histórico no banco…</p> : historicoAprovacoes.length === 0 ? <p className="text-sm text-slate-500">Ainda não há aprovações registradas para esta empresa.</p> : (
+            <div className="overflow-x-auto"><table className="w-full min-w-[800px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Data e hora</th><th className="px-3 py-2">Aprovado por</th><th className="px-3 py-2">Referência</th><th className="px-3 py-2">Débito</th><th className="px-3 py-2">Crédito</th><th className="px-3 py-2 text-right">Valor</th></tr></thead><tbody>{historicoAprovacoes.map((item) => <tr key={item.referencia} className="border-t border-slate-100"><td className="whitespace-nowrap px-3 py-2">{new Date(item.aprovadoEm).toLocaleString("pt-BR")}</td><td className="px-3 py-2">{texto(item.login)}</td><td className="max-w-80 truncate px-3 py-2" title={item.referencia}>{item.referencia}</td><td className="px-3 py-2">{texto(item.contaDebito)}</td><td className="px-3 py-2">{texto(item.contaCredito)}</td><td className="px-3 py-2 text-right tabular-nums">{Number.isFinite(Number(item.valor)) ? Number(item.valor).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "Não apurado"}</td></tr>)}</tbody></table></div>
+          )}
+          <p className="mt-3 text-[11px] text-slate-500">Exibindo até 100 aprovações mais recentes. O histórico não altera lançamentos e não executa transmissões oficiais.</p>
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="border-b border-slate-200 px-4 py-3"><h2 className="font-bold text-slate-900">Lançamentos manuais e estornos</h2><p className="mt-1 text-xs text-slate-600">A autoria, o horário e o conteúdo são gravados junto com a alteração no PostgreSQL. Partidas já salvas ficam preservadas; correções são feitas por estorno.</p></div>
+        <div className="overflow-x-auto p-4">
+          {historicoLancamentosManuais.length === 0 ? <p className="text-sm text-slate-500">Ainda não há lançamentos manuais ou estornos registrados nesta trilha.</p> : <table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Data e hora</th><th className="px-3 py-2">Ação / usuário</th><th className="px-3 py-2">Lançamento</th><th className="px-3 py-2">Débito / crédito</th><th className="px-3 py-2 text-right">Valor</th></tr></thead><tbody>{historicoLancamentosManuais.map((item) => <tr key={item.lancamentoId} className="border-t border-slate-100"><td className="whitespace-nowrap px-3 py-2">{new Date(item.registradoEm).toLocaleString("pt-BR")}</td><td className="px-3 py-2">{item.evento === "estorno_manual" ? "Estorno" : "Lançamento manual"}<br/><span className="text-xs text-slate-500">{texto(item.login)}</span></td><td className="max-w-64 truncate px-3 py-2" title={item.lancamentoId}>{item.lancamentoId}</td><td className="px-3 py-2">{texto(item.lancamento.contaDebitoCodigo)} / {texto(item.lancamento.contaCreditoCodigo)}</td><td className="px-3 py-2 text-right tabular-nums">{dinheiro(item.lancamento.valor)}</td></tr>)}</tbody></table>}
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="border-b border-slate-200 px-4 py-3"><h2 className="font-bold text-slate-900">Saldos iniciais das contas</h2><p className="mt-1 text-xs text-slate-600">Os saldos são base de abertura para os relatórios; não geram partidas por conta própria. Alterações ficam registradas abaixo.</p></div>
+        <div className="overflow-x-auto p-4">
+          {historicoSaldosAbertura.length === 0 ? <p className="text-sm text-slate-500">Ainda não há cadastro ou alteração de saldo inicial na trilha.</p> : <table className="w-full min-w-[780px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Data e hora</th><th className="px-3 py-2">Conta</th><th className="px-3 py-2">Ação / usuário</th><th className="px-3 py-2">Competência-base</th><th className="px-3 py-2 text-right">Anterior</th><th className="px-3 py-2 text-right">Novo saldo</th></tr></thead><tbody>{historicoSaldosAbertura.map((item, index) => <tr key={`${item.contaCodigo}-${item.registradoEm}-${index}`} className="border-t border-slate-100"><td className="whitespace-nowrap px-3 py-2">{new Date(item.registradoEm).toLocaleString("pt-BR")}</td><td className="px-3 py-2">{item.contaCodigo}</td><td className="px-3 py-2">{item.evento === "saldo_inicial_cadastrado" ? "Cadastro inicial" : "Alteração"}<br/><span className="text-xs text-slate-500">{texto(item.login)}</span></td><td className="px-3 py-2">{texto(item.competencia)}</td><td className="px-3 py-2 text-right">{item.saldoAnterior == null ? "—" : dinheiro(Number(item.saldoAnterior))}</td><td className="px-3 py-2 text-right">{dinheiro(Number(item.saldoNovo))}</td></tr>)}</tbody></table>}
+        </div>
+      </section>
+
+      <section aria-label="Etapas de conferência" className="grid gap-3 md:grid-cols-2">
+        <article className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+          <p className="text-xs font-black uppercase tracking-wide text-emerald-800">Etapa 1 · Robô de conferência</p>
+          <h2 className="mt-1 font-bold text-emerald-950">Validação automática dos dados disponíveis</h2>
+          <p className="mt-2 text-sm text-emerald-900">O sistema confere autorização e cancelamento fiscal, CNPJ, datas, valores, composição informada, mapeamentos e conciliação dos totais da folha. É uma validação por regras explícitas; não inventa dados nem substitui a análise profissional.</p>
+          <p className="mt-2 text-xs font-semibold text-emerald-900">{aprovadosPeloRobo} partida(s) passaram pelas regras para virar rascunho · {pendenciasRobo} pendência(s) bloqueiam preparação.</p>
+        </article>
+        <article className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+          <p className="text-xs font-black uppercase tracking-wide text-blue-800">Etapa 2 · Contador responsável</p>
+          <h2 className="mt-1 font-bold text-blue-950">Revisão e aprovação final</h2>
+          <p className="mt-2 text-sm text-blue-900">O contador confere os rascunhos aprovados pela triagem automática. Só a ação explícita “Conferir e contabilizar elegíveis” cria lançamentos definitivos e os inclui nos relatórios.</p>
+          <p className="mt-2 text-xs font-semibold text-blue-900">{aguardandoContador} aguardando conferência · {bloqueadosRevalidacao} bloqueado(s) para revalidação · {contabilizados} contabilizado(s).</p>
+        </article>
+      </section>
 
       <section className="overflow-hidden rounded-xl border border-blue-200 bg-white">
         <div className="flex items-center gap-2 border-b border-blue-100 px-4 py-3"><ClipboardCheck className="h-4 w-4 text-blue-700" /><h2 className="font-bold text-slate-900">Prévia contábil das notas fiscais</h2></div>
@@ -372,7 +473,7 @@ export const RevisaoOrigensTab: React.FC<{
           )}
           {mensagemPrevia && <p role="status" className="text-xs text-indigo-800">{mensagemPrevia}</p>}
           {preLancamentos.length > 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
-            <div className="flex flex-wrap items-center justify-between gap-3"><strong>{preLancamentos.filter((item) => item.status === "pendente_conferencia" && referenciasElegiveis.has(item.referenciaOrigem)).length} pendente(s) elegível(is), {preLancamentos.filter((item) => item.status === "pendente_conferencia" && !referenciasElegiveis.has(item.referenciaOrigem)).length} bloqueado(s) para revalidação e {preLancamentos.filter((item) => item.status === "contabilizado").length} contabilizado(s) no workspace desta empresa.</strong>
+            <div className="flex flex-wrap items-center justify-between gap-3"><strong>{aguardandoContador} pendente(s) elegível(is), {bloqueadosRevalidacao} bloqueado(s) para revalidação e {contabilizados} contabilizado(s) no workspace desta empresa.</strong>
               {preLancamentos.some((item) => item.status === "pendente_conferencia" && referenciasElegiveis.has(item.referenciaOrigem)) && <button type="button" onClick={contabilizarPendentes} disabled={carregando || !workspaceCarregado} className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><CheckCircle2 className="h-4 w-4" /> Conferir e contabilizar elegíveis</button>}
             </div>
             <p className="mt-2">A contabilização requer confirmação do contador. Cada referência só pode ser lançada uma vez. Rascunhos bloqueados são mantidos no banco até nova validação dos dados de origem.</p>
@@ -383,7 +484,7 @@ export const RevisaoOrigensTab: React.FC<{
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric title="Notas fiscais no período" value={String(totaisFiscal.entrada.total + totaisFiscal.saida.total)} detail={`${totaisFiscal.entrada.total} entradas • ${totaisFiscal.saida.total} saídas`} />
         <Metric title="Resumos de folha recebidos" value={String(dados.folhas.length)} detail="Totais agregados por competência" />
-        <Metric title="Lançamentos automáticos" value="0" detail="Aguardam mapeamento e aprovação" />
+        <Metric title="Lançamentos definitivos automáticos" value="0" detail="Rascunhos aguardam revisão e aprovação" />
         <Metric title="Status da conferência" value="Pendente" detail="Revisão do contador necessária" />
       </section>
 
@@ -407,6 +508,26 @@ export const RevisaoOrigensTab: React.FC<{
           })}
         </div>
         <p className="px-4 pb-4 text-[11px] text-slate-500">Os tributos são apenas valores destacados nos dados recebidos. Quando faltam campos, o total fica marcado como parcial; nenhum campo ausente é assumido como zero.</p>
+      </section>
+
+      <section className="overflow-hidden rounded-xl border border-amber-300 bg-white">
+        <div className="border-b border-amber-100 px-4 py-3"><h2 className="font-bold text-slate-900">Conferência de tributos por regime</h2><p className="mt-1 text-xs text-slate-600">Regime cadastrado: <strong>{regime || "Não informado"}</strong>. Esta conferência não calcula imposto devido nem emite guia.</p></div>
+        <div className="space-y-3 p-4">
+          {regime === "Simples Nacional" && <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950"><strong>DAS unificado pendente de integração.</strong> A apuração exige receita segregada por atividade/anexo, competência e demais informações validadas no PGDAS-D. Os valores destacados nas notas não substituem o DAS.</p>}
+          {(regime === "Lucro Presumido" || regime === "Lucro Real") && <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">Os valores de ICMS, ISS, PIS e COFINS abaixo são apenas valores destacados nos documentos recebidos. Não representam saldo fiscal a recolher. IRPJ e CSLL dependem da apuração e bases próprias do regime, ainda não recebidas nesta integração.</p>}
+          {!regime && <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">Informe e confira o regime tributário da empresa antes de preparar qualquer apuração.</p>}
+          <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Tributo</th><th className="px-3 py-2 text-right">Notas de entrada</th><th className="px-3 py-2 text-right">Notas de saída</th><th className="px-3 py-2">Situação</th></tr></thead><tbody>
+            {([ ["ICMS", "valorIcms"], ["PIS", "valorPis"], ["COFINS", "valorCofins"], ["ISS", "valorIss"] ] as const).map(([titulo, campo]) => {
+              const totalDocs = totaisFiscal.entrada.autorizadas + totaisFiscal.saida.autorizadas;
+              const incompletos = totaisFiscal.entrada.impostos[campo].incompletos + totaisFiscal.saida.impostos[campo].incompletos;
+              const status = !totalDocs ? "Sem documentos autorizados" : incompletos ? `${incompletos} documento(s) sem valor tributário; conferência incompleta` : "Valores de origem disponíveis; apuração não realizada";
+              const display = (grupo: typeof totaisFiscal.entrada) => !grupo.autorizadas ? "—" : grupo.impostos[campo].incompletos === grupo.autorizadas ? "Não apurado" : `${dinheiro(grupo.impostos[campo].total)}${grupo.impostos[campo].incompletos ? "*" : ""}`;
+              return <tr key={titulo} className="border-t border-slate-100"><td className="px-3 py-2 font-semibold">{titulo}</td><td className="px-3 py-2 text-right tabular-nums">{display(totaisFiscal.entrada)}</td><td className="px-3 py-2 text-right tabular-nums">{display(totaisFiscal.saida)}</td><td className="px-3 py-2 text-xs text-amber-800">{status}</td></tr>;
+            })}
+            {(["IRPJ", "CSLL"] as const).map((titulo) => <tr key={titulo} className="border-t border-slate-100"><td className="px-3 py-2 font-semibold">{titulo}</td><td className="px-3 py-2 text-right">Não apurado</td><td className="px-3 py-2 text-right">Não apurado</td><td className="px-3 py-2 text-xs text-amber-800">Base de cálculo e apuração do regime não recebidas</td></tr>)}
+          </tbody></table></div>
+          <p className="text-[11px] text-slate-500">Nenhum valor ausente é tratado como zero. Vencimentos, saldo a recolher e links de emissão só serão preenchidos quando houver integração e dados oficiais suficientes.</p>
+        </div>
       </section>
 
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">

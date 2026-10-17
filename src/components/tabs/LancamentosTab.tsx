@@ -14,6 +14,7 @@ import {
   ArrowRightLeft,
 } from "lucide-react";
 import { ordenarContasPorSequenciaNumerica } from "../../utils/planoContasUtils";
+import { normalizarDataContabil } from "../../utils/livrosContabeis";
 
 interface LancamentosTabProps {
   lancamentos: LancamentoContabil[];
@@ -51,6 +52,10 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
   const [creditoNome, setCreditoNome] = useState("");
   const [valorLan, setValorLan] = useState("");
   const [histLan, setHistLan] = useState("");
+  const [erroNovo, setErroNovo] = useState("");
+  const limparRascunhoManual = () => {
+    setDataLan(""); setDebitoCod(""); setDebitoNome(""); setCreditoCod(""); setCreditoNome(""); setValorLan(""); setHistLan(""); setErroNovo("");
+  };
 
   // Atualizar conta a débito a partir da seleção no plano de contas sequencial
   const handleSelecionarDebito = (codigo: string) => {
@@ -81,14 +86,17 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
   const handleSalvarNovo = (e: React.FormEvent) => {
     e.preventDefault();
     const val = parseFloat(valorLan) || 0;
-    const dataValida = /^\d{2}\/\d{2}\/\d{4}$/.test(dataLan);
+    const dataISO = normalizarDataContabil(dataLan);
     const debito = contas.find((conta) => conta.codigo === debitoCod && conta.tipo === "analitica");
     const credito = contas.find((conta) => conta.codigo === creditoCod && conta.tipo === "analitica");
-    if (val <= 0 || !dataValida || !debito || !credito || !histLan.trim()) return;
+    if (!Number.isFinite(val) || val <= 0) { setErroNovo("Informe um valor maior que zero."); return; }
+    if (!dataISO) { setErroNovo("Informe uma data real no formato DD/MM/AAAA."); return; }
+    if (!debito || !credito || debito.codigo === credito.codigo) { setErroNovo("Selecione duas contas analíticas diferentes."); return; }
+    if (!histLan.trim()) { setErroNovo("Informe o histórico do lançamento."); return; }
 
     const novo: LancamentoContabil = {
       id: `lan-${crypto.randomUUID()}`,
-      data: dataLan,
+      data: dataISO,
       contaDebitoCodigo: debitoCod,
       contaDebitoNome: debito.descricao,
       contaCreditoCodigo: creditoCod,
@@ -100,6 +108,7 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
     };
 
     onAdicionarLancamento(novo);
+    limparRascunhoManual();
     setModalNovo(false);
   };
 
@@ -178,7 +187,7 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
 
           <button
             id="btn-novo-lancamento"
-            onClick={() => setModalNovo(true)}
+            onClick={() => { limparRascunhoManual(); setModalNovo(true); }}
             className="bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-300 text-xs font-bold px-3 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
           >
             <Plus className="w-3.5 h-3.5 text-blue-700" />
@@ -301,6 +310,7 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
             </div>
 
             <form onSubmit={handleSalvarNovo} className="space-y-3.5 text-xs">
+              {erroNovo && <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800">{erroNovo}</div>}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-700 font-semibold mb-1">Data do Lançamento</label>

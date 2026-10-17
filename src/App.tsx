@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { TabId, OrgaoConectado, EmpresaDados, LancamentoContabil, ContaPlano, LivroContabil, LembreteItem, CentroCustoContabil, MapeamentoOrigemContabil, PreLancamentoContabil } from "./types";
-import { initialEmpresa, orgaosIniciais, lancamentosIniciais, planoContasPadrao, livrosIniciais, lembretesIniciais } from "./data/mockData";
+import { initialEmpresa, orgaosIniciais, planoContasPadrao } from "./data/mockData";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import { BannerHero } from "./components/BannerHero";
@@ -57,15 +57,16 @@ function AppWorkspace() {
     autenticacao: "Não configurada",
     credencialTipo: undefined,
   })));
-  const [lancamentos, setLancamentos] = useState<LancamentoContabil[]>(lancamentosIniciais);
+  const [lancamentos, setLancamentos] = useState<LancamentoContabil[]>([]);
   const [contas, setContas] = useState<ContaPlano[]>(() =>
     ordenarContasPorSequenciaNumerica(planoContasPadrao)
   );
   const [centrosCusto, setCentrosCusto] = useState<CentroCustoContabil[]>([]);
   const [mapeamentosOrigem, setMapeamentosOrigem] = useState<MapeamentoOrigemContabil[]>([]);
   const [preLancamentos, setPreLancamentos] = useState<PreLancamentoContabil[]>([]);
-  const [livros, setLivros] = useState<LivroContabil[]>(livrosIniciais);
-  const [lembretes, setLembretes] = useState<LembreteItem[]>(lembretesIniciais);
+  const [livros, setLivros] = useState<LivroContabil[]>([]);
+  const [competenciasFechadas, setCompetenciasFechadas] = useState<string[]>([]);
+  const [lembretes, setLembretes] = useState<LembreteItem[]>([]);
   const [dadosEmpresaCarregadosCnpj, setDadosEmpresaCarregadosCnpj] = useState("");
   const [workspacePersistido, setWorkspacePersistido] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -73,7 +74,6 @@ function AppWorkspace() {
   // Estados de controle e feedback
   const [isTestingOrgaos, setIsTestingOrgaos] = useState(false);
   const [isAuditing, setIsAuditing] = useState(false);
-  const [isTransmitting, setIsTransmitting] = useState(false);
   const [modalFiscalAberto, setModalFiscalAberto] = useState(false);
   const [empresaFiscalDetectada, setEmpresaFiscalDetectada] = useState<EmpresaDados | null>(null);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: "success" | "info" } | null>(null);
@@ -86,9 +86,10 @@ function AppWorkspace() {
       setCentrosCusto([]);
       setMapeamentosOrigem([]);
       setPreLancamentos([]);
-      setLancamentos(lancamentosIniciais);
-      setLivros(livrosIniciais);
-      setLembretes(lembretesIniciais);
+      setLancamentos([]);
+      setLivros([]);
+      setCompetenciasFechadas([]);
+      setLembretes([]);
     };
 
     // Não permita que o conjunto da empresa anterior permaneça visível enquanto
@@ -137,6 +138,9 @@ function AppWorkspace() {
           if (!migracao.ok || confirmacao.sucesso !== true) throw new Error(confirmacao.motivo || "O banco não confirmou a migração dos dados locais.");
           versoesWorkspaceRef.current.set(cnpj, confirmacao.versao);
         }
+        const respostaFechamentos = await fetch(`/api/workspaces/${encodeURIComponent(cnpj)}/fechamentos`, { credentials: "include", cache: "no-store" });
+        const dadosFechamentos = await respostaFechamentos.json().catch(() => ({}));
+        if (!respostaFechamentos.ok || dadosFechamentos.sucesso !== true) throw new Error(dadosFechamentos.motivo || "Não foi possível consultar os fechamentos da empresa.");
         if (!ativo) return;
         if (dados.empresa && String(dados.empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase() === cnpj) {
           setEmpresa((anterior) => ({ ...anterior, ...dados.empresa, certificadoAtivo: false, certificadoNomeArquivo: undefined }));
@@ -148,6 +152,7 @@ function AppWorkspace() {
         setLancamentos(Array.isArray(dados.lancamentos) ? dados.lancamentos : []);
         setLivros(Array.isArray(dados.livros) ? dados.livros : []);
         setLembretes(Array.isArray(dados.lembretes) ? dados.lembretes : []);
+        setCompetenciasFechadas(Array.isArray(dadosFechamentos.fechamentos) ? dadosFechamentos.fechamentos.map((item: { competencia?: unknown }) => String(item.competencia || "")) : []);
         setDadosEmpresaCarregadosCnpj(cnpj);
         setWorkspacePersistido(true);
       } catch (error) {
@@ -410,45 +415,30 @@ function AppWorkspace() {
   };
 
   const handleContabilizarPreLancamentos = async (referencias: string[]): Promise<boolean> => {
-    const solicitadas = new Set(referencias);
-    const agora = new Date().toISOString();
     const empresaCnpj = empresa.cnpj.toUpperCase().replace(/[^A-Z0-9]/g, "");
-    const jaLancadas = new Set(lancamentos.map((item) => item.documentoRef).filter((ref): ref is string => Boolean(ref)));
-    const aprovados = preLancamentos.filter((item) =>
-      item.status === "pendente_conferencia" && solicitadas.has(item.referenciaOrigem) &&
-      (item.referenciaOrigem.startsWith(`DP:${empresaCnpj}:`) || item.referenciaOrigem.startsWith(`FISCAL:${empresaCnpj}:`)) && !jaLancadas.has(item.referenciaOrigem) &&
-      Number.isFinite(item.valor) && item.valor > 0 && item.contaDebitoCodigo !== item.contaCreditoCodigo &&
-      /^\d{4}-(0[1-9]|1[0-2])$/.test(item.competencia) &&
-      (item.referenciaOrigem.startsWith(`DP:${empresaCnpj}:`) ? item.data === `${item.competencia}-01` : /^\d{4}-\d{2}-\d{2}$/.test(item.data) && item.data.slice(0, 7) === item.competencia)
-    );
-    if (!aprovados.length) {
-      showToast("Nenhum pré-lançamento elegível foi encontrado; confira empresa, contas e situação.", "info");
+    const workspaceAtualSalvo = await flushWorkspaceRef.current();
+    if (!workspaceAtualSalvo) {
+      showToast("Não foi possível confirmar os dados atuais no PostgreSQL. Atualize a empresa e tente novamente.", "info");
       return false;
     }
-    const nomeConta = (codigo: string) => contas.find((conta) => conta.codigo === codigo)?.descricao || "Conta";
-    const novos: LancamentoContabil[] = aprovados.map((item) => ({
-      id: item.referenciaOrigem,
-      data: item.data,
-      competencia: item.competencia,
-      contaDebitoCodigo: item.contaDebitoCodigo,
-      contaDebitoNome: nomeConta(item.contaDebitoCodigo),
-      contaCreditoCodigo: item.contaCreditoCodigo,
-      contaCreditoNome: nomeConta(item.contaCreditoCodigo),
-      valor: item.valor,
-      historico: item.historico.replace("pré-lançamento para conferência", "aprovado pelo contador"),
-      origem: item.origem,
-      documentoRef: item.referenciaOrigem,
-    }));
-    const porReferencia = new Map(lancamentos.map((item) => [item.documentoRef || item.id, item]));
-    novos.forEach((item) => porReferencia.set(item.documentoRef || item.id, item));
-    setLancamentos([...porReferencia.values()]);
-    setPreLancamentos(preLancamentos.map((item) => aprovados.some((aprovado) => aprovado.referenciaOrigem === item.referenciaOrigem)
-      ? { ...item, status: "contabilizado", contabilizadoEm: agora }
-      : item));
-    await new Promise((resolve) => setTimeout(resolve, 650));
-    const persistido = await flushWorkspaceRef.current();
-    if (persistido) showToast(`${novos.length} lançamento(s) contabilizado(s) e confirmados no PostgreSQL desta empresa.`, "success");
-    return persistido;
+    try {
+      const response = await fetch(`/api/workspaces/${encodeURIComponent(empresaCnpj)}/contabilizar`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ referencias }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.sucesso !== true || result.persistencia !== "postgresql" || !result.dados) {
+        throw new Error(result.motivo || "O servidor não confirmou a aprovação contábil.");
+      }
+      versoesWorkspaceRef.current.set(empresaCnpj, Number(result.versao));
+      setLancamentos(Array.isArray(result.dados.lancamentos) ? result.dados.lancamentos : []);
+      setPreLancamentos(Array.isArray(result.dados.preLancamentos) ? result.dados.preLancamentos : []);
+      showToast(`${result.contabilizados} lançamento(s) foram validados e contabilizados no servidor por ${result.aprovadosPor}.`, "success");
+      return true;
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Falha ao confirmar a aprovação no servidor.", "info");
+      return false;
+    }
   };
 
   const handleEstornarLancamento = (id: string) => {
@@ -490,14 +480,27 @@ function AppWorkspace() {
   };
 
   // 6. Fechar Mês no Balancete
-  const handleFecharMes = () => {
-    showToast("Fechamento não realizado: conclua e confira os lançamentos antes de encerrar a competência.", "info");
-  };
-
-  // 7. Transmitir Todos os Livros
-  const handleTransmitirTodos = () => {
-    setIsTransmitting(false);
-    showToast("Transmissão indisponível: configure certificado, procuração e integração oficial. Nada foi transmitido.", "info");
+  const handleFecharMes = async (competencia: string): Promise<boolean> => {
+    const cnpj = String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
+    if (!cnpj || dadosEmpresaCarregadosCnpj !== cnpj || !workspacePersistido || !auth.cnpjs.includes(cnpj)) {
+      showToast("Fechamento bloqueado: aguarde o carregamento e a confirmação do banco desta empresa.", "info");
+      return false;
+    }
+    try {
+      const response = await fetch(`/api/workspaces/${encodeURIComponent(cnpj)}/fechamentos`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ competencia }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.sucesso !== true) throw new Error(result.motivo || "O PostgreSQL não confirmou o fechamento.");
+      if (Number.isSafeInteger(result.versao)) versoesWorkspaceRef.current.set(cnpj, result.versao);
+      setCompetenciasFechadas((atual) => Array.from(new Set([...atual, competencia])).sort());
+      showToast(`Competência ${competencia} fechada e bloqueada no PostgreSQL.`, "success");
+      return true;
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "O fechamento não foi confirmado. Nenhum período foi bloqueado.", "info");
+      return false;
+    }
   };
 
   // 8. CONECTAR AO MURADE FISCAL E PUXAR EMPRESA REAL DO MURADE FISCAL
@@ -746,9 +749,13 @@ function AppWorkspace() {
 
               {tabAtiva === "balancete" && (
                 <BalanceteTab
+                  cnpj={empresa.cnpj}
                   competencia={empresa.competencia}
                   lancamentos={lancamentos}
                   contas={contas}
+                  workspaceCarregado={dadosEmpresaCarregadosCnpj === String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase()}
+                  workspacePersistido={workspacePersistido}
+                  competenciasFechadas={competenciasFechadas}
                   onFecharMes={handleFecharMes}
                 />
               )}
@@ -762,8 +769,6 @@ function AppWorkspace() {
                   contas={contas}
                   preLancamentos={preLancamentos}
                   livros={livros}
-                  onTransmitirTodos={handleTransmitirTodos}
-                  isTransmitting={isTransmitting}
                 />
               )}
 
@@ -773,6 +778,22 @@ function AppWorkspace() {
                   onEditarDescricao={(codigo, descricao) => {
                     setContas((prev) => prev.map((conta) => conta.codigo === codigo ? { ...conta, descricao } : conta));
                     showToast(`Nome da conta ${codigo} atualizado para esta empresa.`);
+                  }}
+                  onEditarSaldoInicial={(codigo, saldoInicial, competencia) => {
+                    setContas((prev) => prev.map((conta) => {
+                      if (conta.codigo !== codigo) return conta;
+                      const atualizada = { ...conta };
+                      if (saldoInicial === undefined) {
+                        delete atualizada.saldoInicial;
+                        delete atualizada.saldoInicialCompetencia;
+                      } else {
+                        atualizada.saldoInicial = saldoInicial;
+                        if (competencia) atualizada.saldoInicialCompetencia = competencia;
+                        else delete atualizada.saldoInicialCompetencia;
+                      }
+                      return atualizada;
+                    }));
+                    showToast(saldoInicial === undefined ? `Saldo inicial da conta ${codigo} removido.` : `Saldo inicial da conta ${codigo} atualizado${competencia ? " para " + competencia : ""}.`);
                   }}
                   onAdicionarConta={(nova) => {
                     setContas((prev) => ordenarContasPorSequenciaNumerica([...prev, nova]));
@@ -802,7 +823,7 @@ function AppWorkspace() {
                 />
               )}
 
-              {tabAtiva === "revisao-origens" && <RevisaoOrigensTab cnpj={empresa.cnpj} workspaceCarregado={dadosEmpresaCarregadosCnpj === empresa.cnpj.toUpperCase().replace(/[^A-Z0-9]/g, "")} contas={contas} mapeamentos={mapeamentosOrigem} onSalvarMapeamentos={setMapeamentosOrigem} preLancamentos={preLancamentos} onSalvarPreLancamentos={setPreLancamentos} onContabilizar={handleContabilizarPreLancamentos} />}
+              {tabAtiva === "revisao-origens" && <RevisaoOrigensTab cnpj={empresa.cnpj} regime={empresa.regime} workspaceCarregado={dadosEmpresaCarregadosCnpj === empresa.cnpj.toUpperCase().replace(/[^A-Z0-9]/g, "")} contas={contas} mapeamentos={mapeamentosOrigem} onSalvarMapeamentos={setMapeamentosOrigem} preLancamentos={preLancamentos} onSalvarPreLancamentos={setPreLancamentos} onContabilizar={handleContabilizarPreLancamentos} />}
 
               {tabAtiva === "agente" && (
                 <AgenteTab
