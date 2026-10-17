@@ -106,6 +106,18 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
   });
   const contasAnaliticasECD = contas.filter((conta) => conta.tipo === "analitica");
   const contasSemDescricaoECD = contasAnaliticasECD.filter((conta) => !String(conta.descricao || "").trim());
+  const movimentosPorContaECD = (() => {
+    const porCodigo = new Map<string, { conta: ContaPlano; debitosCentavos: number; creditosCentavos: number }>();
+    for (const item of lancamentosAnoECD) {
+      const debito = porCodigo.get(item.debito.codigo) || { conta: item.debito, debitosCentavos: 0, creditosCentavos: 0 };
+      debito.debitosCentavos += item.valorCentavos;
+      porCodigo.set(item.debito.codigo, debito);
+      const credito = porCodigo.get(item.credito.codigo) || { conta: item.credito, debitosCentavos: 0, creditosCentavos: 0 };
+      credito.creditosCentavos += item.valorCentavos;
+      porCodigo.set(item.credito.codigo, credito);
+    }
+    return [...porCodigo.values()].sort((a, b) => a.conta.codigo.localeCompare(b.conta.codigo, "pt-BR", { numeric: true }));
+  })();
   const cnpjInformadoECD = String(empresa.cnpj || "").replace(/[^A-Z0-9]/gi, "").length >= 14;
   const checksECD = [
     { titulo: "Empresa identificada", detalhe: "Razão social e CNPJ cadastrados", ok: Boolean(String(empresa.razaoSocial || "").trim()) && cnpjInformadoECD },
@@ -127,6 +139,8 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
       [empresa.razaoSocial || "Razão social não informada", `CNPJ: ${empresa.cnpj || "não informado"}`, `Ano-calendário: ${anoECD}`],
       ["Verificação", "Resultado local", "Detalhe"],
       ...checksECD.map((item) => [item.titulo, item.ok ? "Conferido localmente" : "Pendente", item.detalhe]),
+      ["Movimento por conta (somente lançamentos definitivos validados)", "Código", "Descrição", "Natureza", "Débitos do ano (R$)", "Créditos do ano (R$)"],
+      ...movimentosPorContaECD.map((item) => ["Movimento anual", item.conta.codigo, item.conta.descricao || "Descrição pendente", item.conta.natureza, (item.debitosCentavos / 100).toFixed(2), (item.creditosCentavos / 100).toFixed(2)]),
       ["Aviso", "Este checklist não confirma a obrigatoriedade, não valida o leiaute ECD e não substitui o PGE/SPED, a revisão profissional ou as regras aplicáveis à empresa."],
     ];
     baixarArquivo(`checklist-preparacao-ecd-${String(empresa.cnpj || "empresa").replace(/[^A-Z0-9]/gi, "")}-${anoECD}.csv`, linhas.map((linha) => linha.map((valor) => `"${String(valor).replace(/"/g, '""')}"`).join(";")).join("\r\n"), "text/csv;charset=utf-8");
@@ -491,6 +505,17 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
               <strong>{item.ok ? "✓" : "Pendente"} · {item.titulo}</strong><span className="mt-1 block text-[11px]">{item.detalhe}</span>
             </li>)}
           </ul>
+          <div className="mt-3 overflow-x-auto rounded-md border border-amber-200 bg-white">
+            <div className="border-b border-amber-100 px-3 py-2 font-bold">Movimento anual por conta — {anoECD}</div>
+            <p className="px-3 py-2 text-[11px] text-slate-600">Soma apenas lançamentos definitivos válidos do ano selecionado. Não inclui rascunhos nem saldos iniciais e não substitui a conferência dos saldos de abertura.</p>
+            <table className="w-full min-w-[620px] text-left">
+              <thead className="bg-amber-50 text-[10px] uppercase text-slate-600"><tr><th className="px-3 py-2">Conta</th><th className="px-3 py-2">Natureza</th><th className="px-3 py-2 text-right">Débitos no ano</th><th className="px-3 py-2 text-right">Créditos no ano</th></tr></thead>
+              <tbody>{movimentosPorContaECD.length === 0
+                ? <tr><td colSpan={4} className="px-3 py-4 text-center text-slate-500">Nenhuma conta com lançamento definitivo válido em {anoECD}.</td></tr>
+                : movimentosPorContaECD.map((item) => <tr key={item.conta.codigo} className="border-t border-slate-100"><td className="px-3 py-2">{item.conta.codigo} — {item.conta.descricao || <span className="font-semibold text-amber-700">Descrição pendente</span>}</td><td className="px-3 py-2">{item.conta.natureza === "D" ? "Devedora" : "Credora"}</td><td className="px-3 py-2 text-right tabular-nums">{moedaContabil(item.debitosCentavos)}</td><td className="px-3 py-2 text-right tabular-nums">{moedaContabil(item.creditosCentavos)}</td></tr>)}</tbody>
+            </table>
+            {invalidosAnoECD.length > 0 && <p className="border-t border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-900">Existem {invalidosAnoECD.length} lançamento(s) inválido(s) no ano; eles não aparecem na tabela. Corrija a origem antes de usar os totais.</p>}
+          </div>
           <p role="status" className={`mt-3 rounded p-2 ${checklistECDLiberado ? "bg-emerald-100 text-emerald-950" : "bg-amber-100 text-amber-950"}`}>
             {checklistECDLiberado ? "Conferência local sem pendências detectadas. Ainda é necessário gerar/importar a escrituração no PGE e verificar todos os avisos e erros oficiais." : "Preparação local pendente. Confira os itens destacados no cadastro da empresa, plano de contas, lançamentos ou revisão."}
           </p>
