@@ -4,10 +4,14 @@ import { ContaPlano, LancamentoContabil } from "../../types";
 import { gerarRelatoriosContabeis } from "../../utils/livrosContabeis";
 
 interface BalanceteTabProps {
+  cnpj: string;
   competencia: string;
   lancamentos: LancamentoContabil[];
   contas: ContaPlano[];
-  onFecharMes: () => void;
+  workspaceCarregado: boolean;
+  workspacePersistido: boolean;
+  competenciasFechadas: string[];
+  onFecharMes: (competencia: string) => Promise<boolean>;
 }
 
 interface LinhaBalancete {
@@ -29,7 +33,7 @@ function escaparCsv(valor: string): string {
   return `"${String(valor).replace(/"/g, '""')}"`;
 }
 
-export const BalanceteTab: React.FC<BalanceteTabProps> = ({ competencia, lancamentos, contas, onFecharMes }) => {
+export const BalanceteTab: React.FC<BalanceteTabProps> = ({ cnpj, competencia, lancamentos, contas, workspaceCarregado, workspacePersistido, competenciasFechadas, onFecharMes }) => {
   const [competenciaSelecionada, setCompetenciaSelecionada] = useState(competencia || "");
   const [modoVisualizacao, setModoVisualizacao] = useState<"resumido" | "analitico">("analitico");
   const [geradoEm, setGeradoEm] = useState<string | null>(null);
@@ -69,6 +73,12 @@ export const BalanceteTab: React.FC<BalanceteTabProps> = ({ competencia, lancame
 
   const linhasVisiveis = resumo.linhas.filter((linha) => modoVisualizacao === "analitico" || linha.tipo === "sintetica");
   const equilibrado = resumo.temDados && resumo.lancamentosInvalidos === 0 && resumo.diferencaSaldos === 0;
+  const competenciaFechada = competenciasFechadas.includes(competenciaSelecionada);
+  const fecharMes = async () => {
+    if (!competenciaSelecionada || competenciaFechada) return;
+    const confirmado = window.confirm(`Fechar a competência ${competenciaSelecionada} da empresa ${cnpj}? O servidor vai validar o PostgreSQL, bloquear alterações nos lançamentos e rascunhos desse mês e registrar quem confirmou. Essa ação não envia nada a órgãos oficiais.`);
+    if (confirmado) await onFecharMes(competenciaSelecionada);
+  };
 
   const exportarCsv = () => {
     if (!resumo.temDados || resumo.lancamentosInvalidos > 0) {
@@ -116,14 +126,15 @@ export const BalanceteTab: React.FC<BalanceteTabProps> = ({ competencia, lancame
           <button type="button" onClick={() => setGeradoEm(new Date().toISOString())} className="flex items-center gap-1.5 rounded-md bg-blue-700 px-3 py-2 text-xs font-bold text-white">
             <RefreshCw className="h-3.5 w-3.5" /> Atualizar balancete
           </button>
-          <button type="button" onClick={onFecharMes} className="flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">
-            <Lock className="h-3.5 w-3.5" /> Fechar mês
+          <button type="button" onClick={() => void fecharMes()} disabled={!workspaceCarregado || !workspacePersistido || !/^\d{4}-(0[1-9]|1[0-2])$/.test(competenciaSelecionada) || competenciaFechada} className="flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 disabled:cursor-not-allowed disabled:opacity-50" title={!workspacePersistido ? "Aguarde a confirmação do PostgreSQL" : competenciaFechada ? "Competência já fechada" : ""}>
+            <Lock className="h-3.5 w-3.5" /> {competenciaFechada ? "Mês fechado" : "Fechar mês"}
           </button>
         </div>
       </section>
 
       {geradoEm && <p role="status" className="text-xs text-slate-600">Resumo local atualizado em {new Date(geradoEm).toLocaleString("pt-BR")}.</p>}
       {feedbackExportacao && <p role="status" className="rounded-md border border-blue-200 bg-blue-50 p-2 text-xs text-blue-900">{feedbackExportacao}</p>}
+      {competenciaFechada && <p role="status" className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-xs text-emerald-950"><strong>Competência fechada e bloqueada no PostgreSQL.</strong> Os lançamentos, rascunhos e registros contábeis deste mês não podem ser alterados pelo sistema.</p>}
 
       <section className={`rounded-lg border p-3 ${equilibrado ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
         <div className="flex items-start gap-2">

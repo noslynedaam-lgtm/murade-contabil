@@ -65,6 +65,7 @@ function AppWorkspace() {
   const [mapeamentosOrigem, setMapeamentosOrigem] = useState<MapeamentoOrigemContabil[]>([]);
   const [preLancamentos, setPreLancamentos] = useState<PreLancamentoContabil[]>([]);
   const [livros, setLivros] = useState<LivroContabil[]>(livrosIniciais);
+  const [competenciasFechadas, setCompetenciasFechadas] = useState<string[]>([]);
   const [lembretes, setLembretes] = useState<LembreteItem[]>(lembretesIniciais);
   const [dadosEmpresaCarregadosCnpj, setDadosEmpresaCarregadosCnpj] = useState("");
   const [workspacePersistido, setWorkspacePersistido] = useState(false);
@@ -88,6 +89,7 @@ function AppWorkspace() {
       setPreLancamentos([]);
       setLancamentos(lancamentosIniciais);
       setLivros(livrosIniciais);
+      setCompetenciasFechadas([]);
       setLembretes(lembretesIniciais);
     };
 
@@ -137,6 +139,9 @@ function AppWorkspace() {
           if (!migracao.ok || confirmacao.sucesso !== true) throw new Error(confirmacao.motivo || "O banco não confirmou a migração dos dados locais.");
           versoesWorkspaceRef.current.set(cnpj, confirmacao.versao);
         }
+        const respostaFechamentos = await fetch(`/api/workspaces/${encodeURIComponent(cnpj)}/fechamentos`, { credentials: "include", cache: "no-store" });
+        const dadosFechamentos = await respostaFechamentos.json().catch(() => ({}));
+        if (!respostaFechamentos.ok || dadosFechamentos.sucesso !== true) throw new Error(dadosFechamentos.motivo || "Não foi possível consultar os fechamentos da empresa.");
         if (!ativo) return;
         if (dados.empresa && String(dados.empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase() === cnpj) {
           setEmpresa((anterior) => ({ ...anterior, ...dados.empresa, certificadoAtivo: false, certificadoNomeArquivo: undefined }));
@@ -148,6 +153,7 @@ function AppWorkspace() {
         setLancamentos(Array.isArray(dados.lancamentos) ? dados.lancamentos : []);
         setLivros(Array.isArray(dados.livros) ? dados.livros : []);
         setLembretes(Array.isArray(dados.lembretes) ? dados.lembretes : []);
+        setCompetenciasFechadas(Array.isArray(dadosFechamentos.fechamentos) ? dadosFechamentos.fechamentos.map((item: { competencia?: unknown }) => String(item.competencia || "")) : []);
         setDadosEmpresaCarregadosCnpj(cnpj);
         setWorkspacePersistido(true);
       } catch (error) {
@@ -475,8 +481,27 @@ function AppWorkspace() {
   };
 
   // 6. Fechar Mês no Balancete
-  const handleFecharMes = () => {
-    showToast("Fechamento não realizado: conclua e confira os lançamentos antes de encerrar a competência.", "info");
+  const handleFecharMes = async (competencia: string): Promise<boolean> => {
+    const cnpj = String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
+    if (!cnpj || dadosEmpresaCarregadosCnpj !== cnpj || !workspacePersistido || !auth.cnpjs.includes(cnpj)) {
+      showToast("Fechamento bloqueado: aguarde o carregamento e a confirmação do banco desta empresa.", "info");
+      return false;
+    }
+    try {
+      const response = await fetch(`/api/workspaces/${encodeURIComponent(cnpj)}/fechamentos`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ competencia }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.sucesso !== true) throw new Error(result.motivo || "O PostgreSQL não confirmou o fechamento.");
+      if (Number.isSafeInteger(result.versao)) versoesWorkspaceRef.current.set(cnpj, result.versao);
+      setCompetenciasFechadas((atual) => Array.from(new Set([...atual, competencia])).sort());
+      showToast(`Competência ${competencia} fechada e bloqueada no PostgreSQL.`, "success");
+      return true;
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "O fechamento não foi confirmado. Nenhum período foi bloqueado.", "info");
+      return false;
+    }
   };
 
   // 7. Transmitir Todos os Livros
@@ -731,9 +756,13 @@ function AppWorkspace() {
 
               {tabAtiva === "balancete" && (
                 <BalanceteTab
+                  cnpj={empresa.cnpj}
                   competencia={empresa.competencia}
                   lancamentos={lancamentos}
                   contas={contas}
+                  workspaceCarregado={dadosEmpresaCarregadosCnpj === String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase()}
+                  workspacePersistido={workspacePersistido}
+                  competenciasFechadas={competenciasFechadas}
                   onFecharMes={handleFecharMes}
                 />
               )}

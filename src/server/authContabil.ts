@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { Pool, type PoolClient } from "pg";
+import { gerarRelatoriosContabeis, normalizarDataContabil } from "../utils/livrosContabeis";
 
 const COOKIE = "murade_contabil_session";
 const SESSION_SECONDS = 8 * 60 * 60;
@@ -83,6 +84,16 @@ export async function prepararAuthContabil(): Promise<void> {
       conta_credito text NOT NULL,
       aprovado_em timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (cnpj, referencia)
+    );
+    CREATE TABLE IF NOT EXISTS contabil_period_closures (
+      cnpj text NOT NULL CHECK (cnpj ~ '^[A-Z0-9]{12}[0-9]{2}$'),
+      competencia text NOT NULL CHECK (competencia ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+      user_id uuid NOT NULL REFERENCES contabil_auth_users(id),
+      login text NOT NULL,
+      fechado_em timestamptz NOT NULL DEFAULT now(),
+      quantidade_lancamentos integer NOT NULL CHECK (quantidade_lancamentos >= 0),
+      total_debitos numeric(16,2) NOT NULL CHECK (total_debitos >= 0),
+      PRIMARY KEY (cnpj, competencia)
     );
   `).then(async () => {
     await obterBanco().query("ALTER TABLE contabil_auth_users ADD COLUMN IF NOT EXISTS global_admin boolean NOT NULL DEFAULT false");
@@ -488,6 +499,40 @@ function referenciaIntegrada(value: unknown): boolean {
   return referencia.startsWith("DP:") || referencia.startsWith("FISCAL:");
 }
 
+function competenciaLancamento(item: Record<string, unknown>): string {
+  const competencia = String(item.competencia || "");
+  if (/^\d{4}-(0[1-9]|1[0-2])$/.test(competencia)) return competencia;
+  return normalizarDataContabil(String(item.data || ""))?.slice(0, 7) || "";
+}
+
+function dadosCompetencia(payload: Record<string, unknown>, competencia: string): Record<string, unknown> {
+  const lancamentos = Array.isArray(payload.lancamentos) ? payload.lancamentos as Array<Record<string, unknown>> : [];
+  const preLancamentos = Array.isArray(payload.preLancamentos) ? payload.preLancamentos as Array<Record<string, unknown>> : [];
+  const livros = Array.isArray(payload.livros) ? payload.livros as Array<Record<string, unknown>> : [];
+  return {
+    lancamentos: lancamentos.filter((item) => competenciaLancamento(item) === competencia),
+    preLancamentos: preLancamentos.filter((item) => String(item.competencia || "") === competencia),
+    livros: livros.filter((item) => String(item.competencia || "") === competencia),
+  };
+}
+
+function planoContasCompatívelComFechamentos(atual: unknown, proximo: unknown): boolean {
+  if (!Array.isArray(atual) || !Array.isArray(proximo)) return false;
+  const atuais = new Map(atual.map((item) => [String((item as Record<string, unknown>)?.codigo || ""), item]));
+  const novos = new Map(proximo.map((item) => [String((item as Record<string, unknown>)?.codigo || ""), item]));
+  for (const [codigo, conta] of atuais) {
+    if (!novos.has(codigo) || jsonCanonico(conta) !== jsonCanonico(novos.get(codigo))) return false;
+  }
+  for (const [codigo, conta] of novos) {
+    if (atuais.has(codigo)) continue;
+    const dadosConta = conta as Record<string, unknown>;
+    const saldo = Number(dadosConta?.saldoInicial ?? 0);
+    if (!Number.isFinite(saldo) || saldo !== 0) return false;
+    if (Array.from(atuais.keys()).some((existente) => existente.startsWith(`${codigo}.`))) return false;
+  }
+  return true;
+}
+
 function alteracaoIntegradaPermitida(atual: Record<string, unknown>, proximo: Record<string, unknown>, permitirNovosRascunhosServidor: boolean): boolean {
   const antigosRascunhos = new Map((Array.isArray(atual.preLancamentos) ? atual.preLancamentos : [])
     .filter((item: any) => referenciaIntegrada(item?.referenciaOrigem)).map((item: any) => [String(item.referenciaOrigem), item]));
@@ -556,6 +601,8 @@ export async function contabilizarRascunhosAutomaticosContabil(
     await client.query("BEGIN");
     const selecionado = await client.query("SELECT payload,version FROM contabil_company_workspaces WHERE cnpj=$1 FOR UPDATE", [cnpj]);
     if (!selecionado.rowCount) { await client.query("ROLLBACK"); res.status(404).json({ sucesso: false, motivo: "Workspace da empresa não encontrado." }); return; }
+    const fechamento = await client.query("SELECT 1 FROM contabil_period_closures WHERE cnpj=$1 AND competencia=ANY($2::text[]) LIMIT 1", [cnpj, referencias.map((referencia) => referencia.split(":")[2]).filter((item) => /^\d{4}-(0[1-9]|1[0-2])$/.test(item))]);
+    if (fechamento.rowCount) { await client.query("ROLLBACK"); res.status(409).json({ sucesso: false, motivo: "Há referência de competência fechada. Nenhum rascunho foi contabilizado." }); return; }
     const payload = selecionado.rows[0].payload as Record<string, any>;
     const rascunhos = Array.isArray(payload.preLancamentos) ? [...payload.preLancamentos] : [];
     const lancamentos = Array.isArray(payload.lancamentos) ? [...payload.lancamentos] : [];
@@ -674,6 +721,78 @@ export async function listarHistoricoAprovacoesContabil(req: Request, res: Respo
   }
 }
 
+export async function listarFechamentosContabil(req: Request, res: Response): Promise<void> {
+  res.setHeader("Cache-Control", "no-store");
+  const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
+  const cnpj = normalizarCnpjAcesso(req.params.cnpj);
+  if (!cnpjContabilValido(cnpj)) { res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." }); return; }
+  if (!sessao || !sessao.cnpjs.includes(cnpj)) { res.status(403).json({ sucesso: false, motivo: "Empresa fora do seu acesso." }); return; }
+  try {
+    await prepararAuthContabil();
+    const result = await obterBanco().query(`SELECT competencia,login,"fechado_em" AS "fechadoEm",quantidade_lancamentos AS "quantidadeLancamentos",total_debitos::text AS "totalDebitos" FROM contabil_period_closures WHERE cnpj=$1 ORDER BY competencia DESC`, [cnpj]);
+    res.json({ sucesso: true, cnpj, fechamentos: result.rows });
+  } catch (error) {
+    console.error("Falha ao listar fechamentos contábeis:", error);
+    res.status(503).json({ sucesso: false, motivo: "Não foi possível consultar os fechamentos persistidos." });
+  }
+}
+
+export async function fecharCompetenciaContabil(req: Request, res: Response): Promise<void> {
+  res.setHeader("Cache-Control", "no-store");
+  const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
+  const cnpj = normalizarCnpjAcesso(req.params.cnpj);
+  const competencia = String(req.body?.competencia || "");
+  if (!cnpjContabilValido(cnpj)) { res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." }); return; }
+  if (!sessao || !sessao.cnpjs.includes(cnpj)) { res.status(403).json({ sucesso: false, motivo: "Empresa fora do seu acesso." }); return; }
+  if (!sessao.administrador && sessao.memberships.find((item) => item.cnpj === cnpj)?.role === "viewer") { res.status(403).json({ sucesso: false, motivo: "Seu acesso a esta empresa é somente leitura." }); return; }
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(competencia)) { res.status(400).json({ sucesso: false, motivo: "Informe uma competência válida no formato AAAA-MM." }); return; }
+
+  let client: PoolClient | undefined;
+  try {
+    await prepararAuthContabil();
+    client = await obterBanco().connect();
+    await client.query("BEGIN");
+    const atual = await client.query("SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1 FOR UPDATE", [cnpj]);
+    if (!atual.rowCount) { await client.query("ROLLBACK"); res.status(404).json({ sucesso: false, motivo: "Workspace da empresa não encontrado no PostgreSQL." }); return; }
+    const jaFechado = await client.query("SELECT 1 FROM contabil_period_closures WHERE cnpj=$1 AND competencia=$2", [cnpj, competencia]);
+    if (jaFechado.rowCount) { await client.query("ROLLBACK"); res.status(409).json({ sucesso: false, motivo: "Esta competência já está fechada." }); return; }
+    const payload = atual.rows[0].payload as Record<string, any>;
+    const contas = Array.isArray(payload.contas) ? payload.contas : [];
+    const lancamentos = Array.isArray(payload.lancamentos) ? payload.lancamentos : [];
+    const preLancamentos = Array.isArray(payload.preLancamentos) ? payload.preLancamentos : [];
+    const pendentes = preLancamentos.filter((item: any) => item?.competencia === competencia && item?.status === "pendente_conferencia");
+    if (pendentes.length) {
+      await client.query("ROLLBACK");
+      res.status(409).json({ sucesso: false, motivo: `Fechamento bloqueado: ${pendentes.length} pré-lançamento(s) desta competência aguardam conferência.` });
+      return;
+    }
+    const relatorios = gerarRelatoriosContabeis(contas, lancamentos, competencia);
+    const invalidosCompetencia = relatorios.invalidos.filter((item: any) => {
+      const data = normalizarDataContabil(String(item.data || ""));
+      return String(item.competencia || data?.slice(0, 7) || "") === competencia;
+    });
+    if (invalidosCompetencia.length) {
+      await client.query("ROLLBACK");
+      res.status(409).json({ sucesso: false, motivo: `Fechamento bloqueado: ${invalidosCompetencia.length} lançamento(s) definitivo(s) desta competência têm inconsistências.` });
+      return;
+    }
+    if (relatorios.totalSaldoDevedorCentavos !== relatorios.totalSaldoCredorCentavos) {
+      await client.query("ROLLBACK");
+      res.status(409).json({ sucesso: false, motivo: "Fechamento bloqueado: os saldos devedores e credores do balancete não estão iguais. Confira os saldos iniciais e lançamentos antes de fechar." });
+      return;
+    }
+    const totalDebitos = relatorios.totalDebitosCentavos / 100;
+    const versao = await client.query("UPDATE contabil_company_workspaces SET version=version+1,updated_at=now() WHERE cnpj=$1 RETURNING version", [cnpj]);
+    await client.query("INSERT INTO contabil_period_closures(cnpj,competencia,user_id,login,quantidade_lancamentos,total_debitos) VALUES($1,$2,$3,$4,$5,$6)", [cnpj, competencia, sessao.userId, sessao.login, relatorios.doPeriodo.length, totalDebitos]);
+    await client.query("COMMIT");
+    res.status(201).json({ sucesso: true, cnpj, competencia, fechadoPor: sessao.login, fechadoEm: new Date().toISOString(), quantidadeLancamentos: relatorios.doPeriodo.length, totalDebitos: totalDebitos.toFixed(2), versao: Number(versao.rows[0].version), persistencia: "postgresql" });
+  } catch (error) {
+    if (client) await client.query("ROLLBACK").catch(() => undefined);
+    console.error("Falha ao fechar competência contábil:", error);
+    res.status(503).json({ sucesso: false, motivo: "Não foi possível confirmar o fechamento no PostgreSQL." });
+  } finally { client?.release(); }
+}
+
 export async function lerWorkspaceInternoContabil(cnpj: string): Promise<Record<string, unknown> | null> {
   const normalizado = normalizarCnpjAcesso(cnpj);
   if (!cnpjContabilValido(normalizado)) return null;
@@ -717,10 +836,12 @@ export async function mesclarRascunhosAutomaticosContabil(
     const lancamentos = Array.isArray(payload.lancamentos) ? payload.lancamentos as Array<Record<string, unknown>> : [];
     const existentes = Array.isArray(payload.preLancamentos) ? payload.preLancamentos as Array<Record<string, unknown>> : [];
     const atualizadosWorkspace = [...existentes];
+    const fechados = new Set((await client.query("SELECT competencia FROM contabil_period_closures WHERE cnpj=$1", [normalizado])).rows.map((row) => String(row.competencia)));
 
     for (const candidato of candidatos) {
       const referencia = candidato.referenciaOrigem;
       if (!referencia.startsWith(`DP:${normalizado}:`) && !referencia.startsWith(`FISCAL:${normalizado}:`)) continue;
+      if (fechados.has(candidato.competencia)) continue;
       if (lancamentos.some((item) => item.documentoRef === referencia || item.id === referencia)) continue;
       const campoOrigem = referencia.startsWith("DP:") ? referenceDpOrigem(referencia) : referenceFiscalOrigem(referencia);
       const mapeamento = mapeamentos.find((item) => item.origem === campoOrigem);
@@ -826,6 +947,18 @@ export async function salvarWorkspaceContabil(req: Request, res: Response, opcoe
     const versaoAtual = atual.rowCount ? Number(atual.rows[0].version) : null;
     if (versaoAtual !== versaoAnterior) { res.status(409).json({ sucesso: false, conflito: true, motivo: "Os dados desta empresa mudaram em outra sessão. Atualize a empresa antes de salvar." }); return; }
     const propostaCliente = opcoes.dadosPropostosPeloCliente ?? req.body.dados;
+    const fechamentos = await obterBanco().query("SELECT competencia FROM contabil_period_closures WHERE cnpj=$1", [cnpj]);
+    const fechadoAtual = fechamentos.rows.map((row) => String(row.competencia));
+    const payloadProposto = propostaCliente as Record<string, unknown>;
+    const payloadFinal = req.body.dados as Record<string, unknown>;
+    if (fechadoAtual.length && [payloadProposto, payloadFinal].some((payload) => !planoContasCompatívelComFechamentos(payloadAtual.contas || [], payload.contas || []))) {
+      res.status(409).json({ sucesso: false, motivo: "Há competência fechada. Contas usadas no histórico não podem ser alteradas ou removidas; é permitido acrescentar contas sem saldo inicial, desde que não alterem a hierarquia existente." }); return;
+    }
+    for (const competencia of fechadoAtual) {
+      if ([payloadProposto, payloadFinal].some((payload) => jsonCanonico(dadosCompetencia(payloadAtual, competencia)) !== jsonCanonico(dadosCompetencia(payload, competencia)))) {
+        res.status(409).json({ sucesso: false, competenciaFechada: competencia, motivo: `A competência ${competencia} está fechada. Lançamentos, pré-lançamentos e registros do período permanecem bloqueados.` }); return;
+      }
+    }
     if (!alteracaoIntegradaPermitida(payloadAtual, propostaCliente as Record<string, unknown>, false)) {
       res.status(403).json({ sucesso: false, motivo: "Rascunhos e lançamentos vindos do Fiscal/DP só podem ser alterados pela validação automática ou pela aprovação autenticada do contador." }); return;
     }
