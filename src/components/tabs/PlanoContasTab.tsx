@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { ContaPlano } from "../../types";
+import { ContaPlano, EmpresaDados, LancamentoContabil } from "../../types";
 import {
   ListTree,
   Search,
@@ -32,9 +32,13 @@ interface PlanoContasTabProps {
   onAdicionarConta: (conta: ContaPlano) => void;
   onEditarDescricao: (codigo: string, descricao: string) => void;
   onEditarSaldoInicial: (codigo: string, saldoInicial: number | undefined, competencia: string | undefined) => void;
+  empresa: EmpresaDados;
+  lancamentos: LancamentoContabil[];
+  onDefinirContrapartidaAbertura: (codigo: string) => void;
+  onAdicionarLancamento: (lancamento: LancamentoContabil) => void;
 }
 
-export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicionarConta, onEditarDescricao, onEditarSaldoInicial }) => {
+export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicionarConta, onEditarDescricao, onEditarSaldoInicial, empresa, lancamentos, onDefinirContrapartidaAbertura, onAdicionarLancamento }) => {
   const [busca, setBusca] = useState("");
   const [filtroGrupo, setFiltroGrupo] = useState("todos");
   const [modalNovaConta, setModalNovaConta] = useState(false);
@@ -44,6 +48,7 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
   const [saldoInicialRascunho, setSaldoInicialRascunho] = useState("");
   const [competenciaSaldoRascunho, setCompetenciaSaldoRascunho] = useState("");
   const [erroSaldoInicial, setErroSaldoInicial] = useState("");
+  const [avisoAbertura, setAvisoAbertura] = useState("");
 
   // Lista de contas sempre ordenada em estrita sequência numérica
   const contasOrdenadas = useMemo(() => {
@@ -201,6 +206,47 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
       return codigosConta.has(codigoSuperior) ? [] : [codigoSuperior];
     });
   }))].sort();
+  const cn = String(empresa.cnpj || "").replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  const saldosAbertura = contasOrdenadas.filter((conta) => conta.tipo === "analitica"
+    && Number.isFinite(Number(conta.saldoInicial)) && Number(conta.saldoInicial) > 0
+    && !conta.saldoInicialConvertidoEm);
+  const basesAbertura: string[] = [...new Set<string>(saldosAbertura.map((conta) => String(conta.saldoInicialCompetencia || "")))];
+  const baseAbertura = basesAbertura.length === 1 && /^\d{4}-(0[1-9]|1[0-2])$/.test(basesAbertura[0]) ? basesAbertura[0] : "";
+  const contaContrapartida = contas.find((conta) => conta.codigo === empresa.contaContrapartidaAberturaCodigo && conta.tipo === "analitica"
+    && (conta.saldoInicial == null || Number(conta.saldoInicial) === 0));
+  const gerarPropostasAbertura = () => {
+    setAvisoAbertura("");
+    if (!cn || !baseAbertura || !contaContrapartida) {
+      setAvisoAbertura("Informe saldos com uma única competência-base e escolha uma conta analítica de contrapartida.");
+      return;
+    }
+    const propostas: LancamentoContabil[] = [];
+    for (const conta of saldosAbertura) {
+      if (!conta.saldoInicialCompetencia || !/^\d{4}-(0[1-9]|1[0-2])$/.test(conta.saldoInicialCompetencia)) continue;
+      if (conta.codigo === contaContrapartida.codigo) continue;
+      const valorCentavos = Math.round(Number(conta.saldoInicial) * 100);
+      if (!Number.isSafeInteger(valorCentavos) || valorCentavos <= 0) continue;
+      const referencia = `ABERTURA:${cn}:${baseAbertura}:${conta.codigo}:${contaContrapartida.codigo}:${valorCentavos}`;
+      if (lancamentos.some((lancamento) => lancamento.documentoRef === referencia || lancamento.id === referencia)) continue;
+      const debito = conta.natureza === "D" ? conta : contaContrapartida;
+      const credito = conta.natureza === "D" ? contaContrapartida : conta;
+      propostas.push({
+        id: referencia, data: `${baseAbertura}-01`, competencia: baseAbertura,
+        contaDebitoCodigo: debito.codigo, contaDebitoNome: debito.descricao,
+        contaCreditoCodigo: credito.codigo, contaCreditoNome: credito.descricao,
+        valor: valorCentavos / 100,
+        historico: `Abertura contábil: saldo inicial da conta ${conta.codigo} contra conta transitória ${contaContrapartida.codigo}.`,
+        origem: "Cadastro", documentoRef: referencia, statusManual: "pendente_aprovacao",
+        saldoInicialContaCodigo: conta.codigo,
+      });
+    }
+    if (!propostas.length) {
+      setAvisoAbertura("Nenhuma partida nova foi criada. Confira se já existe proposta para cada saldo ou se a conta de contrapartida foi escolhida corretamente.");
+      return;
+    }
+    propostas.forEach(onAdicionarLancamento);
+    setAvisoAbertura(`${propostas.length} partida(s) de abertura criadas como pendentes. Os saldos cadastrados continuam ativos até a aprovação individual de cada partida.`);
+  };
 
   return (
     <div className="bg-white rounded-xl p-5 sm:p-6 shadow-xs border border-slate-200">
@@ -241,6 +287,21 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
           <strong>Revisão da estrutura do modelo:</strong> faltam contas sintéticas superiores para os códigos {paisAusentes.join(", ")}. As contas originais foram preservadas; confirme esses grupos antes de usá-las em lançamentos.
         </div>
       )}
+
+      <section className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-xs text-indigo-950">
+        <h4 className="font-bold">Partidas dobradas dos saldos iniciais</h4>
+        <p className="mt-1">Escolha uma conta analítica transitória de abertura. O sistema monta débito e crédito conforme a natureza de cada conta, sem criar diferença de ajuste. Cada partida aguarda aprovação; o saldo cadastrado só deixa de compor os relatórios depois que a partida correspondente for aprovada.</p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <label className="font-semibold" htmlFor="conta-contrapartida-abertura">Contrapartida da abertura:</label>
+          <select id="conta-contrapartida-abertura" value={empresa.contaContrapartidaAberturaCodigo || ""} onChange={(event) => onDefinirContrapartidaAbertura(event.target.value)} className="max-w-full rounded-md border border-indigo-300 bg-white px-2 py-1.5 text-xs">
+            <option value="">Selecione uma conta analítica</option>
+            {contasOrdenadas.filter((conta) => conta.tipo === "analitica" && (conta.saldoInicial == null || Number(conta.saldoInicial) === 0)).map((conta) => <option key={conta.codigo} value={conta.codigo}>{conta.codigo} · {conta.descricao || "Sem descrição"}</option>)}
+          </select>
+          <button type="button" onClick={gerarPropostasAbertura} disabled={!baseAbertura || !contaContrapartida || saldosAbertura.length === 0} className="rounded-md bg-indigo-700 px-3 py-1.5 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">Gerar partidas pendentes ({saldosAbertura.length})</button>
+        </div>
+        {saldosAbertura.length > 0 && !baseAbertura && <p role="alert" className="mt-2 text-amber-800">Os saldos precisam ter uma única competência-base válida para gerar as partidas em conjunto.</p>}
+        {avisoAbertura && <p role="status" className="mt-2 font-semibold">{avisoAbertura}</p>}
+      </section>
 
       {/* Banner Informativo da Regra de Sequência Numérica */}
       <div className="mb-4 p-3.5 rounded-xl bg-[#EEF4F9] border border-[#CBD5E1] text-xs text-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -352,8 +413,8 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
                     <button type="button" onClick={() => setSaldoCodigoEmEdicao(null)} className="rounded bg-slate-100 p-1 text-slate-600 hover:bg-slate-200" title="Cancelar saldo inicial" aria-label={`Cancelar saldo inicial da conta ${conta.codigo}`}><X className="h-3.5 w-3.5" /></button>
                   </> : <>
                     <span className={`min-w-16 text-right text-[11px] tabular-nums ${conta.saldoInicial == null ? "italic text-slate-400" : "font-semibold text-slate-800"}`}>{conta.saldoInicial == null ? "Pendente" : Number(conta.saldoInicial).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    {conta.saldoInicial != null && Number(conta.saldoInicial) !== 0 && <span className={`whitespace-nowrap text-[10px] ${conta.saldoInicialCompetencia ? "text-slate-500" : "font-bold text-amber-700"}`}>{conta.saldoInicialCompetencia || "Data-base pendente"}</span>}
-                    <button type="button" onClick={() => iniciarEdicaoSaldo(conta)} className="rounded bg-slate-100 p-1 text-slate-600 opacity-70 hover:bg-blue-50 hover:text-blue-700 group-hover:opacity-100" title="Informar ou alterar saldo inicial desta conta" aria-label={`Editar saldo inicial da conta ${conta.codigo}`}><Pencil className="h-3.5 w-3.5" /></button>
+                    {conta.saldoInicial != null && Number(conta.saldoInicial) !== 0 && <span className={`whitespace-nowrap text-[10px] ${conta.saldoInicialConvertidoEm ? "font-semibold text-emerald-700" : conta.saldoInicialCompetencia ? "text-slate-500" : "font-bold text-amber-700"}`}>{conta.saldoInicialConvertidoEm ? "Partida aprovada" : conta.saldoInicialCompetencia || "Data-base pendente"}</span>}
+                    {!conta.saldoInicialConvertidoEm && <button type="button" onClick={() => iniciarEdicaoSaldo(conta)} className="rounded bg-slate-100 p-1 text-slate-600 opacity-70 hover:bg-blue-50 hover:text-blue-700 group-hover:opacity-100" title="Informar ou alterar saldo inicial desta conta" aria-label={`Editar saldo inicial da conta ${conta.codigo}`}><Pencil className="h-3.5 w-3.5" /></button>}
                   </>}
                   {saldoCodigoEmEdicao === conta.codigo && erroSaldoInicial && <span role="alert" className="text-[10px] text-red-700">{erroSaldoInicial}</span>}
                 </div>}

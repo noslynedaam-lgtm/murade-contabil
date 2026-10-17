@@ -24,6 +24,8 @@ interface LancamentosTabProps {
   onGerarTudo: () => void;
   onAdicionarLancamento: (lanc: LancamentoContabil) => void;
   onEstornarLancamento: (id: string) => void;
+  workspacePersistido: boolean;
+  onDecidirLancamentoManual: (id: string, decisao: "aprovar" | "rejeitar", motivo?: string) => Promise<boolean>;
 }
 
 export const LancamentosTab: React.FC<LancamentosTabProps> = ({
@@ -34,6 +36,8 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
   onGerarTudo,
   onAdicionarLancamento,
   onEstornarLancamento,
+  workspacePersistido,
+  onDecidirLancamentoManual,
 }) => {
   const [modalNovo, setModalNovo] = useState(false);
   const [filtroOrigem, setFiltroOrigem] = useState<string>("todos");
@@ -75,8 +79,9 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
     }
   };
 
-  const totalDebito = lancamentos.reduce((acc, l) => acc + l.valor, 0);
-  const totalCredito = lancamentos.reduce((acc, l) => acc + l.valor, 0);
+  const lancamentosEfetivos = lancamentos.filter((l) => l.statusManual !== "pendente_aprovacao" && l.statusManual !== "rejeitado");
+  const totalDebito = lancamentosEfetivos.reduce((acc, l) => acc + l.valor, 0);
+  const totalCredito = lancamentosEfetivos.reduce((acc, l) => acc + l.valor, 0);
   const lancamentosComContaInvalida = lancamentos.filter((l) => {
     const debito = contas.find((conta) => conta.codigo === l.contaDebitoCodigo);
     const credito = contas.find((conta) => conta.codigo === l.contaCreditoCodigo);
@@ -105,6 +110,7 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
       historico: histLan,
       origem: "Manual",
       documentoRef: `MAN-${crypto.randomUUID()}`,
+      statusManual: "pendente_aprovacao",
     };
 
     onAdicionarLancamento(novo);
@@ -213,6 +219,8 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
           <tbody className="divide-y divide-slate-100 font-normal text-slate-800">
             {lancamentosFiltrados.map((l) => {
               const estornado = Boolean(l.estornoDe) || lancamentos.some((outro) => outro.estornoDe === l.id);
+              const manualPendente = l.statusManual === "pendente_aprovacao";
+              const manualRejeitado = l.statusManual === "rejeitado";
               return (
               <tr key={l.id} className="hover:bg-blue-50/40 transition">
                 <td className="py-2.5 px-3 whitespace-nowrap font-medium text-slate-600">{l.data}</td>
@@ -251,25 +259,31 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                   >
                     {l.origem}
                   </span>
+                  {manualPendente && <span className="ml-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">Aguardando aprovação</span>}
+                  {manualRejeitado && <span className="ml-1 inline-block rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-900">Rejeitado</span>}
+                  {l.statusManual === "aprovado" && <span className="ml-1 inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-900">Aprovado</span>}
                 </td>
                 <td className="py-2.5 px-2 text-center">
-                  <button
+                  {manualPendente ? <div className="flex justify-center gap-1">
+                    <button type="button" disabled={!workspacePersistido} onClick={async () => { if (window.confirm("Aprovar este lançamento manual e incluí-lo nos livros e relatórios?")) await onDecidirLancamentoManual(l.id, "aprovar"); }} className="rounded bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800 disabled:opacity-40" title="Aprovar após conferir os dados">Aprovar</button>
+                    <button type="button" disabled={!workspacePersistido} onClick={async () => { if (!window.confirm("Rejeitar este lançamento? Ele ficará no histórico, mas não entrará nos livros.")) return; const motivo = window.prompt("Informe o motivo da rejeição:")?.trim(); if (motivo) await onDecidirLancamentoManual(l.id, "rejeitar", motivo); }} className="rounded bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-800 disabled:opacity-40">Rejeitar</button>
+                  </div> : <button
                     onClick={() => {
-                      if (!estornado && window.confirm("O lançamento original será preservado e uma partida de estorno será registrada com débito e crédito invertidos. Continuar?")) {
+                      if (!estornado && !manualRejeitado && window.confirm("O lançamento original será preservado e uma partida de estorno será registrada para aprovação, com débito e crédito invertidos. Continuar?")) {
                         onEstornarLancamento(l.id);
                       }
                     }}
-                    disabled={estornado}
+                    disabled={estornado || manualRejeitado}
                     className="text-slate-400 hover:text-amber-700 disabled:text-slate-300 disabled:cursor-not-allowed p-1 rounded-sm cursor-pointer transition"
-                    title={estornado ? "Lançamento já estornado ou é um estorno" : "Registrar estorno sem apagar o original"}
+                    title={estornado ? "Lançamento já estornado ou é um estorno" : "Registrar estorno para aprovação, sem apagar o original"}
                     aria-label={estornado ? "Lançamento já estornado" : "Registrar estorno"}
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
-                  </button>
+                  </button>}
                 </td>
               </tr>
             );})}
-            {lancamentosFiltrados.length === 0 && <tr><td colSpan={7} className="px-3 py-8 text-center text-slate-500">Nenhum lançamento neste filtro. A integração fiscal atual persiste documentos de origem, mas ainda não os transforma em partidas.</td></tr>}
+            {lancamentosFiltrados.length === 0 && <tr><td colSpan={7} className="px-3 py-8 text-center text-slate-500">Nenhum lançamento neste filtro. Novos lançamentos manuais só entram nos livros após aprovação.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -279,7 +293,7 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
         <div className="flex items-center gap-2">
           <AlertTriangle className="w-4 h-4 text-amber-600" />
           <span className="text-slate-700">
-            <strong>{lancamentos.length} lançamentos locais</strong> · {lancamentosComContaInvalida} com conta ou valor inválido · a validação estrutural não confirma classificação fiscal ou contábil.
+            <strong>{lancamentos.length} lançamentos registrados</strong> · {lancamentos.filter((l) => l.statusManual === "pendente_aprovacao").length} aguardando aprovação · {lancamentosComContaInvalida} com conta ou valor inválido.
           </span>
         </div>
 

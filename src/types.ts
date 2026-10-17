@@ -107,6 +107,8 @@ export interface EmpresaDados {
     eventosEsocial?: string;
     statusEsocial?: string;
   };
+  contaContrapartidaAberturaCodigo?: string;
+  contasDisponibilidadesCodigo?: string[];
 }
 
 export interface LancamentoContabil {
@@ -125,7 +127,9 @@ export interface LancamentoContabil {
   centroCustoNome?: string;
   centroCustoDebitoCodigo?: string;
   centroCustoCreditoCodigo?: string;
-    estornoDe?: string;
+  estornoDe?: string;
+  statusManual?: "pendente_aprovacao" | "aprovado" | "rejeitado";
+  saldoInicialContaCodigo?: string;
 }
 
 export interface CentroCustoContabil {
@@ -144,6 +148,7 @@ export interface ContaPlano {
   natureza: "D" | "C";
   saldoInicial?: number;
   saldoInicialCompetencia?: string;
+  saldoInicialConvertidoEm?: string;
 }
 
 export type OrigemMapeadaContabil =

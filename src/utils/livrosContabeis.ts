@@ -84,6 +84,7 @@ function aplicarLancamento(saldoDevedorMenosCredor: number, item: LancamentoVali
 }
 
 function saldoInicialAplicavel(conta: ContaPlano, periodo: PeriodoContabil): number {
+  if (conta.saldoInicialConvertidoEm) return 0;
   const saldo = converterCentavos(conta.saldoInicial ?? 0) ?? 0;
   const competencia = String(conta.saldoInicialCompetencia || "");
   if (!saldo || !/^\d{4}-(0[1-9]|1[0-2])$/.test(competencia)) return 0;
@@ -122,6 +123,7 @@ export function gerarRelatoriosContabeis(
   const invalidos: LancamentoContabil[] = [];
 
   for (const original of lancamentosDefinitivos) {
+    if (original.statusManual === "pendente_aprovacao" || original.statusManual === "rejeitado") continue;
     const dataISO = normalizarDataContabil(original.data);
     const valorCentavos = converterCentavos(original.valor);
     const debito = porCodigo.get(original.contaDebitoCodigo);

@@ -127,7 +127,10 @@ function AppWorkspace() {
             centrosCusto: Array.isArray(dados?.centrosCusto) ? dados.centrosCusto : [],
             mapeamentosOrigem: Array.isArray(dados?.mapeamentosOrigem) ? dados.mapeamentosOrigem : [],
             preLancamentos: Array.isArray(dados?.preLancamentos) ? dados.preLancamentos : [],
-            lancamentos: Array.isArray(dados?.lancamentos) ? dados.lancamentos : [],
+            lancamentos: Array.isArray(dados?.lancamentos) ? dados.lancamentos.map((item: LancamentoContabil) =>
+              (item.origem === "Manual" || item.estornoDe) && !item.statusManual
+                ? { ...item, statusManual: "pendente_aprovacao" as const }
+                : item) : [],
             livros: Array.isArray(dados?.livros) ? dados.livros : [],
             lembretes: Array.isArray(dados?.lembretes) ? dados.lembretes : [],
           };
@@ -314,7 +317,7 @@ function AppWorkspace() {
   const handleTestarConexoes = async () => {
     setIsTestingOrgaos(true);
     showToast("Robô Murade: Executando handshake real com servidores da Receita Federal, SEFAZ, eSocial, PGFN e portais públicos...", "info");
-    
+
     try {
       const resp = await fetch("/api/orgaos/status");
       if (resp.ok) {
@@ -432,6 +435,7 @@ function AppWorkspace() {
       }
       versoesWorkspaceRef.current.set(empresaCnpj, Number(result.versao));
       setLancamentos(Array.isArray(result.dados.lancamentos) ? result.dados.lancamentos : []);
+      setContas(Array.isArray(result.dados.contas) ? result.dados.contas : []);
       setPreLancamentos(Array.isArray(result.dados.preLancamentos) ? result.dados.preLancamentos : []);
       showToast(`${result.contabilizados} lançamento(s) foram validados e contabilizados no servidor por ${result.aprovadosPor}.`, "success");
       return true;
@@ -441,9 +445,35 @@ function AppWorkspace() {
     }
   };
 
+  const handleDecidirLancamentoManual = async (id: string, decisao: "aprovar" | "rejeitar", motivo?: string): Promise<boolean> => {
+    const empresaCnpj = empresa.cnpj.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const workspaceAtualSalvo = await flushWorkspaceRef.current();
+    if (!workspaceAtualSalvo) {
+      showToast("A proposta ainda não foi confirmada no banco. Aguarde a gravação antes de decidir.", "info");
+      return false;
+    }
+    try {
+      const response = await fetch(`/api/workspaces/${encodeURIComponent(empresaCnpj)}/lancamentos-manuais/${encodeURIComponent(id)}/decisao`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ decisao, motivo }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.sucesso !== true || result.persistencia !== "postgresql" || !result.dados) {
+        throw new Error(result.motivo || "O servidor não confirmou a decisão do lançamento manual.");
+      }
+      versoesWorkspaceRef.current.set(empresaCnpj, Number(result.versao));
+      setLancamentos(Array.isArray(result.dados.lancamentos) ? result.dados.lancamentos : []);
+      showToast(decisao === "aprovar" ? `Lançamento aprovado por ${result.decididoPor} e incluído nos livros.` : `Lançamento rejeitado por ${result.decididoPor}; a proposta permanece no histórico.`, "success");
+      return true;
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Falha ao registrar a decisão no servidor.", "info");
+      return false;
+    }
+  };
+
   const handleEstornarLancamento = (id: string) => {
     const original = lancamentos.find((item) => item.id === id);
-    if (!original || original.estornoDe || lancamentos.some((item) => item.estornoDe === original.id)) return;
+    if (!original || original.statusManual === "pendente_aprovacao" || original.statusManual === "rejeitado" || original.estornoDe || lancamentos.some((item) => item.estornoDe === original.id)) return;
     const agora = new Date();
     const data = `${String(agora.getDate()).padStart(2, "0")}/${String(agora.getMonth() + 1).padStart(2, "0")}/${agora.getFullYear()}`;
     const referencia = original.documentoRef || original.id;
@@ -459,9 +489,11 @@ function AppWorkspace() {
       historico: `Estorno do lançamento ${referencia} — ${original.historico}`,
       documentoRef: `ESTORNO-${referencia}-${crypto.randomUUID()}`,
       estornoDe: original.id,
+      origem: original.origem,
+      statusManual: "pendente_aprovacao",
     };
     setLancamentos((prev) => [...prev, estorno]);
-    showToast("Estorno registrado; o lançamento original foi preservado.", "success");
+    showToast("Estorno enviado para aprovação; o lançamento original foi preservado.", "info");
   };
 
   // 3. Importar do Fiscal
@@ -744,6 +776,8 @@ function AppWorkspace() {
                     setLancamentos((prev) => [novo, ...prev])
                   }
                   onEstornarLancamento={handleEstornarLancamento}
+                  workspacePersistido={workspacePersistido}
+                  onDecidirLancamentoManual={handleDecidirLancamentoManual}
                 />
               )}
 
@@ -769,12 +803,17 @@ function AppWorkspace() {
                   contas={contas}
                   preLancamentos={preLancamentos}
                   livros={livros}
+                  onDefinirContasDisponibilidades={(codigos) => setEmpresa((prev) => ({ ...prev, contasDisponibilidadesCodigo: codigos }))}
                 />
               )}
 
               {tabAtiva === "plano-contas" && (
                 <PlanoContasTab
                   contas={contas}
+                  empresa={empresa}
+                  lancamentos={lancamentos}
+                  onDefinirContrapartidaAbertura={(codigo) => setEmpresa((prev) => ({ ...prev, contaContrapartidaAberturaCodigo: codigo || undefined }))}
+                  onAdicionarLancamento={(novo) => setLancamentos((prev) => [...prev, novo])}
                   onEditarDescricao={(codigo, descricao) => {
                     setContas((prev) => prev.map((conta) => conta.codigo === codigo ? { ...conta, descricao } : conta));
                     showToast(`Nome da conta ${codigo} atualizado para esta empresa.`);
@@ -823,7 +862,7 @@ function AppWorkspace() {
                 />
               )}
 
-              {tabAtiva === "revisao-origens" && <RevisaoOrigensTab cnpj={empresa.cnpj} regime={empresa.regime} workspaceCarregado={dadosEmpresaCarregadosCnpj === empresa.cnpj.toUpperCase().replace(/[^A-Z0-9]/g, "")} contas={contas} mapeamentos={mapeamentosOrigem} onSalvarMapeamentos={setMapeamentosOrigem} preLancamentos={preLancamentos} onSalvarPreLancamentos={setPreLancamentos} onContabilizar={handleContabilizarPreLancamentos} />}
+              {tabAtiva === "revisao-origens" && <RevisaoOrigensTab cnpj={empresa.cnpj} regime={empresa.regime} workspaceCarregado={dadosEmpresaCarregadosCnpj === empresa.cnpj.toUpperCase().replace(/[^A-Z0-9]/g, "")} contas={contas} mapeamentos={mapeamentosOrigem} onSalvarMapeamentos={setMapeamentosOrigem} preLancamentos={preLancamentos} lancamentos={lancamentos} onSalvarPreLancamentos={setPreLancamentos} onContabilizar={handleContabilizarPreLancamentos} />}
 
               {tabAtiva === "agente" && (
                 <AgenteTab

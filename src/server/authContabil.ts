@@ -95,6 +95,18 @@ export async function prepararAuthContabil(): Promise<void> {
       registrado_em timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (cnpj, lancamento_id)
     );
+    CREATE TABLE IF NOT EXISTS contabil_manual_journal_events (
+      evento_id bigserial PRIMARY KEY,
+      cnpj text NOT NULL CHECK (cnpj ~ '^[A-Z0-9]{12}[0-9]{2}$'),
+      lancamento_id text NOT NULL,
+      evento text NOT NULL CHECK (evento IN ('lancamento_manual_pendente','lancamento_manual_aprovado','lancamento_manual_rejeitado','estorno_manual_pendente','estorno_manual_aprovado','estorno_manual_rejeitado','lancamento_manual','estorno_manual')),
+      user_id uuid NOT NULL REFERENCES contabil_auth_users(id),
+      login text NOT NULL,
+      lancamento jsonb NOT NULL,
+      motivo text,
+      registrado_em timestamptz NOT NULL DEFAULT now(),
+      chave_legada text UNIQUE
+    );
     CREATE TABLE IF NOT EXISTS contabil_opening_balance_audit (
       cnpj text NOT NULL CHECK (cnpj ~ '^[A-Z0-9]{12}[0-9]{2}$'),
       conta_codigo text NOT NULL,
@@ -121,6 +133,13 @@ export async function prepararAuthContabil(): Promise<void> {
     await obterBanco().query("ALTER TABLE contabil_auth_users ADD COLUMN IF NOT EXISTS global_admin boolean NOT NULL DEFAULT false");
     await obterBanco().query("ALTER TABLE contabil_company_workspaces ADD COLUMN IF NOT EXISTS version bigint NOT NULL DEFAULT 1");
     await obterBanco().query("ALTER TABLE contabil_opening_balance_audit ADD COLUMN IF NOT EXISTS competencia text");
+    await obterBanco().query(`
+      INSERT INTO contabil_manual_journal_events(cnpj,lancamento_id,evento,user_id,login,lancamento,registrado_em,chave_legada)
+      SELECT cnpj,lancamento_id,evento,user_id,login,lancamento,registrado_em,
+        concat(cnpj,':',lancamento_id,':',evento,':',registrado_em::text)
+      FROM contabil_manual_journal_audit
+      ON CONFLICT (chave_legada) DO NOTHING
+    `);
     await obterBanco().query("DELETE FROM contabil_auth_sessions WHERE expires_at <= now()");
   }).then(() => undefined).catch((error) => {
     schemaPromise = null;
@@ -685,6 +704,111 @@ export async function contabilizarRascunhosAutomaticosContabil(
   } finally { client?.release(); }
 }
 
+export async function decidirLancamentoManualContabil(req: Request, res: Response): Promise<void> {
+  res.setHeader("Cache-Control", "no-store");
+  const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
+  const cnpj = normalizarCnpjAcesso(req.params.cnpj);
+  const id = String(req.params.id || "").trim();
+  const decisao = req.body?.decisao === "aprovar" || req.body?.decisao === "rejeitar" ? req.body.decisao : "";
+  const motivo = String(req.body?.motivo || "").trim();
+  if (!cnpjContabilValido(cnpj) || !id || id.length > 200) { res.status(400).json({ sucesso: false, motivo: "Empresa ou identificador do lançamento inválido." }); return; }
+  if (!sessao || !sessao.cnpjs.includes(cnpj)) { res.status(403).json({ sucesso: false, motivo: "Empresa fora do seu acesso." }); return; }
+  if (!sessao.administrador && sessao.memberships.find((item) => item.cnpj === cnpj)?.role === "viewer") { res.status(403).json({ sucesso: false, motivo: "Seu acesso a esta empresa é somente leitura." }); return; }
+  if (!decisao || (decisao === "rejeitar" && (!motivo || motivo.length > 1000))) { res.status(400).json({ sucesso: false, motivo: "Escolha aprovar ou rejeitar; a rejeição exige um motivo de até 1.000 caracteres." }); return; }
+
+  let client: PoolClient | undefined;
+  try {
+    await prepararAuthContabil();
+    client = await obterBanco().connect();
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [cnpj]);
+    const row = await client.query("SELECT payload,version FROM contabil_company_workspaces WHERE cnpj=$1 FOR UPDATE", [cnpj]);
+    if (!row.rowCount) { await client.query("ROLLBACK"); res.status(404).json({ sucesso: false, motivo: "Workspace da empresa não encontrado." }); return; }
+    const payload = row.rows[0].payload as Record<string, any>;
+    const lancamentos: Array<Record<string, any>> = Array.isArray(payload.lancamentos) ? [...payload.lancamentos] : [];
+    const indice = lancamentos.findIndex((item) => String(item.id || "") === id);
+    const item = indice >= 0 ? lancamentos[indice] : null;
+    if (!item || (item.origem !== "Manual" && !item.estornoDe && !item.saldoInicialContaCodigo) || item.statusManual !== "pendente_aprovacao") {
+      await client.query("ROLLBACK"); res.status(409).json({ sucesso: false, motivo: "O lançamento não está pendente de aprovação ou já recebeu uma decisão." }); return;
+    }
+    const data = normalizarDataContabil(String(item.data || ""));
+    const valorCentavos = Number.isFinite(Number(item.valor)) ? Math.round(Number(item.valor) * 100) : 0;
+    const contas = Array.isArray(payload.contas) ? payload.contas : [];
+    const analiticas = new Set(contas.filter((conta: any) => conta?.tipo === "analitica").map((conta: any) => String(conta.codigo || "")));
+    if (!data || valorCentavos <= 0 || !String(item.historico || "").trim()
+      || !analiticas.has(String(item.contaDebitoCodigo || "")) || !analiticas.has(String(item.contaCreditoCodigo || ""))
+      || item.contaDebitoCodigo === item.contaCreditoCodigo) {
+      await client.query("ROLLBACK"); res.status(422).json({ sucesso: false, motivo: "A proposta está incompleta ou suas contas já não são analíticas. Corrija os dados e envie uma nova proposta." }); return;
+    }
+    const competencia = data.slice(0, 7);
+    const fechado = await client.query("SELECT 1 FROM contabil_period_closures WHERE cnpj=$1 AND competencia=$2", [cnpj, competencia]);
+    if (fechado.rowCount) { await client.query("ROLLBACK"); res.status(409).json({ sucesso: false, motivo: "A competência deste lançamento está fechada. Nenhuma decisão foi aplicada." }); return; }
+    if (item.estornoDe) {
+      const original = lancamentos.find((lancamento) => String(lancamento.id || "") === String(item.estornoDe));
+      const jaEstornado = lancamentos.some((lancamento) => String(lancamento.estornoDe || "") === String(item.estornoDe));
+      if (!original || original.statusManual === "pendente_aprovacao" || original.statusManual === "rejeitado" || jaEstornado
+        || Math.round(Number(original.valor) * 100) !== valorCentavos
+        || String(original.contaDebitoCodigo || "") !== String(item.contaCreditoCodigo || "")
+        || String(original.contaCreditoCodigo || "") !== String(item.contaDebitoCodigo || "")
+        || String(original.origem || "") !== String(item.origem || "")) {
+        await client.query("ROLLBACK"); res.status(422).json({ sucesso: false, motivo: "O estorno não corresponde a uma partida vigente, com mesmo valor e contas invertidas." }); return;
+      }
+    }
+    if (decisao === "aprovar" && item.saldoInicialContaCodigo && !item.estornoDe) {
+      const contaAbertura = contas.find((conta: any) => String(conta?.codigo || "") === String(item.saldoInicialContaCodigo));
+      const contaContrapartidaCodigo = String(item.contaDebitoCodigo) === String(item.saldoInicialContaCodigo)
+        ? String(item.contaCreditoCodigo) : String(item.contaDebitoCodigo);
+      const contaContrapartida = contas.find((conta: any) => String(conta?.codigo || "") === contaContrapartidaCodigo);
+      const contaContrapartidaAtual = payload.empresa?.contaContrapartidaAberturaCodigo;
+      const saldoCentavos = Number.isFinite(Number(contaAbertura?.saldoInicial)) ? Math.round(Number(contaAbertura.saldoInicial) * 100) : 0;
+      const naturezaEsperada = contaAbertura?.natureza === "D"
+        ? String(item.contaDebitoCodigo) === String(contaAbertura.codigo)
+        : String(item.contaCreditoCodigo) === String(contaAbertura?.codigo);
+      if (item.origem !== "Cadastro" || !contaAbertura || contaAbertura.tipo !== "analitica" || contaAbertura.saldoInicialConvertidoEm
+        || !contaContrapartida || contaContrapartida.tipo !== "analitica" || Number(contaContrapartida.saldoInicial || 0) !== 0
+        || saldoCentavos !== valorCentavos || String(contaAbertura.saldoInicialCompetencia || "") !== competencia
+        || data !== `${competencia}-01` || contaContrapartidaAtual !== contaContrapartidaCodigo || !naturezaEsperada) {
+        await client.query("ROLLBACK"); res.status(409).json({ sucesso: false, motivo: "A proposta de abertura não corresponde mais ao saldo, à competência-base ou à conta de contrapartida configurada. Atualize a proposta antes de aprovar." }); return;
+      }
+      if (decisao === "aprovar") contaAbertura.saldoInicialConvertidoEm = new Date().toISOString();
+    }
+    if (item.estornoDe && decisao === "aprovar") {
+      const original = lancamentos.find((lancamento) => String(lancamento.id || "") === String(item.estornoDe));
+      if (original?.saldoInicialContaCodigo) {
+        const contaAbertura = contas.find((conta: any) => String(conta?.codigo || "") === String(original.saldoInicialContaCodigo));
+        if (!contaAbertura?.saldoInicialConvertidoEm) {
+          await client.query("ROLLBACK"); res.status(409).json({ sucesso: false, motivo: "O saldo de abertura associado ao lançamento não está convertido. Atualize a empresa antes de aprovar este estorno." }); return;
+        }
+        delete contaAbertura.saldoInicialConvertidoEm;
+      }
+    }
+    const statusManual = decisao === "aprovar" ? "aprovado" : "rejeitado";
+    const decidido = { ...item, statusManual };
+    lancamentos[indice] = decidido;
+    const novoPayload = { ...payload, lancamentos };
+    const evento = item.estornoDe
+      ? (decisao === "aprovar" ? "estorno_manual_aprovado" : "estorno_manual_rejeitado")
+      : (decisao === "aprovar" ? "lancamento_manual_aprovado" : "lancamento_manual_rejeitado");
+    if (decisao === "aprovar") {
+      await client.query(`
+        INSERT INTO contabil_manual_journal_audit(cnpj,lancamento_id,evento,user_id,login,lancamento)
+        VALUES($1,$2,$3,$4,$5,$6::jsonb)
+      `, [cnpj, id, item.estornoDe ? "estorno_manual" : "lancamento_manual", sessao.userId, sessao.login, JSON.stringify(decidido)]);
+    }
+    await client.query(`
+      INSERT INTO contabil_manual_journal_events(cnpj,lancamento_id,evento,user_id,login,lancamento,motivo)
+      VALUES($1,$2,$3,$4,$5,$6::jsonb,$7)
+    `, [cnpj, id, evento, sessao.userId, sessao.login, JSON.stringify(decidido), decisao === "rejeitar" ? motivo : null]);
+    const atualizado = await client.query("UPDATE contabil_company_workspaces SET payload=$2::jsonb,version=version+1,updated_at=now() WHERE cnpj=$1 RETURNING version,updated_at", [cnpj, JSON.stringify(novoPayload)]);
+    await client.query("COMMIT");
+    res.json({ sucesso: true, cnpj, decisao, decididoPor: sessao.login, dados: novoPayload, versao: Number(atualizado.rows[0].version), atualizadoEm: new Date(atualizado.rows[0].updated_at).toISOString(), persistencia: "postgresql" });
+  } catch (error) {
+    if (client) await client.query("ROLLBACK").catch(() => undefined);
+    console.error("Falha ao decidir lançamento manual contábil:", error);
+    res.status(503).json({ sucesso: false, motivo: "Não foi possível registrar a decisão manual no PostgreSQL." });
+  } finally { client?.release(); }
+}
+
 export async function listarHistoricoAprovacoesContabil(req: Request, res: Response): Promise<void> {
   res.setHeader("Cache-Control", "no-store");
   const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
@@ -731,16 +855,23 @@ export async function listarHistoricoAprovacoesContabil(req: Request, res: Respo
     const statusContabilizadosSemLancamento = preLancamentos.filter((item) => item.status === "contabilizado"
       && !lancamentoPorReferencia.has(String(item.referenciaOrigem || "")))
       .map((item) => String(item.referenciaOrigem || "")).filter(Boolean);
-    const lancamentosManuais = lancamentos.filter((item) => item.origem === "Manual" || Boolean(item.estornoDe));
+    const todosLancamentosManuais = lancamentos.filter((item) => item.origem === "Manual" || Boolean(item.estornoDe) || Boolean(item.saldoInicialContaCodigo));
+    const lancamentosManuais = todosLancamentosManuais.filter((item) =>
+      item.statusManual !== "pendente_aprovacao" && item.statusManual !== "rejeitado");
     const auditoriaManualCompleta = await obterBanco().query(`
-      SELECT lancamento_id AS "lancamentoId", evento, login, lancamento,
+      SELECT lancamento_id AS "lancamentoId", evento, login, lancamento, motivo,
         registrado_em AS "registradoEm"
-      FROM contabil_manual_journal_audit WHERE cnpj=$1
-      ORDER BY registrado_em DESC LIMIT $2
+      FROM contabil_manual_journal_events WHERE cnpj=$1
+      ORDER BY registrado_em DESC, evento_id DESC LIMIT $2
     `, [cnpj, limiteSolicitado]);
     const auditoriaManualTodas = await obterBanco().query(`
       SELECT lancamento_id AS "lancamentoId", lancamento
       FROM contabil_manual_journal_audit WHERE cnpj=$1
+    `, [cnpj]);
+    const eventosManuaisTodas = await obterBanco().query(`
+      SELECT lancamento_id AS "lancamentoId", evento, lancamento
+      FROM contabil_manual_journal_events WHERE cnpj=$1
+      ORDER BY registrado_em DESC, evento_id DESC
     `, [cnpj]);
     const auditoriaSaldosAbertura = await obterBanco().query(`
       SELECT conta_codigo AS "contaCodigo", evento, saldo_anterior::text AS "saldoAnterior",
@@ -748,7 +879,7 @@ export async function listarHistoricoAprovacoesContabil(req: Request, res: Respo
       FROM contabil_opening_balance_audit WHERE cnpj=$1
       ORDER BY registrado_em DESC LIMIT $2
     `, [cnpj, limiteSolicitado]);
-    const lancamentoManualPorId = new Map(lancamentosManuais.map((item) => [String(item.id || ""), item]));
+    const lancamentoManualPorId = new Map(todosLancamentosManuais.map((item) => [String(item.id || ""), item]));
     const auditoriaManualPorId = new Map(auditoriaManualTodas.rows.map((item) => [String(item.lancamentoId), item.lancamento]));
     const lancamentosManuaisSemAuditoria = lancamentosManuais
       .filter((item) => !auditoriaManualPorId.has(String(item.id || "")))
@@ -757,8 +888,30 @@ export async function listarHistoricoAprovacoesContabil(req: Request, res: Respo
       .filter((item) => !lancamentoManualPorId.has(String(item.lancamentoId))
         || jsonCanonico(lancamentoManualPorId.get(String(item.lancamentoId))) !== jsonCanonico(item.lancamento))
       .map((item) => String(item.lancamentoId));
+    const eventoMaisRecentePorId = new Map<string, Record<string, any>>();
+    for (const evento of eventosManuaisTodas.rows) {
+      const id = String(evento.lancamentoId || "");
+      if (id && !eventoMaisRecentePorId.has(id)) eventoMaisRecentePorId.set(id, evento);
+    }
+    const lancamentosComTrilhaInconsistente = todosLancamentosManuais
+      .filter((item) => {
+        const id = String(item.id || "");
+        const evento = eventoMaisRecentePorId.get(id);
+        const tipo = item.estornoDe ? "estorno_manual" : "lancamento_manual";
+        const sufixo = item.statusManual === "pendente_aprovacao" ? "_pendente"
+          : item.statusManual === "aprovado" ? "_aprovado"
+            : item.statusManual === "rejeitado" ? "_rejeitado" : "";
+        return !evento || evento.evento !== `${tipo}${sufixo}`
+          || jsonCanonico(evento.lancamento) !== jsonCanonico(item);
+      })
+      .map((item) => String(item.id || "")).filter(Boolean);
+    const eventosManuaisSemLancamento = [...new Set(eventosManuaisTodas.rows
+      .filter((item) => !lancamentoManualPorId.has(String(item.lancamentoId || "")))
+      .map((item) => String(item.lancamentoId || "")).filter(Boolean))];
     const conferido = aprovacoesSemLancamento.length === 0 && lancamentosSemAuditoria.length === 0
-      && statusContabilizadosSemLancamento.length === 0 && auditoriasManuaisSemLancamento.length === 0;
+      && statusContabilizadosSemLancamento.length === 0 && lancamentosManuaisSemAuditoria.length === 0
+      && auditoriasManuaisSemLancamento.length === 0 && lancamentosComTrilhaInconsistente.length === 0
+      && eventosManuaisSemLancamento.length === 0;
     res.json({ sucesso: true, cnpj, aprovacoes: result.rows, conferenciaIntegridade: {
       status: conferido ? "consistente" : "revisar",
       aprovacoesSemLancamento,
@@ -766,6 +919,8 @@ export async function listarHistoricoAprovacoesContabil(req: Request, res: Respo
       statusContabilizadosSemLancamento,
       lancamentosManuaisSemAuditoria,
       auditoriasManuaisSemLancamento,
+      lancamentosComTrilhaInconsistente,
+      eventosManuaisSemLancamento,
     }, lancamentosManuais: auditoriaManualCompleta.rows, lancamentosManuaisSemAuditoria, saldosAbertura: auditoriaSaldosAbertura.rows });
   } catch (error) {
     console.error("Falha ao consultar histórico de aprovações contábeis:", error);
@@ -813,9 +968,11 @@ export async function fecharCompetenciaContabil(req: Request, res: Response): Pr
     const lancamentos = Array.isArray(payload.lancamentos) ? payload.lancamentos : [];
     const preLancamentos = Array.isArray(payload.preLancamentos) ? payload.preLancamentos : [];
     const pendentes = preLancamentos.filter((item: any) => item?.competencia === competencia && item?.status === "pendente_conferencia");
-    if (pendentes.length) {
+    const manuaisPendentes = lancamentos.filter((item: any) => item?.statusManual === "pendente_aprovacao"
+      && normalizarDataContabil(String(item?.data || ""))?.slice(0, 7) === competencia);
+    if (pendentes.length || manuaisPendentes.length) {
       await client.query("ROLLBACK");
-      res.status(409).json({ sucesso: false, motivo: `Fechamento bloqueado: ${pendentes.length} pré-lançamento(s) desta competência aguardam conferência.` });
+      res.status(409).json({ sucesso: false, motivo: `Fechamento bloqueado: ${pendentes.length} pré-lançamento(s) e ${manuaisPendentes.length} lançamento(s) manual(is) aguardam conferência nesta competência.` });
       return;
     }
     const relatorios = gerarRelatoriosContabeis(contas, lancamentos, competencia);
@@ -1021,6 +1178,22 @@ export async function salvarWorkspaceContabil(req: Request, res: Response, opcoe
     const fechadoAtual = fechamentos.rows.map((row) => String(row.competencia));
     const payloadProposto = propostaCliente as Record<string, unknown>;
     const payloadFinal = req.body.dados as Record<string, unknown>;
+    const contasAtuaisAbertura = Array.isArray(payloadAtual.contas) ? payloadAtual.contas as Array<Record<string, unknown>> : [];
+    const contasNovasAbertura = Array.isArray(payloadFinal.contas) ? payloadFinal.contas as Array<Record<string, unknown>> : [];
+    const contasAtuaisAberturaPorCodigo = new Map(contasAtuaisAbertura.map((conta) => [String(conta.codigo || ""), conta]));
+    for (const contaNova of contasNovasAbertura.filter((conta) => Boolean(conta.saldoInicialConvertidoEm))) {
+      const contaAtual = contasAtuaisAberturaPorCodigo.get(String(contaNova.codigo || ""));
+      if (!contaAtual?.saldoInicialConvertidoEm) {
+        await client.query("ROLLBACK"); res.status(403).json({ sucesso: false, motivo: "A conversão de saldo inicial só pode ser registrada pela aprovação autenticada da partida correspondente." }); return;
+      }
+    }
+    for (const contaAtual of contasAtuaisAbertura.filter((conta) => Boolean(conta.saldoInicialConvertidoEm))) {
+      const contaNova = contasNovasAbertura.find((conta) => String(conta.codigo || "") === String(contaAtual.codigo || ""));
+      if (!contaNova || jsonCanonico({ saldoInicial: contaAtual.saldoInicial, competencia: contaAtual.saldoInicialCompetencia, convertidoEm: contaAtual.saldoInicialConvertidoEm })
+        !== jsonCanonico({ saldoInicial: contaNova.saldoInicial, competencia: contaNova.saldoInicialCompetencia, convertidoEm: contaNova.saldoInicialConvertidoEm })) {
+        await client.query("ROLLBACK"); res.status(409).json({ sucesso: false, motivo: `O saldo inicial convertido da conta ${String(contaAtual.codigo || "")} está protegido. Use um estorno aprovado para corrigir a partida.` }); return;
+      }
+    }
     if (fechadoAtual.length && [payloadProposto, payloadFinal].some((payload) => !planoContasCompatívelComFechamentos(payloadAtual.contas || [], payload.contas || []))) {
       await client.query("ROLLBACK"); res.status(409).json({ sucesso: false, motivo: "Há competência fechada. Contas usadas no histórico não podem ser alteradas ou removidas; é permitido acrescentar contas sem saldo inicial, desde que não alterem a hierarquia existente." }); return;
     }
@@ -1040,49 +1213,59 @@ export async function salvarWorkspaceContabil(req: Request, res: Response, opcoe
     const lancamentosSolicitadosCliente = Array.isArray(payloadProposto.lancamentos) ? payloadProposto.lancamentos as Array<Record<string, unknown>> : [];
     const lancamentosAtuaisPorId = new Map(lancamentosAtuais.map((item) => [String(item.id || ""), item]));
     const lancamentosNovosPorId = new Map(lancamentosNovos.map((item) => [String(item.id || ""), item]));
-    for (const antigo of lancamentosAtuais.filter((item) => item.origem === "Manual" || Boolean(item.estornoDe))) {
+    const novasPartidasCliente = lancamentosSolicitadosCliente.filter((item) => !lancamentosAtuaisPorId.has(String(item.id || "")));
+    if (new Set(novasPartidasCliente.map((item) => String(item.id || ""))).size !== novasPartidasCliente.length) {
+      await client.query("ROLLBACK"); res.status(409).json({ sucesso: false, motivo: "A solicitação contém partidas repetidas. Atualize a tela e tente novamente." }); return;
+    }
+    if (novasPartidasCliente.some((item) => !((item.origem === "Manual" && !item.estornoDe && item.statusManual === "pendente_aprovacao")
+      || (item.origem === "Cadastro" && item.saldoInicialContaCodigo && item.statusManual === "pendente_aprovacao" && !item.estornoDe)))) {
+      await client.query("ROLLBACK"); res.status(403).json({ sucesso: false, motivo: "Partidas definitivas não podem ser inseridas pelo navegador. Envie lançamentos manuais pendentes ou propostas de abertura para aprovação." }); return;
+    }
+    for (const antigo of lancamentosAtuais.filter((item) => item.origem === "Manual" || Boolean(item.estornoDe) || Boolean(item.saldoInicialContaCodigo))) {
       const novo = lancamentosNovosPorId.get(String(antigo.id || ""));
       if (!novo || jsonCanonico(antigo) !== jsonCanonico(novo)) {
         await client.query("ROLLBACK");
         res.status(409).json({ sucesso: false, motivo: "Lançamentos manuais salvos são preservados no histórico. Para corrigir um lançamento, registre um estorno e crie a partida correta." }); return;
       }
     }
-    const adicoesManuais = lancamentosSolicitadosCliente.filter((item) => item.origem === "Manual" && !item.estornoDe && !lancamentosAtuaisPorId.has(String(item.id || "")));
+    const adicoesManuais = lancamentosSolicitadosCliente.filter((item) => (item.origem === "Manual" || Boolean(item.saldoInicialContaCodigo)) && !item.estornoDe && !lancamentosAtuaisPorId.has(String(item.id || "")));
     const adicoesEstorno = lancamentosSolicitadosCliente.filter((item) => Boolean(item.estornoDe) && !lancamentosAtuaisPorId.has(String(item.id || "")));
+    const contasParaValidacao = Array.isArray(payloadFinal.contas) ? payloadFinal.contas as Array<Record<string, unknown>> : [];
+    const analiticasParaValidacao = new Set(contasParaValidacao.filter((conta) => conta.tipo === "analitica").map((conta) => String(conta.codigo || "")));
     for (const item of adicoesManuais) {
       if (!String(item.id || "").trim() || !normalizarDataContabil(String(item.data || ""))
         || !Number.isFinite(Number(item.valor)) || Number(item.valor) <= 0
-        || !String(item.contaDebitoCodigo || "").trim() || !String(item.contaCreditoCodigo || "").trim()
+        || !analiticasParaValidacao.has(String(item.contaDebitoCodigo || "")) || !analiticasParaValidacao.has(String(item.contaCreditoCodigo || ""))
+        || item.contaDebitoCodigo === item.contaCreditoCodigo || item.statusManual !== "pendente_aprovacao"
         || !String(item.historico || "").trim()) {
         await client.query("ROLLBACK");
-        res.status(422).json({ sucesso: false, motivo: "Lançamento manual incompleto: informe data, valor positivo, contas de débito e crédito e histórico." }); return;
+        res.status(422).json({ sucesso: false, motivo: "Lançamento manual inválido: informe data real, valor positivo, duas contas analíticas diferentes e histórico. Lançamentos novos precisam aguardar aprovação." }); return;
       }
     }
     for (const estorno of adicoesEstorno) {
       const original = lancamentosAtuaisPorId.get(String(estorno.estornoDe || ""));
       const centavos = (value: unknown) => Number.isFinite(Number(value)) ? Math.round(Number(value) * 100) : NaN;
       const jaEstornado = lancamentosAtuais.some((item) => String(item.estornoDe || "") === String(estorno.estornoDe || ""));
-      if (!original || jaEstornado || centavos(original.valor) !== centavos(estorno.valor)
+      if (!original || original.statusManual === "pendente_aprovacao" || original.statusManual === "rejeitado" || jaEstornado || estorno.statusManual !== "pendente_aprovacao" || centavos(original.valor) !== centavos(estorno.valor)
         || String(original.contaDebitoCodigo || "") !== String(estorno.contaCreditoCodigo || "")
         || String(original.contaCreditoCodigo || "") !== String(estorno.contaDebitoCodigo || "")
         || String(original.origem || "") !== String(estorno.origem || "")
+        || !analiticasParaValidacao.has(String(estorno.contaDebitoCodigo || "")) || !analiticasParaValidacao.has(String(estorno.contaCreditoCodigo || ""))
         || !normalizarDataContabil(String(estorno.data || "")) || !String(estorno.historico || "").trim()) {
         await client.query("ROLLBACK");
         res.status(422).json({ sucesso: false, motivo: "O estorno não corresponde a uma partida existente, não estornada, com mesmo valor e contas invertidas." }); return;
       }
     }
-    if (versaoAtual !== null) {
-      for (const item of [...adicoesManuais, ...adicoesEstorno]) {
-        const salvo = lancamentosNovosPorId.get(String(item.id || ""));
-        if (!salvo || jsonCanonico(salvo) !== jsonCanonico(item)) {
-          await client.query("ROLLBACK");
-          res.status(422).json({ sucesso: false, motivo: "O lançamento auditado não corresponde ao conteúdo que será salvo." }); return;
-        }
-        await client.query(`
-          INSERT INTO contabil_manual_journal_audit(cnpj,lancamento_id,evento,user_id,login,lancamento)
-          VALUES($1,$2,$3,$4,$5,$6::jsonb)
-        `, [cnpj, String(item.id), item.estornoDe ? "estorno_manual" : "lancamento_manual", sessao.userId, sessao.login, JSON.stringify(item)]);
+    for (const item of [...adicoesManuais, ...adicoesEstorno]) {
+      const salvo = lancamentosNovosPorId.get(String(item.id || ""));
+      if (!salvo || jsonCanonico(salvo) !== jsonCanonico(item)) {
+        await client.query("ROLLBACK");
+        res.status(422).json({ sucesso: false, motivo: "O lançamento pendente não corresponde ao conteúdo que será salvo." }); return;
       }
+      await client.query(`
+        INSERT INTO contabil_manual_journal_events(cnpj,lancamento_id,evento,user_id,login,lancamento)
+        VALUES($1,$2,$3,$4,$5,$6::jsonb)
+      `, [cnpj, String(item.id), item.estornoDe ? "estorno_manual_pendente" : "lancamento_manual_pendente", sessao.userId, sessao.login, JSON.stringify(item)]);
     }
     const contasAtuais = Array.isArray(payloadAtual.contas) ? payloadAtual.contas as Array<Record<string, unknown>> : [];
     const contasPropostas = Array.isArray(payloadFinal.contas) ? payloadFinal.contas as Array<Record<string, unknown>> : [];
