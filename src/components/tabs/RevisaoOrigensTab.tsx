@@ -88,6 +88,7 @@ export const RevisaoOrigensTab: React.FC<{
   const [mensagemPrevia, setMensagemPrevia] = useState("");
   const [mensagemConciliacao, setMensagemConciliacao] = useState("");
   const [mensagemHistoricoDP, setMensagemHistoricoDP] = useState("");
+  const [mensagemTributos, setMensagemTributos] = useState("");
   const [historicoAprovacoes, setHistoricoAprovacoes] = useState<AprovacaoHistorico[]>([]);
   const [historicoLancamentosManuais, setHistoricoLancamentosManuais] = useState<AuditoriaLancamentoManual[]>([]);
   const [historicoSaldosAbertura, setHistoricoSaldosAbertura] = useState<AuditoriaSaldoAbertura[]>([]);
@@ -470,7 +471,11 @@ export const RevisaoOrigensTab: React.FC<{
       setMensagemConciliacao("Aguarde a leitura do workspace desta empresa antes de exportar a conciliação.");
       return;
     }
-    const escapar = (valor: unknown) => `"${String(valor ?? "").replace(/"/g, '""')}"`;
+    const escapar = (valor: unknown) => {
+      const texto = String(valor ?? "");
+      const seguro = /^[=+\-@\t\r]/.test(texto) ? `'${texto}` : texto;
+      return `"${seguro.replace(/"/g, '""')}"`;
+    };
     const linhas = [
       ["RELATÓRIO INTERNO DE CONCILIAÇÃO FISCAL/DP → CONTÁBIL"],
       [`Empresa CNPJ: ${cnpj}`, `Competências: ${desde} a ${ate}`, `Exportado em: ${new Date().toLocaleString("pt-BR")}`],
@@ -517,6 +522,59 @@ export const RevisaoOrigensTab: React.FC<{
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     setMensagemHistoricoDP("Histórico CSV exportado. Inclui versões recebidas e diferenças, sem alterar os dados.");
+  };
+
+  const exportarMapaTributario = () => {
+    if (!workspaceCarregado) {
+      setMensagemTributos("Aguarde a leitura do workspace desta empresa antes de exportar.");
+      return;
+    }
+    const escapar = (valor: unknown) => {
+      const texto = String(valor ?? "");
+      const seguro = /^[=+\-@\t\r]/.test(texto) ? `'${texto}` : texto;
+      return `"${seguro.replace(/"/g, '""')}"`;
+    };
+    const campos = [
+      ["ICMS", "valorIcms"], ["PIS", "valorPis"], ["COFINS", "valorCofins"], ["ISS", "valorIss"], ["IPI", "valorIpi"],
+    ] as const;
+    const valorFonte = (item: SomaTributoFiscal) => {
+      if (!item.documentos) return { valor: "", status: "Sem documento autorizado na origem" };
+      if (item.incompletos === item.documentos) return { valor: "", status: `Pendente: campo ausente em ${item.documentos} documento(s)` };
+      return {
+        valor: item.valor,
+        status: item.incompletos ? `Parcial: ${item.incompletos} de ${item.documentos} documento(s) sem campo` : `Destaques recebidos em ${item.documentos} documento(s)`,
+      };
+    };
+    const linhas: unknown[][] = [
+      ["MAPA INTERNO DE CONFERÊNCIA TRIBUTÁRIA — NÃO É APURAÇÃO NEM GUIA OFICIAL"],
+      [`Empresa: ${cnpj}`, `Regime cadastrado: ${regime || "não informado"}`, `Competências: ${desde} a ${ate}`, `Exportado em: ${new Date().toLocaleString("pt-BR")}`],
+      ["Competência", "Tributo", "Valor fonte 1 (R$)", "Situação fonte 1", "Valor fonte 2 (R$)", "Situação fonte 2", "Valor devido", "Status da apuração", "Pendência / próximo passo"],
+    ];
+    for (const competencia of resumoTributosCompetencia) {
+      for (const [tributo, campo] of campos) {
+        const entrada = valorFonte(competencia.fiscal.entrada[campo]);
+        const saida = valorFonte(competencia.fiscal.saida[campo]);
+        const motivo = regime === "Simples Nacional" || regime === "MEI"
+          ? "Apuração do regime e dados segregados não foram recebidos; conferir no PGDAS-D/portal aplicável."
+          : regime === "Lucro Presumido" || regime === "Lucro Real"
+            ? "Bases, ajustes, créditos e regras da competência não foram recebidos; destaque documental não é saldo devido."
+            : "Regime tributário não informado; validar cadastro e origem oficial antes de apurar.";
+        linhas.push([competencia.competencia, tributo, entrada.valor, entrada.status, saida.valor, saida.status, "", "PENDENTE — não apurado", motivo]);
+      }
+      for (const [tributo, valor] of [["INSS empregado", competencia.inssEmpregado], ["INSS patronal", competencia.inssPatronal], ["FGTS", competencia.fgts]] as const) {
+        const recebido = valor !== null;
+        linhas.push([competencia.competencia, tributo, recebido ? valor : "", recebido ? "Valor recebido no resumo do DP" : competencia.temResumoDP ? "Pendente: valor não informado no resumo do DP" : "Pendente: resumo do DP não recebido", "", "Não aplicável", "", "PENDENTE — não é guia", recebido ? "Conferir composição, fechamento da folha e origem oficial antes do recolhimento." : "Solicitar ou completar o dado na origem; nenhum valor ausente foi tratado como zero."]);
+      }
+    }
+    linhas.push(["Observação", "Valores fiscais são somente destaques recebidos. Este arquivo não calcula imposto devido, compensações, vencimentos, juros ou guia e não substitui conferência profissional ou portal oficial."]);
+    const csv = `\uFEFF${linhas.map((linha) => linha.map(escapar).join(";")).join("\r\n")}`;
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `mapa-conferencia-tributaria-${cnpjNormalizado}-${desde}-${ate}.csv`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setMensagemTributos("Mapa interno CSV exportado. Valores não apurados permanecem pendentes; nenhum lançamento foi alterado.");
   };
 
   const contabilizarPendentes = async () => {
@@ -736,7 +794,8 @@ export const RevisaoOrigensTab: React.FC<{
       </section>
 
       <section className="overflow-hidden rounded-xl border border-blue-200 bg-white">
-        <div className="border-b border-blue-100 px-4 py-3"><h2 className="font-bold text-slate-900">Consolidação de valores por competência</h2><p className="mt-1 text-xs text-slate-600">Consolida somente valores explícitos dos documentos autorizados e do resumo mais recente da folha recebido do DP. Valores fiscais são destaques dos documentos, não apuração nem guia a pagar.</p></div>
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-blue-100 px-4 py-3"><div><h2 className="font-bold text-slate-900">Consolidação de valores por competência</h2><p className="mt-1 text-xs text-slate-600">Consolida somente valores explícitos dos documentos autorizados e do resumo mais recente da folha recebido do DP. Valores fiscais são destaques dos documentos, não apuração nem guia a pagar.</p></div><button type="button" onClick={exportarMapaTributario} disabled={!workspaceCarregado || !resumoTributosCompetencia.length} className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-900 disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-4 w-4" /> Exportar mapa tributário CSV</button></div>
+        {mensagemTributos && <p role="status" className="px-4 pt-3 text-xs text-blue-800">{mensagemTributos}</p>}
         {resumoTributosCompetencia.length === 0 ? <Empty text="Sem notas autorizadas ou resumos de folha no período selecionado." /> : <div className="overflow-x-auto"><table className="w-full min-w-[1180px] text-left text-xs"><thead className="bg-slate-50 uppercase text-slate-500"><tr><th className="px-3 py-2">Competência</th><th className="px-3 py-2 text-right">ICMS destacado<br/>Entrada / Saída</th><th className="px-3 py-2 text-right">PIS destacado<br/>Entrada / Saída</th><th className="px-3 py-2 text-right">COFINS destacado<br/>Entrada / Saída</th><th className="px-3 py-2 text-right">ISS destacado<br/>Entrada / Saída</th><th className="px-3 py-2 text-right">IPI destacado<br/>Entrada / Saída</th><th className="px-3 py-2 text-right">INSS empregado</th><th className="px-3 py-2 text-right">INSS patronal</th><th className="px-3 py-2 text-right">FGTS</th><th className="px-3 py-2">DAS</th></tr></thead><tbody>
           {resumoTributosCompetencia.map((linha) => {
             const exibirFiscal = (campo: typeof camposTributariosFiscal[number]["campo"]) => {
