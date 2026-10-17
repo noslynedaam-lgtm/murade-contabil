@@ -10,6 +10,7 @@ type PreviaPartidaDP = { competencia: string; origem: string; contaDebitoCodigo:
 type EstadoPreviaDP = { partidas: PreviaPartidaDP[]; pendencias: Array<{ competencia: string; motivo: string }> };
 type PreviaPartidaFiscal = PreviaPartidaDP & { data: string; chave: string };
 type EstadoPreviaFiscal = { partidas: PreviaPartidaFiscal[]; pendencias: Array<{ competencia: string; motivo: string }> };
+type AprovacaoHistorico = { referencia: string; login: string; valor: string; contaDebito: string; contaCredito: string; aprovadoEm: string };
 
 const origensMapeaveis: Array<{ id: OrigemMapeadaContabil; titulo: string; descricao: string }> = [
   { id: "fiscal_entrada", titulo: "NF-e de entrada", descricao: "A conta de estoque/despesa varia por operação e CFOP; revise a conta de débito para esta empresa." },
@@ -73,6 +74,9 @@ export const RevisaoOrigensTab: React.FC<{
   const [erro, setErro] = useState("");
   const [atualizadoEm, setAtualizadoEm] = useState("");
   const [mensagemPrevia, setMensagemPrevia] = useState("");
+  const [historicoAprovacoes, setHistoricoAprovacoes] = useState<AprovacaoHistorico[]>([]);
+  const [erroHistorico, setErroHistorico] = useState("");
+  const [carregandoHistorico, setCarregandoHistorico] = useState(false);
   const [rascunhos, setRascunhos] = useState<Record<string, RascunhoMapeamento>>(() => Object.fromEntries(
     mapeamentos.map((item) => [item.origem, { contaDebitoCodigo: item.contaDebitoCodigo, contaCreditoCodigo: item.contaCreditoCodigo }]),
   ));
@@ -108,6 +112,28 @@ export const RevisaoOrigensTab: React.FC<{
   }, [cnpjNormalizado, cnpj, desde, ate]);
 
   useEffect(() => { void carregar(); }, [carregar]);
+
+  const carregarHistorico = useCallback(async () => {
+    if (!/^[A-Z0-9]{12}\d{2}$/.test(cnpjNormalizado)) {
+      setHistoricoAprovacoes([]);
+      setErroHistorico("");
+      return;
+    }
+    setCarregandoHistorico(true);
+    setErroHistorico("");
+    try {
+      const response = await fetch(`/api/workspaces/${encodeURIComponent(cnpjNormalizado)}/historico-aprovacoes?limite=100`, { credentials: "include", cache: "no-store" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.sucesso !== true) throw new Error(result.motivo || "Não foi possível consultar o histórico de aprovações.");
+      setHistoricoAprovacoes(Array.isArray(result.aprovacoes) ? result.aprovacoes : []);
+    } catch (error) {
+      setErroHistorico(error instanceof Error ? error.message : "Falha ao consultar o histórico de aprovações.");
+    } finally {
+      setCarregandoHistorico(false);
+    }
+  }, [cnpjNormalizado]);
+
+  useEffect(() => { void carregarHistorico(); }, [carregarHistorico]);
 
   const totaisFiscal = useMemo(() => {
     const resumo = {
@@ -303,6 +329,7 @@ export const RevisaoOrigensTab: React.FC<{
     if (!confirmado) return;
     setMensagemPrevia("Salvando os lançamentos aprovados no banco permanente…");
     const persistido = await onContabilizar(pendentes.map((item) => item.referenciaOrigem));
+    if (persistido) void carregarHistorico();
     setMensagemPrevia(persistido
       ? `${pendentes.length} lançamento(s) elegível(is) contabilizado(s) e confirmado(s) no PostgreSQL${bloqueados ? `; ${bloqueados} rascunho(s) preservado(s) para revisão` : ""}.`
       : "A gravação no PostgreSQL não foi confirmada. Os dados continuam apenas na cópia local; atualize a empresa antes de tentar novamente.");
@@ -316,7 +343,7 @@ export const RevisaoOrigensTab: React.FC<{
           <h1 className="mt-1 text-2xl font-black text-slate-900">Revisão Fiscal e Departamento Pessoal</h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-600">O servidor prepara e persiste pré-lançamentos quando origem, autorização, dados e mapeamentos permitem, mesmo sem esta tela aberta. Tudo aguarda conferência e aprovação; esta tela não transmite obrigações.</p>
         </div>
-        <button type="button" onClick={() => void carregar()} disabled={carregando || !workspaceCarregado} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">
+        <button type="button" onClick={() => { void carregar(); void carregarHistorico(); }} disabled={carregando || carregandoHistorico || !workspaceCarregado} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">
           <RefreshCw className={`h-4 w-4 ${carregando ? "animate-spin" : ""}`} /> Atualizar
         </button>
       </header>
@@ -328,6 +355,20 @@ export const RevisaoOrigensTab: React.FC<{
       </section>
 
       {erro && <div role="alert" className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{erro}</div>}
+
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
+          <div><h2 className="font-bold text-slate-900">Histórico persistente de aprovações</h2><p className="mt-1 text-xs text-slate-600">Registros do banco para esta empresa: quem aprovou, quando, referência, valor e contas usadas.</p></div>
+          <button type="button" onClick={() => void carregarHistorico()} disabled={carregandoHistorico || !workspaceCarregado} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${carregandoHistorico ? "animate-spin" : ""}`} /> Atualizar histórico</button>
+        </div>
+        <div className="p-4">
+          {erroHistorico && <div role="alert" className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">{erroHistorico}</div>}
+          {carregandoHistorico && historicoAprovacoes.length === 0 ? <p className="text-sm text-slate-500">Consultando o histórico no banco…</p> : historicoAprovacoes.length === 0 ? <p className="text-sm text-slate-500">Ainda não há aprovações registradas para esta empresa.</p> : (
+            <div className="overflow-x-auto"><table className="w-full min-w-[800px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Data e hora</th><th className="px-3 py-2">Aprovado por</th><th className="px-3 py-2">Referência</th><th className="px-3 py-2">Débito</th><th className="px-3 py-2">Crédito</th><th className="px-3 py-2 text-right">Valor</th></tr></thead><tbody>{historicoAprovacoes.map((item) => <tr key={item.referencia} className="border-t border-slate-100"><td className="whitespace-nowrap px-3 py-2">{new Date(item.aprovadoEm).toLocaleString("pt-BR")}</td><td className="px-3 py-2">{texto(item.login)}</td><td className="max-w-80 truncate px-3 py-2" title={item.referencia}>{item.referencia}</td><td className="px-3 py-2">{texto(item.contaDebito)}</td><td className="px-3 py-2">{texto(item.contaCredito)}</td><td className="px-3 py-2 text-right tabular-nums">{Number.isFinite(Number(item.valor)) ? Number(item.valor).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "Não apurado"}</td></tr>)}</tbody></table></div>
+          )}
+          <p className="mt-3 text-[11px] text-slate-500">Exibindo até 100 aprovações mais recentes. O histórico não altera lançamentos e não executa transmissões oficiais.</p>
+        </div>
+      </section>
 
       <section aria-label="Etapas de conferência" className="grid gap-3 md:grid-cols-2">
         <article className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">

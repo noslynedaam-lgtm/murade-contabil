@@ -615,6 +615,33 @@ export async function contabilizarRascunhosAutomaticosContabil(
   } finally { client?.release(); }
 }
 
+export async function listarHistoricoAprovacoesContabil(req: Request, res: Response): Promise<void> {
+  res.setHeader("Cache-Control", "no-store");
+  const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
+  const cnpj = normalizarCnpjAcesso(req.params.cnpj);
+  if (!cnpjContabilValido(cnpj)) { res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." }); return; }
+  if (!sessao || !sessao.cnpjs.includes(cnpj)) { res.status(403).json({ sucesso: false, motivo: "Empresa fora do seu acesso." }); return; }
+  const limiteSolicitado = req.query.limite == null ? 100 : Number(req.query.limite);
+  if (!Number.isInteger(limiteSolicitado) || limiteSolicitado < 1 || limiteSolicitado > 200) {
+    res.status(400).json({ sucesso: false, motivo: "O limite deve estar entre 1 e 200 registros." }); return;
+  }
+  try {
+    await prepararAuthContabil();
+    const result = await obterBanco().query(`
+      SELECT referencia, login, valor::text AS valor, conta_debito AS "contaDebito",
+        conta_credito AS "contaCredito", aprovado_em AS "aprovadoEm"
+      FROM contabil_accounting_approval_audit
+      WHERE cnpj=$1
+      ORDER BY aprovado_em DESC, referencia DESC
+      LIMIT $2
+    `, [cnpj, limiteSolicitado]);
+    res.json({ sucesso: true, cnpj, aprovacoes: result.rows });
+  } catch (error) {
+    console.error("Falha ao consultar histórico de aprovações contábeis:", error);
+    res.status(503).json({ sucesso: false, motivo: "Não foi possível consultar o histórico persistido." });
+  }
+}
+
 export async function lerWorkspaceInternoContabil(cnpj: string): Promise<Record<string, unknown> | null> {
   const normalizado = normalizarCnpjAcesso(cnpj);
   if (!cnpjContabilValido(normalizado)) return null;
