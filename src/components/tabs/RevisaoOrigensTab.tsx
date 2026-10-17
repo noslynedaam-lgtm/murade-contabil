@@ -384,7 +384,7 @@ export const RevisaoOrigensTab: React.FC<{
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric title="Notas fiscais no período" value={String(totaisFiscal.entrada.total + totaisFiscal.saida.total)} detail={`${totaisFiscal.entrada.total} entradas • ${totaisFiscal.saida.total} saídas`} />
         <Metric title="Resumos de folha recebidos" value={String(dados.folhas.length)} detail="Totais agregados por competência" />
-        <Metric title="Lançamentos automáticos" value="0" detail="Aguardam mapeamento e aprovação" />
+        <Metric title="Lançamentos definitivos automáticos" value="0" detail="Rascunhos aguardam revisão e aprovação" />
         <Metric title="Status da conferência" value="Pendente" detail="Revisão do contador necessária" />
       </section>
 

@@ -734,21 +734,37 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[Murad Contábil] Servidor ativo em http://localhost:${PORT}`);
-    setTimeout(async () => {
+    let reconciliacaoEmCurso = false;
+    const reconciliarRascunhos = async () => {
+      if (reconciliacaoEmCurso) return;
+      reconciliacaoEmCurso = true;
       try {
         const cnpjs = await listarCnpjsComMapeamentoContabil();
         let criados = 0;
         let atualizados = 0;
+        let falhas = 0;
         for (const cnpj of cnpjs) {
-          const resultado = await prepararRascunhosContabeisAutomaticos(cnpj);
-          criados += resultado.criados;
-          atualizados += resultado.atualizados;
+          try {
+            const resultado = await prepararRascunhosContabeisAutomaticos(cnpj);
+            criados += resultado.criados;
+            atualizados += resultado.atualizados;
+          } catch (error) {
+            falhas += 1;
+            console.error(`[Murad Contábil] Falha ao reconciliar rascunhos do CNPJ autorizado ${cnpj}:`, error);
+          }
         }
-        console.log(`[Murad Contábil] Reconciliação automática concluída: ${cnpjs.length} empresa(s), ${criados} rascunho(s) criado(s), ${atualizados} atualizado(s); nenhum lançamento definitivo foi confirmado.`);
+        if (cnpjs.length || falhas) console.log(`[Murad Contábil] Reconciliação automática: ${cnpjs.length} empresa(s), ${criados} rascunho(s) criado(s), ${atualizados} atualizado(s), ${falhas} falha(s); nenhum lançamento definitivo foi confirmado.`);
       } catch (error) {
-        console.error("[Murad Contábil] Reconciliação automática indisponível; nova tentativa ocorrerá na próxima entrada de dados:", error);
+        console.error("[Murad Contábil] Reconciliação automática indisponível; nova tentativa ocorrerá no próximo ciclo:", error);
+      } finally {
+        reconciliacaoEmCurso = false;
       }
-    }, 1_000);
+    };
+    const primeiraRecon = setTimeout(() => void reconciliarRascunhos(), 1_000);
+    primeiraRecon.unref();
+    const reconciliacaoPeriodica = setInterval(() => void reconciliarRascunhos(), 60_000);
+    reconciliacaoPeriodica.unref();
+    console.log("[Murad Contábil] Reconciliação de rascunhos habilitada a cada 60 segundos; lançamentos definitivos continuam exigindo aprovação.");
   });
 }
 
