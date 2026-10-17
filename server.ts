@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 import { timingSafeEqual } from "node:crypto";
 import { ErroValidacaoDocumentoFiscal, fiscalStoreConfigurado, gravarDocumentosFiscais, lerDocumentosFiscais, verificarEstadoStoreFiscal } from "./src/server/documentosFiscaisStore";
 import { dpStoreConfigurado, ErroValidacaoResumoDP, gravarResumoDP, lerResumosDP, verificarEstadoStoreDP } from "./src/server/dadosDpStore";
-import { adicionarEmpresaAcessoContabil, bootstrapAuthContabil, cnpjContabilValido, criarConviteUsuarioContabil, exigirSessaoContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil } from "./src/server/authContabil";
+import { adicionarEmpresaAcessoContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, exigirSessaoContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil } from "./src/server/authContabil";
 import { gerarCandidatosRascunhosAutomaticos, mesclarRascunhosNoWorkspace, prepararRascunhosContabeisAutomaticos } from "./src/server/prepararRascunhosContabeis";
 
 dotenv.config();
@@ -105,6 +105,7 @@ async function startServer() {
   app.put("/api/workspaces/:cnpj", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
     const cnpj = normalizarCnpjAcesso(req.params.cnpj);
     const workspaceEnviado = req.body?.dados;
+    let permitirRascunhosServidor = false;
     try {
       const workspaceAtual = await lerWorkspaceInternoContabil(cnpj);
       const mapasAtuais = JSON.stringify(workspaceAtual?.mapeamentosOrigem || []);
@@ -113,12 +114,25 @@ async function startServer() {
         const candidatos = await gerarCandidatosRascunhosAutomaticos(cnpj, workspaceEnviado);
         const mesclado = mesclarRascunhosNoWorkspace(cnpj, workspaceEnviado, candidatos);
         req.body.dados = mesclado.workspace;
+        permitirRascunhosServidor = true;
         res.setHeader("X-Murade-Rascunhos-Preparados", String(mesclado.criados));
       }
     } catch (error) {
       console.error("Falha ao preparar rascunhos durante atualização dos mapeamentos:", error);
     }
-    await salvarWorkspaceContabil(req, res);
+    await salvarWorkspaceContabil(req, res, { dadosPropostosPeloCliente: workspaceEnviado, permitirRascunhosServidor });
+  });
+  app.post("/api/workspaces/:cnpj/contabilizar", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
+    const cnpj = normalizarCnpjAcesso(req.params.cnpj);
+    if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
+    if (!Array.isArray(req.body?.referencias) || req.body.referencias.length < 1 || req.body.referencias.length > 500) return res.status(400).json({ sucesso: false, motivo: "Selecione de 1 a 500 rascunhos para conferência." });
+    try {
+      const candidatos = await gerarCandidatosRascunhosAutomaticos(cnpj);
+      await contabilizarRascunhosAutomaticosContabil(req, res, candidatos, req.body.referencias);
+    } catch (error) {
+      console.error("Falha ao revalidar origens para contabilização:", error);
+      return res.status(503).json({ sucesso: false, motivo: "Não foi possível revalidar os dados de origem. Nenhum lançamento foi contabilizado." });
+    }
   });
   app.get("/api/revisao/origens", exigirSessaoContabil, async (req, res) => {
     res.setHeader("Cache-Control", "no-store");

@@ -410,45 +410,30 @@ function AppWorkspace() {
   };
 
   const handleContabilizarPreLancamentos = async (referencias: string[]): Promise<boolean> => {
-    const solicitadas = new Set(referencias);
-    const agora = new Date().toISOString();
     const empresaCnpj = empresa.cnpj.toUpperCase().replace(/[^A-Z0-9]/g, "");
-    const jaLancadas = new Set(lancamentos.map((item) => item.documentoRef).filter((ref): ref is string => Boolean(ref)));
-    const aprovados = preLancamentos.filter((item) =>
-      item.status === "pendente_conferencia" && solicitadas.has(item.referenciaOrigem) &&
-      (item.referenciaOrigem.startsWith(`DP:${empresaCnpj}:`) || item.referenciaOrigem.startsWith(`FISCAL:${empresaCnpj}:`)) && !jaLancadas.has(item.referenciaOrigem) &&
-      Number.isFinite(item.valor) && item.valor > 0 && item.contaDebitoCodigo !== item.contaCreditoCodigo &&
-      /^\d{4}-(0[1-9]|1[0-2])$/.test(item.competencia) &&
-      (item.referenciaOrigem.startsWith(`DP:${empresaCnpj}:`) ? item.data === `${item.competencia}-01` : /^\d{4}-\d{2}-\d{2}$/.test(item.data) && item.data.slice(0, 7) === item.competencia)
-    );
-    if (!aprovados.length) {
-      showToast("Nenhum pré-lançamento elegível foi encontrado; confira empresa, contas e situação.", "info");
+    const workspaceAtualSalvo = await flushWorkspaceRef.current();
+    if (!workspaceAtualSalvo) {
+      showToast("Não foi possível confirmar os dados atuais no PostgreSQL. Atualize a empresa e tente novamente.", "info");
       return false;
     }
-    const nomeConta = (codigo: string) => contas.find((conta) => conta.codigo === codigo)?.descricao || "Conta";
-    const novos: LancamentoContabil[] = aprovados.map((item) => ({
-      id: item.referenciaOrigem,
-      data: item.data,
-      competencia: item.competencia,
-      contaDebitoCodigo: item.contaDebitoCodigo,
-      contaDebitoNome: nomeConta(item.contaDebitoCodigo),
-      contaCreditoCodigo: item.contaCreditoCodigo,
-      contaCreditoNome: nomeConta(item.contaCreditoCodigo),
-      valor: item.valor,
-      historico: item.historico.replace("pré-lançamento para conferência", "aprovado pelo contador"),
-      origem: item.origem,
-      documentoRef: item.referenciaOrigem,
-    }));
-    const porReferencia = new Map(lancamentos.map((item) => [item.documentoRef || item.id, item]));
-    novos.forEach((item) => porReferencia.set(item.documentoRef || item.id, item));
-    setLancamentos([...porReferencia.values()]);
-    setPreLancamentos(preLancamentos.map((item) => aprovados.some((aprovado) => aprovado.referenciaOrigem === item.referenciaOrigem)
-      ? { ...item, status: "contabilizado", contabilizadoEm: agora }
-      : item));
-    await new Promise((resolve) => setTimeout(resolve, 650));
-    const persistido = await flushWorkspaceRef.current();
-    if (persistido) showToast(`${novos.length} lançamento(s) contabilizado(s) e confirmados no PostgreSQL desta empresa.`, "success");
-    return persistido;
+    try {
+      const response = await fetch(`/api/workspaces/${encodeURIComponent(empresaCnpj)}/contabilizar`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ referencias }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.sucesso !== true || result.persistencia !== "postgresql" || !result.dados) {
+        throw new Error(result.motivo || "O servidor não confirmou a aprovação contábil.");
+      }
+      versoesWorkspaceRef.current.set(empresaCnpj, Number(result.versao));
+      setLancamentos(Array.isArray(result.dados.lancamentos) ? result.dados.lancamentos : []);
+      setPreLancamentos(Array.isArray(result.dados.preLancamentos) ? result.dados.preLancamentos : []);
+      showToast(`${result.contabilizados} lançamento(s) foram validados e contabilizados no servidor por ${result.aprovadosPor}.`, "success");
+      return true;
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Falha ao confirmar a aprovação no servidor.", "info");
+      return false;
+    }
   };
 
   const handleEstornarLancamento = (id: string) => {
