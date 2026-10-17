@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { TabId, OrgaoConectado, EmpresaDados, LancamentoContabil, ContaPlano, LivroContabil, LembreteItem, CentroCustoContabil, MapeamentoOrigemContabil, PreLancamentoContabil } from "./types";
-import { initialEmpresa, orgaosIniciais, lancamentosIniciais, planoContasPadrao, livrosIniciais, lembretesIniciais } from "./data/mockData";
+import { initialEmpresa, orgaosIniciais, planoContasPadrao } from "./data/mockData";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import { BannerHero } from "./components/BannerHero";
@@ -57,16 +57,16 @@ function AppWorkspace() {
     autenticacao: "Não configurada",
     credencialTipo: undefined,
   })));
-  const [lancamentos, setLancamentos] = useState<LancamentoContabil[]>(lancamentosIniciais);
+  const [lancamentos, setLancamentos] = useState<LancamentoContabil[]>([]);
   const [contas, setContas] = useState<ContaPlano[]>(() =>
     ordenarContasPorSequenciaNumerica(planoContasPadrao)
   );
   const [centrosCusto, setCentrosCusto] = useState<CentroCustoContabil[]>([]);
   const [mapeamentosOrigem, setMapeamentosOrigem] = useState<MapeamentoOrigemContabil[]>([]);
   const [preLancamentos, setPreLancamentos] = useState<PreLancamentoContabil[]>([]);
-  const [livros, setLivros] = useState<LivroContabil[]>(livrosIniciais);
+  const [livros, setLivros] = useState<LivroContabil[]>([]);
   const [competenciasFechadas, setCompetenciasFechadas] = useState<string[]>([]);
-  const [lembretes, setLembretes] = useState<LembreteItem[]>(lembretesIniciais);
+  const [lembretes, setLembretes] = useState<LembreteItem[]>([]);
   const [dadosEmpresaCarregadosCnpj, setDadosEmpresaCarregadosCnpj] = useState("");
   const [workspacePersistido, setWorkspacePersistido] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -86,10 +86,10 @@ function AppWorkspace() {
       setCentrosCusto([]);
       setMapeamentosOrigem([]);
       setPreLancamentos([]);
-      setLancamentos(lancamentosIniciais);
-      setLivros(livrosIniciais);
+      setLancamentos([]);
+      setLivros([]);
       setCompetenciasFechadas([]);
-      setLembretes(lembretesIniciais);
+      setLembretes([]);
     };
 
     // Não permita que o conjunto da empresa anterior permaneça visível enquanto
@@ -778,6 +778,22 @@ function AppWorkspace() {
                   onEditarDescricao={(codigo, descricao) => {
                     setContas((prev) => prev.map((conta) => conta.codigo === codigo ? { ...conta, descricao } : conta));
                     showToast(`Nome da conta ${codigo} atualizado para esta empresa.`);
+                  }}
+                  onEditarSaldoInicial={(codigo, saldoInicial, competencia) => {
+                    setContas((prev) => prev.map((conta) => {
+                      if (conta.codigo !== codigo) return conta;
+                      const atualizada = { ...conta };
+                      if (saldoInicial === undefined) {
+                        delete atualizada.saldoInicial;
+                        delete atualizada.saldoInicialCompetencia;
+                      } else {
+                        atualizada.saldoInicial = saldoInicial;
+                        if (competencia) atualizada.saldoInicialCompetencia = competencia;
+                        else delete atualizada.saldoInicialCompetencia;
+                      }
+                      return atualizada;
+                    }));
+                    showToast(saldoInicial === undefined ? `Saldo inicial da conta ${codigo} removido.` : `Saldo inicial da conta ${codigo} atualizado${competencia ? " para " + competencia : ""}.`);
                   }}
                   onAdicionarConta={(nova) => {
                     setContas((prev) => ordenarContasPorSequenciaNumerica([...prev, nova]));

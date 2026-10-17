@@ -143,6 +143,7 @@ export interface ContaPlano {
   tipo: "sintetica" | "analitica";
   natureza: "D" | "C";
   saldoInicial?: number;
+  saldoInicialCompetencia?: string;
 }
 
 export type OrigemMapeadaContabil =

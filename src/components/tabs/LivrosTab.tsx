@@ -82,9 +82,9 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
     [contas, lancamentos, periodo, workspaceCarregado],
   );
   const pendentes = preLancamentos.filter((item) => item.status === "pendente_conferencia").length;
-  const temSaldoInicial = contas.some((conta) => Number.isFinite(Number(conta.saldoInicial)) && Number(conta.saldoInicial) !== 0);
-  const temDados = relatorios.doPeriodo.length > 0 || temSaldoInicial || relatorios.razao.length > 0;
-  const exportacaoLiberada = workspaceCarregado && workspacePersistido && Boolean(empresa.cnpj) && temDados && relatorios.invalidos.length === 0;
+  const saldosAberturaPendentes = relatorios.saldosIniciaisPendentes;
+  const temDados = relatorios.doPeriodo.length > 0 || relatorios.razao.length > 0 || saldosAberturaPendentes.length > 0;
+  const exportacaoLiberada = workspaceCarregado && workspacePersistido && Boolean(empresa.cnpj) && temDados && relatorios.invalidos.length === 0 && saldosAberturaPendentes.length === 0;
   const periodoDescricao = periodo === "todos" ? "Todos os períodos" : `Competência ${periodo.split("-").reverse().join("/")}`;
   const competenciaEmpresa = competenciaInicial(empresa.competencia);
   const competenciasDisponiveis = Array.from(new Set<string>(relatorios.validos.map((item) => item.dataISO.slice(0, 7))));
@@ -284,6 +284,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
       {workspaceCarregado && !workspacePersistido && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">Há alterações aguardando confirmação do PostgreSQL. Os relatórios podem ser conferidos na tela, mas a exportação só será liberada depois que a gravação permanente for confirmada.</div>}
       {pendentes > 0 && <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><p><strong>{pendentes} pré-lançamento(s) aguardam conferência.</strong> Eles não aparecem no Diário, Razão nem Balancete até que o contador os confira e confirme a contabilização na aba Revisão Fiscal e DP.</p></div>}
       {relatorios.invalidos.length > 0 && <div role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-xs text-rose-950"><strong>Há {relatorios.invalidos.length} lançamento(s) definitivo(s) com inconsistência.</strong> Eles não foram incluídos nos relatórios, e as exportações estão bloqueadas para evitar livros incompletos. Confira data, histórico, valor e contas analíticas.</div>}
+      {saldosAberturaPendentes.length > 0 && <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950"><strong>{saldosAberturaPendentes.length} saldo(s) inicial(is) têm valor ou competência-base pendente/inconsistente.</strong> Eles ficam fora dos cálculos até a conferência no Plano de Contas; PDF e Excel permanecem bloqueados para não apresentar um livro incompleto.</div>}
       {aviso && <p role="status" className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">{aviso}</p>}
 
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Livros contábeis">

@@ -11,7 +11,9 @@ type EstadoPreviaDP = { partidas: PreviaPartidaDP[]; pendencias: Array<{ compete
 type PreviaPartidaFiscal = PreviaPartidaDP & { data: string; chave: string };
 type EstadoPreviaFiscal = { partidas: PreviaPartidaFiscal[]; pendencias: Array<{ competencia: string; motivo: string }> };
 type AprovacaoHistorico = { referencia: string; login: string; valor: string; contaDebito: string; contaCredito: string; aprovadoEm: string };
-type ConferenciaIntegridade = { status: "consistente" | "revisar"; aprovacoesSemLancamento: string[]; lancamentosSemAuditoria: string[]; statusContabilizadosSemLancamento: string[] };
+type AuditoriaLancamentoManual = { lancamentoId: string; evento: "lancamento_manual" | "estorno_manual"; login: string; registradoEm: string; lancamento: Record<string, unknown> };
+type AuditoriaSaldoAbertura = { contaCodigo: string; evento: "saldo_inicial_cadastrado" | "saldo_inicial_alterado"; saldoAnterior: string | null; saldoNovo: string; competencia: string | null; login: string; registradoEm: string };
+type ConferenciaIntegridade = { status: "consistente" | "revisar"; aprovacoesSemLancamento: string[]; lancamentosSemAuditoria: string[]; statusContabilizadosSemLancamento: string[]; lancamentosManuaisSemAuditoria: string[]; auditoriasManuaisSemLancamento: string[] };
 
 const origensMapeaveis: Array<{ id: OrigemMapeadaContabil; titulo: string; descricao: string }> = [
   { id: "fiscal_entrada", titulo: "NF-e de entrada", descricao: "A conta de estoque/despesa varia por operação e CFOP; revise a conta de débito para esta empresa." },
@@ -76,6 +78,9 @@ export const RevisaoOrigensTab: React.FC<{
   const [atualizadoEm, setAtualizadoEm] = useState("");
   const [mensagemPrevia, setMensagemPrevia] = useState("");
   const [historicoAprovacoes, setHistoricoAprovacoes] = useState<AprovacaoHistorico[]>([]);
+  const [historicoLancamentosManuais, setHistoricoLancamentosManuais] = useState<AuditoriaLancamentoManual[]>([]);
+  const [historicoSaldosAbertura, setHistoricoSaldosAbertura] = useState<AuditoriaSaldoAbertura[]>([]);
+  const [lancamentosManuaisSemAuditoria, setLancamentosManuaisSemAuditoria] = useState<string[]>([]);
   const [erroHistorico, setErroHistorico] = useState("");
   const [carregandoHistorico, setCarregandoHistorico] = useState(false);
   const [integridadeAprovacoes, setIntegridadeAprovacoes] = useState<ConferenciaIntegridade | null>(null);
@@ -118,6 +123,9 @@ export const RevisaoOrigensTab: React.FC<{
   const carregarHistorico = useCallback(async () => {
     if (!/^[A-Z0-9]{12}\d{2}$/.test(cnpjNormalizado)) {
       setHistoricoAprovacoes([]);
+      setHistoricoLancamentosManuais([]);
+      setHistoricoSaldosAbertura([]);
+      setLancamentosManuaisSemAuditoria([]);
       setIntegridadeAprovacoes(null);
       setErroHistorico("");
       return;
@@ -129,6 +137,9 @@ export const RevisaoOrigensTab: React.FC<{
       const result = await response.json().catch(() => ({}));
       if (!response.ok || result.sucesso !== true) throw new Error(result.motivo || "Não foi possível consultar o histórico de aprovações.");
       setHistoricoAprovacoes(Array.isArray(result.aprovacoes) ? result.aprovacoes : []);
+      setHistoricoLancamentosManuais(Array.isArray(result.lancamentosManuais) ? result.lancamentosManuais : []);
+      setHistoricoSaldosAbertura(Array.isArray(result.saldosAbertura) ? result.saldosAbertura : []);
+      setLancamentosManuaisSemAuditoria(Array.isArray(result.lancamentosManuaisSemAuditoria) ? result.lancamentosManuaisSemAuditoria : []);
       setIntegridadeAprovacoes(result.conferenciaIntegridade && typeof result.conferenciaIntegridade === "object" ? result.conferenciaIntegridade as ConferenciaIntegridade : null);
     } catch (error) {
       setErroHistorico(error instanceof Error ? error.message : "Falha ao consultar o histórico de aprovações.");
@@ -362,24 +373,39 @@ export const RevisaoOrigensTab: React.FC<{
 
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
-          <div><h2 className="font-bold text-slate-900">Histórico persistente de aprovações</h2><p className="mt-1 text-xs text-slate-600">Registros do banco para esta empresa: quem aprovou, quando, referência, valor e contas usadas.</p></div>
+          <div><h2 className="font-bold text-slate-900">Histórico persistente e trilha de auditoria</h2><p className="mt-1 text-xs text-slate-600">Mostra aprovações integradas, lançamentos manuais, estornos e alterações de saldo inicial salvos no banco.</p></div>
           <button type="button" onClick={() => void carregarHistorico()} disabled={carregandoHistorico || !workspaceCarregado} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${carregandoHistorico ? "animate-spin" : ""}`} /> Atualizar histórico</button>
         </div>
         <div className="p-4">
           {erroHistorico && <div role="alert" className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">{erroHistorico}</div>}
           {integridadeAprovacoes && <div role="status" className={`mb-3 rounded-lg border p-3 text-sm ${integridadeAprovacoes.status === "consistente" ? "border-emerald-300 bg-emerald-50 text-emerald-950" : "border-amber-300 bg-amber-50 text-amber-950"}`}>
-            <strong>{integridadeAprovacoes.status === "consistente" ? "Vínculo aprovação ↔ lançamento: sem divergência detectada" : "Vínculo aprovação ↔ lançamento: requer revisão"}</strong>
+            <strong>{integridadeAprovacoes.status === "consistente" ? "Vínculos auditados: sem divergência detectada" : "Vínculos auditados: requer revisão"}</strong>
             {integridadeAprovacoes.status === "revisar" && <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
               {integridadeAprovacoes.aprovacoesSemLancamento.length > 0 && <li>{integridadeAprovacoes.aprovacoesSemLancamento.length} aprovação(ões) sem lançamento correspondente ou com valor/contas diferentes.</li>}
               {integridadeAprovacoes.lancamentosSemAuditoria.length > 0 && <li>{integridadeAprovacoes.lancamentosSemAuditoria.length} lançamento(s) integrado(s) sem registro de aprovação.</li>}
               {integridadeAprovacoes.statusContabilizadosSemLancamento.length > 0 && <li>{integridadeAprovacoes.statusContabilizadosSemLancamento.length} rascunho(s) marcados contabilizados sem lançamento correspondente.</li>}
+              {integridadeAprovacoes.auditoriasManuaisSemLancamento.length > 0 && <li>{integridadeAprovacoes.auditoriasManuaisSemLancamento.length} evento(s) manual(is) sem lançamento correspondente ou com conteúdo diferente.</li>}
             </ul>}
-            <p className="mt-2 text-xs">Escopo desta checagem: compara referência, valor e contas entre a auditoria de aprovações integradas e os lançamentos correspondentes. Ela não é uma conciliação completa de todos os documentos do Fiscal e resumos do DP, nem audita autoria de lançamentos manuais. O resultado só aponta situações para revisão; não altera nem apaga dados.</p>
+            <p className="mt-2 text-xs">A checagem compara aprovações integradas com partidas e confere os lançamentos manuais/estornos que já possuem trilha. {lancamentosManuaisSemAuditoria.length > 0 ? `${lancamentosManuaisSemAuditoria.length} lançamento(s) manual(is) são anteriores à trilha e não têm autoria histórica recuperável.` : "Lançamentos manuais anteriores à ativação desta trilha não podem ter sua autoria retroativamente comprovada."} Não é conciliação completa dos documentos do Fiscal ou resumos do DP; nada é alterado ou apagado.</p>
           </div>}
           {carregandoHistorico && historicoAprovacoes.length === 0 ? <p className="text-sm text-slate-500">Consultando o histórico no banco…</p> : historicoAprovacoes.length === 0 ? <p className="text-sm text-slate-500">Ainda não há aprovações registradas para esta empresa.</p> : (
             <div className="overflow-x-auto"><table className="w-full min-w-[800px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Data e hora</th><th className="px-3 py-2">Aprovado por</th><th className="px-3 py-2">Referência</th><th className="px-3 py-2">Débito</th><th className="px-3 py-2">Crédito</th><th className="px-3 py-2 text-right">Valor</th></tr></thead><tbody>{historicoAprovacoes.map((item) => <tr key={item.referencia} className="border-t border-slate-100"><td className="whitespace-nowrap px-3 py-2">{new Date(item.aprovadoEm).toLocaleString("pt-BR")}</td><td className="px-3 py-2">{texto(item.login)}</td><td className="max-w-80 truncate px-3 py-2" title={item.referencia}>{item.referencia}</td><td className="px-3 py-2">{texto(item.contaDebito)}</td><td className="px-3 py-2">{texto(item.contaCredito)}</td><td className="px-3 py-2 text-right tabular-nums">{Number.isFinite(Number(item.valor)) ? Number(item.valor).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "Não apurado"}</td></tr>)}</tbody></table></div>
           )}
           <p className="mt-3 text-[11px] text-slate-500">Exibindo até 100 aprovações mais recentes. O histórico não altera lançamentos e não executa transmissões oficiais.</p>
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="border-b border-slate-200 px-4 py-3"><h2 className="font-bold text-slate-900">Lançamentos manuais e estornos</h2><p className="mt-1 text-xs text-slate-600">A autoria, o horário e o conteúdo são gravados junto com a alteração no PostgreSQL. Partidas já salvas ficam preservadas; correções são feitas por estorno.</p></div>
+        <div className="overflow-x-auto p-4">
+          {historicoLancamentosManuais.length === 0 ? <p className="text-sm text-slate-500">Ainda não há lançamentos manuais ou estornos registrados nesta trilha.</p> : <table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Data e hora</th><th className="px-3 py-2">Ação / usuário</th><th className="px-3 py-2">Lançamento</th><th className="px-3 py-2">Débito / crédito</th><th className="px-3 py-2 text-right">Valor</th></tr></thead><tbody>{historicoLancamentosManuais.map((item) => <tr key={item.lancamentoId} className="border-t border-slate-100"><td className="whitespace-nowrap px-3 py-2">{new Date(item.registradoEm).toLocaleString("pt-BR")}</td><td className="px-3 py-2">{item.evento === "estorno_manual" ? "Estorno" : "Lançamento manual"}<br/><span className="text-xs text-slate-500">{texto(item.login)}</span></td><td className="max-w-64 truncate px-3 py-2" title={item.lancamentoId}>{item.lancamentoId}</td><td className="px-3 py-2">{texto(item.lancamento.contaDebitoCodigo)} / {texto(item.lancamento.contaCreditoCodigo)}</td><td className="px-3 py-2 text-right tabular-nums">{dinheiro(item.lancamento.valor)}</td></tr>)}</tbody></table>}
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="border-b border-slate-200 px-4 py-3"><h2 className="font-bold text-slate-900">Saldos iniciais das contas</h2><p className="mt-1 text-xs text-slate-600">Os saldos são base de abertura para os relatórios; não geram partidas por conta própria. Alterações ficam registradas abaixo.</p></div>
+        <div className="overflow-x-auto p-4">
+          {historicoSaldosAbertura.length === 0 ? <p className="text-sm text-slate-500">Ainda não há cadastro ou alteração de saldo inicial na trilha.</p> : <table className="w-full min-w-[780px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Data e hora</th><th className="px-3 py-2">Conta</th><th className="px-3 py-2">Ação / usuário</th><th className="px-3 py-2">Competência-base</th><th className="px-3 py-2 text-right">Anterior</th><th className="px-3 py-2 text-right">Novo saldo</th></tr></thead><tbody>{historicoSaldosAbertura.map((item, index) => <tr key={`${item.contaCodigo}-${item.registradoEm}-${index}`} className="border-t border-slate-100"><td className="whitespace-nowrap px-3 py-2">{new Date(item.registradoEm).toLocaleString("pt-BR")}</td><td className="px-3 py-2">{item.contaCodigo}</td><td className="px-3 py-2">{item.evento === "saldo_inicial_cadastrado" ? "Cadastro inicial" : "Alteração"}<br/><span className="text-xs text-slate-500">{texto(item.login)}</span></td><td className="px-3 py-2">{texto(item.competencia)}</td><td className="px-3 py-2 text-right">{item.saldoAnterior == null ? "—" : dinheiro(Number(item.saldoAnterior))}</td><td className="px-3 py-2 text-right">{dinheiro(Number(item.saldoNovo))}</td></tr>)}</tbody></table>}
         </div>
       </section>
 

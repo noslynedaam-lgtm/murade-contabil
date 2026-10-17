@@ -42,6 +42,7 @@ export interface RelatoriosContabeis {
   totalCreditosCentavos: number;
   totalSaldoDevedorCentavos: number;
   totalSaldoCredorCentavos: number;
+  saldosIniciaisPendentes: ContaPlano[];
 }
 
 export function normalizarDataContabil(data: string): string | null {
@@ -82,6 +83,35 @@ function aplicarLancamento(saldoDevedorMenosCredor: number, item: LancamentoVali
   return saldoDevedorMenosCredor;
 }
 
+function saldoInicialAplicavel(conta: ContaPlano, periodo: PeriodoContabil): number {
+  const saldo = converterCentavos(conta.saldoInicial ?? 0) ?? 0;
+  const competencia = String(conta.saldoInicialCompetencia || "");
+  if (!saldo || !/^\d{4}-(0[1-9]|1[0-2])$/.test(competencia)) return 0;
+  if (periodo !== "todos" && competencia > periodo) return 0;
+  return saldo * (conta.natureza === "D" ? 1 : -1);
+}
+
+function movimentoDentroDaAbertura(conta: ContaPlano, item: LancamentoValidado, periodo: PeriodoContabil): boolean {
+  const saldo = converterCentavos(conta.saldoInicial ?? 0) ?? 0;
+  const competenciaBase = String(conta.saldoInicialCompetencia || "");
+  if (!saldo || !/^\d{4}-(0[1-9]|1[0-2])$/.test(competenciaBase)) return true;
+  // A abertura é o saldo anterior aos movimentos da competência-base. Para
+  // períodos posteriores, movimentos anteriores à abertura já estão contidos
+  // no saldo informado e não podem ser somados novamente.
+  if (periodo === "todos") return item.dataISO.slice(0, 7) >= competenciaBase;
+  if (periodo >= competenciaBase) return item.dataISO.slice(0, 7) >= competenciaBase;
+  return true;
+}
+
+function competenciaBaseComum(contas: ContaPlano[]): string | null {
+  const competencias = new Set(contas.flatMap((conta) => {
+    const saldo = converterCentavos(conta.saldoInicial ?? 0) ?? 0;
+    const competencia = String(conta.saldoInicialCompetencia || "");
+    return saldo !== 0 && /^\d{4}-(0[1-9]|1[0-2])$/.test(competencia) ? [competencia] : [];
+  }));
+  return competencias.size === 1 ? [...competencias][0] : null;
+}
+
 export function gerarRelatoriosContabeis(
   contas: ContaPlano[],
   lancamentosDefinitivos: LancamentoContabil[],
@@ -107,18 +137,31 @@ export function gerarRelatoriosContabeis(
   }
 
   validos.sort(ordenarLancamentos);
-  const doPeriodo = validos.filter((item) => dataNoPeriodo(item.dataISO, periodo));
+  const competenciasBase = new Set(contas.flatMap((conta) => {
+    const saldo = converterCentavos(conta.saldoInicial ?? 0) ?? 0;
+    const competencia = String(conta.saldoInicialCompetencia || "");
+    return saldo !== 0 && /^\d{4}-(0[1-9]|1[0-2])$/.test(competencia) ? [competencia] : [];
+  }));
+  const saldosIniciaisPendentes = contas.filter((conta) => {
+    const saldo = conta.saldoInicial == null ? 0 : converterCentavos(conta.saldoInicial);
+    return saldo === null || (saldo !== 0 && !/^\d{4}-(0[1-9]|1[0-2])$/.test(String(conta.saldoInicialCompetencia || "")))
+      || (competenciasBase.size > 1 && saldo !== 0);
+  });
+  const baseComum = competenciaBaseComum(contas);
+  const doPeriodo = validos.filter((item) => dataNoPeriodo(item.dataISO, periodo)
+    && (periodo !== "todos" || !baseComum || item.dataISO.slice(0, 7) >= baseComum));
   const totalDebitosCentavos = doPeriodo.reduce((soma, item) => soma + item.valorCentavos, 0);
   const totalCreditosCentavos = totalDebitosCentavos;
 
   const razao: LinhaRazao[] = [];
   for (const conta of contas.filter((item) => item.tipo === "analitica")) {
-    const natureza = conta.natureza === "D" ? 1 : -1;
-    let saldo = (converterCentavos(conta.saldoInicial || 0) || 0) * natureza;
+    let saldo = saldoInicialAplicavel(conta, periodo);
     for (const item of validos) {
-      if (periodo !== "todos" && item.dataISO.slice(0, 7) < periodo) saldo = aplicarLancamento(saldo, item, conta.codigo);
+      if (periodo !== "todos" && item.dataISO.slice(0, 7) < periodo && movimentoDentroDaAbertura(conta, item, periodo)) saldo = aplicarLancamento(saldo, item, conta.codigo);
     }
-    const doRazao = doPeriodo.filter((item) => item.debito.codigo === conta.codigo || item.credito.codigo === conta.codigo);
+    const doRazao = doPeriodo.filter((item) =>
+      (item.debito.codigo === conta.codigo || item.credito.codigo === conta.codigo)
+      && movimentoDentroDaAbertura(conta, item, periodo));
     if (saldo !== 0) {
       razao.push({
         conta,
@@ -162,19 +205,18 @@ export function gerarRelatoriosContabeis(
     movimentos.set(codigo, atual);
   };
   for (const item of doPeriodo) {
-    adicionarMovimento(item.debito.codigo, item.valorCentavos, 0);
-    adicionarMovimento(item.credito.codigo, 0, item.valorCentavos);
+    if (movimentoDentroDaAbertura(item.debito, item, periodo)) adicionarMovimento(item.debito.codigo, item.valorCentavos, 0);
+    if (movimentoDentroDaAbertura(item.credito, item, periodo)) adicionarMovimento(item.credito.codigo, 0, item.valorCentavos);
   }
 
   const balancete = contas.map((conta): LinhaBalanceteContabil => {
     const proprio = movimentos.get(conta.codigo) || { debito: 0, credito: 0 };
     const movimentoConta = { ...proprio };
-    let saldoAssinado = conta.tipo === "analitica"
-      ? (converterCentavos(conta.saldoInicial || 0) || 0) * (conta.natureza === "D" ? 1 : -1)
-      : 0;
+    let saldoAssinado = conta.tipo === "analitica" ? saldoInicialAplicavel(conta, periodo) : 0;
 
     for (const movimento of validos) {
       if (periodo !== "todos" && movimento.dataISO.slice(0, 7) > periodo) continue;
+      if (!movimentoDentroDaAbertura(conta, movimento, periodo)) continue;
       if (movimento.debito.codigo === conta.codigo) saldoAssinado += movimento.valorCentavos;
       if (movimento.credito.codigo === conta.codigo) saldoAssinado -= movimento.valorCentavos;
     }
@@ -183,9 +225,10 @@ export function gerarRelatoriosContabeis(
       saldoAssinado = 0;
       for (const filha of contas) {
         if (filha.tipo !== "analitica" || !filha.codigo.startsWith(`${conta.codigo}.`)) continue;
-        saldoAssinado += (converterCentavos(filha.saldoInicial || 0) || 0) * (filha.natureza === "D" ? 1 : -1);
+        saldoAssinado += saldoInicialAplicavel(filha, periodo);
         for (const movimento of validos) {
           if (periodo !== "todos" && movimento.dataISO.slice(0, 7) > periodo) continue;
+          if (!movimentoDentroDaAbertura(filha, movimento, periodo)) continue;
           if (movimento.debito.codigo === filha.codigo) saldoAssinado += movimento.valorCentavos;
           if (movimento.credito.codigo === filha.codigo) saldoAssinado -= movimento.valorCentavos;
         }
@@ -217,6 +260,7 @@ export function gerarRelatoriosContabeis(
     totalCreditosCentavos,
     totalSaldoDevedorCentavos: linhasAnaliticas.reduce((soma, item) => soma + item.saldoDevedorCentavos, 0),
     totalSaldoCredorCentavos: linhasAnaliticas.reduce((soma, item) => soma + item.saldoCredorCentavos, 0),
+    saldosIniciaisPendentes,
   };
 }
 

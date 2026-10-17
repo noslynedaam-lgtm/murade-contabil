@@ -85,6 +85,28 @@ export async function prepararAuthContabil(): Promise<void> {
       aprovado_em timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (cnpj, referencia)
     );
+    CREATE TABLE IF NOT EXISTS contabil_manual_journal_audit (
+      cnpj text NOT NULL CHECK (cnpj ~ '^[A-Z0-9]{12}[0-9]{2}$'),
+      lancamento_id text NOT NULL,
+      evento text NOT NULL CHECK (evento IN ('lancamento_manual', 'estorno_manual')),
+      user_id uuid NOT NULL REFERENCES contabil_auth_users(id),
+      login text NOT NULL,
+      lancamento jsonb NOT NULL,
+      registrado_em timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (cnpj, lancamento_id)
+    );
+    CREATE TABLE IF NOT EXISTS contabil_opening_balance_audit (
+      cnpj text NOT NULL CHECK (cnpj ~ '^[A-Z0-9]{12}[0-9]{2}$'),
+      conta_codigo text NOT NULL,
+      evento text NOT NULL CHECK (evento IN ('saldo_inicial_cadastrado', 'saldo_inicial_alterado')),
+      saldo_anterior numeric(16,2),
+      saldo_novo numeric(16,2) NOT NULL,
+      competencia text CHECK (competencia IS NULL OR competencia ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+      user_id uuid NOT NULL REFERENCES contabil_auth_users(id),
+      login text NOT NULL,
+      registrado_em timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (cnpj, conta_codigo, registrado_em)
+    );
     CREATE TABLE IF NOT EXISTS contabil_period_closures (
       cnpj text NOT NULL CHECK (cnpj ~ '^[A-Z0-9]{12}[0-9]{2}$'),
       competencia text NOT NULL CHECK (competencia ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
@@ -98,6 +120,7 @@ export async function prepararAuthContabil(): Promise<void> {
   `).then(async () => {
     await obterBanco().query("ALTER TABLE contabil_auth_users ADD COLUMN IF NOT EXISTS global_admin boolean NOT NULL DEFAULT false");
     await obterBanco().query("ALTER TABLE contabil_company_workspaces ADD COLUMN IF NOT EXISTS version bigint NOT NULL DEFAULT 1");
+    await obterBanco().query("ALTER TABLE contabil_opening_balance_audit ADD COLUMN IF NOT EXISTS competencia text");
     await obterBanco().query("DELETE FROM contabil_auth_sessions WHERE expires_at <= now()");
   }).then(() => undefined).catch((error) => {
     schemaPromise = null;
@@ -708,13 +731,42 @@ export async function listarHistoricoAprovacoesContabil(req: Request, res: Respo
     const statusContabilizadosSemLancamento = preLancamentos.filter((item) => item.status === "contabilizado"
       && !lancamentoPorReferencia.has(String(item.referenciaOrigem || "")))
       .map((item) => String(item.referenciaOrigem || "")).filter(Boolean);
-    const conferido = aprovacoesSemLancamento.length === 0 && lancamentosSemAuditoria.length === 0 && statusContabilizadosSemLancamento.length === 0;
+    const lancamentosManuais = lancamentos.filter((item) => item.origem === "Manual" || Boolean(item.estornoDe));
+    const auditoriaManualCompleta = await obterBanco().query(`
+      SELECT lancamento_id AS "lancamentoId", evento, login, lancamento,
+        registrado_em AS "registradoEm"
+      FROM contabil_manual_journal_audit WHERE cnpj=$1
+      ORDER BY registrado_em DESC LIMIT $2
+    `, [cnpj, limiteSolicitado]);
+    const auditoriaManualTodas = await obterBanco().query(`
+      SELECT lancamento_id AS "lancamentoId", lancamento
+      FROM contabil_manual_journal_audit WHERE cnpj=$1
+    `, [cnpj]);
+    const auditoriaSaldosAbertura = await obterBanco().query(`
+      SELECT conta_codigo AS "contaCodigo", evento, saldo_anterior::text AS "saldoAnterior",
+        saldo_novo::text AS "saldoNovo", competencia, login, registrado_em AS "registradoEm"
+      FROM contabil_opening_balance_audit WHERE cnpj=$1
+      ORDER BY registrado_em DESC LIMIT $2
+    `, [cnpj, limiteSolicitado]);
+    const lancamentoManualPorId = new Map(lancamentosManuais.map((item) => [String(item.id || ""), item]));
+    const auditoriaManualPorId = new Map(auditoriaManualTodas.rows.map((item) => [String(item.lancamentoId), item.lancamento]));
+    const lancamentosManuaisSemAuditoria = lancamentosManuais
+      .filter((item) => !auditoriaManualPorId.has(String(item.id || "")))
+      .map((item) => String(item.id || "")).filter(Boolean);
+    const auditoriasManuaisSemLancamento = auditoriaManualTodas.rows
+      .filter((item) => !lancamentoManualPorId.has(String(item.lancamentoId))
+        || jsonCanonico(lancamentoManualPorId.get(String(item.lancamentoId))) !== jsonCanonico(item.lancamento))
+      .map((item) => String(item.lancamentoId));
+    const conferido = aprovacoesSemLancamento.length === 0 && lancamentosSemAuditoria.length === 0
+      && statusContabilizadosSemLancamento.length === 0 && auditoriasManuaisSemLancamento.length === 0;
     res.json({ sucesso: true, cnpj, aprovacoes: result.rows, conferenciaIntegridade: {
       status: conferido ? "consistente" : "revisar",
       aprovacoesSemLancamento,
       lancamentosSemAuditoria,
       statusContabilizadosSemLancamento,
-    } });
+      lancamentosManuaisSemAuditoria,
+      auditoriasManuaisSemLancamento,
+    }, lancamentosManuais: auditoriaManualCompleta.rows, lancamentosManuaisSemAuditoria, saldosAbertura: auditoriaSaldosAbertura.rows });
   } catch (error) {
     console.error("Falha ao consultar histórico de aprovações contábeis:", error);
     res.status(503).json({ sucesso: false, motivo: "Não foi possível consultar o histórico persistido." });
@@ -774,6 +826,19 @@ export async function fecharCompetenciaContabil(req: Request, res: Response): Pr
     if (invalidosCompetencia.length) {
       await client.query("ROLLBACK");
       res.status(409).json({ sucesso: false, motivo: `Fechamento bloqueado: ${invalidosCompetencia.length} lançamento(s) definitivo(s) desta competência têm inconsistências.` });
+      return;
+    }
+    const saldosSemDataBase = relatorios.saldosIniciaisPendentes;
+    if (saldosSemDataBase.length) {
+      await client.query("ROLLBACK");
+      res.status(409).json({ sucesso: false, motivo: `Fechamento bloqueado: ${saldosSemDataBase.length} saldo(s) inicial(is) têm valor ou competência-base pendente/inconsistente. Confira-os antes de fechar.` });
+      return;
+    }
+    const haDadosNaCompetencia = relatorios.doPeriodo.length > 0
+      || relatorios.totalSaldoDevedorCentavos > 0 || relatorios.totalSaldoCredorCentavos > 0;
+    if (!haDadosNaCompetencia) {
+      await client.query("ROLLBACK");
+      res.status(409).json({ sucesso: false, motivo: "Fechamento bloqueado: nenhum movimento ou saldo inicial foi informado para comprovar os dados desta competência." });
       return;
     }
     if (relatorios.totalSaldoDevedorCentavos !== relatorios.totalSaldoCredorCentavos) {
@@ -941,43 +1006,118 @@ export async function salvarWorkspaceContabil(req: Request, res: Response, opcoe
   if (versaoAnterior !== null && (!Number.isSafeInteger(versaoAnterior) || versaoAnterior < 1)) {
     res.status(400).json({ sucesso: false, motivo: "Informe a versão atual do workspace antes de salvar." }); return;
   }
+  let client: PoolClient | null = null;
   try {
-    const atual = await obterBanco().query("SELECT payload,version FROM contabil_company_workspaces WHERE cnpj=$1", [cnpj]);
+    await prepararAuthContabil();
+    client = await obterBanco().connect();
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [cnpj]);
+    const atual = await client.query("SELECT payload,version FROM contabil_company_workspaces WHERE cnpj=$1 FOR UPDATE", [cnpj]);
     const payloadAtual = atual.rowCount ? atual.rows[0].payload as Record<string, unknown> : {};
     const versaoAtual = atual.rowCount ? Number(atual.rows[0].version) : null;
-    if (versaoAtual !== versaoAnterior) { res.status(409).json({ sucesso: false, conflito: true, motivo: "Os dados desta empresa mudaram em outra sessão. Atualize a empresa antes de salvar." }); return; }
+    if (versaoAtual !== versaoAnterior) { await client.query("ROLLBACK"); res.status(409).json({ sucesso: false, conflito: true, motivo: "Os dados desta empresa mudaram em outra sessão. Atualize a empresa antes de salvar." }); return; }
     const propostaCliente = opcoes.dadosPropostosPeloCliente ?? req.body.dados;
-    const fechamentos = await obterBanco().query("SELECT competencia FROM contabil_period_closures WHERE cnpj=$1", [cnpj]);
+    const fechamentos = await client.query("SELECT competencia FROM contabil_period_closures WHERE cnpj=$1", [cnpj]);
     const fechadoAtual = fechamentos.rows.map((row) => String(row.competencia));
     const payloadProposto = propostaCliente as Record<string, unknown>;
     const payloadFinal = req.body.dados as Record<string, unknown>;
     if (fechadoAtual.length && [payloadProposto, payloadFinal].some((payload) => !planoContasCompatívelComFechamentos(payloadAtual.contas || [], payload.contas || []))) {
-      res.status(409).json({ sucesso: false, motivo: "Há competência fechada. Contas usadas no histórico não podem ser alteradas ou removidas; é permitido acrescentar contas sem saldo inicial, desde que não alterem a hierarquia existente." }); return;
+      await client.query("ROLLBACK"); res.status(409).json({ sucesso: false, motivo: "Há competência fechada. Contas usadas no histórico não podem ser alteradas ou removidas; é permitido acrescentar contas sem saldo inicial, desde que não alterem a hierarquia existente." }); return;
     }
     for (const competencia of fechadoAtual) {
       if ([payloadProposto, payloadFinal].some((payload) => jsonCanonico(dadosCompetencia(payloadAtual, competencia)) !== jsonCanonico(dadosCompetencia(payload, competencia)))) {
-        res.status(409).json({ sucesso: false, competenciaFechada: competencia, motivo: `A competência ${competencia} está fechada. Lançamentos, pré-lançamentos e registros do período permanecem bloqueados.` }); return;
+        await client.query("ROLLBACK"); res.status(409).json({ sucesso: false, competenciaFechada: competencia, motivo: `A competência ${competencia} está fechada. Lançamentos, pré-lançamentos e registros do período permanecem bloqueados.` }); return;
       }
     }
     if (!alteracaoIntegradaPermitida(payloadAtual, propostaCliente as Record<string, unknown>, false)) {
-      res.status(403).json({ sucesso: false, motivo: "Rascunhos e lançamentos vindos do Fiscal/DP só podem ser alterados pela validação automática ou pela aprovação autenticada do contador." }); return;
+      await client.query("ROLLBACK"); res.status(403).json({ sucesso: false, motivo: "Rascunhos e lançamentos vindos do Fiscal/DP só podem ser alterados pela validação automática ou pela aprovação autenticada do contador." }); return;
     }
     if (opcoes.permitirRascunhosServidor && !alteracaoIntegradaPermitida(payloadAtual, req.body.dados as Record<string, unknown>, true)) {
-      res.status(403).json({ sucesso: false, motivo: "A preparação automática tentou alterar um lançamento integrado já protegido." }); return;
+      await client.query("ROLLBACK"); res.status(403).json({ sucesso: false, motivo: "A preparação automática tentou alterar um lançamento integrado já protegido." }); return;
     }
-    const result = await obterBanco().query(`
+    const lancamentosAtuais = Array.isArray(payloadAtual.lancamentos) ? payloadAtual.lancamentos as Array<Record<string, unknown>> : [];
+    const lancamentosNovos = Array.isArray(payloadFinal.lancamentos) ? payloadFinal.lancamentos as Array<Record<string, unknown>> : [];
+    const lancamentosSolicitadosCliente = Array.isArray(payloadProposto.lancamentos) ? payloadProposto.lancamentos as Array<Record<string, unknown>> : [];
+    const lancamentosAtuaisPorId = new Map(lancamentosAtuais.map((item) => [String(item.id || ""), item]));
+    const lancamentosNovosPorId = new Map(lancamentosNovos.map((item) => [String(item.id || ""), item]));
+    for (const antigo of lancamentosAtuais.filter((item) => item.origem === "Manual" || Boolean(item.estornoDe))) {
+      const novo = lancamentosNovosPorId.get(String(antigo.id || ""));
+      if (!novo || jsonCanonico(antigo) !== jsonCanonico(novo)) {
+        await client.query("ROLLBACK");
+        res.status(409).json({ sucesso: false, motivo: "Lançamentos manuais salvos são preservados no histórico. Para corrigir um lançamento, registre um estorno e crie a partida correta." }); return;
+      }
+    }
+    const adicoesManuais = lancamentosSolicitadosCliente.filter((item) => item.origem === "Manual" && !item.estornoDe && !lancamentosAtuaisPorId.has(String(item.id || "")));
+    const adicoesEstorno = lancamentosSolicitadosCliente.filter((item) => Boolean(item.estornoDe) && !lancamentosAtuaisPorId.has(String(item.id || "")));
+    for (const item of adicoesManuais) {
+      if (!String(item.id || "").trim() || !normalizarDataContabil(String(item.data || ""))
+        || !Number.isFinite(Number(item.valor)) || Number(item.valor) <= 0
+        || !String(item.contaDebitoCodigo || "").trim() || !String(item.contaCreditoCodigo || "").trim()
+        || !String(item.historico || "").trim()) {
+        await client.query("ROLLBACK");
+        res.status(422).json({ sucesso: false, motivo: "Lançamento manual incompleto: informe data, valor positivo, contas de débito e crédito e histórico." }); return;
+      }
+    }
+    for (const estorno of adicoesEstorno) {
+      const original = lancamentosAtuaisPorId.get(String(estorno.estornoDe || ""));
+      const centavos = (value: unknown) => Number.isFinite(Number(value)) ? Math.round(Number(value) * 100) : NaN;
+      const jaEstornado = lancamentosAtuais.some((item) => String(item.estornoDe || "") === String(estorno.estornoDe || ""));
+      if (!original || jaEstornado || centavos(original.valor) !== centavos(estorno.valor)
+        || String(original.contaDebitoCodigo || "") !== String(estorno.contaCreditoCodigo || "")
+        || String(original.contaCreditoCodigo || "") !== String(estorno.contaDebitoCodigo || "")
+        || String(original.origem || "") !== String(estorno.origem || "")
+        || !normalizarDataContabil(String(estorno.data || "")) || !String(estorno.historico || "").trim()) {
+        await client.query("ROLLBACK");
+        res.status(422).json({ sucesso: false, motivo: "O estorno não corresponde a uma partida existente, não estornada, com mesmo valor e contas invertidas." }); return;
+      }
+    }
+    if (versaoAtual !== null) {
+      for (const item of [...adicoesManuais, ...adicoesEstorno]) {
+        const salvo = lancamentosNovosPorId.get(String(item.id || ""));
+        if (!salvo || jsonCanonico(salvo) !== jsonCanonico(item)) {
+          await client.query("ROLLBACK");
+          res.status(422).json({ sucesso: false, motivo: "O lançamento auditado não corresponde ao conteúdo que será salvo." }); return;
+        }
+        await client.query(`
+          INSERT INTO contabil_manual_journal_audit(cnpj,lancamento_id,evento,user_id,login,lancamento)
+          VALUES($1,$2,$3,$4,$5,$6::jsonb)
+        `, [cnpj, String(item.id), item.estornoDe ? "estorno_manual" : "lancamento_manual", sessao.userId, sessao.login, JSON.stringify(item)]);
+      }
+    }
+    const contasAtuais = Array.isArray(payloadAtual.contas) ? payloadAtual.contas as Array<Record<string, unknown>> : [];
+    const contasPropostas = Array.isArray(payloadFinal.contas) ? payloadFinal.contas as Array<Record<string, unknown>> : [];
+    const contasAtuaisPorCodigo = new Map(contasAtuais.map((item) => [String(item.codigo || ""), item]));
+    for (const conta of contasPropostas) {
+      const codigo = String(conta.codigo || "");
+      const saldoNovo = Number(conta.saldoInicial ?? 0);
+      const competenciaNova = String(conta.saldoInicialCompetencia || "") || null;
+      const saldoAnteriorRaw = contasAtuaisPorCodigo.get(codigo)?.saldoInicial;
+      const saldoAnterior = saldoAnteriorRaw == null ? null : Number(saldoAnteriorRaw);
+      const competenciaAnterior = String(contasAtuaisPorCodigo.get(codigo)?.saldoInicialCompetencia || "") || null;
+      if (!Number.isFinite(saldoNovo) || (saldoAnterior !== null && !Number.isFinite(saldoAnterior))) continue;
+      if ((saldoAnterior === null ? saldoNovo !== 0 : Math.round(saldoAnterior * 100) !== Math.round(saldoNovo * 100))
+        || competenciaAnterior !== competenciaNova) {
+        await client.query(`
+          INSERT INTO contabil_opening_balance_audit(cnpj,conta_codigo,evento,saldo_anterior,saldo_novo,competencia,user_id,login)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+        `, [cnpj, codigo, saldoAnterior === null ? "saldo_inicial_cadastrado" : "saldo_inicial_alterado", saldoAnterior, saldoNovo, competenciaNova, sessao.userId, sessao.login]);
+      }
+    }
+    const result = await client.query(`
       INSERT INTO contabil_company_workspaces(cnpj,payload,version) VALUES($1,$2::jsonb,1)
       ON CONFLICT(cnpj) DO UPDATE SET payload=EXCLUDED.payload,updated_at=now(),version=contabil_company_workspaces.version+1
       WHERE $3::bigint IS NOT NULL AND contabil_company_workspaces.version=$3::bigint
       RETURNING updated_at,version
     `, [cnpj, JSON.stringify(req.body.dados), versaoAnterior]);
     res.setHeader("Cache-Control", "no-store");
-    if (!result.rowCount) { res.status(409).json({ sucesso: false, conflito: true, motivo: "Os dados desta empresa mudaram em outra sessão. Atualize a empresa antes de salvar para evitar sobrescrever alterações." }); return; }
+    if (!result.rowCount) { await client.query("ROLLBACK"); res.status(409).json({ sucesso: false, conflito: true, motivo: "Os dados desta empresa mudaram em outra sessão. Atualize a empresa antes de salvar para evitar sobrescrever alterações." }); return; }
+    await client.query("COMMIT");
     res.json({ sucesso: true, persistencia: "postgresql", cnpj, atualizadoEm: new Date(result.rows[0].updated_at).toISOString(), versao: Number(result.rows[0].version) });
   } catch (error) {
+    if (client) await client.query("ROLLBACK").catch(() => undefined);
     console.error("Falha ao salvar dados persistidos da empresa no Contábil:", error);
     res.status(503).json({ sucesso: false, motivo: "Não foi possível persistir os dados contábeis desta empresa." });
-  }
+  } finally { client?.release(); }
 }
 
 export async function logoutAuthContabil(req: Request, res: Response): Promise<void> {
