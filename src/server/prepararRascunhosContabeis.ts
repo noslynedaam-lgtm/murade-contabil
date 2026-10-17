@@ -11,6 +11,7 @@ const mapeamentosOrigem = {
   "Fiscal — Saída": "fiscal_saida",
   "DP — Folha": "dp_folha_bruta",
   "DP — INSS": "dp_descontos_inss",
+  "DP — INSS patronal": "dp_inss_patronal",
   "DP — IRRF": "dp_descontos_irrf",
   "DP — FGTS": "dp_fgts",
 } satisfies Record<string, OrigemMapeadaContabil>;
@@ -90,6 +91,7 @@ function gerarRascunhosFolha(cnpj: string, folhas: ResumoFolha[], contas: Regist
   const origens = [
     { campo: "folhaBruta", origem: "DP — Folha", titulo: "Folha bruta" },
     { campo: "descontosINSS", origem: "DP — INSS", titulo: "INSS descontado do empregado" },
+    { campo: "inssPatronal", origem: "DP — INSS patronal", titulo: "INSS patronal", opcional: true },
     { campo: "descontosIRRF", origem: "DP — IRRF", titulo: "IRRF descontado" },
     { campo: "fgts", origem: "DP — FGTS", titulo: "FGTS informado pelo DP" },
   ] as const;
@@ -110,12 +112,17 @@ function gerarRascunhosFolha(cnpj: string, folhas: ResumoFolha[], contas: Regist
     let completo = true;
     for (const item of origens) {
       const valor = valorNumerico(valores[item.campo]);
+      if (valor === null && "opcional" in item && item.opcional) continue;
       if (valor === null || valor < 0) { completo = false; break; }
       if (valor === 0) continue;
       const mappingKey = mapeamentosOrigem[item.origem];
       const mapping = mapeamentos.find((candidate) => candidate.origem === mappingKey);
       if (!mapping || !contasAnaliticas.has(mapping.contaDebitoCodigo) || !contasAnaliticas.has(mapping.contaCreditoCodigo)
-        || mapping.contaDebitoCodigo === mapping.contaCreditoCodigo) { completo = false; break; }
+        || mapping.contaDebitoCodigo === mapping.contaCreditoCodigo) {
+        if ("opcional" in item && item.opcional) continue;
+        completo = false;
+        break;
+      }
       const referencia = `DP:${cnpj}:${folha.competencia}:${item.campo}`;
       lote.push({
         id: referencia,

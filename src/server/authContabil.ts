@@ -444,8 +444,8 @@ export async function removerEmpresaAcessoContabil(req: Request, res: Response):
 }
 
 const CAMPOS_WORKSPACE = new Set(["empresa", "contas", "centrosCusto", "mapeamentosOrigem", "preLancamentos", "lancamentos", "livros", "lembretes"]);
-const ORIGENS_MAPEAVEIS = new Set(["fiscal_entrada", "fiscal_saida", "dp_folha_bruta", "dp_descontos_inss", "dp_descontos_irrf", "dp_fgts"]);
-const ORIGENS_PRELANCAMENTO = new Set(["DP — Folha", "DP — INSS", "DP — IRRF", "DP — FGTS", "Fiscal — Entrada", "Fiscal — Saída"]);
+const ORIGENS_MAPEAVEIS = new Set(["fiscal_entrada", "fiscal_saida", "dp_folha_bruta", "dp_descontos_inss", "dp_inss_patronal", "dp_descontos_irrf", "dp_fgts"]);
+const ORIGENS_PRELANCAMENTO = new Set(["DP — Folha", "DP — INSS", "DP — INSS patronal", "DP — IRRF", "DP — FGTS", "Fiscal — Entrada", "Fiscal — Saída"]);
 const CHAVES_CERTIFICADO_INFORMATIVAS = new Set([
   "certificadoativo", "certificadonomearquivo", "certificadovalidade", "certificadotipo",
   "certificadoemissor", "certificadotamanho", "certificadodataupload",
@@ -487,7 +487,7 @@ function workspaceValido(value: unknown): value is Record<string, unknown> {
       const camposPermitidos = ["id", "referenciaOrigem", "competencia", "data", "origem", "contaDebitoCodigo", "contaCreditoCodigo", "valor", "historico", "status", "criadoEm", "contabilizadoEm", "geradoAutomaticamente"];
       if (Object.keys(lancamento).some((key) => !camposPermitidos.includes(key))) return false;
       const referencia = typeof lancamento.referenciaOrigem === "string" ? lancamento.referenciaOrigem : "";
-      const referenciaDP = /^DP:[A-Z0-9]{12}\d{2}:\d{4}-(0[1-9]|1[0-2]):(folhaBruta|descontosINSS|descontosIRRF|fgts)$/.test(referencia);
+      const referenciaDP = /^DP:[A-Z0-9]{12}\d{2}:\d{4}-(0[1-9]|1[0-2]):(folhaBruta|descontosINSS|inssPatronal|descontosIRRF|fgts)$/.test(referencia);
       const referenciaFiscal = /^FISCAL:[A-Z0-9]{12}\d{2}:\d{4}-(0[1-9]|1[0-2]):(Entrada|Saida):[A-Za-z0-9:_-]{1,128}$/.test(referencia);
       if ((!referenciaDP && !referenciaFiscal) || referencias.has(referencia) || lancamento.id !== referencia) return false;
       if (typeof lancamento.competencia !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(lancamento.competencia) || !referencia.includes(`:${lancamento.competencia}:`)) return false;
@@ -496,7 +496,7 @@ function workspaceValido(value: unknown): value is Record<string, unknown> {
       const campoOrigem = referenciaDP ? referencia.slice(referencia.lastIndexOf(":") + 1) : referencia.split(":")[3];
       const origemEsperada = referenciaFiscal
         ? campoOrigem === "Entrada" ? "Fiscal — Entrada" : campoOrigem === "Saida" ? "Fiscal — Saída" : ""
-        : campoOrigem === "folhaBruta" ? "DP — Folha" : campoOrigem === "descontosINSS" ? "DP — INSS" : campoOrigem === "descontosIRRF" ? "DP — IRRF" : "DP — FGTS";
+        : campoOrigem === "folhaBruta" ? "DP — Folha" : campoOrigem === "descontosINSS" ? "DP — INSS" : campoOrigem === "inssPatronal" ? "DP — INSS patronal" : campoOrigem === "descontosIRRF" ? "DP — IRRF" : "DP — FGTS";
       if (!origemEsperada || lancamento.origem !== origemEsperada) return false;
       if (typeof lancamento.contaDebitoCodigo !== "string" || typeof lancamento.contaCreditoCodigo !== "string" || lancamento.contaDebitoCodigo === lancamento.contaCreditoCodigo || !contasAnaliticas.has(lancamento.contaDebitoCodigo) || !contasAnaliticas.has(lancamento.contaCreditoCodigo)) return false;
       if (typeof lancamento.valor !== "number" || !Number.isFinite(lancamento.valor) || lancamento.valor <= 0 || lancamento.valor > 999999999999) return false;
@@ -664,6 +664,7 @@ export async function contabilizarRascunhosAutomaticosContabil(
       const origemMapeamento: Record<string, string> = {
         "Fiscal — Entrada": "fiscal_entrada", "Fiscal — Saída": "fiscal_saida",
         "DP — Folha": "dp_folha_bruta", "DP — INSS": "dp_descontos_inss",
+        "DP — INSS patronal": "dp_inss_patronal",
         "DP — IRRF": "dp_descontos_irrf", "DP — FGTS": "dp_fgts",
       };
       const mapping = mapas.find((item: any) => item.origem === origemMapeamento[rascunho.origem]);
@@ -1109,6 +1110,7 @@ export async function mesclarRascunhosAutomaticosContabil(
 function referenceDpOrigem(referencia: string): string {
   const campo = referencia.split(":").at(-1);
   return campo === "folhaBruta" ? "dp_folha_bruta" : campo === "descontosINSS" ? "dp_descontos_inss"
+    : campo === "inssPatronal" ? "dp_inss_patronal"
     : campo === "descontosIRRF" ? "dp_descontos_irrf" : campo === "fgts" ? "dp_fgts" : "";
 }
 
