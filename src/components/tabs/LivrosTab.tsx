@@ -109,6 +109,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
   const cnpjInformadoECD = String(empresa.cnpj || "").replace(/[^A-Z0-9]/gi, "").length >= 14;
   const checksECD = [
     { titulo: "Empresa identificada", detalhe: "Razão social e CNPJ cadastrados", ok: Boolean(String(empresa.razaoSocial || "").trim()) && cnpjInformadoECD },
+    { titulo: "Obrigatoriedade e escopo", detalhe: "Pendente de confirmação para esta empresa e ano; o regime, sozinho, não determina todos os casos de entrega", ok: false },
     { titulo: "Contador responsável", detalhe: "Nome e CRC informados no cadastro da empresa", ok: Boolean(String(empresa.contadorNome || "").trim() && String(empresa.contadorCrc || "").trim()) },
     { titulo: "Plano de contas", detalhe: contasAnaliticasECD.length ? `${contasAnaliticasECD.length} contas analíticas; ${contasSemDescricaoECD.length} sem descrição` : "Nenhuma conta analítica cadastrada", ok: contasAnaliticasECD.length > 0 && contasSemDescricaoECD.length === 0 },
     { titulo: "Escrituração do ano", detalhe: lancamentosAnoECD.length ? `${lancamentosAnoECD.length} lançamento(s) definitivo(s) validados em ${anoECD}` : `Nenhum lançamento localizado em ${anoECD}; confirme se houve movimento e qual obrigação se aplica`, ok: lancamentosAnoECD.length > 0 },
@@ -116,6 +117,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
     { titulo: "Saldos iniciais", detalhe: relatoriosECD.saldosIniciaisPendentes.length ? `${relatoriosECD.saldosIniciaisPendentes.length} saldo(s) pendentes ou inconsistentes` : "Nenhum saldo inicial pendente identificado", ok: relatoriosECD.saldosIniciaisPendentes.length === 0 },
     { titulo: "Persistência confirmada", detalhe: workspaceCarregado && workspacePersistido ? "Workspace lido e gravado no banco" : "Aguardando confirmação de leitura e gravação no banco", ok: workspaceCarregado && workspacePersistido },
     { titulo: "Revisão de rascunhos", detalhe: pendentes ? `${pendentes} pré-lançamento(s) ainda aguardam conferência` : "Nenhum pré-lançamento pendente", ok: pendentes === 0 },
+    { titulo: "Arquivo ECD e validação oficial", detalhe: "Pendente: o Murade ainda não gera o arquivo estruturado nem recebe validação do PGE/SPED", ok: false },
   ];
   const checklistECDLiberado = checksECD.every((item) => item.ok);
 
@@ -125,10 +127,10 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
       [empresa.razaoSocial || "Razão social não informada", `CNPJ: ${empresa.cnpj || "não informado"}`, `Ano-calendário: ${anoECD}`],
       ["Verificação", "Resultado local", "Detalhe"],
       ...checksECD.map((item) => [item.titulo, item.ok ? "Conferido localmente" : "Pendente", item.detalhe]),
-      ["Aviso", "Este checklist não valida o leiaute ECD e não substitui o PGE/SPED, a revisão profissional ou as regras aplicáveis à empresa."],
+      ["Aviso", "Este checklist não confirma a obrigatoriedade, não valida o leiaute ECD e não substitui o PGE/SPED, a revisão profissional ou as regras aplicáveis à empresa."],
     ];
     baixarArquivo(`checklist-preparacao-ecd-${String(empresa.cnpj || "empresa").replace(/[^A-Z0-9]/gi, "")}-${anoECD}.csv`, linhas.map((linha) => linha.map((valor) => `"${String(valor).replace(/"/g, '""')}"`).join(";")).join("\r\n"), "text/csv;charset=utf-8");
-    setAviso("Checklist interno da ECD exportado. Ele registra apenas conferências locais e não é arquivo para transmissão ao SPED.");
+    setAviso("Checklist interno da ECD exportado. A obrigatoriedade e a validação oficial continuam pendentes; este CSV não é arquivo para transmissão ao SPED.");
   };
 
   // Demonstrações gerenciais são derivadas apenas dos lançamentos definitivos.
@@ -454,7 +456,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
 
       <section className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
         <h3 className="font-bold">Autenticação oficial da ECD</h3>
-        <p className="mt-1">O caminho oficial é o Programa Gerador de Escrituração (PGE) da ECD, na página do SPED. Lá você importa o arquivo ECD estruturado no leiaute vigente, valida, assina com certificado digital e transmite; guarde o recibo de entrega. Para livros mercantis abrangidos pela regra, a autenticação é comprovada pelo recibo do SPED.</p>
+        <p className="mt-1">A obrigatoriedade depende do enquadramento e das exceções aplicáveis à entidade e ao ano; o sistema não presume a entrega só pelo regime tributário. O caminho oficial é o PGE da ECD: importar o arquivo estruturado no leiaute vigente, validar, assinar e transmitir; guarde o recibo. O Murade ainda não gera esse arquivo nem executa a validação oficial.</p>
         <div className="mt-3 rounded-md border border-amber-200 bg-white p-3">
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div><h4 className="font-bold">Conferência prévia local da ECD</h4><p className="mt-1 text-[11px]">Verifica dados existentes no workspace desta empresa; não monta TXT, não confirma obrigatoriedade e não equivale à validação pelo PGE.</p></div>
@@ -476,7 +478,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
         <a href="https://sped.rfb.gov.br/projeto/show/273" target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold text-amber-950 hover:bg-amber-100">
           <ExternalLink className="h-3.5 w-3.5" /> Abrir página oficial da ECD no SPED
         </a>
-        <p className="mt-2 text-[11px]">A obrigatoriedade e o procedimento podem variar conforme o tipo e o regime da empresa. Confirme o enquadramento e as instruções atuais da Receita Federal antes de transmitir.</p>
+        <p className="mt-2 text-[11px]">A Receita Federal lista exceções à obrigatoriedade, incluindo Simples Nacional e casos específicos de lucro presumido; a análise deve ser feita para o CNPJ e o ano-calendário. Consulte as <a className="font-semibold underline" href="https://www.gov.br/receitafederal/pt-br/acesso-a-informacao/perguntas-frequentes/sped/ecd/ecd/" target="_blank" rel="noreferrer">perguntas frequentes oficiais da ECD</a> e o <a className="font-semibold underline" href="https://www.gov.br/sped/pt-br/assuntos/escrituracoes-digitais/ecd/manuais-e-documentos-tecnicos/manual_de_orientacao_da_ecd_leiaute_9_janeiro_2026.pdf" target="_blank" rel="noreferrer">Manual da ECD — Leiaute 9, atualização de janeiro de 2026</a>.</p>
       </section>
 
       {livros.length > 0 && <section className="rounded-lg border border-slate-200 p-3 text-xs text-slate-700"><h3 className="font-bold">Outras obrigações cadastradas</h3><ul className="mt-2 space-y-1">{livros.map((livro) => <li key={livro.id}>{livro.titulo} · {livro.competencia} · situação local: {livro.status}</li>)}</ul></section>}
