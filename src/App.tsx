@@ -74,7 +74,6 @@ function AppWorkspace() {
   // Estados de controle e feedback
   const [isTestingOrgaos, setIsTestingOrgaos] = useState(false);
   const [isAuditing, setIsAuditing] = useState(false);
-  const [isTransmitting, setIsTransmitting] = useState(false);
   const [modalFiscalAberto, setModalFiscalAberto] = useState(false);
   const [empresaFiscalDetectada, setEmpresaFiscalDetectada] = useState<EmpresaDados | null>(null);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: "success" | "info" } | null>(null);
@@ -504,12 +503,6 @@ function AppWorkspace() {
     }
   };
 
-  // 7. Transmitir Todos os Livros
-  const handleTransmitirTodos = () => {
-    setIsTransmitting(false);
-    showToast("Transmissão indisponível: configure certificado, procuração e integração oficial. Nada foi transmitido.", "info");
-  };
-
   // 8. CONECTAR AO MURADE FISCAL E PUXAR EMPRESA REAL DO MURADE FISCAL
   const handleConectarMuradFiscal = async () => {
     showToast("🔄 Conectando ao Murade Fiscal e buscando empresa cadastrada...", "info");
@@ -776,8 +769,6 @@ function AppWorkspace() {
                   contas={contas}
                   preLancamentos={preLancamentos}
                   livros={livros}
-                  onTransmitirTodos={handleTransmitirTodos}
-                  isTransmitting={isTransmitting}
                 />
               )}
 
