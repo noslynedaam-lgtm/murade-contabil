@@ -288,6 +288,11 @@ export const RevisaoOrigensTab: React.FC<{
     ...previaContabilDP.partidas.map((partida) => partida.referencia),
     ...previaContabilFiscal.partidas.map((partida) => partida.referencia),
   ]), [previaContabilDP.partidas, previaContabilFiscal.partidas]);
+  const aguardandoContador = preLancamentos.filter((item) => item.status === "pendente_conferencia" && referenciasElegiveis.has(item.referenciaOrigem)).length;
+  const bloqueadosRevalidacao = preLancamentos.filter((item) => item.status === "pendente_conferencia" && !referenciasElegiveis.has(item.referenciaOrigem)).length;
+  const contabilizados = preLancamentos.filter((item) => item.status === "contabilizado").length;
+  const aprovadosPeloRobo = previaContabilDP.partidas.length + previaContabilFiscal.partidas.length;
+  const pendenciasRobo = previaContabilDP.pendencias.length + previaContabilFiscal.pendencias.length;
 
   const contabilizarPendentes = async () => {
     const todosPendentes = preLancamentos.filter((item) => item.status === "pendente_conferencia");
@@ -323,6 +328,21 @@ export const RevisaoOrigensTab: React.FC<{
       </section>
 
       {erro && <div role="alert" className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{erro}</div>}
+
+      <section aria-label="Etapas de conferência" className="grid gap-3 md:grid-cols-2">
+        <article className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+          <p className="text-xs font-black uppercase tracking-wide text-emerald-800">Etapa 1 · Robô de conferência</p>
+          <h2 className="mt-1 font-bold text-emerald-950">Validação automática dos dados disponíveis</h2>
+          <p className="mt-2 text-sm text-emerald-900">O sistema confere autorização e cancelamento fiscal, CNPJ, datas, valores, composição informada, mapeamentos e conciliação dos totais da folha. É uma validação por regras explícitas; não inventa dados nem substitui a análise profissional.</p>
+          <p className="mt-2 text-xs font-semibold text-emerald-900">{aprovadosPeloRobo} partida(s) passaram pelas regras para virar rascunho · {pendenciasRobo} pendência(s) bloqueiam preparação.</p>
+        </article>
+        <article className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+          <p className="text-xs font-black uppercase tracking-wide text-blue-800">Etapa 2 · Contador responsável</p>
+          <h2 className="mt-1 font-bold text-blue-950">Revisão e aprovação final</h2>
+          <p className="mt-2 text-sm text-blue-900">O contador confere os rascunhos aprovados pela triagem automática. Só a ação explícita “Conferir e contabilizar elegíveis” cria lançamentos definitivos e os inclui nos relatórios.</p>
+          <p className="mt-2 text-xs font-semibold text-blue-900">{aguardandoContador} aguardando conferência · {bloqueadosRevalidacao} bloqueado(s) para revalidação · {contabilizados} contabilizado(s).</p>
+        </article>
+      </section>
 
       <section className="overflow-hidden rounded-xl border border-blue-200 bg-white">
         <div className="flex items-center gap-2 border-b border-blue-100 px-4 py-3"><ClipboardCheck className="h-4 w-4 text-blue-700" /><h2 className="font-bold text-slate-900">Prévia contábil das notas fiscais</h2></div>
@@ -373,7 +393,7 @@ export const RevisaoOrigensTab: React.FC<{
           )}
           {mensagemPrevia && <p role="status" className="text-xs text-indigo-800">{mensagemPrevia}</p>}
           {preLancamentos.length > 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
-            <div className="flex flex-wrap items-center justify-between gap-3"><strong>{preLancamentos.filter((item) => item.status === "pendente_conferencia" && referenciasElegiveis.has(item.referenciaOrigem)).length} pendente(s) elegível(is), {preLancamentos.filter((item) => item.status === "pendente_conferencia" && !referenciasElegiveis.has(item.referenciaOrigem)).length} bloqueado(s) para revalidação e {preLancamentos.filter((item) => item.status === "contabilizado").length} contabilizado(s) no workspace desta empresa.</strong>
+            <div className="flex flex-wrap items-center justify-between gap-3"><strong>{aguardandoContador} pendente(s) elegível(is), {bloqueadosRevalidacao} bloqueado(s) para revalidação e {contabilizados} contabilizado(s) no workspace desta empresa.</strong>
               {preLancamentos.some((item) => item.status === "pendente_conferencia" && referenciasElegiveis.has(item.referenciaOrigem)) && <button type="button" onClick={contabilizarPendentes} disabled={carregando || !workspaceCarregado} className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><CheckCircle2 className="h-4 w-4" /> Conferir e contabilizar elegíveis</button>}
             </div>
             <p className="mt-2">A contabilização requer confirmação do contador. Cada referência só pode ser lançada uma vez. Rascunhos bloqueados são mantidos no banco até nova validação dos dados de origem.</p>
