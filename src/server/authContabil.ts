@@ -8,7 +8,7 @@ let pool: Pool | null = null;
 let schemaPromise: Promise<void> | null = null;
 let ultimaLimpezaSessao = 0;
 
-export type SessaoContabil = { userId: string; login: string; cnpjs: string[]; administrador: boolean };
+export type SessaoContabil = { userId: string; login: string; cnpjs: string[]; memberships: Array<{ cnpj: string; role: 'admin' | 'operator' | 'viewer' }>; administrador: boolean };
 
 function obterBanco(): Pool {
   const url = process.env.DATABASE_URL?.trim();
@@ -61,6 +61,12 @@ export async function prepararAuthContabil(): Promise<void> {
       expires_at timestamptz NOT NULL
     );
     CREATE INDEX IF NOT EXISTS contabil_auth_sessions_expiry_idx ON contabil_auth_sessions(expires_at);
+    CREATE TABLE IF NOT EXISTS contabil_auth_invites (
+      token_hash char(64) PRIMARY KEY, login text NOT NULL, cnpjs text[] NOT NULL,
+      role text NOT NULL CHECK (role IN ('admin','operator','viewer')),
+      created_by uuid NOT NULL REFERENCES contabil_auth_users(id), expires_at timestamptz NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
     CREATE TABLE IF NOT EXISTS contabil_company_workspaces (
       cnpj text PRIMARY KEY CHECK (cnpj ~ '^[A-Z0-9]{12}[0-9]{2}$'),
       payload jsonb NOT NULL,
@@ -140,11 +146,13 @@ export async function obterSessaoContabil(req: Request): Promise<SessaoContabil 
     WHERE s.token_hash = $1 AND s.expires_at > now() AND u.disabled = false
   `, [tokenHash]);
   if (!user.rowCount) return null;
-  const memberships = await obterBanco().query("SELECT cnpj FROM contabil_auth_company_access WHERE user_id = $1 ORDER BY cnpj", [user.rows[0].id]);
+  const memberships = await obterBanco().query("SELECT cnpj,role FROM contabil_auth_company_access WHERE user_id = $1 ORDER BY cnpj", [user.rows[0].id]);
+  const acessos = memberships.rows.map((row) => ({ cnpj: row.cnpj, role: row.role as 'admin' | 'operator' | 'viewer' }));
   return {
     userId: user.rows[0].id,
     login: user.rows[0].login,
-    cnpjs: memberships.rows.map((row) => row.cnpj),
+    cnpjs: acessos.map((row) => row.cnpj),
+    memberships: acessos,
     administrador: user.rows[0].global_admin === true,
   };
 }
@@ -169,7 +177,7 @@ export async function statusAuthContabil(_req: Request, res: Response): Promise<
   try {
     await prepararAuthContabil();
     const result = await obterBanco().query("SELECT count(*)::int AS total FROM contabil_auth_users");
-    const primeiroAcesso = Number(result.rows[0]?.total) === 0 && Boolean(process.env.CONTABIL_AUTH_BOOTSTRAP_TOKEN);
+    const primeiroAcesso = Number(result.rows[0]?.total) === 0 && Buffer.byteLength(process.env.CONTABIL_AUTH_BOOTSTRAP_TOKEN?.trim() || '', 'utf8') >= 32;
     res.setHeader("Cache-Control", "no-store");
     res.json({ disponivel: true, primeiroAcesso, configuracaoNecessaria: Number(result.rows[0]?.total) === 0 && !primeiroAcesso });
   } catch (error) {
@@ -184,7 +192,7 @@ export async function bootstrapAuthContabil(req: Request, res: Response): Promis
   const esperado = process.env.CONTABIL_AUTH_BOOTSTRAP_TOKEN || "";
   const recebido = typeof req.body?.token === "string" ? req.body.token : "";
   const a = Buffer.from(esperado); const b = Buffer.from(recebido);
-  if (!esperado || a.length !== b.length || !crypto.timingSafeEqual(a, b)) { res.status(403).json({ sucesso: false, motivo: "Código temporário inválido." }); return; }
+  if (a.length < 32 || a.length !== b.length || !crypto.timingSafeEqual(a, b)) { res.status(403).json({ sucesso: false, motivo: "Código temporário inválido. Configure um token aleatório com pelo menos 32 caracteres." }); return; }
   const login = String(req.body?.login || "").trim().toLowerCase();
   const senha = String(req.body?.senha || "");
   const cnpjs = Array.isArray(req.body?.cnpjs) ? [...new Set(req.body.cnpjs.map(normalizarCnpjAcesso))] : [];
@@ -239,8 +247,8 @@ export async function loginAuthContabil(req: Request, res: Response): Promise<vo
     await obterBanco().query("INSERT INTO contabil_auth_sessions(token_hash,user_id,expires_at) VALUES($1,$2,now() + ($3 * interval '1 second'))", [hash, row.id, SESSION_SECONDS]);
     gravarCookie(res, token);
     res.setHeader("Cache-Control", "no-store");
-    const access = await obterBanco().query("SELECT cnpj FROM contabil_auth_company_access WHERE user_id=$1 ORDER BY cnpj", [row.id]);
-    res.json({ sucesso: true, usuario: row.login, cnpjs: access.rows.map((item) => item.cnpj), administrador: row.global_admin === true });
+    const access = await obterBanco().query("SELECT cnpj,role FROM contabil_auth_company_access WHERE user_id=$1 ORDER BY cnpj", [row.id]);
+    res.json({ sucesso: true, usuario: row.login, cnpjs: access.rows.map((item) => item.cnpj), memberships: access.rows, administrador: row.global_admin === true });
   } catch (error) {
     console.error("Falha no login do Contábil:", error);
     res.status(503).json({ sucesso: false, motivo: "Autenticação indisponível: confira o PostgreSQL do Contábil." });
@@ -252,7 +260,7 @@ export async function sessaoAtualContabil(req: Request, res: Response): Promise<
     const sessao = await obterSessaoContabil(req);
     res.setHeader("Cache-Control", "no-store");
     if (!sessao) { res.json({ autenticado: false }); return; }
-    res.json({ autenticado: true, usuario: sessao.login, cnpjs: sessao.cnpjs, administrador: sessao.administrador });
+    res.json({ autenticado: true, usuario: sessao.login, cnpjs: sessao.cnpjs, memberships: sessao.memberships, administrador: sessao.administrador });
   } catch (error) {
     console.error("Falha ao consultar sessão do Contábil:", error);
     res.status(503).json({ autenticado: false, motivo: "Autenticação indisponível." });
@@ -274,6 +282,84 @@ export async function adicionarEmpresaAcessoContabil(req: Request, res: Response
   }
 }
 
+function usuarioPodeAdministrarCnpj(sessao: SessaoContabil, cnpj: string): boolean {
+  return sessao.administrador || sessao.memberships.some((item) => item.cnpj === cnpj && item.role === 'admin');
+}
+
+export async function criarConviteUsuarioContabil(req: Request, res: Response): Promise<void> {
+  const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
+  const login = String(req.body?.login || '').trim().toLowerCase();
+  const role = req.body?.role === 'admin' || req.body?.role === 'viewer' ? req.body.role : 'operator';
+  const cnpjs: string[] = Array.isArray(req.body?.cnpjs) ? [...new Set<string>(req.body.cnpjs.map((value: unknown) => normalizarCnpjAcesso(value)))] : [normalizarCnpjAcesso(req.body?.cnpj)];
+  if (!sessao || login.length < 3 || login.length > 80 || !/^[a-z0-9._@+-]+$/.test(login)) { res.status(400).json({ sucesso: false, motivo: 'Informe um usuário válido.' }); return; }
+  if (!cnpjs.length || cnpjs.length > 100 || cnpjs.some((cnpj) => !cnpjContabilValido(cnpj) || !usuarioPodeAdministrarCnpj(sessao, cnpj))) {
+    res.status(403).json({ sucesso: false, motivo: 'Você precisa ser administrador de cada empresa escolhida.' }); return;
+  }
+  try {
+    const existe = await obterBanco().query('SELECT 1 FROM contabil_auth_users WHERE login=$1', [login]);
+    if (existe.rowCount) { res.status(409).json({ sucesso: false, motivo: 'Este usuário já existe. Não alteramos a senha existente; peça que ele entre e vincule a empresa com um administrador.' }); return; }
+    const token = crypto.randomBytes(32).toString('base64url');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    await obterBanco().query("INSERT INTO contabil_auth_invites(token_hash,login,cnpjs,role,created_by,expires_at) VALUES($1,$2,$3,$4,$5,now()+interval '24 hours')", [tokenHash, login, cnpjs, role, sessao.userId]);
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(201).json({ sucesso: true, convite: token, login, cnpjs, expiraEmHoras: 24, mensagem: 'Convite de uso único. Envie-o em particular; a pessoa escolherá sua própria senha.' });
+  } catch (error) { console.error('Falha ao criar convite no Contábil:', error); res.status(503).json({ sucesso: false, motivo: 'Não foi possível criar o convite.' }); }
+}
+
+export async function vincularUsuarioExistenteContabil(req: Request, res: Response): Promise<void> {
+  const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
+  const cnpj = normalizarCnpjAcesso(req.body?.cnpj); const login = String(req.body?.login || '').trim().toLowerCase();
+  const role = req.body?.role === 'admin' || req.body?.role === 'viewer' ? req.body.role : 'operator';
+  if (!sessao || !cnpjContabilValido(cnpj) || login.length < 3 || login.length > 80 || !/^[a-z0-9._@+-]+$/.test(login) || !usuarioPodeAdministrarCnpj(sessao, cnpj)) {
+    res.status(403).json({ sucesso: false, motivo: 'Você precisa administrar esta empresa e informar usuário e CNPJ válidos.' }); return;
+  }
+  try {
+    const user = await obterBanco().query('SELECT id FROM contabil_auth_users WHERE login=$1 AND disabled=false', [login]);
+    if (!user.rowCount) { res.status(404).json({ sucesso: false, motivo: 'Usuário não encontrado. Envie um convite para ele criar a conta e a própria senha.' }); return; }
+    await obterBanco().query('INSERT INTO contabil_auth_company_access(user_id,cnpj,role) VALUES($1,$2,$3) ON CONFLICT(user_id,cnpj) DO UPDATE SET role=EXCLUDED.role', [user.rows[0].id, cnpj, role]);
+    res.setHeader('Cache-Control', 'no-store'); res.json({ sucesso: true, login, cnpj, role, senhaAlterada: false });
+  } catch (error) { console.error('Falha ao vincular usuário existente no Contábil:', error); res.status(503).json({ sucesso: false, motivo: 'Não foi possível atualizar o acesso do usuário.' }); }
+}
+
+export async function resgatarConviteUsuarioContabil(req: Request, res: Response): Promise<void> {
+  const token = String(req.body?.convite || ''); const login = String(req.body?.login || '').trim().toLowerCase(); const senha = String(req.body?.senha || '');
+  if (!token || token.length > 128 || login.length < 3 || login.length > 80 || !/^[a-z0-9._@+-]+$/.test(login) || senha.length < 12 || senha.length > 256) { res.status(400).json({ sucesso: false, motivo: 'Confira o convite, o usuário e a senha (mínimo 12 caracteres).' }); return; }
+  let client: PoolClient | undefined;
+  try {
+    await prepararAuthContabil(); client = await obterBanco().connect(); await client.query('BEGIN');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const convite = await client.query('SELECT login,cnpjs,role FROM contabil_auth_invites WHERE token_hash=$1 AND expires_at>now() FOR UPDATE', [tokenHash]);
+    if (!convite.rowCount || convite.rows[0].login !== login) { await client.query('ROLLBACK'); res.status(400).json({ sucesso: false, motivo: 'Convite inválido, expirado ou destinado a outro usuário.' }); return; }
+    const existente = await client.query('SELECT 1 FROM contabil_auth_users WHERE login=$1', [login]);
+    if (existente.rowCount) { await client.query('ROLLBACK'); res.status(409).json({ sucesso: false, motivo: 'Este usuário já está cadastrado.' }); return; }
+    const id = crypto.randomUUID(); const salt = crypto.randomBytes(16).toString('hex'); const hash = (await senhaHash(senha, salt)).toString('hex');
+    await client.query('INSERT INTO contabil_auth_users(id,login,password_salt,password_hash) VALUES($1,$2,$3,$4)', [id, login, salt, hash]);
+    for (const cnpj of convite.rows[0].cnpjs as string[]) await client.query('INSERT INTO contabil_auth_company_access(user_id,cnpj,role) VALUES($1,$2,$3)', [id, cnpj, convite.rows[0].role]);
+    await client.query('DELETE FROM contabil_auth_invites WHERE token_hash=$1', [tokenHash]); await client.query('COMMIT');
+    res.status(201).json({ sucesso: true, usuario: login, cnpjs: convite.rows[0].cnpjs });
+  } catch (error) { await client?.query('ROLLBACK').catch(() => undefined); console.error('Falha ao ativar convite no Contábil:', error); res.status(503).json({ sucesso: false, motivo: 'Não foi possível ativar esta conta.' }); }
+  finally { client?.release(); }
+}
+
+export async function listarUsuariosEmpresaContabil(req: Request, res: Response): Promise<void> {
+  const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil; const cnpj = normalizarCnpjAcesso(req.query.cnpj);
+  if (!sessao || !cnpjContabilValido(cnpj) || !usuarioPodeAdministrarCnpj(sessao, cnpj)) { res.status(403).json({ sucesso: false, motivo: 'Somente um administrador desta empresa pode consultar os acessos.' }); return; }
+  try {
+    const result = await obterBanco().query('SELECT u.login,a.role FROM contabil_auth_company_access a JOIN contabil_auth_users u ON u.id=a.user_id WHERE a.cnpj=$1 AND u.disabled=false ORDER BY u.login', [cnpj]);
+    res.setHeader('Cache-Control', 'no-store'); res.json({ sucesso: true, cnpj, usuarios: result.rows });
+  } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível consultar os usuários.' }); }
+}
+
+export async function revogarUsuarioEmpresaContabil(req: Request, res: Response): Promise<void> {
+  const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil; const cnpj = normalizarCnpjAcesso(req.query.cnpj); const login = String(req.params.login || '').trim().toLowerCase();
+  if (!sessao || !cnpjContabilValido(cnpj) || !usuarioPodeAdministrarCnpj(sessao, cnpj)) { res.status(403).json({ sucesso: false, motivo: 'Somente um administrador desta empresa pode revogar acessos.' }); return; }
+  try {
+    const result = await obterBanco().query("DELETE FROM contabil_auth_company_access a USING contabil_auth_users u WHERE a.user_id=u.id AND u.login=$1 AND a.cnpj=$2 AND u.global_admin=false RETURNING a.user_id", [login, cnpj]);
+    if (!result.rowCount) { res.status(404).json({ sucesso: false, motivo: 'Usuário ou acesso não encontrado; a conta administradora principal não pode ser removida daqui.' }); return; }
+    res.setHeader('Cache-Control', 'no-store'); res.json({ sucesso: true, cnpj, usuario: login, dadosPreservados: true });
+  } catch (error) { console.error('Falha ao revogar acesso no Contábil:', error); res.status(503).json({ sucesso: false, motivo: 'Não foi possível revogar o acesso.' }); }
+}
+
 export async function removerEmpresaAcessoContabil(req: Request, res: Response): Promise<void> {
   const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
   const cnpj = normalizarCnpjAcesso(req.params.cnpj);
@@ -283,12 +369,9 @@ export async function removerEmpresaAcessoContabil(req: Request, res: Response):
     client = await obterBanco().connect();
     await client.query("BEGIN");
     await client.query("DELETE FROM contabil_auth_company_access WHERE user_id=$1 AND cnpj=$2", [sessao.userId, cnpj]);
-    const remaining = await client.query("SELECT 1 FROM contabil_auth_company_access WHERE cnpj=$1 LIMIT 1", [cnpj]);
-    const workspaceExcluido = !remaining.rowCount;
-    if (workspaceExcluido) await client.query("DELETE FROM contabil_company_workspaces WHERE cnpj=$1", [cnpj]);
     await client.query("COMMIT");
     res.setHeader("Cache-Control", "no-store");
-    res.json({ sucesso: true, cnpj, workspaceExcluido });
+    res.json({ sucesso: true, cnpj, dadosPreservados: true });
   } catch (error) {
     if (client) await client.query("ROLLBACK").catch(() => undefined);
     console.error("Falha ao revogar acesso da empresa no Contábil:", error);
@@ -412,6 +495,7 @@ export async function salvarWorkspaceContabil(req: Request, res: Response): Prom
   const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
   const cnpj = normalizarCnpjAcesso(req.params.cnpj);
   if (!sessao || !sessao.cnpjs.includes(cnpj)) { res.status(403).json({ sucesso: false, motivo: "Empresa fora do seu acesso." }); return; }
+  if (!sessao.administrador && sessao.memberships.find((item) => item.cnpj === cnpj)?.role === 'viewer') { res.status(403).json({ sucesso: false, motivo: "Seu acesso a esta empresa é somente leitura." }); return; }
   if (!workspaceValido(req.body?.dados)) { res.status(422).json({ sucesso: false, motivo: "Workspace inválido, acima do limite ou contendo campos não permitidos." }); return; }
   const cnpjDados = normalizarCnpjAcesso((req.body.dados as any).empresa?.cnpj);
   if (cnpjDados && cnpjDados !== cnpj) { res.status(422).json({ sucesso: false, motivo: "Os dados da empresa não correspondem ao CNPJ autorizado." }); return; }
