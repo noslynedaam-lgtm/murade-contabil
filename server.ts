@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 import { timingSafeEqual } from "node:crypto";
 import { ErroValidacaoDocumentoFiscal, fiscalStoreConfigurado, gravarDocumentosFiscais, lerDocumentosFiscais, verificarEstadoStoreFiscal } from "./src/server/documentosFiscaisStore";
 import { dpStoreConfigurado, ErroValidacaoResumoDP, gravarResumoDP, lerResumosDP, verificarEstadoStoreDP } from "./src/server/dadosDpStore";
-import { adicionarEmpresaAcessoContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, exigirSessaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil } from "./src/server/authContabil";
+import { adicionarEmpresaAcessoContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil } from "./src/server/authContabil";
 import { gerarCandidatosRascunhosAutomaticos, mesclarRascunhosNoWorkspace, prepararRascunhosContabeisAutomaticos } from "./src/server/prepararRascunhosContabeis";
 
 dotenv.config();
@@ -26,6 +26,15 @@ function getAI(): GoogleGenAI | null {
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
+  const reconciliacaoRascunhosStatus: {
+    iniciouEm: string | null;
+    concluiuEm: string | null;
+    empresas: number;
+    criados: number;
+    atualizados: number;
+    falhas: number;
+    emCurso: boolean;
+  } = { iniciouEm: null, concluiuEm: null, empresas: 0, criados: 0, atualizados: 0, falhas: 0, emCurso: false };
 
   app.set("trust proxy", 1);
   app.use(express.json({ limit: "20mb" }));
@@ -96,6 +105,7 @@ async function startServer() {
         tokenServicoConfigurado: Boolean(process.env.MURADE_INTEGRATION_TOKEN?.trim()),
         fiscal,
         departamentoPessoal: dp,
+        reconciliacaoRascunhos: { ...reconciliacaoRascunhosStatus },
         rascunhosAguardamConferencia: true,
         transmissaoAutomaticaHabilitada: false,
         consultadoEm: new Date().toISOString(),
@@ -136,6 +146,9 @@ async function startServer() {
       console.error("Falha ao revalidar origens para contabilização:", error);
       return res.status(503).json({ sucesso: false, motivo: "Não foi possível revalidar os dados de origem. Nenhum lançamento foi contabilizado." });
     }
+  });
+  app.post("/api/workspaces/:cnpj/lancamentos-manuais/:id/decisao", exigirOrigemNavegador, exigirSessaoContabil, (req, res) => {
+    void decidirLancamentoManualContabil(req, res);
   });
   app.get("/api/revisao/origens", exigirSessaoContabil, async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
@@ -755,6 +768,9 @@ async function startServer() {
     const reconciliarRascunhos = async () => {
       if (reconciliacaoEmCurso) return;
       reconciliacaoEmCurso = true;
+      reconciliacaoRascunhosStatus.emCurso = true;
+      reconciliacaoRascunhosStatus.iniciouEm = new Date().toISOString();
+      let empresasProcessadas = 0;
       try {
         const cnpjs = await listarCnpjsComMapeamentoContabil();
         let criados = 0;
@@ -765,15 +781,23 @@ async function startServer() {
             const resultado = await prepararRascunhosContabeisAutomaticos(cnpj);
             criados += resultado.criados;
             atualizados += resultado.atualizados;
+            empresasProcessadas += 1;
           } catch (error) {
             falhas += 1;
             console.error(`[Murad Contábil] Falha ao reconciliar rascunhos do CNPJ autorizado ${cnpj}:`, error);
           }
         }
+        reconciliacaoRascunhosStatus.empresas = empresasProcessadas;
+        reconciliacaoRascunhosStatus.criados = criados;
+        reconciliacaoRascunhosStatus.atualizados = atualizados;
+        reconciliacaoRascunhosStatus.falhas = falhas;
         if (cnpjs.length || falhas) console.log(`[Murad Contábil] Reconciliação automática: ${cnpjs.length} empresa(s), ${criados} rascunho(s) criado(s), ${atualizados} atualizado(s), ${falhas} falha(s); nenhum lançamento definitivo foi confirmado.`);
       } catch (error) {
+        reconciliacaoRascunhosStatus.falhas += 1;
         console.error("[Murad Contábil] Reconciliação automática indisponível; nova tentativa ocorrerá no próximo ciclo:", error);
       } finally {
+        reconciliacaoRascunhosStatus.concluiuEm = new Date().toISOString();
+        reconciliacaoRascunhosStatus.emCurso = false;
         reconciliacaoEmCurso = false;
       }
     };

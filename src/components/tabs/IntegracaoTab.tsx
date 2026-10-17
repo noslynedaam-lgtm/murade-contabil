@@ -12,6 +12,7 @@ type EstadoIntegracao = {
   departamentoPessoal: EstadoOrigem;
   rascunhosAguardamConferencia: true;
   transmissaoAutomaticaHabilitada: false;
+  reconciliacaoRascunhos: { iniciouEm: string | null; concluiuEm: string | null; empresas: number; criados: number; atualizados: number; falhas: number; emCurso: boolean };
   consultadoEm: string;
 };
 
@@ -42,7 +43,11 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({ empresa }) => {
     }
   }, []);
 
-  useEffect(() => { void atualizar(); }, [atualizar]);
+  useEffect(() => {
+    void atualizar();
+    const intervalo = window.setInterval(() => void atualizar(), 60_000);
+    return () => window.clearInterval(intervalo);
+  }, [atualizar]);
 
   return <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
     <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
@@ -61,6 +66,15 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({ empresa }) => {
         <Metric titulo="Banco de dados" valor={estado.armazenamento === "postgresql" ? "PostgreSQL" : "Indisponível"} detalhe="Persistência consultada no servidor" ok={estado.armazenamento === "postgresql"} />
         <Metric titulo="Token de serviço" valor={estado.tokenServicoConfigurado ? "Configurado" : "Pendente"} detalhe="O segredo não é exibido no navegador" ok={estado.tokenServicoConfigurado} />
         <Metric titulo="Envio automático" valor="Desativado" detalhe="Rascunhos exigem revisão antes de contabilizar" ok={false} />
+      </div>
+
+      <div className={`rounded-lg border p-4 text-sm ${estado.reconciliacaoRascunhos.falhas ? "border-amber-300 bg-amber-50 text-amber-950" : "border-emerald-200 bg-emerald-50 text-emerald-950"}`}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <strong>Preparação automática de rascunhos</strong>
+          <span className="text-xs font-semibold">{estado.reconciliacaoRascunhos.emCurso ? "Executando agora" : estado.reconciliacaoRascunhos.concluiuEm ? "Último ciclo concluído" : "Aguardando primeiro ciclo"}</span>
+        </div>
+        <p className="mt-1 text-xs">Último ciclo: {estado.reconciliacaoRascunhos.concluiuEm ? new Date(estado.reconciliacaoRascunhos.concluiuEm).toLocaleString("pt-BR") : "ainda não registrado nesta execução do servidor"}. Empresas com mapeamento processadas: {estado.reconciliacaoRascunhos.empresas}; rascunhos novos: {estado.reconciliacaoRascunhos.criados}; atualizados: {estado.reconciliacaoRascunhos.atualizados}; falhas: {estado.reconciliacaoRascunhos.falhas}.</p>
+        <p className="mt-1 text-xs">Isso apenas prepara ou atualiza propostas com dados recebidos do Fiscal e do DP. Não aprova lançamentos, não fecha competência e não transmite obrigações.</p>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">

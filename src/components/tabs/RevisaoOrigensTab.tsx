@@ -1,19 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowDownToLine, CheckCircle2, ClipboardCheck, RefreshCw, Save } from "lucide-react";
-import type { ContaPlano, MapeamentoOrigemContabil, OrigemMapeadaContabil, PreLancamentoContabil } from "../../types";
+import { AlertTriangle, ArrowDownToLine, CheckCircle2, ClipboardCheck, Download, RefreshCw, Save } from "lucide-react";
+import type { ContaPlano, LancamentoContabil, MapeamentoOrigemContabil, OrigemMapeadaContabil, PreLancamentoContabil } from "../../types";
 
 type DocumentoFiscal = Record<string, unknown>;
-type ResumoFolha = { competencia: string; calculadoEm: string; recebidoEm: string; atualizadoEm?: string; resumo: Record<string, number | null> };
+type ResumoFolha = { competencia: string; processamentoId?: string; calculadoEm: string; recebidoEm: string; atualizadoEm?: string; resumo: Record<string, number | null> };
 type LoteOrigens = { documentos: DocumentoFiscal[]; folhas: ResumoFolha[] };
 type RascunhoMapeamento = { contaDebitoCodigo: string; contaCreditoCodigo: string };
 type PreviaPartidaDP = { competencia: string; origem: string; contaDebitoCodigo: string; contaCreditoCodigo: string; valor: number; referencia: string };
 type EstadoPreviaDP = { partidas: PreviaPartidaDP[]; pendencias: Array<{ competencia: string; motivo: string }> };
 type PreviaPartidaFiscal = PreviaPartidaDP & { data: string; chave: string };
 type EstadoPreviaFiscal = { partidas: PreviaPartidaFiscal[]; pendencias: Array<{ competencia: string; motivo: string }> };
+type SomaTributoFiscal = { valor: number; incompletos: number; documentos: number };
 type AprovacaoHistorico = { referencia: string; login: string; valor: string; contaDebito: string; contaCredito: string; aprovadoEm: string };
-type AuditoriaLancamentoManual = { lancamentoId: string; evento: "lancamento_manual" | "estorno_manual"; login: string; registradoEm: string; lancamento: Record<string, unknown> };
+type AuditoriaLancamentoManual = { lancamentoId: string; evento: string; login: string; registradoEm: string; motivo?: string | null; lancamento: Record<string, unknown> };
 type AuditoriaSaldoAbertura = { contaCodigo: string; evento: "saldo_inicial_cadastrado" | "saldo_inicial_alterado"; saldoAnterior: string | null; saldoNovo: string; competencia: string | null; login: string; registradoEm: string };
-type ConferenciaIntegridade = { status: "consistente" | "revisar"; aprovacoesSemLancamento: string[]; lancamentosSemAuditoria: string[]; statusContabilizadosSemLancamento: string[]; lancamentosManuaisSemAuditoria: string[]; auditoriasManuaisSemLancamento: string[] };
+type ConferenciaIntegridade = { status: "consistente" | "revisar"; aprovacoesSemLancamento: string[]; lancamentosSemAuditoria: string[]; statusContabilizadosSemLancamento: string[]; lancamentosManuaisSemAuditoria: string[]; auditoriasManuaisSemLancamento: string[]; lancamentosComTrilhaInconsistente: string[]; eventosManuaisSemLancamento: string[] };
 
 const origensMapeaveis: Array<{ id: OrigemMapeadaContabil; titulo: string; descricao: string }> = [
   { id: "fiscal_entrada", titulo: "NF-e de entrada", descricao: "A conta de estoque/despesa varia por operação e CFOP; revise a conta de débito para esta empresa." },
@@ -32,6 +33,13 @@ const texto = (value: unknown) => value == null || value === "" ? "—" : String
 const valorNumerico = (value: unknown): number | null => {
   const numero = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
   return Number.isFinite(numero) && numero >= 0 ? numero : null;
+};
+const competenciaDeData = (value: unknown): string => {
+  const textoData = String(value || "");
+  const iso = /^(\d{4})-(\d{2})/.exec(textoData);
+  if (iso) return `${iso[1]}-${iso[2]}`;
+  const br = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(textoData);
+  return br ? `${br[3]}-${br[2]}` : "";
 };
 const eventoCancelamentoConfirmado = (doc: DocumentoFiscal) => Array.isArray(doc.eventosSefaz) && doc.eventosSefaz.some((evento: any) =>
   evento?.confirmado === true && (/(cancelamento|cancelada)/i.test(String(evento.descricao || "")) || ["110111", "110112"].includes(String(evento.tipoEvento || ""))),
@@ -67,9 +75,10 @@ export const RevisaoOrigensTab: React.FC<{
   mapeamentos: MapeamentoOrigemContabil[];
   onSalvarMapeamentos: (mapeamentos: MapeamentoOrigemContabil[]) => void;
   preLancamentos: PreLancamentoContabil[];
+  lancamentos: LancamentoContabil[];
   onSalvarPreLancamentos: (preLancamentos: PreLancamentoContabil[]) => void;
   onContabilizar: (referencias: string[]) => Promise<boolean>;
-}> = ({ cnpj, regime, workspaceCarregado, contas, mapeamentos, onSalvarMapeamentos, preLancamentos, onSalvarPreLancamentos, onContabilizar }) => {
+}> = ({ cnpj, regime, workspaceCarregado, contas, mapeamentos, onSalvarMapeamentos, preLancamentos, lancamentos, onSalvarPreLancamentos, onContabilizar }) => {
   const [desde, setDesde] = useState(competenciaAtual);
   const [ate, setAte] = useState(competenciaAtual);
   const [dados, setDados] = useState<LoteOrigens>({ documentos: [], folhas: [] });
@@ -77,6 +86,8 @@ export const RevisaoOrigensTab: React.FC<{
   const [erro, setErro] = useState("");
   const [atualizadoEm, setAtualizadoEm] = useState("");
   const [mensagemPrevia, setMensagemPrevia] = useState("");
+  const [mensagemConciliacao, setMensagemConciliacao] = useState("");
+  const [mensagemHistoricoDP, setMensagemHistoricoDP] = useState("");
   const [historicoAprovacoes, setHistoricoAprovacoes] = useState<AprovacaoHistorico[]>([]);
   const [historicoLancamentosManuais, setHistoricoLancamentosManuais] = useState<AuditoriaLancamentoManual[]>([]);
   const [historicoSaldosAbertura, setHistoricoSaldosAbertura] = useState<AuditoriaSaldoAbertura[]>([]);
@@ -105,7 +116,7 @@ export const RevisaoOrigensTab: React.FC<{
     setCarregando(true);
     setErro("");
     try {
-      const query = new URLSearchParams({ cnpj: cnpjNormalizado, desde, ate });
+      const query = new URLSearchParams({ cnpj: cnpjNormalizado, desde, ate, limiteFiscal: "500", limiteDP: "200" });
       const response = await fetch(`/api/revisao/origens?${query}`, { credentials: "include", cache: "no-store" });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || result.sucesso !== true) throw new Error(result.motivo || "Não foi possível ler as origens persistidas.");
@@ -150,6 +161,40 @@ export const RevisaoOrigensTab: React.FC<{
 
   useEffect(() => { void carregarHistorico(); }, [carregarHistorico]);
 
+  const analiseDuplicidadeFiscal = useMemo(() => {
+    const contagem = new Map<string, number>();
+    for (const doc of dados.documentos) {
+      const chave = String(doc.chaveAcesso || "").replace(/\s/g, "");
+      if (/^\d{44}$/.test(chave)) contagem.set(chave, (contagem.get(chave) || 0) + 1);
+    }
+    const chavesDuplicadas = new Set([...contagem].filter(([, total]) => total > 1).map(([chave]) => chave));
+    const duplicados = dados.documentos.filter((doc) => chavesDuplicadas.has(String(doc.chaveAcesso || "").replace(/\s/g, "")));
+    return { chavesDuplicadas, duplicados, documentosSemDuplicidade: dados.documentos.filter((doc) => !chavesDuplicadas.has(String(doc.chaveAcesso || "").replace(/\s/g, ""))) };
+  }, [dados.documentos]);
+
+  const historicoFolhasDP = useMemo(() => {
+    const porCompetencia = new Map<string, ResumoFolha[]>();
+    for (const folha of dados.folhas) {
+      const versoes = porCompetencia.get(folha.competencia) || [];
+      versoes.push(folha);
+      porCompetencia.set(folha.competencia, versoes);
+    }
+    const ordenar = (a: ResumoFolha, b: ResumoFolha) => String(b.atualizadoEm || b.calculadoEm || b.recebidoEm).localeCompare(String(a.atualizadoEm || a.calculadoEm || a.recebidoEm));
+    return [...porCompetencia.entries()].map(([competencia, registros]) => {
+      const ordenados = [...registros].sort(ordenar);
+      const atual = ordenados[0];
+      const anterior = ordenados[1];
+      const campos = new Set([...Object.keys(anterior?.resumo || {}), ...Object.keys(atual?.resumo || {})]);
+      const diferencas = anterior ? [...campos].filter((campo) => {
+        const antigo = anterior.resumo?.[campo];
+        const novo = atual.resumo?.[campo];
+        if (antigo == null || novo == null) return antigo !== novo;
+        return typeof antigo !== typeof novo || antigo !== novo;
+      }).map((campo) => ({ campo, anterior: anterior.resumo?.[campo] ?? null, atual: atual.resumo?.[campo] ?? null })) : [];
+      return { competencia, registros: ordenados, atual, anterior, diferencas };
+    }).sort((a, b) => b.competencia.localeCompare(a.competencia));
+  }, [dados.folhas]);
+
   const totaisFiscal = useMemo(() => {
     const resumo = {
       entrada: { total: 0, autorizadas: 0, pendentes: 0, canceladas: 0, valorBruto: 0, valorBrutoIncompletos: 0, impostos: {} as Record<string, { total: number; incompletos: number }> },
@@ -158,7 +203,7 @@ export const RevisaoOrigensTab: React.FC<{
     for (const tributo of camposTributariosFiscal) {
       for (const grupo of [resumo.entrada, resumo.saida]) grupo.impostos[tributo.campo] = { total: 0, incompletos: 0 };
     }
-    for (const doc of dados.documentos) {
+    for (const doc of analiseDuplicidadeFiscal.documentosSemDuplicidade) {
       const tipo = tipoDocumentoFiscal(doc);
       if (!tipo) continue;
       const grupo = resumo[tipo];
@@ -176,7 +221,52 @@ export const RevisaoOrigensTab: React.FC<{
       }
     }
     return resumo;
-  }, [dados.documentos]);
+  }, [analiseDuplicidadeFiscal.documentosSemDuplicidade]);
+
+  const resumoTributosCompetencia = useMemo(() => {
+    type LinhaCompetencia = {
+      fiscal: Record<"entrada" | "saida", Record<string, SomaTributoFiscal>>;
+      folha?: ResumoFolha;
+    };
+    const campos = ["valorIcms", "valorPis", "valorCofins", "valorIss", "valorIpi"] as const;
+    const porCompetencia = new Map<string, LinhaCompetencia>();
+    const obterLinha = (competencia: string): LinhaCompetencia => {
+      let linha = porCompetencia.get(competencia);
+      if (!linha) {
+        const grupo = () => Object.fromEntries(campos.map((campo) => [campo, { valor: 0, incompletos: 0, documentos: 0 }])) as Record<typeof campos[number], SomaTributoFiscal>;
+        linha = { fiscal: { entrada: grupo(), saida: grupo() } };
+        porCompetencia.set(competencia, linha);
+      }
+      return linha;
+    };
+    for (const doc of analiseDuplicidadeFiscal.documentosSemDuplicidade) {
+      const tipo = tipoDocumentoFiscal(doc);
+      const data = String(doc.dataEmissao || doc.emissao || "");
+      const br = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(data);
+      const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(data);
+      const competencia = br ? `${br[3]}-${br[2]}` : iso ? `${iso[1]}-${iso[2]}` : "";
+      if (!tipo || !/^\d{4}-(0[1-9]|1[0-2])$/.test(competencia) || !documentoAutorizado(doc)) continue;
+      const grupo = obterLinha(competencia).fiscal[tipo];
+      for (const campo of campos) {
+        const valor = doc.dadosTributariosDisponiveis === true ? valorNumerico(doc[campo]) : null;
+        if (valor === null) grupo[campo].incompletos += 1;
+        else grupo[campo].valor = Math.round((grupo[campo].valor + valor + Number.EPSILON) * 100) / 100;
+        grupo[campo].documentos += 1;
+      }
+    }
+    for (const item of historicoFolhasDP) {
+      if (/^\d{4}-(0[1-9]|1[0-2])$/.test(item.competencia) && item.atual) obterLinha(item.competencia).folha = item.atual;
+    }
+    const valorApurado = (valor: unknown) => typeof valor === "number" && Number.isFinite(valor) && valor >= 0 ? valor : null;
+    return [...porCompetencia.entries()].sort(([a], [b]) => b.localeCompare(a)).map(([competencia, linha]) => ({
+      competencia,
+      fiscal: linha.fiscal,
+      inssEmpregado: valorApurado(linha.folha?.resumo?.descontosINSS),
+      inssPatronal: valorApurado(linha.folha?.resumo?.inssPatronal),
+      fgts: valorApurado(linha.folha?.resumo?.fgts),
+      temResumoDP: Boolean(linha.folha),
+    }));
+  }, [analiseDuplicidadeFiscal.documentosSemDuplicidade, historicoFolhasDP]);
 
   const contasAnaliticas = useMemo(() => contas.filter((conta) => conta.tipo === "analitica"), [contas]);
   const contaNome = (codigo: string) => contasAnaliticas.find((conta) => conta.codigo === codigo)?.descricao || "Conta não encontrada no plano atual";
@@ -190,11 +280,8 @@ export const RevisaoOrigensTab: React.FC<{
       { campo: "descontosIRRF", origem: "dp_descontos_irrf" as const, titulo: "IRRF descontado" },
       { campo: "fgts", origem: "dp_fgts" as const, titulo: "FGTS informado pelo DP" },
     ];
-    const folhaMaisRecentePorCompetencia = new Map<string, ResumoFolha>();
-    for (const folha of [...dados.folhas].sort((a, b) => String(b.atualizadoEm || b.calculadoEm || b.recebidoEm).localeCompare(String(a.atualizadoEm || a.calculadoEm || a.recebidoEm)))) {
-      if (!folhaMaisRecentePorCompetencia.has(folha.competencia)) folhaMaisRecentePorCompetencia.set(folha.competencia, folha);
-    }
-    for (const folha of folhaMaisRecentePorCompetencia.values()) {
+    for (const { atual: folha } of historicoFolhasDP) {
+      if (!folha) continue;
       const valores = folha.resumo || {};
       const camposObrigatorios = ["folhaBruta", "descontosINSS", "descontosIRRF", "descontosOutros", "liquidoFolha", "fgts"];
       if (camposObrigatorios.some((campo) => typeof valores[campo] !== "number" || !Number.isFinite(valores[campo]))) {
@@ -237,14 +324,20 @@ export const RevisaoOrigensTab: React.FC<{
       if (!incompleta) partidas.push(...candidatas);
     }
     return { partidas, pendencias };
-  }, [dados.folhas, mapeamentos, contasAnaliticas, cnpjNormalizado]);
+  }, [historicoFolhasDP, mapeamentos, contasAnaliticas, cnpjNormalizado]);
 
   const previaContabilFiscal = useMemo<EstadoPreviaFiscal>(() => {
     const partidas: PreviaPartidaFiscal[] = [];
     const pendencias: EstadoPreviaFiscal["pendencias"] = [];
     const porOrigem = new Map<OrigemMapeadaContabil, MapeamentoOrigemContabil>(mapeamentos.map((item) => [item.origem, item]));
     const camposTributarios = ["valorIcms", "valorIpi", "valorPis", "valorCofins", "valorIss"];
-    for (const doc of dados.documentos) {
+    for (const doc of analiseDuplicidadeFiscal.duplicados) {
+      const chave = String(doc.chaveAcesso || "").replace(/\s/g, "");
+      const data = String(doc.dataEmissao || doc.emissao || "");
+      const competencia = competenciaDeData(data);
+      pendencias.push({ competencia: competencia || "sem competência", motivo: `Chave NF-e ${chave} repetida na origem; todos os registros com essa chave foram excluídos da prévia até conferência.` });
+    }
+    for (const doc of analiseDuplicidadeFiscal.documentosSemDuplicidade) {
       const tipo = doc.tipo === "Entrada" ? "Entrada" : doc.tipo === "Saída" ? "Saida" : "";
       const chave = String(doc.chaveAcesso || doc.id || "").trim();
       const dataTexto = String(doc.dataEmissao || doc.emissao || "").trim();
@@ -294,7 +387,7 @@ export const RevisaoOrigensTab: React.FC<{
       });
     }
     return { partidas, pendencias };
-  }, [dados.documentos, mapeamentos, contasAnaliticas, cnpjNormalizado]);
+  }, [analiseDuplicidadeFiscal.duplicados, analiseDuplicidadeFiscal.documentosSemDuplicidade, mapeamentos, contasAnaliticas, cnpjNormalizado]);
 
   const selecionarConta = (origem: OrigemMapeadaContabil, lado: keyof RascunhoMapeamento, valor: string) => {
     const salvo = mapeamentos.find((item) => item.origem === origem);
@@ -329,11 +422,102 @@ export const RevisaoOrigensTab: React.FC<{
     ...previaContabilDP.partidas.map((partida) => partida.referencia),
     ...previaContabilFiscal.partidas.map((partida) => partida.referencia),
   ]), [previaContabilDP.partidas, previaContabilFiscal.partidas]);
+  const conciliacaoIntegracao = useMemo(() => {
+    const candidatos = [...previaContabilDP.partidas, ...previaContabilFiscal.partidas];
+    const linhasCandidatas = candidatos.map((candidato) => {
+      const rascunho = preLancamentos.find((item) => item.referenciaOrigem === candidato.referencia);
+      const definitivo = lancamentos.find((item) => item.id === candidato.referencia || item.documentoRef === candidato.referencia);
+      if (definitivo) {
+        const valorConfere = Math.round((Number(definitivo.valor) + Number.EPSILON) * 100) === Math.round((candidato.valor + Number.EPSILON) * 100);
+        const contasConferem = definitivo.contaDebitoCodigo === candidato.contaDebitoCodigo && definitivo.contaCreditoCodigo === candidato.contaCreditoCodigo;
+        const aprovado = rascunho?.status === "contabilizado";
+        return { candidato, situacao: aprovado && valorConfere && contasConferem ? "Conciliado" : "Divergência", detalhe: !aprovado ? "Há lançamento definitivo sem rascunho marcado como contabilizado" : !valorConfere ? `Origem ${dinheiro(candidato.valor)} · Contábil ${dinheiro(definitivo.valor)}` : !contasConferem ? `Contas da origem ${candidato.contaDebitoCodigo} / ${candidato.contaCreditoCodigo} · Contábil ${definitivo.contaDebitoCodigo} / ${definitivo.contaCreditoCodigo}` : "Referência, valor e contas conferem" };
+      }
+      if (rascunho?.status === "pendente_conferencia") return { candidato, situacao: "Aguardando aprovação", detalhe: "Rascunho preservado; ainda não entra nos livros definitivos" };
+      if (rascunho?.status === "contabilizado") return { candidato, situacao: "Divergência", detalhe: "Rascunho consta contabilizado, mas não foi localizado lançamento definitivo correspondente" };
+      return { candidato, situacao: "Sem rascunho", detalhe: "Origem apta à prévia, mas não há rascunho persistido correspondente" };
+    });
+    const referenciasEncontradas = new Set(candidatos.map((item) => item.referencia));
+    const aprovadosSemOrigem = lancamentos.filter((item) => {
+      const referencia = String(item.documentoRef || item.id || "");
+      if (item.estornoDe || !(referencia.startsWith(`DP:${cnpjNormalizado}:`) || referencia.startsWith(`FISCAL:${cnpjNormalizado}:`)) || referenciasEncontradas.has(referencia)) return false;
+      const competencia = competenciaDeData(item.competencia) || competenciaDeData(item.data);
+      return /^\d{4}-(0[1-9]|1[0-2])$/.test(competencia) && competencia >= desde && competencia <= ate;
+    }).map((item) => ({
+      candidato: { competencia: competenciaDeData(item.competencia) || competenciaDeData(item.data), origem: item.origem, referencia: String(item.documentoRef || item.id), valor: item.valor },
+      situacao: "Origem não localizada",
+      detalhe: dados.documentos.length >= 500 || dados.folhas.length >= 200
+        ? "Consulta atingiu o limite de registros; reduza o período e confira novamente antes de concluir"
+        : "Lançamento definitivo sem proposta correspondente na origem atual; confira cancelamento, mudança de dados ou escopo da origem",
+    }));
+    const linhas = [...linhasCandidatas, ...aprovadosSemOrigem];
+    return {
+      linhas,
+      conciliados: linhas.filter((item) => item.situacao === "Conciliado").length,
+      pendentes: linhas.filter((item) => item.situacao === "Aguardando aprovação").length,
+      divergencias: linhas.filter((item) => ["Divergência", "Sem rascunho", "Origem não localizada"].includes(item.situacao)).length,
+    };
+  }, [previaContabilDP.partidas, previaContabilFiscal.partidas, preLancamentos, lancamentos, cnpjNormalizado, dados.documentos.length, dados.folhas.length, desde, ate]);
+  const consultaOrigensNoLimite = dados.documentos.length >= 500 || dados.folhas.length >= 200;
   const aguardandoContador = preLancamentos.filter((item) => item.status === "pendente_conferencia" && referenciasElegiveis.has(item.referenciaOrigem)).length;
   const bloqueadosRevalidacao = preLancamentos.filter((item) => item.status === "pendente_conferencia" && !referenciasElegiveis.has(item.referenciaOrigem)).length;
   const contabilizados = preLancamentos.filter((item) => item.status === "contabilizado").length;
   const aprovadosPeloRobo = previaContabilDP.partidas.length + previaContabilFiscal.partidas.length;
   const pendenciasRobo = previaContabilDP.pendencias.length + previaContabilFiscal.pendencias.length;
+
+  const exportarConciliacao = () => {
+    if (!workspaceCarregado) {
+      setMensagemConciliacao("Aguarde a leitura do workspace desta empresa antes de exportar a conciliação.");
+      return;
+    }
+    const escapar = (valor: unknown) => `"${String(valor ?? "").replace(/"/g, '""')}"`;
+    const linhas = [
+      ["RELATÓRIO INTERNO DE CONCILIAÇÃO FISCAL/DP → CONTÁBIL"],
+      [`Empresa CNPJ: ${cnpj}`, `Competências: ${desde} a ${ate}`, `Exportado em: ${new Date().toLocaleString("pt-BR")}`],
+      ["Status da consulta", consultaOrigensNoLimite ? "INCOMPLETA — limite de registros atingido; conferir em períodos menores" : "Consulta abaixo dos limites configurados"],
+      ["Competência", "Origem", "Referência", "Valor de origem", "Situação", "Detalhe"],
+      ...conciliacaoIntegracao.linhas.map(({ candidato, situacao, detalhe }) => [candidato.competencia, candidato.origem, candidato.referencia, candidato.valor, situacao, detalhe]),
+      ["Observação", "Relatório local para conferência. Não modifica lançamentos e não substitui revisão contábil, apuração fiscal nem validação de portal oficial."],
+    ];
+    const csv = `\uFEFF${linhas.map((linha) => linha.map(escapar).join(";")).join("\r\n")}`;
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `conciliacao-fiscal-dp-contabil-${cnpjNormalizado}-${desde}-${ate}.csv`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setMensagemConciliacao("Relatório CSV interno exportado para conferência. Nenhum dado foi alterado.");
+  };
+
+  const exportarHistoricoDP = () => {
+    if (!workspaceCarregado || !dados.folhas.length) {
+      setMensagemHistoricoDP("Aguarde a leitura do workspace e o recebimento dos resumos do DP antes de exportar.");
+      return;
+    }
+    const escapar = (valor: unknown) => `"${String(valor ?? "").replace(/"/g, '""')}"`;
+    const linhas: unknown[][] = [
+      ["HISTÓRICO INTERNO DE RESUMOS AGREGADOS DO DP — NÃO É FOLHA OU GUIA OFICIAL"],
+      [`CNPJ: ${cnpj}`, `Exportado em: ${new Date().toLocaleString("pt-BR")}`],
+      ["Tipo de linha", "Competência", "Processamento", "Versão", "Calculado em", "Recebido em", "Atualizado em", "Campo", "Valor", "Valor anterior", "Valor atual", "Situação"],
+    ];
+    for (const grupo of historicoFolhasDP) {
+      grupo.registros.forEach((registro, indice) => {
+        const campos = Object.entries(registro.resumo || {});
+        const versao = indice === 0 ? "Mais recente" : `Histórico ${indice}`;
+        if (!campos.length) linhas.push(["Resumo", grupo.competencia, registro.processamentoId || "", versao, registro.calculadoEm, registro.recebidoEm, registro.atualizadoEm || "", "", "", "", "", "Sem campos recebidos"]);
+        for (const [campo, valor] of campos) linhas.push(["Resumo", grupo.competencia, registro.processamentoId || "", versao, registro.calculadoEm, registro.recebidoEm, registro.atualizadoEm || "", campo, valor == null ? "" : valor, "", "", valor == null ? "Pendente/não informado" : "Valor recebido"]);
+      });
+      for (const diferenca of grupo.diferencas) linhas.push(["Comparação", grupo.competencia, grupo.atual?.processamentoId || "", "Atual vs. versão anterior", grupo.atual?.calculadoEm || "", grupo.atual?.recebidoEm || "", grupo.atual?.atualizadoEm || "", diferenca.campo, "", diferenca.anterior ?? "", diferenca.atual ?? "", "Diferença entre versões"]);
+    }
+    const csv = `\uFEFF${linhas.map((linha) => linha.map(escapar).join(";")).join("\r\n")}`;
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `historico-resumos-dp-${cnpjNormalizado}-${desde}-${ate}.csv`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setMensagemHistoricoDP("Histórico CSV exportado. Inclui versões recebidas e diferenças, sem alterar os dados.");
+  };
 
   const contabilizarPendentes = async () => {
     const todosPendentes = preLancamentos.filter((item) => item.status === "pendente_conferencia");
@@ -370,6 +554,7 @@ export const RevisaoOrigensTab: React.FC<{
       </section>
 
       {erro && <div role="alert" className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{erro}</div>}
+      {analiseDuplicidadeFiscal.duplicados.length > 0 && <div role="alert" className="flex items-start gap-2 rounded-xl border border-rose-300 bg-rose-50 p-4 text-sm text-rose-950"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><p><strong>{analiseDuplicidadeFiscal.duplicados.length} registro(s) têm chave NF-e de 44 dígitos repetida.</strong> Todos os documentos dessas chaves foram mantidos visíveis, mas ficaram fora das somas fiscais e das prévias contábeis até a conferência. Nenhum registro foi apagado.</p></div>}
 
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
@@ -385,8 +570,10 @@ export const RevisaoOrigensTab: React.FC<{
               {integridadeAprovacoes.lancamentosSemAuditoria.length > 0 && <li>{integridadeAprovacoes.lancamentosSemAuditoria.length} lançamento(s) integrado(s) sem registro de aprovação.</li>}
               {integridadeAprovacoes.statusContabilizadosSemLancamento.length > 0 && <li>{integridadeAprovacoes.statusContabilizadosSemLancamento.length} rascunho(s) marcados contabilizados sem lançamento correspondente.</li>}
               {integridadeAprovacoes.auditoriasManuaisSemLancamento.length > 0 && <li>{integridadeAprovacoes.auditoriasManuaisSemLancamento.length} evento(s) manual(is) sem lançamento correspondente ou com conteúdo diferente.</li>}
+              {integridadeAprovacoes.lancamentosComTrilhaInconsistente.length > 0 && <li>{integridadeAprovacoes.lancamentosComTrilhaInconsistente.length} lançamento(s) manual(is) com situação ou conteúdo diferente do último evento registrado.</li>}
+              {integridadeAprovacoes.eventosManuaisSemLancamento.length > 0 && <li>{integridadeAprovacoes.eventosManuaisSemLancamento.length} trilha(s) manual(is) sem lançamento correspondente.</li>}
             </ul>}
-            <p className="mt-2 text-xs">A checagem compara aprovações integradas com partidas e confere os lançamentos manuais/estornos que já possuem trilha. {lancamentosManuaisSemAuditoria.length > 0 ? `${lancamentosManuaisSemAuditoria.length} lançamento(s) manual(is) são anteriores à trilha e não têm autoria histórica recuperável.` : "Lançamentos manuais anteriores à ativação desta trilha não podem ter sua autoria retroativamente comprovada."} Não é conciliação completa dos documentos do Fiscal ou resumos do DP; nada é alterado ou apagado.</p>
+            <p className="mt-2 text-xs">A checagem compara aprovações integradas e verifica se o estado atual dos lançamentos manuais corresponde ao último evento da trilha. {lancamentosManuaisSemAuditoria.length > 0 ? `${lancamentosManuaisSemAuditoria.length} lançamento(s) manual(is) são anteriores à trilha e não têm autoria histórica recuperável.` : "Lançamentos manuais anteriores à ativação desta trilha não podem ter sua autoria retroativamente comprovada."} Não é conciliação completa dos documentos do Fiscal ou resumos do DP; nada é alterado ou apagado.</p>
           </div>}
           {carregandoHistorico && historicoAprovacoes.length === 0 ? <p className="text-sm text-slate-500">Consultando o histórico no banco…</p> : historicoAprovacoes.length === 0 ? <p className="text-sm text-slate-500">Ainda não há aprovações registradas para esta empresa.</p> : (
             <div className="overflow-x-auto"><table className="w-full min-w-[800px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Data e hora</th><th className="px-3 py-2">Aprovado por</th><th className="px-3 py-2">Referência</th><th className="px-3 py-2">Débito</th><th className="px-3 py-2">Crédito</th><th className="px-3 py-2 text-right">Valor</th></tr></thead><tbody>{historicoAprovacoes.map((item) => <tr key={item.referencia} className="border-t border-slate-100"><td className="whitespace-nowrap px-3 py-2">{new Date(item.aprovadoEm).toLocaleString("pt-BR")}</td><td className="px-3 py-2">{texto(item.login)}</td><td className="max-w-80 truncate px-3 py-2" title={item.referencia}>{item.referencia}</td><td className="px-3 py-2">{texto(item.contaDebito)}</td><td className="px-3 py-2">{texto(item.contaCredito)}</td><td className="px-3 py-2 text-right tabular-nums">{Number.isFinite(Number(item.valor)) ? Number(item.valor).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "Não apurado"}</td></tr>)}</tbody></table></div>
@@ -398,7 +585,7 @@ export const RevisaoOrigensTab: React.FC<{
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         <div className="border-b border-slate-200 px-4 py-3"><h2 className="font-bold text-slate-900">Lançamentos manuais e estornos</h2><p className="mt-1 text-xs text-slate-600">A autoria, o horário e o conteúdo são gravados junto com a alteração no PostgreSQL. Partidas já salvas ficam preservadas; correções são feitas por estorno.</p></div>
         <div className="overflow-x-auto p-4">
-          {historicoLancamentosManuais.length === 0 ? <p className="text-sm text-slate-500">Ainda não há lançamentos manuais ou estornos registrados nesta trilha.</p> : <table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Data e hora</th><th className="px-3 py-2">Ação / usuário</th><th className="px-3 py-2">Lançamento</th><th className="px-3 py-2">Débito / crédito</th><th className="px-3 py-2 text-right">Valor</th></tr></thead><tbody>{historicoLancamentosManuais.map((item) => <tr key={item.lancamentoId} className="border-t border-slate-100"><td className="whitespace-nowrap px-3 py-2">{new Date(item.registradoEm).toLocaleString("pt-BR")}</td><td className="px-3 py-2">{item.evento === "estorno_manual" ? "Estorno" : "Lançamento manual"}<br/><span className="text-xs text-slate-500">{texto(item.login)}</span></td><td className="max-w-64 truncate px-3 py-2" title={item.lancamentoId}>{item.lancamentoId}</td><td className="px-3 py-2">{texto(item.lancamento.contaDebitoCodigo)} / {texto(item.lancamento.contaCreditoCodigo)}</td><td className="px-3 py-2 text-right tabular-nums">{dinheiro(item.lancamento.valor)}</td></tr>)}</tbody></table>}
+          {historicoLancamentosManuais.length === 0 ? <p className="text-sm text-slate-500">Ainda não há lançamentos manuais ou estornos registrados nesta trilha.</p> : <table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Data e hora</th><th className="px-3 py-2">Ação / usuário</th><th className="px-3 py-2">Lançamento</th><th className="px-3 py-2">Débito / crédito</th><th className="px-3 py-2 text-right">Valor</th><th className="px-3 py-2">Motivo</th></tr></thead><tbody>{historicoLancamentosManuais.map((item, index) => { const evento = item.evento.replaceAll("_", " "); const titulo = evento.includes("estorno") ? "Estorno" : item.lancamento.saldoInicialContaCodigo ? "Abertura de saldo inicial" : "Lançamento manual"; const decisao = evento.endsWith("pendente") ? "proposto" : evento.endsWith("aprovado") ? "aprovado" : evento.endsWith("rejeitado") ? "rejeitado" : "registrado"; return <tr key={`${item.lancamentoId}-${item.registradoEm}-${index}`} className="border-t border-slate-100"><td className="whitespace-nowrap px-3 py-2">{new Date(item.registradoEm).toLocaleString("pt-BR")}</td><td className="px-3 py-2">{titulo}: {decisao}<br/><span className="text-xs text-slate-500">{texto(item.login)}</span></td><td className="max-w-64 truncate px-3 py-2" title={item.lancamentoId}>{item.lancamentoId}</td><td className="px-3 py-2">{texto(item.lancamento.contaDebitoCodigo)} / {texto(item.lancamento.contaCreditoCodigo)}</td><td className="px-3 py-2 text-right tabular-nums">{dinheiro(item.lancamento.valor)}</td><td className="max-w-64 px-3 py-2 text-xs text-slate-600">{texto(item.motivo || "—")}</td></tr>; })}</tbody></table>}
         </div>
       </section>
 
@@ -481,11 +668,29 @@ export const RevisaoOrigensTab: React.FC<{
         </div>
       </section>
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Metric title="Notas fiscais no período" value={String(totaisFiscal.entrada.total + totaisFiscal.saida.total)} detail={`${totaisFiscal.entrada.total} entradas • ${totaisFiscal.saida.total} saídas`} />
         <Metric title="Resumos de folha recebidos" value={String(dados.folhas.length)} detail="Totais agregados por competência" />
         <Metric title="Lançamentos definitivos automáticos" value="0" detail="Rascunhos aguardam revisão e aprovação" />
         <Metric title="Status da conferência" value="Pendente" detail="Revisão do contador necessária" />
+        <Metric title="Documentos em duplicidade" value={String(analiseDuplicidadeFiscal.duplicados.length)} detail="Excluídos das somas e prévias até revisão" />
+      </section>
+
+      <section className="overflow-hidden rounded-xl border border-indigo-200 bg-white">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-indigo-100 px-4 py-3"><div><h2 className="font-bold text-slate-900">Conciliação Fiscal/DP → Contábil</h2><p className="mt-1 text-xs text-slate-600">Cruza as propostas atuais com os rascunhos e lançamentos definitivos desta empresa usando referência de origem, valor e contas. Não corrige nem altera registros.</p></div>
+          <button type="button" onClick={exportarConciliacao} disabled={!workspaceCarregado || conciliacaoIntegracao.linhas.length === 0} className="inline-flex items-center gap-2 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-900 disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-4 w-4" /> Exportar CSV da conciliação</button>
+          {consultaOrigensNoLimite && <p role="status" className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950"><strong>A consulta atingiu o limite de registros.</strong> A conciliação pode estar incompleta; reduza o intervalo de competências e atualize antes de concluir a revisão.</p>}
+        </div>
+        <div className="grid gap-2 p-4 sm:grid-cols-3">
+          <Metric title="Conciliados" value={String(conciliacaoIntegracao.conciliados)} detail="Referência, valor e contas conferem" />
+          <Metric title="Aguardando aprovação" value={String(conciliacaoIntegracao.pendentes)} detail="Continuam fora dos livros definitivos" />
+          <Metric title="Revisar divergência" value={String(conciliacaoIntegracao.divergencias)} detail="Inclui origem apta sem rascunho" />
+        </div>
+        {mensagemConciliacao && <p role="status" className="px-4 pb-3 text-xs text-indigo-800">{mensagemConciliacao}</p>}
+        {conciliacaoIntegracao.linhas.length === 0 ? <Empty text="Nenhuma proposta atual apta à conciliação. Origens incompletas continuam listadas como pendências nas seções do Fiscal e DP." /> : <div className="overflow-x-auto"><table className="w-full min-w-[940px] text-left text-xs"><thead className="bg-slate-50 uppercase text-slate-500"><tr><th className="px-4 py-2">Competência</th><th className="px-4 py-2">Origem</th><th className="px-4 py-2">Referência</th><th className="px-4 py-2 text-right">Valor da origem</th><th className="px-4 py-2">Situação</th><th className="px-4 py-2">Conferência</th></tr></thead><tbody>
+          {conciliacaoIntegracao.linhas.map(({ candidato, situacao, detalhe }) => <tr key={candidato.referencia} className="border-t border-slate-100"><td className="px-4 py-2">{candidato.competencia}</td><td className="px-4 py-2">{candidato.origem}</td><td className="max-w-72 truncate px-4 py-2 font-mono" title={candidato.referencia}>{candidato.referencia}</td><td className="px-4 py-2 text-right tabular-nums">{dinheiro(candidato.valor)}</td><td className={`px-4 py-2 font-semibold ${situacao === "Conciliado" ? "text-emerald-700" : situacao === "Aguardando aprovação" ? "text-amber-800" : "text-rose-700"}`}>{situacao}</td><td className="px-4 py-2">{detalhe}</td></tr>)}
+        </tbody></table></div>}
+        <p className="border-t border-indigo-100 px-4 py-3 text-[11px] text-slate-600">“Conciliado” é uma conferência local dos campos disponíveis, não valida classificação contábil, tributos, obrigação acessória nem aceite de portal. Qualquer divergência permanece apenas sinalizada para análise do contador.</p>
       </section>
 
       <section className="overflow-hidden rounded-xl border border-emerald-200 bg-white">
@@ -530,6 +735,23 @@ export const RevisaoOrigensTab: React.FC<{
         </div>
       </section>
 
+      <section className="overflow-hidden rounded-xl border border-blue-200 bg-white">
+        <div className="border-b border-blue-100 px-4 py-3"><h2 className="font-bold text-slate-900">Consolidação de valores por competência</h2><p className="mt-1 text-xs text-slate-600">Consolida somente valores explícitos dos documentos autorizados e do resumo mais recente da folha recebido do DP. Valores fiscais são destaques dos documentos, não apuração nem guia a pagar.</p></div>
+        {resumoTributosCompetencia.length === 0 ? <Empty text="Sem notas autorizadas ou resumos de folha no período selecionado." /> : <div className="overflow-x-auto"><table className="w-full min-w-[1180px] text-left text-xs"><thead className="bg-slate-50 uppercase text-slate-500"><tr><th className="px-3 py-2">Competência</th><th className="px-3 py-2 text-right">ICMS destacado<br/>Entrada / Saída</th><th className="px-3 py-2 text-right">PIS destacado<br/>Entrada / Saída</th><th className="px-3 py-2 text-right">COFINS destacado<br/>Entrada / Saída</th><th className="px-3 py-2 text-right">ISS destacado<br/>Entrada / Saída</th><th className="px-3 py-2 text-right">IPI destacado<br/>Entrada / Saída</th><th className="px-3 py-2 text-right">INSS empregado</th><th className="px-3 py-2 text-right">INSS patronal</th><th className="px-3 py-2 text-right">FGTS</th><th className="px-3 py-2">DAS</th></tr></thead><tbody>
+          {resumoTributosCompetencia.map((linha) => {
+            const exibirFiscal = (campo: typeof camposTributariosFiscal[number]["campo"]) => {
+              const entrada = linha.fiscal.entrada[campo];
+              const saida = linha.fiscal.saida[campo];
+              const formatar = (item: SomaTributoFiscal) => !item.documentos ? "—" : item.incompletos === item.documentos ? "Pendente" : `${dinheiro(item.valor)}${item.incompletos ? " *" : ""}`;
+              return <>{formatar(entrada)} / {formatar(saida)}</>;
+            };
+            const folha = (valor: number | null) => !linha.temResumoDP ? "Sem resumo DP" : valor === null ? "Pendente" : dinheiro(valor);
+            return <tr key={linha.competencia} className="border-t border-slate-100"><td className="px-3 py-2 font-semibold">{linha.competencia.split("-").reverse().join("/")}</td><td className="px-3 py-2 text-right tabular-nums">{exibirFiscal("valorIcms")}</td><td className="px-3 py-2 text-right tabular-nums">{exibirFiscal("valorPis")}</td><td className="px-3 py-2 text-right tabular-nums">{exibirFiscal("valorCofins")}</td><td className="px-3 py-2 text-right tabular-nums">{exibirFiscal("valorIss")}</td><td className="px-3 py-2 text-right tabular-nums">{exibirFiscal("valorIpi")}</td><td className="px-3 py-2 text-right">{folha(linha.inssEmpregado)}</td><td className="px-3 py-2 text-right">{folha(linha.inssPatronal)}</td><td className="px-3 py-2 text-right">{folha(linha.fgts)}</td><td className="px-3 py-2 text-amber-800">{["Simples Nacional", "MEI"].includes(regime) ? "Pendente no portal oficial" : "Não aplicável"}</td></tr>;
+          })}
+        </tbody></table></div>}
+        <p className="border-t border-blue-100 px-4 py-3 text-[11px] text-slate-600">“Pendente” significa que o campo não veio apurado; não é zero. O quadro não calcula saldo a recolher, compensações, vencimentos ou guia. DAS, INSS patronal e demais encargos só serão tratados como apurados quando a origem oficial fornecer valores completos e verificáveis.</p>
+      </section>
+
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3"><ArrowDownToLine className="h-4 w-4 text-blue-700" /><h2 className="font-bold text-slate-900">Documentos do Fiscal</h2></div>
         {dados.documentos.length === 0 ? <Empty text="Nenhuma nota fiscal persistida para a empresa e o período selecionados." /> : (
@@ -537,11 +759,11 @@ export const RevisaoOrigensTab: React.FC<{
             <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Emissão</th><th className="px-4 py-3">Número / chave</th><th className="px-4 py-3">Participante</th><th className="px-4 py-3 text-right">Valor</th><th className="px-4 py-3">Situação</th></tr></thead>
             <tbody>{dados.documentos.map((doc, index) => <tr key={`${texto(doc.chaveAcesso || doc.id)}-${index}`} className="border-t border-slate-100">
               <td className="px-4 py-3 font-semibold">{texto(doc.tipo)}</td><td className="px-4 py-3">{texto(doc.dataEmissao || doc.emissao)}</td>
-              <td className="max-w-64 truncate px-4 py-3 font-mono text-xs">{texto(doc.numero || doc.numeroNota || doc.chaveAcesso || doc.id)}</td>
+              <td className="max-w-64 truncate px-4 py-3 font-mono text-xs">{texto(doc.numero || doc.numeroNota || doc.chaveAcesso || doc.id)}{analiseDuplicidadeFiscal.chavesDuplicadas.has(String(doc.chaveAcesso || "").replace(/\s/g, "")) && <span className="ml-2 inline-flex rounded bg-rose-100 px-1.5 py-0.5 font-sans text-[10px] font-bold text-rose-800">CHAVE DUPLICADA</span>}</td>
               <td className="max-w-64 truncate px-4 py-3">{texto(doc.destinatario || doc.remetente || doc.participante || doc.nomeParticipante)}</td>
               <td className="px-4 py-3 text-right tabular-nums">{dinheiro(doc.valorTotal ?? doc.valor ?? doc.total)}</td>
               <td className={`px-4 py-3 ${documentoCancelado(doc) ? "font-semibold text-red-700" : documentoAutorizado(doc) ? "font-semibold text-emerald-700" : "text-amber-800"}`}>
-                <div>{situacaoDocumento(doc)}</div>
+                <div>{analiseDuplicidadeFiscal.chavesDuplicadas.has(String(doc.chaveAcesso || "").replace(/\s/g, "")) ? "Duplicidade pendente de conferência" : situacaoDocumento(doc)}</div>
                 {Array.isArray(doc.eventosSefaz) && doc.eventosSefaz.length > 0 && <div className="mt-1 text-[11px] font-normal text-slate-500">{doc.eventosSefaz.length} evento(s) SEFAZ</div>}
               </td>
             </tr>)}</tbody>
@@ -550,13 +772,23 @@ export const RevisaoOrigensTab: React.FC<{
       </section>
 
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-        <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3"><ClipboardCheck className="h-4 w-4 text-blue-700" /><h2 className="font-bold text-slate-900">Resumos agregados do DP</h2></div>
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-4 py-3"><div><div className="flex items-center gap-2"><ClipboardCheck className="h-4 w-4 text-blue-700" /><h2 className="font-bold text-slate-900">Resumos agregados do DP</h2></div><p className="mt-1 text-xs text-slate-600">Todas as versões recebidas ficam visíveis. A prévia contábil usa somente a versão mais recentemente atualizada por competência.</p></div>
+          <button type="button" onClick={exportarHistoricoDP} disabled={!workspaceCarregado || !dados.folhas.length} className="inline-flex items-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-900 disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-4 w-4" /> Exportar histórico CSV</button>
+        </div>
+        {mensagemHistoricoDP && <p role="status" className="px-4 pt-3 text-xs text-blue-800">{mensagemHistoricoDP}</p>}
         {dados.folhas.length === 0 ? <Empty text="Nenhum resumo de folha persistido para a empresa e o período selecionados." /> : (
-          <div className="divide-y divide-slate-100">{dados.folhas.map((folha) => <article key={`${folha.competencia}-${folha.calculadoEm}`} className="p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-bold text-slate-900">Competência {folha.competencia}</h3><span className="text-xs text-slate-500">Recebido em {new Date(folha.recebidoEm).toLocaleString("pt-BR")}</span></div>
+          <div className="divide-y divide-slate-100">{dados.folhas.map((folha) => {
+            const historico = historicoFolhasDP.find((item) => item.competencia === folha.competencia);
+            const versaoAtual = historico?.atual === folha;
+            return <article key={`${folha.competencia}-${folha.processamentoId || folha.calculadoEm}`} className="p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-bold text-slate-900">Competência {folha.competencia} {versaoAtual ? <span className="ml-1 rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">VERSÃO MAIS RECENTE</span> : <span className="ml-1 rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">HISTÓRICO</span>}</h3><span className="text-xs text-slate-500">Recebido em {new Date(folha.recebidoEm).toLocaleString("pt-BR")}</span></div>
+            {folha.processamentoId && <p className="mt-1 text-[11px] text-slate-500">Processamento de origem: {folha.processamentoId}</p>}
+            {versaoAtual && historico && historico.registros.length > 1 && <div role="status" className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950"><strong>{historico.registros.length} versões recebidas nesta competência.</strong> A versão atual é usada na prévia; as anteriores continuam preservadas para auditoria.
+              {historico.diferencas.length > 0 ? <ul className="mt-2 list-inside list-disc">{historico.diferencas.map((diferenca) => <li key={diferenca.campo}><strong>{diferenca.campo}:</strong> anterior {diferenca.anterior == null ? "pendente/não informado" : texto(diferenca.anterior)} → atual {diferenca.atual == null ? "pendente/não informado" : texto(diferenca.atual)}</li>)}</ul> : <p className="mt-1">Os campos recebidos nas duas versões são iguais.</p>}
+            </div>}
             <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{Object.entries(folha.resumo || {}).map(([key, value]) => <div key={key} className="rounded-lg bg-slate-50 p-3"><div className="text-xs text-slate-500">{key}</div><div className="mt-1 font-bold text-slate-900">{key === "quantidadeFuncionarios" ? texto(value) : dinheiro(value)}</div></div>)}</div>
             <p className="mt-3 text-xs text-amber-800">Recebido para revisão; valores nulos continuam “não apurados” e não são contabilizados como zero.</p>
-          </article>)}</div>
+          </article>})}</div>
         )}
       </section>
 
