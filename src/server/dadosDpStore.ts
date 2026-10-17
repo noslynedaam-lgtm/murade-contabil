@@ -140,7 +140,7 @@ async function inicializar(): Promise<void> {
   await inicializacao;
 }
 
-export async function verificarEstadoStoreDP(): Promise<{
+export async function verificarEstadoStoreDP(cnpjsAutorizados?: string[]): Promise<{
   disponivel: boolean;
   folhasRecebidas: number;
   ultimoRecebimento: string | null;
@@ -151,7 +151,8 @@ export async function verificarEstadoStoreDP(): Promise<{
   const resultado = await db.query(`
     SELECT COUNT(*)::int AS total, MAX(atualizado_em) AS ultimo_recebimento
     FROM murade_folhas_dp_origem
-  `);
+    WHERE $1::text[] IS NULL OR cnpj = ANY($1::text[])
+  `, [cnpjsAutorizados ?? null]);
   return {
     disponivel: true,
     folhasRecebidas: Number(resultado.rows[0]?.total) || 0,

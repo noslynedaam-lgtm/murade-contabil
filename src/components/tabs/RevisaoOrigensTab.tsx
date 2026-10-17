@@ -419,7 +419,7 @@ export const RevisaoOrigensTab: React.FC<{
           <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Tributo</th><th className="px-3 py-2 text-right">Notas de entrada</th><th className="px-3 py-2 text-right">Notas de saída</th><th className="px-3 py-2">Situação</th></tr></thead><tbody>
             {([ ["ICMS", "valorIcms"], ["PIS", "valorPis"], ["COFINS", "valorCofins"], ["ISS", "valorIss"] ] as const).map(([titulo, campo]) => {
               const totalDocs = totaisFiscal.entrada.autorizadas + totaisFiscal.saida.autorizadas;
-              const incompletos = entrada.incompletos + saida.incompletos;
+              const incompletos = totaisFiscal.entrada.impostos[campo].incompletos + totaisFiscal.saida.impostos[campo].incompletos;
               const status = !totalDocs ? "Sem documentos autorizados" : incompletos ? `${incompletos} documento(s) sem valor tributário; conferência incompleta` : "Valores de origem disponíveis; apuração não realizada";
               const display = (grupo: typeof totaisFiscal.entrada) => !grupo.autorizadas ? "—" : grupo.impostos[campo].incompletos === grupo.autorizadas ? "Não apurado" : `${dinheiro(grupo.impostos[campo].total)}${grupo.impostos[campo].incompletos ? "*" : ""}`;
               return <tr key={titulo} className="border-t border-slate-100"><td className="px-3 py-2 font-semibold">{titulo}</td><td className="px-3 py-2 text-right tabular-nums">{display(totaisFiscal.entrada)}</td><td className="px-3 py-2 text-right tabular-nums">{display(totaisFiscal.saida)}</td><td className="px-3 py-2 text-xs text-amber-800">{status}</td></tr>;

@@ -76,6 +76,32 @@ async function startServer() {
   app.delete("/api/auth/users/:login", exigirOrigemNavegador, exigirSessaoContabil, revogarUsuarioEmpresaContabil);
   app.get("/api/workspaces", exigirSessaoContabil, listarWorkspacesContabil);
   app.get("/api/workspaces/:cnpj", exigirSessaoContabil, lerWorkspaceContabil);
+  app.get("/api/integracao/status", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const sessao = (req as express.Request & { sessaoContabil?: { cnpjs: string[] } }).sessaoContabil;
+    const cnpjs = (sessao?.cnpjs || []).map(normalizarCnpjAcesso).filter(cnpjContabilValido);
+    if (!cnpjs.length) return res.status(403).json({ sucesso: false, motivo: "Sua sessão não tem empresas autorizadas." });
+    try {
+      const [fiscal, dp] = await Promise.all([
+        verificarEstadoStoreFiscal(cnpjs),
+        verificarEstadoStoreDP(cnpjs),
+      ]);
+      return res.json({
+        sucesso: true,
+        escopo: "Empresas autorizadas nesta sessão",
+        armazenamento: fiscal.disponivel && dp.disponivel ? "postgresql" : "indisponível",
+        tokenServicoConfigurado: Boolean(process.env.MURADE_INTEGRATION_TOKEN?.trim()),
+        fiscal,
+        departamentoPessoal: dp,
+        rascunhosAguardamConferencia: true,
+        transmissaoAutomaticaHabilitada: false,
+        consultadoEm: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Falha ao consultar estado das integrações do Contábil:", error);
+      return res.status(503).json({ sucesso: false, motivo: "Não foi possível consultar o estado das integrações no PostgreSQL." });
+    }
+  });
   app.put("/api/workspaces/:cnpj", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
     const cnpj = normalizarCnpjAcesso(req.params.cnpj);
     const workspaceEnviado = req.body?.dados;
