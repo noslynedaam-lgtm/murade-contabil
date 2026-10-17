@@ -635,7 +635,39 @@ export async function listarHistoricoAprovacoesContabil(req: Request, res: Respo
       ORDER BY aprovado_em DESC, referencia DESC
       LIMIT $2
     `, [cnpj, limiteSolicitado]);
-    res.json({ sucesso: true, cnpj, aprovacoes: result.rows });
+    const auditoriaCompleta = await obterBanco().query(`
+      SELECT referencia, valor::text AS valor, conta_debito AS "contaDebito",
+        conta_credito AS "contaCredito"
+      FROM contabil_accounting_approval_audit WHERE cnpj=$1
+    `, [cnpj]);
+    const workspace = await obterBanco().query("SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1", [cnpj]);
+    const payload = workspace.rows[0]?.payload as Record<string, unknown> | undefined;
+    const lancamentos = Array.isArray(payload?.lancamentos) ? payload.lancamentos as Array<Record<string, unknown>> : [];
+    const preLancamentos = Array.isArray(payload?.preLancamentos) ? payload.preLancamentos as Array<Record<string, unknown>> : [];
+    const lancamentosIntegrados = lancamentos.filter((item) => {
+      const referencia = String(item.documentoRef || item.id || "");
+      return (referencia.startsWith(`DP:${cnpj}:`) || referencia.startsWith(`FISCAL:${cnpj}:`)) && item.estornado !== true;
+    });
+    const auditoriaPorReferencia = new Map(auditoriaCompleta.rows.map((item) => [String(item.referencia), item]));
+    const lancamentoPorReferencia = new Map(lancamentosIntegrados.map((item) => [String(item.documentoRef || item.id), item]));
+    const aprovacoesSemLancamento = auditoriaCompleta.rows.filter((item) => {
+      const lancamento = lancamentoPorReferencia.get(String(item.referencia));
+      return !lancamento || Number(lancamento.valor) !== Number(item.valor)
+        || String(lancamento.contaDebitoCodigo || "") !== String(item.contaDebito)
+        || String(lancamento.contaCreditoCodigo || "") !== String(item.contaCredito);
+    }).map((item) => String(item.referencia));
+    const lancamentosSemAuditoria = lancamentosIntegrados.filter((item) => !auditoriaPorReferencia.has(String(item.documentoRef || item.id)))
+      .map((item) => String(item.documentoRef || item.id));
+    const statusContabilizadosSemLancamento = preLancamentos.filter((item) => item.status === "contabilizado"
+      && !lancamentoPorReferencia.has(String(item.referenciaOrigem || "")))
+      .map((item) => String(item.referenciaOrigem || "")).filter(Boolean);
+    const conferido = aprovacoesSemLancamento.length === 0 && lancamentosSemAuditoria.length === 0 && statusContabilizadosSemLancamento.length === 0;
+    res.json({ sucesso: true, cnpj, aprovacoes: result.rows, conferenciaIntegridade: {
+      status: conferido ? "consistente" : "revisar",
+      aprovacoesSemLancamento,
+      lancamentosSemAuditoria,
+      statusContabilizadosSemLancamento,
+    } });
   } catch (error) {
     console.error("Falha ao consultar histórico de aprovações contábeis:", error);
     res.status(503).json({ sucesso: false, motivo: "Não foi possível consultar o histórico persistido." });

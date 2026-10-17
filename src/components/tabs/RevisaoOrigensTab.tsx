@@ -11,6 +11,7 @@ type EstadoPreviaDP = { partidas: PreviaPartidaDP[]; pendencias: Array<{ compete
 type PreviaPartidaFiscal = PreviaPartidaDP & { data: string; chave: string };
 type EstadoPreviaFiscal = { partidas: PreviaPartidaFiscal[]; pendencias: Array<{ competencia: string; motivo: string }> };
 type AprovacaoHistorico = { referencia: string; login: string; valor: string; contaDebito: string; contaCredito: string; aprovadoEm: string };
+type ConferenciaIntegridade = { status: "consistente" | "revisar"; aprovacoesSemLancamento: string[]; lancamentosSemAuditoria: string[]; statusContabilizadosSemLancamento: string[] };
 
 const origensMapeaveis: Array<{ id: OrigemMapeadaContabil; titulo: string; descricao: string }> = [
   { id: "fiscal_entrada", titulo: "NF-e de entrada", descricao: "A conta de estoque/despesa varia por operação e CFOP; revise a conta de débito para esta empresa." },
@@ -77,6 +78,7 @@ export const RevisaoOrigensTab: React.FC<{
   const [historicoAprovacoes, setHistoricoAprovacoes] = useState<AprovacaoHistorico[]>([]);
   const [erroHistorico, setErroHistorico] = useState("");
   const [carregandoHistorico, setCarregandoHistorico] = useState(false);
+  const [integridadeAprovacoes, setIntegridadeAprovacoes] = useState<ConferenciaIntegridade | null>(null);
   const [rascunhos, setRascunhos] = useState<Record<string, RascunhoMapeamento>>(() => Object.fromEntries(
     mapeamentos.map((item) => [item.origem, { contaDebitoCodigo: item.contaDebitoCodigo, contaCreditoCodigo: item.contaCreditoCodigo }]),
   ));
@@ -116,6 +118,7 @@ export const RevisaoOrigensTab: React.FC<{
   const carregarHistorico = useCallback(async () => {
     if (!/^[A-Z0-9]{12}\d{2}$/.test(cnpjNormalizado)) {
       setHistoricoAprovacoes([]);
+      setIntegridadeAprovacoes(null);
       setErroHistorico("");
       return;
     }
@@ -126,6 +129,7 @@ export const RevisaoOrigensTab: React.FC<{
       const result = await response.json().catch(() => ({}));
       if (!response.ok || result.sucesso !== true) throw new Error(result.motivo || "Não foi possível consultar o histórico de aprovações.");
       setHistoricoAprovacoes(Array.isArray(result.aprovacoes) ? result.aprovacoes : []);
+      setIntegridadeAprovacoes(result.conferenciaIntegridade && typeof result.conferenciaIntegridade === "object" ? result.conferenciaIntegridade as ConferenciaIntegridade : null);
     } catch (error) {
       setErroHistorico(error instanceof Error ? error.message : "Falha ao consultar o histórico de aprovações.");
     } finally {
@@ -363,6 +367,15 @@ export const RevisaoOrigensTab: React.FC<{
         </div>
         <div className="p-4">
           {erroHistorico && <div role="alert" className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">{erroHistorico}</div>}
+          {integridadeAprovacoes && <div role="status" className={`mb-3 rounded-lg border p-3 text-sm ${integridadeAprovacoes.status === "consistente" ? "border-emerald-300 bg-emerald-50 text-emerald-950" : "border-amber-300 bg-amber-50 text-amber-950"}`}>
+            <strong>{integridadeAprovacoes.status === "consistente" ? "Conferência de integridade: consistente" : "Conferência de integridade: requer revisão"}</strong>
+            {integridadeAprovacoes.status === "revisar" && <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+              {integridadeAprovacoes.aprovacoesSemLancamento.length > 0 && <li>{integridadeAprovacoes.aprovacoesSemLancamento.length} aprovação(ões) sem lançamento correspondente ou com valor/contas diferentes.</li>}
+              {integridadeAprovacoes.lancamentosSemAuditoria.length > 0 && <li>{integridadeAprovacoes.lancamentosSemAuditoria.length} lançamento(s) integrado(s) sem registro de aprovação.</li>}
+              {integridadeAprovacoes.statusContabilizadosSemLancamento.length > 0 && <li>{integridadeAprovacoes.statusContabilizadosSemLancamento.length} rascunho(s) marcados contabilizados sem lançamento correspondente.</li>}
+            </ul>}
+            <p className="mt-2 text-xs">A conferência compara o diário persistido com a auditoria do servidor; qualquer diferença deve ser revisada antes de fechar a escrituração.</p>
+          </div>}
           {carregandoHistorico && historicoAprovacoes.length === 0 ? <p className="text-sm text-slate-500">Consultando o histórico no banco…</p> : historicoAprovacoes.length === 0 ? <p className="text-sm text-slate-500">Ainda não há aprovações registradas para esta empresa.</p> : (
             <div className="overflow-x-auto"><table className="w-full min-w-[800px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Data e hora</th><th className="px-3 py-2">Aprovado por</th><th className="px-3 py-2">Referência</th><th className="px-3 py-2">Débito</th><th className="px-3 py-2">Crédito</th><th className="px-3 py-2 text-right">Valor</th></tr></thead><tbody>{historicoAprovacoes.map((item) => <tr key={item.referencia} className="border-t border-slate-100"><td className="whitespace-nowrap px-3 py-2">{new Date(item.aprovadoEm).toLocaleString("pt-BR")}</td><td className="px-3 py-2">{texto(item.login)}</td><td className="max-w-80 truncate px-3 py-2" title={item.referencia}>{item.referencia}</td><td className="px-3 py-2">{texto(item.contaDebito)}</td><td className="px-3 py-2">{texto(item.contaCredito)}</td><td className="px-3 py-2 text-right tabular-nums">{Number.isFinite(Number(item.valor)) ? Number(item.valor).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "Não apurado"}</td></tr>)}</tbody></table></div>
           )}
