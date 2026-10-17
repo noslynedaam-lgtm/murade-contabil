@@ -125,6 +125,7 @@ export interface LancamentoContabil {
   centroCustoNome?: string;
   centroCustoDebitoCodigo?: string;
   centroCustoCreditoCodigo?: string;
+    estornoDe?: string;
 }
 
 export interface CentroCustoContabil {

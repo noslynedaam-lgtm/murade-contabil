@@ -8,7 +8,7 @@ import {
   Sparkles,
   Filter,
   FileSpreadsheet,
-  Trash2,
+  RotateCcw,
   ListTree,
   Hash,
   ArrowRightLeft,
@@ -22,7 +22,7 @@ interface LancamentosTabProps {
   onImportarDP: () => void;
   onGerarTudo: () => void;
   onAdicionarLancamento: (lanc: LancamentoContabil) => void;
-  onRemoverLancamento: (id: string) => void;
+  onEstornarLancamento: (id: string) => void;
 }
 
 export const LancamentosTab: React.FC<LancamentosTabProps> = ({
@@ -32,7 +32,7 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
   onImportarDP,
   onGerarTudo,
   onAdicionarLancamento,
-  onRemoverLancamento,
+  onEstornarLancamento,
 }) => {
   const [modalNovo, setModalNovo] = useState(false);
   const [filtroOrigem, setFiltroOrigem] = useState<string>("todos");
@@ -202,7 +202,9 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 font-normal text-slate-800">
-            {lancamentosFiltrados.map((l) => (
+            {lancamentosFiltrados.map((l) => {
+              const estornado = Boolean(l.estornoDe) || lancamentos.some((outro) => outro.estornoDe === l.id);
+              return (
               <tr key={l.id} className="hover:bg-blue-50/40 transition">
                 <td className="py-2.5 px-3 whitespace-nowrap font-medium text-slate-600">{l.data}</td>
                 <td className="py-2.5 px-3 font-semibold text-rose-700">
@@ -243,15 +245,21 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                 </td>
                 <td className="py-2.5 px-2 text-center">
                   <button
-                    onClick={() => onRemoverLancamento(l.id)}
-                    className="text-slate-400 hover:text-rose-600 p-1 rounded-sm cursor-pointer transition"
-                    title="Excluir lançamento"
+                    onClick={() => {
+                      if (!estornado && window.confirm("O lançamento original será preservado e uma partida de estorno será registrada com débito e crédito invertidos. Continuar?")) {
+                        onEstornarLancamento(l.id);
+                      }
+                    }}
+                    disabled={estornado}
+                    className="text-slate-400 hover:text-amber-700 disabled:text-slate-300 disabled:cursor-not-allowed p-1 rounded-sm cursor-pointer transition"
+                    title={estornado ? "Lançamento já estornado ou é um estorno" : "Registrar estorno sem apagar o original"}
+                    aria-label={estornado ? "Lançamento já estornado" : "Registrar estorno"}
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <RotateCcw className="w-3.5 h-3.5" />
                   </button>
                 </td>
               </tr>
-            ))}
+            );})}
             {lancamentosFiltrados.length === 0 && <tr><td colSpan={7} className="px-3 py-8 text-center text-slate-500">Nenhum lançamento neste filtro. A integração fiscal atual persiste documentos de origem, mas ainda não os transforma em partidas.</td></tr>}
           </tbody>
         </table>
