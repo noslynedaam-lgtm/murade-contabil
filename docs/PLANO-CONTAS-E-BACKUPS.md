@@ -2,23 +2,19 @@
 
 ## Estado atual
 
-- O PostgreSQL do Contábil responde como configurado para receber documentos fiscais e resumos agregados do DP.
-- O PostgreSQL tem uma tabela preparada para resumos do DP, mas o envio do navegador está bloqueado até existir autenticação de usuário e autorização por empresa. Nenhum resumo do DP foi recebido.
-- O plano de contas, centros de custo e lançamentos gerais do Contábil ainda são mantidos no `localStorage` do navegador. O backup do PostgreSQL não cobre esses dados locais.
-- O `render.yaml` do Contábil define o serviço web como `free`; esse valor não revela o plano nem o estado de backup do banco PostgreSQL separado.
-- O endpoint vivo do Fiscal confirma PostgreSQL conectado, leitura/escrita testadas e cofre A1 AES-256-GCM configurado; `durabilidadeVerificada` permanece `false`. O estado do plano, retenção e backups ainda precisa ser lido no painel do banco.
-- O Fiscal informa em produção que o cofre A1 está configurado no PostgreSQL com AES-256-GCM. Uma consulta sem a sessão privada do navegador não encontrou certificado ativo para o CNPJ consultado; isso não verifica a sessão aberta do usuário.
-- O endpoint de certificado do DP responde `instalado: false`; não armazena nem valida certificado. A tela de empresa do Contábil só selecionava o nome do arquivo e não fazia upload/validação.
-- O Contábil tem tokens de serviço para chamadas backend a backend, mas não existe login de usuário nem associação de usuários a empresas. Requisições sem o token correto são recusadas; o token de serviço não identifica qual contador pode acessar cada empresa.
+- O servidor do Contábil possui persistência PostgreSQL para workspace por CNPJ, dados recebidos do Fiscal/DP, autenticação e vínculos de usuário–empresa. A interface carrega e salva o plano, centros de custo, lançamentos, mapeamentos e rascunhos no workspace autorizado. O `localStorage` é mantido como cópia de compatibilidade/migração, não como confirmação de persistência principal.
+- A integração backend entre serviços usa `MURADE_INTEGRATION_TOKEN`; o token identifica o serviço chamador, enquanto o acesso de usuários ao workspace é verificado pela sessão e pelo vínculo da empresa.
+- O template operacional fornecido pelo usuário é carregado como plano inicial para workspace sem plano. Planos importados ou alterados ficam no workspace da própria empresa; o sistema não deve inferir adaptações por regime nem escolher contas sem regra validada.
+- O `render.yaml` do Contábil define o serviço web como `free`; isso não confirma o plano, retenção nem estado de backup do PostgreSQL separado. A configuração real de backup ainda precisa ser conferida no painel do banco.
+- O compartilhamento de certificado A1 entre Fiscal, Contábil e DP não está habilitado por esta integração. O token de serviço não deve transportar PFX, senha do certificado ou chave mestra.
 
 ## Autenticação por empresa e compartilhamento entre sistemas
 
-1. Escolher um provedor OIDC/OAuth com usuários e MFA (ou aprovar uma autenticação própria, com política de senha, MFA, redefinição, bloqueio, auditoria e revisão de segurança). Criar a aplicação e as URLs de callback para os três domínios de produção.
-2. Criar no PostgreSQL as tabelas de usuários, empresas, vínculos usuário–empresa e papéis. Toda leitura ou gravação deve verificar o vínculo no servidor; CNPJ enviado pelo navegador nunca serve como autorização.
-3. Validar a identidade em cada backend com JWT/JWKS ou sessão `HttpOnly`, `Secure`, `SameSite`; aplicar CSRF quando usar cookie, limitação de tentativas e registro de auditoria.
-4. Migrar dados hoje guardados por navegador para registros por `empresa_id`/CNPJ validado e usuário autorizado. Fazer exportação prévia, deduplicar e conferir os totais antes de retirar os dados antigos.
-5. Depois da autenticação e autorização por empresa, trocar o cofre A1 do Fiscal: manter a chave mestra somente no backend, e oferecer operações de assinatura/consulta por API com autorização delegada e curta duração. Não retornar PFX ou senha aos outros frontends. DP e Contábil chamam essa API em contexto autorizado; o Fiscal registra cada uso, finalidade e CNPJ.
-6. Validar certificado e CNPJ no Fiscal, testar autorização cruzada e isolamento entre duas empresas, expiração, revogação e auditoria. Mostrar conectado nos outros sistemas só depois de uma operação real bem-sucedida.
+Autenticação de usuário e autorização por empresa já estão implementadas no Contábil. A lista abaixo descreve o que continua necessário para o compartilhamento seguro de certificado entre sistemas, não um pré-requisito para salvar o plano de contas:
+
+1. Definir identidade de usuário compartilhada entre os três serviços e a forma de delegar autorização empresa–usuário entre domínios; os logins atuais são próprios de cada aplicação.
+2. Manter a chave mestra somente no backend Fiscal e oferecer operações de assinatura/consulta por API com autorização delegada e curta duração. Não retornar PFX ou senha aos outros frontends. Registrar uso, finalidade e CNPJ.
+3. Validar certificado e CNPJ no Fiscal, testar autorização cruzada, isolamento entre empresas, expiração, revogação e auditoria. Exibir conectado nos outros sistemas só após operação real bem-sucedida.
 
 Não ativar compartilhamento de A1 enviando apenas CNPJ, token global ao navegador, senha A1 ou chave mestra. A sessão atual do Fiscal é privada ao navegador e não equivale a uma identidade compartilhada entre domínios.
 
@@ -26,7 +22,7 @@ Não ativar compartilhamento de A1 enviando apenas CNPJ, token global ao navegad
 
 - O usuário forneceu `ExpPContas.XLS` para servir de modelo padrão. O arquivo tem 569 contas, cinco níveis, códigos, descrições, natureza D/C e tipo sintética/analítica; não inclui saldos.
 - Foram encontrados quatro registros com pai ausente: `2.2.02.01.01`, `2.2.02.01.02`, `2.2.02.01.03` e `4.4.01`. A pedido do usuário, os códigos referenciais `2.2.02`, `2.2.02.01` e `4.4` foram adicionados como contas sintéticas com descrição vazia; o modelo agora tem 572 registros. Nomes e códigos não foram inferidos nem remapeados.
-- O usuário confirmou que cada empresa poderá preencher ou editar esses nomes conforme seu próprio plano. A tela do Contábil permite editar a descrição de qualquer conta sem alterar o código. Essa personalização por CNPJ é salva atualmente no `localStorage` do navegador; ainda não está persistida no PostgreSQL e não acompanha o usuário em outro navegador.
+- O usuário confirmou que cada empresa poderá preencher ou editar esses nomes conforme seu próprio plano. A tela do Contábil permite editar a descrição de qualquer conta sem alterar o código. Essa personalização por CNPJ é salva no workspace PostgreSQL e deve acompanhar o usuário autorizado em outro navegador; o `localStorage` permanece apenas como cópia de compatibilidade/migração.
 - Este é o modelo operacional do usuário, não uma declaração de que o arquivo seja o plano referencial oficial do SPED/CPC. O modelo não deve gerar lançamentos ou mapeamentos automáticos sem revisão.
 - O Contábil agora usa esse modelo como conjunto padrão para empresas sem plano persistido, com suporte a cinco níveis e códigos com segmentos preenchidos por zero. Dados de empresas já salvos no navegador são preservados e não são sobrescritos por uma atualização.
 
