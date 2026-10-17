@@ -57,6 +57,7 @@ const camposTributariosFiscal = [
 
 export const RevisaoOrigensTab: React.FC<{
   cnpj: string;
+  regime: string;
   workspaceCarregado: boolean;
   contas: ContaPlano[];
   mapeamentos: MapeamentoOrigemContabil[];
@@ -64,7 +65,7 @@ export const RevisaoOrigensTab: React.FC<{
   preLancamentos: PreLancamentoContabil[];
   onSalvarPreLancamentos: (preLancamentos: PreLancamentoContabil[]) => void;
   onContabilizar: (referencias: string[]) => Promise<boolean>;
-}> = ({ cnpj, workspaceCarregado, contas, mapeamentos, onSalvarMapeamentos, preLancamentos, onSalvarPreLancamentos, onContabilizar }) => {
+}> = ({ cnpj, regime, workspaceCarregado, contas, mapeamentos, onSalvarMapeamentos, preLancamentos, onSalvarPreLancamentos, onContabilizar }) => {
   const [desde, setDesde] = useState(competenciaAtual);
   const [ate, setAte] = useState(competenciaAtual);
   const [dados, setDados] = useState<LoteOrigens>({ documentos: [], folhas: [] });
@@ -407,6 +408,26 @@ export const RevisaoOrigensTab: React.FC<{
           })}
         </div>
         <p className="px-4 pb-4 text-[11px] text-slate-500">Os tributos são apenas valores destacados nos dados recebidos. Quando faltam campos, o total fica marcado como parcial; nenhum campo ausente é assumido como zero.</p>
+      </section>
+
+      <section className="overflow-hidden rounded-xl border border-amber-300 bg-white">
+        <div className="border-b border-amber-100 px-4 py-3"><h2 className="font-bold text-slate-900">Conferência de tributos por regime</h2><p className="mt-1 text-xs text-slate-600">Regime cadastrado: <strong>{regime || "Não informado"}</strong>. Esta conferência não calcula imposto devido nem emite guia.</p></div>
+        <div className="space-y-3 p-4">
+          {regime === "Simples Nacional" && <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950"><strong>DAS unificado pendente de integração.</strong> A apuração exige receita segregada por atividade/anexo, competência e demais informações validadas no PGDAS-D. Os valores destacados nas notas não substituem o DAS.</p>}
+          {(regime === "Lucro Presumido" || regime === "Lucro Real") && <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">Os valores de ICMS, ISS, PIS e COFINS abaixo são apenas valores destacados nos documentos recebidos. Não representam saldo fiscal a recolher. IRPJ e CSLL dependem da apuração e bases próprias do regime, ainda não recebidas nesta integração.</p>}
+          {!regime && <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">Informe e confira o regime tributário da empresa antes de preparar qualquer apuração.</p>}
+          <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Tributo</th><th className="px-3 py-2 text-right">Notas de entrada</th><th className="px-3 py-2 text-right">Notas de saída</th><th className="px-3 py-2">Situação</th></tr></thead><tbody>
+            {([ ["ICMS", "valorIcms"], ["PIS", "valorPis"], ["COFINS", "valorCofins"], ["ISS", "valorIss"] ] as const).map(([titulo, campo]) => {
+              const totalDocs = totaisFiscal.entrada.autorizadas + totaisFiscal.saida.autorizadas;
+              const incompletos = entrada.incompletos + saida.incompletos;
+              const status = !totalDocs ? "Sem documentos autorizados" : incompletos ? `${incompletos} documento(s) sem valor tributário; conferência incompleta` : "Valores de origem disponíveis; apuração não realizada";
+              const display = (grupo: typeof totaisFiscal.entrada) => !grupo.autorizadas ? "—" : grupo.impostos[campo].incompletos === grupo.autorizadas ? "Não apurado" : `${dinheiro(grupo.impostos[campo].total)}${grupo.impostos[campo].incompletos ? "*" : ""}`;
+              return <tr key={titulo} className="border-t border-slate-100"><td className="px-3 py-2 font-semibold">{titulo}</td><td className="px-3 py-2 text-right tabular-nums">{display(totaisFiscal.entrada)}</td><td className="px-3 py-2 text-right tabular-nums">{display(totaisFiscal.saida)}</td><td className="px-3 py-2 text-xs text-amber-800">{status}</td></tr>;
+            })}
+            {(["IRPJ", "CSLL"] as const).map((titulo) => <tr key={titulo} className="border-t border-slate-100"><td className="px-3 py-2 font-semibold">{titulo}</td><td className="px-3 py-2 text-right">Não apurado</td><td className="px-3 py-2 text-right">Não apurado</td><td className="px-3 py-2 text-xs text-amber-800">Base de cálculo e apuração do regime não recebidas</td></tr>)}
+          </tbody></table></div>
+          <p className="text-[11px] text-slate-500">Nenhum valor ausente é tratado como zero. Vencimentos, saldo a recolher e links de emissão só serão preenchidos quando houver integração e dados oficiais suficientes.</p>
+        </div>
       </section>
 
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
