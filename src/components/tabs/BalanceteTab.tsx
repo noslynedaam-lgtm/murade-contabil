@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { AlertTriangle, ArrowUpDown, CheckCircle2, Download, Lock, RefreshCw } from "lucide-react";
 import { ContaPlano, LancamentoContabil } from "../../types";
+import { gerarRelatoriosContabeis } from "../../utils/livrosContabeis";
 
 interface BalanceteTabProps {
   competencia: string;
@@ -20,19 +21,6 @@ interface LinhaBalancete {
   saldoCredor: number;
 }
 
-function obterCompetencia(data: string): string {
-  const valor = String(data || "").trim();
-  const iso = /^(\d{4})-(\d{2})/.exec(valor);
-  if (iso) return `${iso[1]}-${iso[2]}`;
-  const br = /^(\d{2})\/(\d{4})$/.exec(valor);
-  return br ? `${br[2]}-${br[1]}` : "";
-}
-
-function centavos(valor: unknown): number {
-  const numero = Number(valor);
-  return Number.isFinite(numero) ? Math.round(numero * 100) : 0;
-}
-
 function moeda(valorEmCentavos: number): string {
   return (valorEmCentavos / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -48,75 +36,28 @@ export const BalanceteTab: React.FC<BalanceteTabProps> = ({ competencia, lancame
   const [feedbackExportacao, setFeedbackExportacao] = useState<string | null>(null);
 
   const resumo = useMemo(() => {
-    const contasPorCodigo = new Map(contas.map((conta) => [conta.codigo, conta]));
-    const movimentos = new Map<string, { debito: number; credito: number }>();
-    const doPeriodo = lancamentos.filter((lancamento) => !competenciaSelecionada || obterCompetencia(lancamento.data) === competenciaSelecionada);
-    let lancamentosValidos = 0;
-    let lancamentosInvalidos = 0;
-    let totalDebitos = 0;
-    let totalCreditos = 0;
-
-    const adicionar = (codigo: string, debito: number, credito: number) => {
-      const atual = movimentos.get(codigo) || { debito: 0, credito: 0 };
-      atual.debito += debito;
-      atual.credito += credito;
-      movimentos.set(codigo, atual);
-    };
-
-    for (const conta of contas) {
-      const saldoInicial = centavos(conta.saldoInicial || 0);
-      if (saldoInicial > 0) adicionar(conta.codigo, conta.natureza === "D" ? saldoInicial : 0, conta.natureza === "C" ? saldoInicial : 0);
-    }
-
-    for (const lancamento of doPeriodo) {
-      const valor = centavos(lancamento.valor);
-      const debitoExiste = contasPorCodigo.has(lancamento.contaDebitoCodigo);
-      const creditoExiste = contasPorCodigo.has(lancamento.contaCreditoCodigo);
-      if (valor <= 0 || !debitoExiste || !creditoExiste) {
-        lancamentosInvalidos += 1;
-        continue;
-      }
-      adicionar(lancamento.contaDebitoCodigo, valor, 0);
-      adicionar(lancamento.contaCreditoCodigo, 0, valor);
-      totalDebitos += valor;
-      totalCreditos += valor;
-      lancamentosValidos += 1;
-    }
-
-    const linhas: LinhaBalancete[] = contas.map((conta) => {
-      let movimentosDaConta = { ...(movimentos.get(conta.codigo) || { debito: 0, credito: 0 }) };
-      for (const filha of contas) {
-        if (filha.codigo.startsWith(`${conta.codigo}.`)) {
-          const movimentoFilha = movimentos.get(filha.codigo);
-          if (movimentoFilha) {
-            movimentosDaConta.debito += movimentoFilha.debito;
-            movimentosDaConta.credito += movimentoFilha.credito;
-          }
-        }
-      }
-      const saldo = movimentosDaConta.debito - movimentosDaConta.credito;
-      return {
-        codigo: conta.codigo,
-        descricao: conta.descricao,
-        nivel: conta.nivel,
-        tipo: conta.tipo,
-        movimentosDebito: movimentosDaConta.debito,
-        movimentosCredito: movimentosDaConta.credito,
-        saldoDevedor: Math.max(0, saldo),
-        saldoCredor: Math.max(0, -saldo),
-      };
-    });
-
-    const contasAnaliticas = linhas.filter((linha) => linha.tipo === "analitica");
-    const totalSaldoDevedor = contasAnaliticas.reduce((total, linha) => total + linha.saldoDevedor, 0);
-    const totalSaldoCredor = contasAnaliticas.reduce((total, linha) => total + linha.saldoCredor, 0);
-    const temSaldosIniciais = contas.some((conta) => centavos(conta.saldoInicial || 0) > 0);
-    const temDados = lancamentosValidos > 0 || temSaldosIniciais;
+    const relatorios = gerarRelatoriosContabeis(contas, lancamentos, competenciaSelecionada || "todos");
+    const linhas: LinhaBalancete[] = relatorios.balancete.map((linha) => ({
+      codigo: linha.conta.codigo,
+      descricao: linha.conta.descricao,
+      nivel: linha.conta.nivel,
+      tipo: linha.conta.tipo,
+      movimentosDebito: linha.debitoPeriodoCentavos,
+      movimentosCredito: linha.creditoPeriodoCentavos,
+      saldoDevedor: linha.saldoDevedorCentavos,
+      saldoCredor: linha.saldoCredorCentavos,
+    }));
+    const totalDebitos = relatorios.totalDebitosCentavos;
+    const totalCreditos = relatorios.totalCreditosCentavos;
+    const totalSaldoDevedor = relatorios.totalSaldoDevedorCentavos;
+    const totalSaldoCredor = relatorios.totalSaldoCredorCentavos;
+    const temSaldosIniciais = contas.some((conta) => Number.isFinite(Number(conta.saldoInicial)) && Number(conta.saldoInicial) !== 0);
+    const temDados = relatorios.validos.length > 0 || temSaldosIniciais;
     return {
       linhas,
-      doPeriodo: doPeriodo.length,
-      lancamentosValidos,
-      lancamentosInvalidos,
+      doPeriodo: relatorios.doPeriodo.length,
+      lancamentosValidos: relatorios.doPeriodo.length,
+      lancamentosInvalidos: relatorios.invalidos.length,
       totalDebitos,
       totalCreditos,
       totalSaldoDevedor,

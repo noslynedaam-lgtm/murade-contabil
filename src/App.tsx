@@ -67,6 +67,7 @@ function AppWorkspace() {
   const [livros, setLivros] = useState<LivroContabil[]>(livrosIniciais);
   const [lembretes, setLembretes] = useState<LembreteItem[]>(lembretesIniciais);
   const [dadosEmpresaCarregadosCnpj, setDadosEmpresaCarregadosCnpj] = useState("");
+  const [workspacePersistido, setWorkspacePersistido] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   // Estados de controle e feedback
@@ -80,6 +81,7 @@ function AppWorkspace() {
   React.useLayoutEffect(() => {
     const cnpj = String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
     const dadosVazios = () => {
+      setWorkspacePersistido(false);
       setContas(ordenarContasPorSequenciaNumerica(planoContasPadrao));
       setCentrosCusto([]);
       setMapeamentosOrigem([]);
@@ -92,6 +94,7 @@ function AppWorkspace() {
     // Não permita que o conjunto da empresa anterior permaneça visível enquanto
     // outra empresa está sendo carregada ou quando o cadastro ainda não tem CNPJ.
     setDadosEmpresaCarregadosCnpj("");
+    setWorkspacePersistido(false);
     if (!cnpj) {
       dadosVazios();
       return;
@@ -146,6 +149,7 @@ function AppWorkspace() {
         setLivros(Array.isArray(dados.livros) ? dados.livros : []);
         setLembretes(Array.isArray(dados.lembretes) ? dados.lembretes : []);
         setDadosEmpresaCarregadosCnpj(cnpj);
+        setWorkspacePersistido(true);
       } catch (error) {
         if (!ativo) return;
         console.warn("Não foi possível carregar dados persistentes do Contábil:", error);
@@ -170,8 +174,12 @@ function AppWorkspace() {
       console.warn("Não foi possível manter cópia local dos dados contábeis:", error);
     }
     workspacePendenteRef.current = { cnpj, dados };
+    setWorkspacePersistido(false);
     if (workspaceTimerRef.current) clearTimeout(workspaceTimerRef.current);
-    workspaceTimerRef.current = setTimeout(() => { void flushWorkspaceRef.current(); }, 600);
+    workspaceTimerRef.current = setTimeout(() => {
+      workspaceTimerRef.current = null;
+      void flushWorkspaceRef.current();
+    }, 600);
   }, [empresa, dadosEmpresaCarregadosCnpj, contas, centrosCusto, mapeamentosOrigem, preLancamentos, lancamentos, livros, lembretes, auth.cnpjs.join(",")]);
 
   React.useEffect(() => {
@@ -216,7 +224,11 @@ function AppWorkspace() {
     workspaceTimerRef.current = null;
     const pendente = workspacePendenteRef.current;
     workspacePendenteRef.current = null;
-    if (!pendente) return filaGravacaoWorkspaceRef.current;
+    if (!pendente) {
+      const persistido = await filaGravacaoWorkspaceRef.current;
+      if (!workspacePendenteRef.current && !workspaceTimerRef.current) setWorkspacePersistido(persistido);
+      return persistido;
+    }
     filaGravacaoWorkspaceRef.current = filaGravacaoWorkspaceRef.current.then(async () => {
       const versaoAnterior = versoesWorkspaceRef.current.get(pendente.cnpj) ?? null;
       const body = JSON.stringify({ dados: pendente.dados, versaoAnterior });
@@ -237,7 +249,9 @@ function AppWorkspace() {
       showToast("Alterações guardadas neste navegador, mas o PostgreSQL não confirmou a gravação.", "info");
       return false;
     });
-    return filaGravacaoWorkspaceRef.current;
+    const persistido = await filaGravacaoWorkspaceRef.current;
+    if (!workspacePendenteRef.current && !workspaceTimerRef.current) setWorkspacePersistido(persistido);
+    return persistido;
   };
 
   const workspaceCnpjAtual = String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
@@ -435,6 +449,29 @@ function AppWorkspace() {
     const persistido = await flushWorkspaceRef.current();
     if (persistido) showToast(`${novos.length} lançamento(s) contabilizado(s) e confirmados no PostgreSQL desta empresa.`, "success");
     return persistido;
+  };
+
+  const handleEstornarLancamento = (id: string) => {
+    const original = lancamentos.find((item) => item.id === id);
+    if (!original || original.estornoDe || lancamentos.some((item) => item.estornoDe === original.id)) return;
+    const agora = new Date();
+    const data = `${String(agora.getDate()).padStart(2, "0")}/${String(agora.getMonth() + 1).padStart(2, "0")}/${agora.getFullYear()}`;
+    const referencia = original.documentoRef || original.id;
+    const estorno: LancamentoContabil = {
+      ...original,
+      id: `estorno-${crypto.randomUUID()}`,
+      data,
+      competencia: `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}`,
+      contaDebitoCodigo: original.contaCreditoCodigo,
+      contaDebitoNome: original.contaCreditoNome,
+      contaCreditoCodigo: original.contaDebitoCodigo,
+      contaCreditoNome: original.contaDebitoNome,
+      historico: `Estorno do lançamento ${referencia} — ${original.historico}`,
+      documentoRef: `ESTORNO-${referencia}-${crypto.randomUUID()}`,
+      estornoDe: original.id,
+    };
+    setLancamentos((prev) => [...prev, estorno]);
+    showToast("Estorno registrado; o lançamento original foi preservado.", "success");
   };
 
   // 3. Importar do Fiscal
@@ -703,9 +740,7 @@ function AppWorkspace() {
                   onAdicionarLancamento={(novo) =>
                     setLancamentos((prev) => [novo, ...prev])
                   }
-                  onRemoverLancamento={(id) =>
-                    setLancamentos((prev) => prev.filter((l) => l.id !== id))
-                  }
+                  onEstornarLancamento={handleEstornarLancamento}
                 />
               )}
 
@@ -720,6 +755,12 @@ function AppWorkspace() {
 
               {tabAtiva === "livros" && (
                 <LivrosTab
+                  empresa={empresa}
+                  workspaceCarregado={Boolean(empresa.cnpj) && dadosEmpresaCarregadosCnpj === String(empresa.cnpj || "").toUpperCase().replace(/[^A-Z0-9]/g, "")}
+                  workspacePersistido={workspacePersistido}
+                  lancamentos={lancamentos}
+                  contas={contas}
+                  preLancamentos={preLancamentos}
                   livros={livros}
                   onTransmitirTodos={handleTransmitirTodos}
                   isTransmitting={isTransmitting}
