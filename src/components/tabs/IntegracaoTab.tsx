@@ -6,6 +6,7 @@ type EstadoOrigem = { disponivel: boolean; documentosRecebidos?: number; folhasR
 type EstadoIntegracao = {
   sucesso: true;
   escopo: string;
+  cnpjEmpresa: string | null;
   armazenamento: string;
   tokenServicoConfigurado: boolean;
   fiscal: EstadoOrigem;
@@ -31,7 +32,8 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({ empresa }) => {
     setCarregando(true);
     setErro("");
     try {
-      const response = await fetch("/api/integracao/status", { credentials: "include", cache: "no-store" });
+      const query = empresa?.cnpj ? `?cnpj=${encodeURIComponent(empresa.cnpj)}` : "";
+      const response = await fetch(`/api/integracao/status${query}`, { credentials: "include", cache: "no-store" });
       const resultado = await response.json().catch(() => ({}));
       if (!response.ok || resultado.sucesso !== true) throw new Error(resultado.motivo || "Não foi possível ler o estado das integrações.");
       setEstado(resultado as EstadoIntegracao);
@@ -41,7 +43,7 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({ empresa }) => {
     } finally {
       setCarregando(false);
     }
-  }, []);
+  }, [empresa?.cnpj]);
 
   useEffect(() => {
     void atualizar();
@@ -53,7 +55,7 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({ empresa }) => {
     <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
       <div>
         <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900"><Database className="h-5 w-5 text-blue-700" /> Integrações do Murade Contábil</h2>
-        <p className="mt-1 text-sm text-slate-600">Estado consultado no servidor e limitado às empresas autorizadas da sua sessão.</p>
+        <p className="mt-1 text-sm text-slate-600">Estado consultado no servidor e limitado à empresa selecionada, quando informada, e às empresas autorizadas na sessão.</p>
       </div>
       <button type="button" onClick={() => void atualizar()} disabled={carregando} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${carregando ? "animate-spin" : ""}`} /> Atualizar estado</button>
     </header>
@@ -85,7 +87,7 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({ empresa }) => {
       <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-950">
         <strong>Como os dados chegam:</strong> os serviços de origem mantêm filas persistentes e enviam dados ao Contábil por APIs autenticadas quando o destino e o token estão configurados. O Fiscal tenta novamente as pendências a cada minuto; o DP tenta a cada 30 segundos e também após formar um resumo mensal completo. O Fiscal só transmite documentos já armazenados nele; isso não busca notas na SEFAZ. O DP transmite apenas resumos agregados por competência, sem dados pessoais. Se o envio falhar, o item continua pendente para nova tentativa. O Contábil reconcilia os dados recebidos e mapeados a cada minuto, preparando rascunhos. Eles aguardam sua revisão e aprovação; nenhum lançamento definitivo ou transmissão oficial acontece sozinho.
       </div>
-      {empresa?.cnpj && <p className="text-xs text-slate-500">Empresa selecionada: {empresa.razaoSocial || "Sem razão social"} · CNPJ {empresa.cnpj}. O estado acima soma somente empresas autorizadas para este usuário.</p>}
+      {empresa?.cnpj && <p className="text-xs text-slate-500">Empresa selecionada: {empresa.razaoSocial || "Sem razão social"} · CNPJ {empresa.cnpj}. {estado.cnpjEmpresa === empresa.cnpj.replace(/[^A-Z0-9]/gi, "").toUpperCase() ? "Os totais acima correspondem somente a esta empresa." : "O servidor não confirmou o escopo desta empresa; atualize ou confira a autorização."}</p>}
       <p className="flex items-center gap-1 text-[11px] text-slate-500"><Clock3 className="h-3.5 w-3.5" /> Consultado em {new Date(estado.consultadoEm).toLocaleString("pt-BR")}</p>
     </>}
   </section>;

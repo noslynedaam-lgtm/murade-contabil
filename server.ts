@@ -93,14 +93,20 @@ async function startServer() {
     const sessao = (req as express.Request & { sessaoContabil?: { cnpjs: string[] } }).sessaoContabil;
     const cnpjs = (sessao?.cnpjs || []).map(normalizarCnpjAcesso).filter(cnpjContabilValido);
     if (!cnpjs.length) return res.status(403).json({ sucesso: false, motivo: "Sua sessão não tem empresas autorizadas." });
+    const cnpjSolicitado = req.query.cnpj ? normalizarCnpjAcesso(req.query.cnpj) : "";
+    if (cnpjSolicitado && (!cnpjContabilValido(cnpjSolicitado) || !cnpjs.includes(cnpjSolicitado))) {
+      return res.status(403).json({ sucesso: false, motivo: "A empresa solicitada não está autorizada nesta sessão." });
+    }
+    const escopoCnpjs = cnpjSolicitado ? [cnpjSolicitado] : cnpjs;
     try {
       const [fiscal, dp] = await Promise.all([
-        verificarEstadoStoreFiscal(cnpjs),
-        verificarEstadoStoreDP(cnpjs),
+        verificarEstadoStoreFiscal(escopoCnpjs),
+        verificarEstadoStoreDP(escopoCnpjs),
       ]);
       return res.json({
         sucesso: true,
-        escopo: "Empresas autorizadas nesta sessão",
+        escopo: cnpjSolicitado ? "Empresa selecionada e autorizada nesta sessão" : "Empresas autorizadas nesta sessão",
+        cnpjEmpresa: cnpjSolicitado || null,
         armazenamento: fiscal.disponivel && dp.disponivel ? "postgresql" : "indisponível",
         tokenServicoConfigurado: Boolean(process.env.MURADE_INTEGRATION_TOKEN?.trim()),
         fiscal,
