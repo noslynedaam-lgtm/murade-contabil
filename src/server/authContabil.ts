@@ -420,7 +420,7 @@ function workspaceValido(value: unknown): value is Record<string, unknown> {
     for (const item of payload.preLancamentos) {
       if (!item || typeof item !== "object" || Array.isArray(item)) return false;
       const lancamento = item as Record<string, unknown>;
-      const camposPermitidos = ["id", "referenciaOrigem", "competencia", "data", "origem", "contaDebitoCodigo", "contaCreditoCodigo", "valor", "historico", "status", "criadoEm", "contabilizadoEm"];
+      const camposPermitidos = ["id", "referenciaOrigem", "competencia", "data", "origem", "contaDebitoCodigo", "contaCreditoCodigo", "valor", "historico", "status", "criadoEm", "contabilizadoEm", "geradoAutomaticamente"];
       if (Object.keys(lancamento).some((key) => !camposPermitidos.includes(key))) return false;
       const referencia = typeof lancamento.referenciaOrigem === "string" ? lancamento.referenciaOrigem : "";
       const referenciaDP = /^DP:[A-Z0-9]{12}\d{2}:\d{4}-(0[1-9]|1[0-2]):(folhaBruta|descontosINSS|descontosIRRF|fgts)$/.test(referencia);
@@ -438,6 +438,7 @@ function workspaceValido(value: unknown): value is Record<string, unknown> {
       if (typeof lancamento.valor !== "number" || !Number.isFinite(lancamento.valor) || lancamento.valor <= 0 || lancamento.valor > 999999999999) return false;
       if (typeof lancamento.historico !== "string" || lancamento.historico.length > 240 || !["pendente_conferencia", "contabilizado"].includes(String(lancamento.status))) return false;
       if (typeof lancamento.criadoEm !== "string" || !Number.isFinite(Date.parse(lancamento.criadoEm))) return false;
+      if (lancamento.geradoAutomaticamente !== undefined && lancamento.geradoAutomaticamente !== true) return false;
       if (lancamento.status === "contabilizado" && (typeof lancamento.contabilizadoEm !== "string" || !Number.isFinite(Date.parse(lancamento.contabilizadoEm)))) return false;
       if (lancamento.status === "pendente_conferencia" && lancamento.contabilizadoEm !== undefined) return false;
       referencias.add(referencia);
@@ -461,6 +462,119 @@ function workspaceValido(value: unknown): value is Record<string, unknown> {
     return true;
   };
   return inspect(payload);
+}
+
+export type RascunhoAutomaticoContabil = {
+  id: string;
+  referenciaOrigem: string;
+  competencia: string;
+  data: string;
+  origem: string;
+  contaDebitoCodigo: string;
+  contaCreditoCodigo: string;
+  valor: number;
+  historico: string;
+  criadoEm: string;
+};
+
+export async function lerWorkspaceInternoContabil(cnpj: string): Promise<Record<string, unknown> | null> {
+  const normalizado = normalizarCnpjAcesso(cnpj);
+  if (!cnpjContabilValido(normalizado)) return null;
+  await prepararAuthContabil();
+  const row = await obterBanco().query("SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1", [normalizado]);
+  return row.rowCount ? row.rows[0].payload as Record<string, unknown> : null;
+}
+
+export async function listarCnpjsComMapeamentoContabil(): Promise<string[]> {
+  await prepararAuthContabil();
+  const result = await obterBanco().query(`
+    SELECT cnpj
+    FROM contabil_company_workspaces
+    WHERE CASE WHEN jsonb_typeof(payload->'mapeamentosOrigem')='array'
+      THEN jsonb_array_length(payload->'mapeamentosOrigem') > 0 ELSE false END
+    ORDER BY updated_at DESC
+  `);
+  return result.rows.map((row) => String(row.cnpj));
+}
+
+/** Atomically stores generated drafts while preserving finalized entries and user workspace changes. */
+export async function mesclarRascunhosAutomaticosContabil(
+  cnpj: string,
+  candidatos: RascunhoAutomaticoContabil[],
+): Promise<{ criados: number; atualizados: number }> {
+  const normalizado = normalizarCnpjAcesso(cnpj);
+  if (!cnpjContabilValido(normalizado) || candidatos.length === 0) return { criados: 0, atualizados: 0 };
+  if (candidatos.length > 700) throw new Error("Lote automático de rascunhos excede o limite permitido.");
+  await prepararAuthContabil();
+
+  const client = await obterBanco().connect();
+  let criados = 0;
+  let atualizados = 0;
+  try {
+    await client.query("BEGIN");
+    const result = await client.query("SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1 FOR UPDATE", [normalizado]);
+    if (!result.rowCount) { await client.query("COMMIT"); return { criados: 0, atualizados: 0 }; }
+
+    const payload = result.rows[0].payload as Record<string, unknown>;
+    const mapeamentos = Array.isArray(payload.mapeamentosOrigem) ? payload.mapeamentosOrigem as Array<Record<string, unknown>> : [];
+    const lancamentos = Array.isArray(payload.lancamentos) ? payload.lancamentos as Array<Record<string, unknown>> : [];
+    const existentes = Array.isArray(payload.preLancamentos) ? payload.preLancamentos as Array<Record<string, unknown>> : [];
+    const atualizadosWorkspace = [...existentes];
+
+    for (const candidato of candidatos) {
+      const referencia = candidato.referenciaOrigem;
+      if (!referencia.startsWith(`DP:${normalizado}:`) && !referencia.startsWith(`FISCAL:${normalizado}:`)) continue;
+      if (lancamentos.some((item) => item.documentoRef === referencia || item.id === referencia)) continue;
+      const campoOrigem = referencia.startsWith("DP:") ? referenceDpOrigem(referencia) : referenceFiscalOrigem(referencia);
+      const mapeamento = mapeamentos.find((item) => item.origem === campoOrigem);
+      if (!mapeamento || mapeamento.contaDebitoCodigo !== candidato.contaDebitoCodigo || mapeamento.contaCreditoCodigo !== candidato.contaCreditoCodigo) continue;
+
+      const indice = atualizadosWorkspace.findIndex((item) => item.referenciaOrigem === referencia);
+      const existente = indice < 0 ? undefined : atualizadosWorkspace[indice];
+      if (existente?.status === "contabilizado") continue;
+      const draft = {
+        ...candidato,
+        criadoEm: typeof existente?.criadoEm === "string" ? existente.criadoEm : candidato.criadoEm,
+        status: "pendente_conferencia" as const,
+        geradoAutomaticamente: true as const,
+      };
+      if (existente && existente.data === draft.data && existente.competencia === draft.competencia
+        && existente.origem === draft.origem && existente.contaDebitoCodigo === draft.contaDebitoCodigo
+        && existente.contaCreditoCodigo === draft.contaCreditoCodigo && existente.valor === draft.valor
+        && existente.historico === draft.historico) continue;
+      if (indice < 0) {
+        atualizadosWorkspace.push(draft);
+        criados += 1;
+      } else {
+        atualizadosWorkspace[indice] = draft;
+        atualizados += 1;
+      }
+    }
+
+    if (criados || atualizados) {
+      const novoPayload = { ...payload, preLancamentos: atualizadosWorkspace };
+      if (!workspaceValido(novoPayload)) throw new Error("Workspace inválido ao salvar os rascunhos automáticos; nenhum lançamento foi criado.");
+      await client.query("UPDATE contabil_company_workspaces SET payload=$2::jsonb,version=version+1,updated_at=now() WHERE cnpj=$1", [normalizado, JSON.stringify(novoPayload)]);
+    }
+    await client.query("COMMIT");
+    return { criados, atualizados };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+function referenceDpOrigem(referencia: string): string {
+  const campo = referencia.split(":").at(-1);
+  return campo === "folhaBruta" ? "dp_folha_bruta" : campo === "descontosINSS" ? "dp_descontos_inss"
+    : campo === "descontosIRRF" ? "dp_descontos_irrf" : campo === "fgts" ? "dp_fgts" : "";
+}
+
+function referenceFiscalOrigem(referencia: string): string {
+  const tipo = referencia.split(":")[3];
+  return tipo === "Entrada" ? "fiscal_entrada" : tipo === "Saida" ? "fiscal_saida" : "";
 }
 
 export async function lerWorkspaceContabil(req: Request, res: Response): Promise<void> {

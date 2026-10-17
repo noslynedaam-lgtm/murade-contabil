@@ -189,7 +189,7 @@ export async function lerDocumentosFiscais(
     WHERE cnpj = $1
       AND ($2 = '' OR competencia >= $2)
       AND ($3 = '' OR competencia <= $3)
-    ORDER BY competencia, chave_documento
+    ORDER BY competencia DESC, chave_documento DESC
     LIMIT $4
   `, [cnpj, desde, ate, limite]);
   return resultado.rows.map((linha: { documento: unknown }) => linha.documento);

@@ -173,6 +173,7 @@ export interface PreLancamentoContabil {
   status: "pendente_conferencia" | "contabilizado";
   criadoEm: string;
   contabilizadoEm?: string;
+  geradoAutomaticamente?: true;
 }
 
 export interface BalanceteItem {
