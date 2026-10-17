@@ -3,7 +3,7 @@ import { AlertTriangle, ArrowDownToLine, CheckCircle2, ClipboardCheck, RefreshCw
 import type { ContaPlano, MapeamentoOrigemContabil, OrigemMapeadaContabil, PreLancamentoContabil } from "../../types";
 
 type DocumentoFiscal = Record<string, unknown>;
-type ResumoFolha = { competencia: string; calculadoEm: string; recebidoEm: string; resumo: Record<string, number | null> };
+type ResumoFolha = { competencia: string; calculadoEm: string; recebidoEm: string; atualizadoEm?: string; resumo: Record<string, number | null> };
 type LoteOrigens = { documentos: DocumentoFiscal[]; folhas: ResumoFolha[] };
 type RascunhoMapeamento = { contaDebitoCodigo: string; contaCreditoCodigo: string };
 type PreviaPartidaDP = { competencia: string; origem: string; contaDebitoCodigo: string; contaCreditoCodigo: string; valor: number; referencia: string };
@@ -148,7 +148,11 @@ export const RevisaoOrigensTab: React.FC<{
       { campo: "descontosIRRF", origem: "dp_descontos_irrf" as const, titulo: "IRRF descontado" },
       { campo: "fgts", origem: "dp_fgts" as const, titulo: "FGTS informado pelo DP" },
     ];
-    for (const folha of dados.folhas) {
+    const folhaMaisRecentePorCompetencia = new Map<string, ResumoFolha>();
+    for (const folha of [...dados.folhas].sort((a, b) => String(b.atualizadoEm || b.calculadoEm || b.recebidoEm).localeCompare(String(a.atualizadoEm || a.calculadoEm || a.recebidoEm)))) {
+      if (!folhaMaisRecentePorCompetencia.has(folha.competencia)) folhaMaisRecentePorCompetencia.set(folha.competencia, folha);
+    }
+    for (const folha of folhaMaisRecentePorCompetencia.values()) {
       const valores = folha.resumo || {};
       const camposObrigatorios = ["folhaBruta", "descontosINSS", "descontosIRRF", "descontosOutros", "liquidoFolha", "fgts"];
       if (camposObrigatorios.some((campo) => typeof valores[campo] !== "number" || !Number.isFinite(valores[campo]))) {
@@ -284,66 +288,6 @@ export const RevisaoOrigensTab: React.FC<{
     ...previaContabilFiscal.partidas.map((partida) => partida.referencia),
   ]), [previaContabilDP.partidas, previaContabilFiscal.partidas]);
 
-  useEffect(() => {
-    if (!workspaceCarregado) return;
-    const agora = new Date().toISOString();
-    const candidatos: PreLancamentoContabil[] = [
-      ...previaContabilDP.partidas.map((partida): PreLancamentoContabil => {
-        const campo = partida.referencia.split(":").at(-1);
-        const origem: PreLancamentoContabil["origem"] = campo === "folhaBruta" ? "DP — Folha"
-          : campo === "descontosINSS" ? "DP — INSS"
-            : campo === "descontosIRRF" ? "DP — IRRF" : "DP — FGTS";
-        return {
-          id: partida.referencia,
-          referenciaOrigem: partida.referencia,
-          competencia: partida.competencia,
-          data: `${partida.competencia}-01`,
-          origem,
-          contaDebitoCodigo: partida.contaDebitoCodigo,
-          contaCreditoCodigo: partida.contaCreditoCodigo,
-          valor: partida.valor,
-          historico: `${partida.origem} — pré-lançamento para conferência`,
-          status: "pendente_conferencia",
-          criadoEm: agora,
-        };
-      }),
-      ...previaContabilFiscal.partidas.map((partida): PreLancamentoContabil => ({
-        id: partida.referencia,
-        referenciaOrigem: partida.referencia,
-        competencia: partida.competencia,
-        data: partida.data,
-        origem: partida.origem as PreLancamentoContabil["origem"],
-        contaDebitoCodigo: partida.contaDebitoCodigo,
-        contaCreditoCodigo: partida.contaCreditoCodigo,
-        valor: partida.valor,
-        historico: `${partida.origem} NF-e ${partida.chave} — valor bruto, pré-lançamento para conferência`,
-        status: "pendente_conferencia",
-        criadoEm: agora,
-      })),
-    ];
-    const porReferencia = new Map<string, number>(preLancamentos.map((item, index) => [item.referenciaOrigem, index]));
-    const atualizados = [...preLancamentos];
-    let alterou = false;
-    for (const candidato of candidatos) {
-      const indice = porReferencia.get(candidato.referenciaOrigem);
-      const existente = indice === undefined ? undefined : atualizados[indice];
-      if (existente?.status === "contabilizado") continue;
-      if (existente && existente.data === candidato.data && existente.competencia === candidato.competencia && existente.origem === candidato.origem &&
-        existente.contaDebitoCodigo === candidato.contaDebitoCodigo && existente.contaCreditoCodigo === candidato.contaCreditoCodigo &&
-        existente.valor === candidato.valor && existente.historico === candidato.historico) continue;
-      const proximo = { ...candidato, criadoEm: existente?.criadoEm || agora };
-      if (indice === undefined) {
-        porReferencia.set(candidato.referenciaOrigem, atualizados.length);
-        atualizados.push(proximo);
-      } else atualizados[indice] = proximo;
-      alterou = true;
-    }
-    if (alterou) {
-      onSalvarPreLancamentos(atualizados);
-      setMensagemPrevia("Pré-lançamentos elegíveis foram gerados e salvos automaticamente para esta empresa. Eles continuam pendentes de conferência.");
-    }
-  }, [workspaceCarregado, previaContabilDP.partidas, previaContabilFiscal.partidas, preLancamentos, onSalvarPreLancamentos]);
-
   const contabilizarPendentes = async () => {
     const todosPendentes = preLancamentos.filter((item) => item.status === "pendente_conferencia");
     const pendentes = todosPendentes.filter((item) => referenciasElegiveis.has(item.referenciaOrigem));
@@ -364,7 +308,7 @@ export const RevisaoOrigensTab: React.FC<{
         <div>
           <p className="text-xs font-bold uppercase tracking-wide text-blue-700">Dados recebidos • {cnpj || "sem empresa"}</p>
           <h1 className="mt-1 text-2xl font-black text-slate-900">Revisão Fiscal e Departamento Pessoal</h1>
-          <p className="mt-1 max-w-3xl text-sm text-slate-600">Consulta dados persistidos desta empresa e prepara pré-lançamentos quando origem, autorização, dados e mapeamentos permitem. Todo lançamento continua pendente de conferência; esta tela não transmite obrigações.</p>
+          <p className="mt-1 max-w-3xl text-sm text-slate-600">O servidor prepara e persiste pré-lançamentos quando origem, autorização, dados e mapeamentos permitem, mesmo sem esta tela aberta. Tudo aguarda conferência e aprovação; esta tela não transmite obrigações.</p>
         </div>
         <button type="button" onClick={() => void carregar()} disabled={carregando || !workspaceCarregado} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">
           <RefreshCw className={`h-4 w-4 ${carregando ? "animate-spin" : ""}`} /> Atualizar

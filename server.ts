@@ -6,7 +6,8 @@ import dotenv from "dotenv";
 import { timingSafeEqual } from "node:crypto";
 import { ErroValidacaoDocumentoFiscal, fiscalStoreConfigurado, gravarDocumentosFiscais, lerDocumentosFiscais, verificarEstadoStoreFiscal } from "./src/server/documentosFiscaisStore";
 import { dpStoreConfigurado, ErroValidacaoResumoDP, gravarResumoDP, lerResumosDP, verificarEstadoStoreDP } from "./src/server/dadosDpStore";
-import { adicionarEmpresaAcessoContabil, bootstrapAuthContabil, cnpjContabilValido, criarConviteUsuarioContabil, exigirSessaoContabil, lerWorkspaceContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil } from "./src/server/authContabil";
+import { adicionarEmpresaAcessoContabil, bootstrapAuthContabil, cnpjContabilValido, criarConviteUsuarioContabil, exigirSessaoContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil } from "./src/server/authContabil";
+import { gerarCandidatosRascunhosAutomaticos, mesclarRascunhosNoWorkspace, prepararRascunhosContabeisAutomaticos } from "./src/server/prepararRascunhosContabeis";
 
 dotenv.config();
 
@@ -75,7 +76,24 @@ async function startServer() {
   app.delete("/api/auth/users/:login", exigirOrigemNavegador, exigirSessaoContabil, revogarUsuarioEmpresaContabil);
   app.get("/api/workspaces", exigirSessaoContabil, listarWorkspacesContabil);
   app.get("/api/workspaces/:cnpj", exigirSessaoContabil, lerWorkspaceContabil);
-  app.put("/api/workspaces/:cnpj", exigirOrigemNavegador, exigirSessaoContabil, salvarWorkspaceContabil);
+  app.put("/api/workspaces/:cnpj", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
+    const cnpj = normalizarCnpjAcesso(req.params.cnpj);
+    const workspaceEnviado = req.body?.dados;
+    try {
+      const workspaceAtual = await lerWorkspaceInternoContabil(cnpj);
+      const mapasAtuais = JSON.stringify(workspaceAtual?.mapeamentosOrigem || []);
+      const mapasEnviados = JSON.stringify(workspaceEnviado?.mapeamentosOrigem || []);
+      if (workspaceEnviado && mapasAtuais !== mapasEnviados && fiscalStoreConfigurado() && dpStoreConfigurado()) {
+        const candidatos = await gerarCandidatosRascunhosAutomaticos(cnpj, workspaceEnviado);
+        const mesclado = mesclarRascunhosNoWorkspace(cnpj, workspaceEnviado, candidatos);
+        req.body.dados = mesclado.workspace;
+        res.setHeader("X-Murade-Rascunhos-Preparados", String(mesclado.criados));
+      }
+    } catch (error) {
+      console.error("Falha ao preparar rascunhos durante atualização dos mapeamentos:", error);
+    }
+    await salvarWorkspaceContabil(req, res);
+  });
   app.get("/api/revisao/origens", exigirSessaoContabil, async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     const sessao = (req as express.Request & { sessaoContabil?: { cnpjs: string[] } }).sessaoContabil;
@@ -112,7 +130,8 @@ async function startServer() {
     res.json({
       status: "ok",
       system: "Murad Contábil",
-      version: "2026.1",
+      version: "2026.2",
+      preparacaoAutomaticaRascunhos: true,
       timestamp: new Date().toISOString(),
     });
   });
@@ -167,13 +186,22 @@ async function startServer() {
     try {
       if (!await verificarCnpjAutorizadoContabil(cnpj)) return res.status(403).json({ sucesso: false, motivo: "CNPJ não autorizado no cadastro seguro do Contábil." });
       const resultado = await gravarDocumentosFiscais(cnpj, req.body?.documentos);
+      let rascunhos = { criados: 0, atualizados: 0, disponivel: true };
+      try {
+        const preparado = await prepararRascunhosContabeisAutomaticos(cnpj);
+        rascunhos = { ...preparado, disponivel: true };
+      } catch (error) {
+        rascunhos = { criados: 0, atualizados: 0, disponivel: false };
+        console.error("Documentos fiscais salvos; a preparação automática de rascunhos ficou pendente:", error);
+      }
       return res.json({
         sucesso: true,
         persistencia: "postgresql",
         cnpj,
         ...resultado,
         lancamentosContabeisGerados: 0,
-        pendente: "Mapeamento e conferência de contas antes da geração de partidas dobradas.",
+        rascunhosContabeis: rascunhos,
+        pendente: "Os rascunhos aguardam conferência e aprovação do contador; nenhum lançamento definitivo foi criado.",
         recebidoEm: new Date().toISOString(),
       });
     } catch (error: any) {
@@ -256,6 +284,14 @@ async function startServer() {
     try {
       if (!await verificarCnpjAutorizadoContabil(cnpj)) return res.status(403).json({ sucesso: false, motivo: "CNPJ não autorizado no cadastro seguro do Contábil." });
       const resultado = await gravarResumoDP(cnpj, req.body);
+      let rascunhos = { criados: 0, atualizados: 0, disponivel: true };
+      try {
+        const preparado = await prepararRascunhosContabeisAutomaticos(cnpj);
+        rascunhos = { ...preparado, disponivel: true };
+      } catch (error) {
+        rascunhos = { criados: 0, atualizados: 0, disponivel: false };
+        console.error("Resumo do DP salvo; a preparação automática de rascunhos ficou pendente:", error);
+      }
       return res.json({
         sucesso: true,
         persistencia: "postgresql",
@@ -263,7 +299,8 @@ async function startServer() {
         novo: resultado.novo,
         registro: resultado.registro,
         lancamentosContabeisGerados: 0,
-        pendente: "Mapeamento das contas, validação do fechamento e geração de partidas contábeis.",
+        rascunhosContabeis: rascunhos,
+        pendente: "Os rascunhos aguardam conferência e aprovação do contador; nenhum lançamento definitivo foi criado.",
       });
     } catch (error: any) {
       const status = error instanceof ErroValidacaoResumoDP ? 422 : 503;
@@ -671,6 +708,21 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[Murad Contábil] Servidor ativo em http://localhost:${PORT}`);
+    setTimeout(async () => {
+      try {
+        const cnpjs = await listarCnpjsComMapeamentoContabil();
+        let criados = 0;
+        let atualizados = 0;
+        for (const cnpj of cnpjs) {
+          const resultado = await prepararRascunhosContabeisAutomaticos(cnpj);
+          criados += resultado.criados;
+          atualizados += resultado.atualizados;
+        }
+        console.log(`[Murad Contábil] Reconciliação automática concluída: ${cnpjs.length} empresa(s), ${criados} rascunho(s) criado(s), ${atualizados} atualizado(s); nenhum lançamento definitivo foi confirmado.`);
+      } catch (error) {
+        console.error("[Murad Contábil] Reconciliação automática indisponível; nova tentativa ocorrerá na próxima entrada de dados:", error);
+      }
+    }, 1_000);
   });
 }
 
