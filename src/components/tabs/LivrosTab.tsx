@@ -42,6 +42,28 @@ function dinheiroExcel(centavos: number): number {
   return centavos / 100;
 }
 
+type GrupoDemonstracao = "receita" | "despesa" | "ativo" | "passivo" | "patrimonio" | null;
+
+function grupoDemonstracao(conta: ContaPlano, contas: ContaPlano[]): GrupoDemonstracao {
+  const caminho = contas
+    .filter((item) => item.codigo === conta.codigo || conta.codigo.startsWith(`${item.codigo}.`))
+    .sort((a, b) => a.codigo.length - b.codigo.length)
+    .map((item) => item.descricao || "")
+    .join(" ")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  if (/patrimonio\s+liquido|capital\s+social|reservas?\s+(de\s+)?lucros?/.test(caminho)) return "patrimonio";
+  if (/receita|faturamento/.test(caminho)) return "receita";
+  if (/despesa|custo/.test(caminho)) return "despesa";
+  if (/ativo/.test(caminho)) return "ativo";
+  if (/passivo|obrigacoes|fornecedores|impostos\s+a\s+recolher|salarios\s+a\s+pagar|emprestimos/.test(caminho)) return "passivo";
+  return null;
+}
+
+function rotuloGrupoDemonstracao(conta: ContaPlano, contas: ContaPlano[]): string {
+  const grupo = grupoDemonstracao(conta, contas);
+  return grupo === "ativo" ? "Ativo" : grupo === "passivo" ? "Passivo" : grupo === "patrimonio" ? "Patrimônio líquido" : "Não classificado";
+}
+
 export const LivrosTab: React.FC<LivrosTabProps> = ({
   empresa,
   workspaceCarregado,
@@ -78,7 +100,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
   // nenhuma regra tributária ou conta ausente é inferida aqui.
   const dre = useMemo(() => {
     const porConta = new Map<string, { conta: ContaPlano; debito: number; credito: number }>();
-    for (const conta of contas.filter((item) => item.tipo === "analitica" && ["3", "4"].includes(item.codigo.split(".")[0]))) {
+    for (const conta of contas.filter((item) => item.tipo === "analitica" && ["receita", "despesa"].includes(grupoDemonstracao(item, contas) || ""))) {
       porConta.set(conta.codigo, { conta, debito: 0, credito: 0 });
     }
     for (const item of relatorios.doPeriodo) {
@@ -87,18 +109,20 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
       if (debito) debito.debito += item.valorCentavos;
       if (credito) credito.credito += item.valorCentavos;
     }
-    const receitas = [...porConta.values()].filter((item) => item.conta.codigo.startsWith("3."));
-    const despesas = [...porConta.values()].filter((item) => item.conta.codigo.startsWith("4."));
+    const receitas = [...porConta.values()].filter((item) => grupoDemonstracao(item.conta, contas) === "receita");
+    const despesas = [...porConta.values()].filter((item) => grupoDemonstracao(item.conta, contas) === "despesa");
     const totalReceitas = receitas.reduce((soma, item) => soma + item.credito - item.debito, 0);
     const totalDespesas = despesas.reduce((soma, item) => soma + item.debito - item.credito, 0);
     return { receitas, despesas, totalReceitas, totalDespesas, resultado: totalReceitas - totalDespesas };
   }, [contas, relatorios.doPeriodo]);
 
   const contasPatrimoniais = relatorios.balancete.filter((item) => item.conta.tipo === "analitica"
-    && ["1", "2"].includes(item.conta.codigo.split(".")[0])
+    && ["ativo", "passivo", "patrimonio"].includes(grupoDemonstracao(item.conta, contas) || "")
     && (item.saldoDevedorCentavos || item.saldoCredorCentavos || item.debitoPeriodoCentavos || item.creditoPeriodoCentavos));
-  const totalAtivo = contasPatrimoniais.filter((item) => item.conta.codigo.startsWith("1.")).reduce((soma, item) => soma + item.saldoDevedorCentavos - item.saldoCredorCentavos, 0);
-  const totalPassivo = contasPatrimoniais.filter((item) => item.conta.codigo.startsWith("2.")).reduce((soma, item) => soma + item.saldoCredorCentavos - item.saldoDevedorCentavos, 0);
+  const totalAtivo = contasPatrimoniais.filter((item) => grupoDemonstracao(item.conta, contas) === "ativo").reduce((soma, item) => soma + item.saldoDevedorCentavos - item.saldoCredorCentavos, 0);
+  const totalPassivo = contasPatrimoniais.filter((item) => grupoDemonstracao(item.conta, contas) === "passivo").reduce((soma, item) => soma + item.saldoCredorCentavos - item.saldoDevedorCentavos, 0);
+  const totalPatrimonio = contasPatrimoniais.filter((item) => grupoDemonstracao(item.conta, contas) === "patrimonio").reduce((soma, item) => soma + item.saldoCredorCentavos - item.saldoDevedorCentavos, 0);
+  const totalPassivoPatrimonio = totalPassivo + totalPatrimonio;
 
   const exportarExcel = () => {
     if (!workspaceCarregado || !workspacePersistido || !empresa.cnpj) {
@@ -175,14 +199,18 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
       ["Totais", "", "Receitas", "", "", dinheiroExcel(dre.totalReceitas)],
       ["Totais", "", "Despesas", "", "", dinheiroExcel(dre.totalDespesas)],
       ["Resultado do período", "", "Receitas menos despesas", "", "", dinheiroExcel(dre.resultado)],
+      ["Classificação pela descrição das contas e grupos superiores; contas sem descrição reconhecível não são inferidas."],
     ];
     const linhasBalanco: (string | number)[][] = [
       ["BALANÇO PATRIMONIAL GERENCIAL — NÃO OFICIAL"],
       [empresa.razaoSocial || "Empresa não informada", `CNPJ: ${empresa.cnpj}`, periodoDescricao],
       ["Grupo", "Conta", "Descrição", "Saldo devedor (R$)", "Saldo credor (R$)"],
-      ...contasPatrimoniais.map((item) => [item.conta.codigo.startsWith("1.") ? "Ativo" : "Passivo e patrimônio", item.conta.codigo, item.conta.descricao, dinheiroExcel(item.saldoDevedorCentavos), dinheiroExcel(item.saldoCredorCentavos)]),
+      ...contasPatrimoniais.map((item) => [rotuloGrupoDemonstracao(item.conta, contas), item.conta.codigo, item.conta.descricao, dinheiroExcel(item.saldoDevedorCentavos), dinheiroExcel(item.saldoCredorCentavos)]),
       ["Totais", "", "Ativo", dinheiroExcel(totalAtivo), 0],
-      ["Totais", "", "Passivo e patrimônio líquido", 0, dinheiroExcel(totalPassivo)],
+      ["Totais", "", "Passivo", 0, dinheiroExcel(totalPassivo)],
+      ["Totais", "", "Patrimônio líquido", 0, dinheiroExcel(totalPatrimonio)],
+      ["Totais", "", "Passivo + patrimônio líquido", 0, dinheiroExcel(totalPassivoPatrimonio)],
+      ["Classificação pela descrição das contas e grupos superiores; contas sem descrição reconhecível não são inferidas."],
     ];
 
     const workbook = gerarWorkbookExcel([
@@ -287,7 +315,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
         </table>}
 
         {livroVisivel === "dre" && <div className="p-3">
-          <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950">DRE gerencial baseada nas contas de receita (classe 3) e despesa (classe 4) do plano da empresa. Confira a classificação e os lançamentos antes de usar.</p>
+          <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950">DRE gerencial classifica contas pela descrição da própria conta e de seus grupos superiores (Receita, Despesa ou Custo), independentemente do código. Contas sem descrição reconhecível não são inferidas; confira o plano e a classificação antes de usar.</p>
           <table className="w-full min-w-[650px] border-collapse text-left text-xs"><thead className="bg-slate-50 text-slate-700"><tr><th className="px-3 py-2">Grupo</th><th className="px-3 py-2">Conta</th><th className="px-3 py-2">Descrição</th><th className="px-3 py-2 text-right">Crédito</th><th className="px-3 py-2 text-right">Débito</th><th className="px-3 py-2 text-right">Saldo</th></tr></thead><tbody>
             {dre.receitas.map((item) => <tr key={`dre-r-${item.conta.codigo}`} className="border-t border-slate-100"><td>Receitas</td><td className="px-3 py-2 font-mono">{item.conta.codigo}</td><td className="px-3 py-2">{item.conta.descricao}</td><td className="px-3 py-2 text-right">{moedaContabil(item.credito)}</td><td className="px-3 py-2 text-right">{moedaContabil(item.debito)}</td><td className="px-3 py-2 text-right">{moedaContabil(item.credito - item.debito)}</td></tr>)}
             {dre.despesas.map((item) => <tr key={`dre-d-${item.conta.codigo}`} className="border-t border-slate-100"><td>Despesas</td><td className="px-3 py-2 font-mono">{item.conta.codigo}</td><td className="px-3 py-2">{item.conta.descricao}</td><td className="px-3 py-2 text-right">{moedaContabil(item.credito)}</td><td className="px-3 py-2 text-right">{moedaContabil(item.debito)}</td><td className="px-3 py-2 text-right">{moedaContabil(item.debito - item.credito)}</td></tr>)}
@@ -297,10 +325,10 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
         </div>}
 
         {livroVisivel === "balanco" && <div className="p-3">
-          <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950">Balanço gerencial calculado das contas patrimoniais de ativo (classe 1) e passivo/patrimônio (classe 2), com saldos iniciais e lançamentos definitivos até a competência selecionada. Confira saldos de abertura, classificação e equilíbrio.</p>
-          <div className="mb-3 grid gap-2 sm:grid-cols-2"><div className="rounded-md border bg-slate-50 p-3"><span className="text-xs text-slate-600">Ativo</span><strong className="block text-lg">{moedaContabil(totalAtivo)}</strong></div><div className="rounded-md border bg-slate-50 p-3"><span className="text-xs text-slate-600">Passivo e patrimônio líquido</span><strong className="block text-lg">{moedaContabil(totalPassivo)}</strong></div></div>
-          <table className="w-full min-w-[600px] border-collapse text-left text-xs"><thead className="bg-slate-50 text-slate-700"><tr><th className="px-3 py-2">Grupo</th><th className="px-3 py-2">Conta</th><th className="px-3 py-2">Descrição</th><th className="px-3 py-2 text-right">Saldo devedor</th><th className="px-3 py-2 text-right">Saldo credor</th></tr></thead><tbody>{contasPatrimoniais.map((item) => <tr key={`bp-${item.conta.codigo}`} className="border-t border-slate-100"><td>{item.conta.codigo.startsWith("1.") ? "Ativo" : "Passivo e patrimônio"}</td><td className="px-3 py-2 font-mono">{item.conta.codigo}</td><td className="px-3 py-2">{item.conta.descricao}</td><td className="px-3 py-2 text-right">{moedaContabil(item.saldoDevedorCentavos)}</td><td className="px-3 py-2 text-right">{moedaContabil(item.saldoCredorCentavos)}</td></tr>)}{!contasPatrimoniais.length && <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">Sem saldo patrimonial informado para este período.</td></tr>}</tbody></table>
-          <p className="mt-3 text-right text-xs font-bold">Diferença Ativo − Passivo/Patrimônio: {moedaContabil(totalAtivo - totalPassivo)}</p>
+          <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950">Balanço gerencial classifica Ativo, Passivo e Patrimônio Líquido pelas descrições das contas e dos grupos superiores, independentemente do código. Saldos de contas sem descrição reconhecível não são inferidos e ficam fora deste resumo. Confira o plano, os saldos de abertura e o equilíbrio.</p>
+          <div className="mb-3 grid gap-2 sm:grid-cols-3"><div className="rounded-md border bg-slate-50 p-3"><span className="text-xs text-slate-600">Ativo</span><strong className="block text-lg">{moedaContabil(totalAtivo)}</strong></div><div className="rounded-md border bg-slate-50 p-3"><span className="text-xs text-slate-600">Passivo</span><strong className="block text-lg">{moedaContabil(totalPassivo)}</strong></div><div className="rounded-md border bg-slate-50 p-3"><span className="text-xs text-slate-600">Patrimônio líquido</span><strong className="block text-lg">{moedaContabil(totalPatrimonio)}</strong></div></div>
+          <table className="w-full min-w-[600px] border-collapse text-left text-xs"><thead className="bg-slate-50 text-slate-700"><tr><th className="px-3 py-2">Grupo</th><th className="px-3 py-2">Conta</th><th className="px-3 py-2">Descrição</th><th className="px-3 py-2 text-right">Saldo devedor</th><th className="px-3 py-2 text-right">Saldo credor</th></tr></thead><tbody>{contasPatrimoniais.map((item) => <tr key={`bp-${item.conta.codigo}`} className="border-t border-slate-100"><td>{rotuloGrupoDemonstracao(item.conta, contas)}</td><td className="px-3 py-2 font-mono">{item.conta.codigo}</td><td className="px-3 py-2">{item.conta.descricao}</td><td className="px-3 py-2 text-right">{moedaContabil(item.saldoDevedorCentavos)}</td><td className="px-3 py-2 text-right">{moedaContabil(item.saldoCredorCentavos)}</td></tr>)}{!contasPatrimoniais.length && <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">Sem saldo patrimonial informado para este período.</td></tr>}</tbody></table>
+          <p className="mt-3 text-right text-xs font-bold">Diferença Ativo − Passivo − Patrimônio líquido: {moedaContabil(totalAtivo - totalPassivoPatrimonio)}</p>
         </div>}
       </div>
 
@@ -319,8 +347,8 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
         <section className="contabil-print-page"><h2>Livro Diário</h2><table><thead><tr><th>Data</th><th>Documento / histórico</th><th>Conta débito</th><th>Conta crédito</th><th>Valor</th><th>Origem</th></tr></thead><tbody>{relatorios.doPeriodo.map((item) => <tr key={`pdf-diario-${item.original.id}`}><td>{dataLegivelContabil(item.dataISO)}</td><td>{item.original.documentoRef || item.original.id}<br />{item.original.historico}</td><td>{item.debito.codigo} — {item.debito.descricao}</td><td>{item.credito.codigo} — {item.credito.descricao}</td><td className="valor">{moedaContabil(item.valorCentavos)}</td><td>{item.original.origem}</td></tr>)}</tbody><tfoot><tr><td colSpan={4}>Total</td><td className="valor">{moedaContabil(relatorios.totalDebitosCentavos)}</td><td /></tr></tfoot></table></section>
         <section className="contabil-print-page"><h2>Livro Razão</h2><table><thead><tr><th>Data</th><th>Conta</th><th>Histórico</th><th>Contrapartida</th><th>Débito</th><th>Crédito</th><th>Saldo</th></tr></thead><tbody>{relatorios.razao.map((item, indice) => <tr key={`pdf-razao-${item.conta.codigo}-${item.dataISO}-${item.referencia}-${indice}`}><td>{dataLegivelContabil(item.dataISO)}</td><td>{item.conta.codigo}</td><td>{item.historico}<br />{item.referencia}</td><td>{item.contraPartidaCodigo} {item.contraPartidaNome}</td><td className="valor">{moedaContabil(item.debitoCentavos)}</td><td className="valor">{moedaContabil(item.creditoCentavos)}</td><td className="valor">{moedaContabil(item.saldoDevedorCentavos || item.saldoCredorCentavos)} {item.saldoDevedorCentavos ? "D" : item.saldoCredorCentavos ? "C" : ""}</td></tr>)}</tbody></table></section>
         <section className="contabil-print-page"><h2>Balancete de Verificação</h2><table><thead><tr><th>Conta</th><th>Descrição</th><th>Mov. débito</th><th>Mov. crédito</th><th>Saldo devedor</th><th>Saldo credor</th></tr></thead><tbody>{balanceteVisivel.map((item) => <tr key={`pdf-balancete-${item.conta.codigo}`}><td>{item.conta.codigo}</td><td>{item.conta.descricao || "Nome não informado"}</td><td className="valor">{moedaContabil(item.debitoPeriodoCentavos)}</td><td className="valor">{moedaContabil(item.creditoPeriodoCentavos)}</td><td className="valor">{moedaContabil(item.saldoDevedorCentavos)}</td><td className="valor">{moedaContabil(item.saldoCredorCentavos)}</td></tr>)}</tbody><tfoot><tr><td colSpan={2}>Totais das contas analíticas</td><td className="valor">{moedaContabil(relatorios.totalDebitosCentavos)}</td><td className="valor">{moedaContabil(relatorios.totalCreditosCentavos)}</td><td className="valor">{moedaContabil(relatorios.totalSaldoDevedorCentavos)}</td><td className="valor">{moedaContabil(relatorios.totalSaldoCredorCentavos)}</td></tr></tfoot></table></section>
-        <section className="contabil-print-page"><h2>DRE gerencial</h2><table><thead><tr><th>Grupo</th><th>Conta</th><th>Descrição</th><th>Crédito</th><th>Débito</th><th>Saldo</th></tr></thead><tbody>{[...dre.receitas.map((item) => ({ ...item, grupo: "Receitas", saldo: item.credito - item.debito })), ...dre.despesas.map((item) => ({ ...item, grupo: "Despesas", saldo: item.debito - item.credito }))].map((item) => <tr key={`pdf-dre-${item.conta.codigo}`}><td>{item.grupo}</td><td>{item.conta.codigo}</td><td>{item.conta.descricao}</td><td className="valor">{moedaContabil(item.credito)}</td><td className="valor">{moedaContabil(item.debito)}</td><td className="valor">{moedaContabil(item.saldo)}</td></tr>)}</tbody><tfoot><tr><td colSpan={5}>Resultado gerencial</td><td className="valor">{moedaContabil(dre.resultado)}</td></tr></tfoot></table></section>
-        <section className="contabil-print-page"><h2>Balanço Patrimonial gerencial</h2><table><thead><tr><th>Grupo</th><th>Conta</th><th>Descrição</th><th>Saldo devedor</th><th>Saldo credor</th></tr></thead><tbody>{contasPatrimoniais.map((item) => <tr key={`pdf-bp-${item.conta.codigo}`}><td>{item.conta.codigo.startsWith("1.") ? "Ativo" : "Passivo e patrimônio"}</td><td>{item.conta.codigo}</td><td>{item.conta.descricao}</td><td className="valor">{moedaContabil(item.saldoDevedorCentavos)}</td><td className="valor">{moedaContabil(item.saldoCredorCentavos)}</td></tr>)}</tbody><tfoot><tr><td colSpan={3}>Ativo / Passivo e patrimônio</td><td className="valor">{moedaContabil(totalAtivo)}</td><td className="valor">{moedaContabil(totalPassivo)}</td></tr></tfoot></table></section>
+        <section className="contabil-print-page"><h2>DRE gerencial</h2><p>Classificação pelas descrições das contas e grupos superiores; contas sem descrição reconhecível não são inferidas.</p><table><thead><tr><th>Grupo</th><th>Conta</th><th>Descrição</th><th>Crédito</th><th>Débito</th><th>Saldo</th></tr></thead><tbody>{[...dre.receitas.map((item) => ({ ...item, grupo: "Receitas", saldo: item.credito - item.debito })), ...dre.despesas.map((item) => ({ ...item, grupo: "Despesas", saldo: item.debito - item.credito }))].map((item) => <tr key={`pdf-dre-${item.conta.codigo}`}><td>{item.grupo}</td><td>{item.conta.codigo}</td><td>{item.conta.descricao}</td><td className="valor">{moedaContabil(item.credito)}</td><td className="valor">{moedaContabil(item.debito)}</td><td className="valor">{moedaContabil(item.saldo)}</td></tr>)}</tbody><tfoot><tr><td colSpan={5}>Resultado gerencial</td><td className="valor">{moedaContabil(dre.resultado)}</td></tr></tfoot></table></section>
+        <section className="contabil-print-page"><h2>Balanço Patrimonial gerencial</h2><p>Classificação pelas descrições das contas e grupos superiores; contas sem descrição reconhecível não são inferidas.</p><table><thead><tr><th>Grupo</th><th>Conta</th><th>Descrição</th><th>Saldo devedor</th><th>Saldo credor</th></tr></thead><tbody>{contasPatrimoniais.map((item) => <tr key={`pdf-bp-${item.conta.codigo}`}><td>{rotuloGrupoDemonstracao(item.conta, contas)}</td><td>{item.conta.codigo}</td><td>{item.conta.descricao}</td><td className="valor">{moedaContabil(item.saldoDevedorCentavos)}</td><td className="valor">{moedaContabil(item.saldoCredorCentavos)}</td></tr>)}</tbody><tfoot><tr><td colSpan={3}>Ativo</td><td className="valor">{moedaContabil(totalAtivo)}</td><td /></tr><tr><td colSpan={3}>Passivo</td><td /><td className="valor">{moedaContabil(totalPassivo)}</td></tr><tr><td colSpan={3}>Patrimônio líquido</td><td /><td className="valor">{moedaContabil(totalPatrimonio)}</td></tr><tr><td colSpan={3}>Diferença Ativo − Passivo − Patrimônio líquido</td><td className="valor">{moedaContabil(totalAtivo - totalPassivoPatrimonio)}</td><td /></tr></tfoot></table></section>
         <p className="contabil-print-disclaimer">Relatório interno. Não é livro autenticado, demonstração assinada nem obrigação transmitida.</p>
       </div>
     </section>
