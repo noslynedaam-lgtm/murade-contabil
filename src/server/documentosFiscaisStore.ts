@@ -61,6 +61,20 @@ async function inicializar(): Promise<void> {
     `)).then(() => db.query(`
       CREATE INDEX IF NOT EXISTS murade_documentos_fiscais_origem_competencia_idx
       ON murade_documentos_fiscais_origem (cnpj, competencia, tipo)
+    `)).then(() => db.query(`
+      CREATE TABLE IF NOT EXISTS murade_documentos_fiscais_versoes (
+        versao_id bigserial PRIMARY KEY,
+        cnpj char(14) NOT NULL CHECK (cnpj ~ '^[A-Z0-9]{12}[0-9]{2}$'),
+        chave_documento varchar(128) NOT NULL,
+        competencia char(7) NOT NULL,
+        tipo varchar(16) NOT NULL,
+        documento jsonb NOT NULL,
+        recebido_em timestamptz NOT NULL,
+        arquivado_em timestamptz NOT NULL DEFAULT now()
+      )
+    `)).then(() => db.query(`
+      CREATE INDEX IF NOT EXISTS murade_documentos_fiscais_versoes_empresa_chave_idx
+      ON murade_documentos_fiscais_versoes (cnpj, chave_documento, arquivado_em)
     `)).then(() => undefined).catch((error) => {
       inicializacao = null;
       throw error;
@@ -76,10 +90,15 @@ function obterChave(documento: any): string {
 function obterCompetencia(documento: any): string {
   const valor = String(documento?.dataEmissao || "").trim();
   const br = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(valor);
-  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(valor);
+  const iso = /^(\d{4})-(\d{2})-(\d{2})(?:T.*)?$/.exec(valor);
   const ano = br?.[3] || iso?.[1];
   const mes = br?.[2] || iso?.[2];
-  if (!ano || !mes || Number(mes) < 1 || Number(mes) > 12) return "";
+  const dia = br?.[1] || iso?.[3];
+  if (!ano || !mes || !dia || Number(mes) < 1 || Number(mes) > 12) return "";
+  const dataIso = `${ano}-${mes}-${dia}`;
+  const data = new Date(`${dataIso}T00:00:00Z`);
+  if (Number.isNaN(data.getTime()) || data.toISOString().slice(0, 10) !== dataIso) return "";
+  if (iso && valor.includes("T") && Number.isNaN(Date.parse(valor))) return "";
   return `${ano}-${mes}`;
 }
 
@@ -87,6 +106,7 @@ export interface ResultadoGravacaoFiscal {
   recebidos: number;
   novos: number;
   atualizados: number;
+  inalterados: number;
   entradas: number;
   saidas: number;
 }
@@ -138,24 +158,61 @@ export async function gravarDocumentosFiscais(
 
   await inicializar();
   const client = await db.connect();
+  // Keep row-lock order stable across concurrent batches to reduce deadlocks.
+  const documentosOrdenados = [...preparados].sort((a, b) => a.chave.localeCompare(b.chave));
   let novos = 0;
   let atualizados = 0;
+  let inalterados = 0;
   try {
     await client.query("BEGIN");
-    for (const item of preparados) {
-      const resultado = await client.query(`
-        INSERT INTO murade_documentos_fiscais_origem
-          (cnpj, chave_documento, competencia, tipo, documento)
-        VALUES ($1, $2, $3, $4, $5::jsonb)
-        ON CONFLICT (cnpj, chave_documento) DO UPDATE SET
-          competencia = EXCLUDED.competencia,
-          tipo = EXCLUDED.tipo,
-          documento = EXCLUDED.documento,
-          atualizado_em = now()
-        RETURNING (xmax = 0) AS inserido
+    for (const item of documentosOrdenados) {
+      let existente = await client.query(`
+        SELECT competencia, tipo, documento, recebido_em
+        FROM murade_documentos_fiscais_origem
+        WHERE cnpj = $1 AND chave_documento = $2
+        FOR UPDATE
+      `, [cnpj, item.chave]);
+      if (!existente.rowCount) {
+        const insercao = await client.query(`
+          INSERT INTO murade_documentos_fiscais_origem
+            (cnpj, chave_documento, competencia, tipo, documento)
+          VALUES ($1, $2, $3, $4, $5::jsonb)
+          ON CONFLICT (cnpj, chave_documento) DO NOTHING
+          RETURNING chave_documento
+        `, [cnpj, item.chave, item.competencia, item.tipo, item.serializado]);
+        if (insercao.rowCount) {
+          novos += 1;
+          continue;
+        }
+        // Another request may have inserted the key while this transaction waited.
+        existente = await client.query(`
+          SELECT competencia, tipo, documento, recebido_em
+          FROM murade_documentos_fiscais_origem
+          WHERE cnpj = $1 AND chave_documento = $2
+          FOR UPDATE
+        `, [cnpj, item.chave]);
+      }
+      const row = existente.rows[0];
+      if (!row) throw new Error("Não foi possível reler o documento fiscal concorrente.");
+      const igualdade = await client.query(`
+        SELECT $1::jsonb = $2::jsonb AS documento_igual
+      `, [JSON.stringify(row.documento), item.serializado]);
+      const semAlteracao = igualdade.rows[0]?.documento_igual === true && row.competencia === item.competencia && row.tipo === item.tipo;
+      if (semAlteracao) {
+        inalterados += 1;
+        continue;
+      }
+      await client.query(`
+        INSERT INTO murade_documentos_fiscais_versoes
+          (cnpj, chave_documento, competencia, tipo, documento, recebido_em)
+        VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+      `, [cnpj, item.chave, row.competencia, row.tipo, JSON.stringify(row.documento), row.recebido_em]);
+      await client.query(`
+        UPDATE murade_documentos_fiscais_origem
+        SET competencia = $3, tipo = $4, documento = $5::jsonb, atualizado_em = now()
+        WHERE cnpj = $1 AND chave_documento = $2
       `, [cnpj, item.chave, item.competencia, item.tipo, item.serializado]);
-      if (resultado.rows[0]?.inserido === true) novos += 1;
-      else atualizados += 1;
+      atualizados += 1;
     }
     await client.query("COMMIT");
   } catch (error) {
@@ -169,6 +226,7 @@ export async function gravarDocumentosFiscais(
     recebidos: preparados.length,
     novos,
     atualizados,
+    inalterados,
     entradas: preparados.filter((item) => item.tipo === "Entrada").length,
     saidas: preparados.filter((item) => item.tipo === "Saída").length,
   };
@@ -194,4 +252,27 @@ export async function lerDocumentosFiscais(
     LIMIT $4
   `, [cnpj, desde, ate, limite]);
   return resultado.rows.map((linha: { documento: unknown }) => linha.documento);
+}
+
+export async function lerVersoesDocumentoFiscal(cnpj: string, chave: string, limite: number): Promise<Record<string, unknown>[]> {
+  const db = obterPool();
+  if (!db) throw new Error("DATABASE_URL não configurada no Murade Contábil.");
+  if (!cnpjContabilValido(cnpj)) throw new Error("CNPJ inválido.");
+  if (!chave.trim() || chave.length > 128 || !Number.isInteger(limite) || limite < 1 || limite > 10) throw new Error("Chave ou limite de versões inválido.");
+  await inicializar();
+  const resultado = await db.query(`
+    SELECT versao_id, competencia, tipo, documento, recebido_em, arquivado_em
+    FROM murade_documentos_fiscais_versoes
+    WHERE cnpj = $1 AND chave_documento = $2
+    ORDER BY versao_id DESC
+    LIMIT $3
+  `, [cnpj, chave, limite]);
+  return resultado.rows.map((row) => ({
+    versaoId: String(row.versao_id),
+    competencia: row.competencia,
+    tipo: row.tipo,
+    documento: row.documento,
+    recebidoEm: new Date(row.recebido_em).toISOString(),
+    arquivadoEm: new Date(row.arquivado_em).toISOString(),
+  }));
 }

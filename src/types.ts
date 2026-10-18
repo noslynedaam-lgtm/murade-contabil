@@ -130,6 +130,9 @@ export interface LancamentoContabil {
   estornoDe?: string;
   statusManual?: "pendente_aprovacao" | "aprovado" | "rejeitado";
   saldoInicialContaCodigo?: string;
+  /** Import source is descriptive only; it is not proof of historical approval. */
+  sistemaMigracao?: "ALTERDATA" | "DOMINIO" | "ATRON" | "CSV";
+  classificacaoDeclaradaArquivo?: string;
 }
 
 export interface CentroCustoContabil {

@@ -4,7 +4,8 @@ import type { ContaPlano, LancamentoContabil, MapeamentoOrigemContabil, OrigemMa
 
 type DocumentoFiscal = Record<string, unknown>;
 type ResumoFolha = { competencia: string; processamentoId?: string; calculadoEm: string; recebidoEm: string; atualizadoEm?: string; resumo: Record<string, number | null> };
-type LoteOrigens = { documentos: DocumentoFiscal[]; folhas: ResumoFolha[] };
+type CoberturaXmlFiscal = { documentosAnalisados: number; documentosSemXmlCompleto: number; documentosXmlInvalido: number; itens: number; itensComCfop: number; itensComNcm: number; itensComCstIcmsOuCsosn: number; itensComCstPis: number; itensComCstCofins: number };
+type LoteOrigens = { documentos: DocumentoFiscal[]; folhas: ResumoFolha[]; coberturaXmlFiscal: CoberturaXmlFiscal };
 type RascunhoMapeamento = { contaDebitoCodigo: string; contaCreditoCodigo: string };
 type PreviaPartidaDP = { competencia: string; origem: string; contaDebitoCodigo: string; contaCreditoCodigo: string; valor: number; referencia: string };
 type EstadoPreviaDP = { partidas: PreviaPartidaDP[]; pendencias: Array<{ competencia: string; motivo: string }> };
@@ -82,7 +83,7 @@ export const RevisaoOrigensTab: React.FC<{
 }> = ({ cnpj, regime, workspaceCarregado, contas, mapeamentos, onSalvarMapeamentos, preLancamentos, lancamentos, onSalvarPreLancamentos, onContabilizar }) => {
   const [desde, setDesde] = useState(competenciaAtual);
   const [ate, setAte] = useState(competenciaAtual);
-  const [dados, setDados] = useState<LoteOrigens>({ documentos: [], folhas: [] });
+  const [dados, setDados] = useState<LoteOrigens>({ documentos: [], folhas: [], coberturaXmlFiscal: { documentosAnalisados: 0, documentosSemXmlCompleto: 0, documentosXmlInvalido: 0, itens: 0, itensComCfop: 0, itensComNcm: 0, itensComCstIcmsOuCsosn: 0, itensComCstPis: 0, itensComCstCofins: 0 } });
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [atualizadoEm, setAtualizadoEm] = useState("");
@@ -111,7 +112,7 @@ export const RevisaoOrigensTab: React.FC<{
 
   const carregar = useCallback(async () => {
     if (!/^[A-Z0-9]{12}\d{2}$/.test(cnpjNormalizado)) {
-      setDados({ documentos: [], folhas: [] });
+      setDados({ documentos: [], folhas: [], coberturaXmlFiscal: { documentosAnalisados: 0, documentosSemXmlCompleto: 0, documentosXmlInvalido: 0, itens: 0, itensComCfop: 0, itensComNcm: 0, itensComCstIcmsOuCsosn: 0, itensComCstPis: 0, itensComCstCofins: 0 } });
       setErro("Selecione ou cadastre uma empresa autorizada com CNPJ válido.");
       return;
     }
@@ -122,7 +123,13 @@ export const RevisaoOrigensTab: React.FC<{
       const response = await fetch(`/api/revisao/origens?${query}`, { credentials: "include", cache: "no-store" });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || result.sucesso !== true) throw new Error(result.motivo || "Não foi possível ler as origens persistidas.");
-      setDados({ documentos: Array.isArray(result.documentos) ? result.documentos : [], folhas: Array.isArray(result.folhas) ? result.folhas : [] });
+      setDados({
+        documentos: Array.isArray(result.documentos) ? result.documentos : [],
+        folhas: Array.isArray(result.folhas) ? result.folhas : [],
+        coberturaXmlFiscal: result.coberturaXmlFiscal && typeof result.coberturaXmlFiscal === "object"
+          ? result.coberturaXmlFiscal as CoberturaXmlFiscal
+          : { documentosAnalisados: 0, documentosSemXmlCompleto: 0, documentosXmlInvalido: 0, itens: 0, itensComCfop: 0, itensComNcm: 0, itensComCstIcmsOuCsosn: 0, itensComCstPis: 0, itensComCstCofins: 0 },
+      });
       setAtualizadoEm(new Date().toLocaleString("pt-BR"));
     } catch (error) {
       setErro(error instanceof Error ? error.message : "Falha ao consultar as origens.");
@@ -783,9 +790,39 @@ export const RevisaoOrigensTab: React.FC<{
       <section className="overflow-hidden rounded-xl border border-amber-300 bg-white">
         <div className="border-b border-amber-100 px-4 py-3"><h2 className="font-bold text-slate-900">Conferência de tributos por regime</h2><p className="mt-1 text-xs text-slate-600">Regime cadastrado: <strong>{regime || "Não informado"}</strong>. Esta conferência não calcula imposto devido nem emite guia.</p></div>
         <div className="space-y-3 p-4">
-          {regime === "Simples Nacional" && <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950"><strong>DAS unificado pendente de integração.</strong> A apuração exige receita segregada por atividade/anexo, competência e demais informações validadas no PGDAS-D. Os valores destacados nas notas não substituem o DAS.</p>}
-          {(regime === "Lucro Presumido" || regime === "Lucro Real") && <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">Os valores de ICMS, ISS, PIS e COFINS abaixo são apenas valores destacados nos documentos recebidos. Não representam saldo fiscal a recolher. IRPJ e CSLL dependem da apuração e bases próprias do regime, ainda não recebidas nesta integração.</p>}
+          {regime === "Simples Nacional" && <>
+            <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950"><strong>DAS unificado: apuração pendente.</strong> Antes de calcular, faltam receita bruta segregada por atividade/anexo e tratamento fiscal, competência e validações do PGDAS-D. Destaques de NF-e não substituem a declaração nem determinam sozinhos o DAS.</p>
+            <p className="text-xs text-slate-600"><strong>Próximo passo seguro:</strong> completar/conferir os dados de receita e operação e comparar a apuração no PGDAS-D. O sistema ainda não recebe o resultado oficial nem emite a guia.</p>
+          </>}
+          {(regime === "Lucro Presumido" || regime === "Lucro Real") && <>
+            <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">Os valores de ICMS, ISS, PIS e COFINS abaixo são destaques dos documentos, não saldo a recolher. A apuração exige escrituração/base tributável, CST e natureza das operações, ajustes e créditos aplicáveis, além dos parâmetros válidos para a empresa e competência. IRPJ e CSLL dependem da base e forma de apuração próprias do regime, não recebidas nesta integração.</p>
+            <p className="text-xs text-slate-600"><strong>Próximo passo seguro:</strong> completar e validar as escriturações fiscais e bases da competência, e então confrontar a apuração com os ambientes oficiais. O sistema ainda não recebe esses resultados oficiais nem emite guias.</p>
+          </>}
           {!regime && <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">Informe e confira o regime tributário da empresa antes de preparar qualquer apuração.</p>}
+          <nav aria-label="Fontes oficiais para conferência tributária" className="flex flex-wrap gap-2 text-xs">
+            {regime === "Simples Nacional" && <a href="https://www.gov.br/pt-br/servicos/declarar-apuracoes-mensais-do-simples-nacional" target="_blank" rel="noreferrer" className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 font-semibold text-blue-900 underline">Serviço oficial PGDAS-D</a>}
+            {(regime === "Lucro Presumido" || regime === "Lucro Real") && <>
+              <a href="https://www.gov.br/sped/pt-br/assuntos/escrituracoes-digitais/efd-icms-ipi" target="_blank" rel="noreferrer" className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 font-semibold text-blue-900 underline">EFD ICMS/IPI — SPED</a>
+              <a href="https://www.gov.br/sped/pt-br/assuntos/escrituracoes-digitais/efd-contribuicoes" target="_blank" rel="noreferrer" className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 font-semibold text-blue-900 underline">EFD-Contribuições — SPED</a>
+            </>}
+            <a href="https://servicos.receitafederal.gov.br/" target="_blank" rel="noreferrer" className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 font-semibold text-blue-900 underline">Serviços da Receita Federal</a>
+            <span className="self-center text-[11px] text-slate-500">ISS: informe o município e confira o portal municipal correspondente.</span>
+          </nav>
+          <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+            <h3 className="text-sm font-bold text-indigo-950">Cobertura dos XMLs para preparar a apuração</h3>
+            <p className="mt-1 text-xs text-indigo-900">O servidor verifica os campos existentes nos itens dos XMLs completos. Isso mede a cobertura da origem; não valida enquadramento legal nem calcula imposto devido.</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
+              <CoberturaItem titulo="XMLs completos analisados" valor={String(dados.coberturaXmlFiscal.documentosAnalisados)} />
+              <CoberturaItem titulo="Sem XML completo" valor={String(dados.coberturaXmlFiscal.documentosSemXmlCompleto)} pendente={dados.coberturaXmlFiscal.documentosSemXmlCompleto > 0} />
+              <CoberturaItem titulo="XMLs inválidos/incompletos" valor={String(dados.coberturaXmlFiscal.documentosXmlInvalido)} pendente={dados.coberturaXmlFiscal.documentosXmlInvalido > 0} />
+              <CoberturaItem titulo="Itens de nota encontrados" valor={String(dados.coberturaXmlFiscal.itens)} />
+              <CoberturaItem titulo="Itens com CFOP" valor={`${dados.coberturaXmlFiscal.itensComCfop} / ${dados.coberturaXmlFiscal.itens}`} pendente={dados.coberturaXmlFiscal.itensComCfop < dados.coberturaXmlFiscal.itens} />
+              <CoberturaItem titulo="Itens com NCM" valor={`${dados.coberturaXmlFiscal.itensComNcm} / ${dados.coberturaXmlFiscal.itens}`} pendente={dados.coberturaXmlFiscal.itensComNcm < dados.coberturaXmlFiscal.itens} />
+              <CoberturaItem titulo="Itens com CST ICMS/CSOSN" valor={`${dados.coberturaXmlFiscal.itensComCstIcmsOuCsosn} / ${dados.coberturaXmlFiscal.itens}`} pendente={dados.coberturaXmlFiscal.itensComCstIcmsOuCsosn < dados.coberturaXmlFiscal.itens} />
+              <CoberturaItem titulo="Itens com CST PIS / COFINS" valor={`${dados.coberturaXmlFiscal.itensComCstPis} / ${dados.coberturaXmlFiscal.itens} · ${dados.coberturaXmlFiscal.itensComCstCofins} / ${dados.coberturaXmlFiscal.itens}`} pendente={dados.coberturaXmlFiscal.itensComCstPis < dados.coberturaXmlFiscal.itens || dados.coberturaXmlFiscal.itensComCstCofins < dados.coberturaXmlFiscal.itens} />
+            </div>
+            {dados.documentos.length > 0 && dados.coberturaXmlFiscal.documentosAnalisados === 0 && <p className="mt-2 text-xs font-semibold text-amber-900">Ainda não há XML completo com itens para análise neste período. Resumos da SEFAZ não bastam para preparar a base detalhada.</p>}
+          </div>
           <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Tributo</th><th className="px-3 py-2 text-right">Notas de entrada</th><th className="px-3 py-2 text-right">Notas de saída</th><th className="px-3 py-2">Situação</th></tr></thead><tbody>
             {([ ["ICMS", "valorIcms"], ["PIS", "valorPis"], ["COFINS", "valorCofins"], ["ISS", "valorIss"] ] as const).map(([titulo, campo]) => {
               const totalDocs = totaisFiscal.entrada.autorizadas + totaisFiscal.saida.autorizadas;
@@ -864,4 +901,5 @@ export const RevisaoOrigensTab: React.FC<{
 };
 
 const Metric: React.FC<{ title: string; value: string; detail: string }> = ({ title, value, detail }) => <div className="rounded-xl border border-slate-200 bg-white p-4"><div className="text-xs font-semibold text-slate-500">{title}</div><div className="mt-2 text-2xl font-black text-slate-900">{value}</div><div className="mt-1 text-xs text-slate-500">{detail}</div></div>;
+const CoberturaItem: React.FC<{ titulo: string; valor: string; pendente?: boolean }> = ({ titulo, valor, pendente = false }) => <div className={`rounded-md border p-2 ${pendente ? "border-amber-200 bg-amber-50" : "border-white bg-white"}`}><div className="text-[11px] text-slate-600">{titulo}</div><div className={`mt-1 text-sm font-bold tabular-nums ${pendente ? "text-amber-900" : "text-slate-900"}`}>{valor}</div></div>;
 const Empty: React.FC<{ text: string }> = ({ text }) => <p className="p-5 text-sm text-slate-500">{text}</p>;

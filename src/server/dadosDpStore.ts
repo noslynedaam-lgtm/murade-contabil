@@ -28,6 +28,14 @@ export class ErroValidacaoResumoDP extends Error {
   }
 }
 
+/** Reusing a processing UUID with different values would overwrite a source version. */
+export class ErroConflitoResumoDP extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ErroConflitoResumoDP";
+  }
+}
+
 const camposMonetarios = [
   "folhaBruta",
   "outrosProventos",
@@ -47,6 +55,10 @@ const camposAindaNaoApurados = new Set(["inssPatronal", "provisaoFerias", "provi
 
 function arredondarCentavos(valor: number): number {
   return Math.round((valor + Number.EPSILON) * 100) / 100;
+}
+
+function resumoCanonico(resumo: Record<string, unknown>): string {
+  return JSON.stringify(Object.fromEntries(Object.entries(resumo).sort(([a], [b]) => a.localeCompare(b))));
 }
 
 export function normalizarResumoDPContrato(cnpj: string, body: any) {
@@ -172,12 +184,34 @@ export async function gravarResumoDP(cnpj: string, body: any): Promise<{ novo: b
     INSERT INTO murade_folhas_dp_origem
       (cnpj, competencia, processamento_id, calculado_em, resumo)
     VALUES ($1, $2, $3, $4, $5::jsonb)
-    ON CONFLICT (cnpj, competencia, processamento_id) DO UPDATE SET
-      calculado_em = EXCLUDED.calculado_em,
-      resumo = EXCLUDED.resumo,
-      atualizado_em = now()
+    ON CONFLICT (cnpj, competencia, processamento_id) DO NOTHING
     RETURNING (xmax = 0) AS inserido, recebido_em, atualizado_em
   `, [cnpj, preparado.competencia, preparado.processamentoId, preparado.calculadoEm, JSON.stringify(preparado.resumo)]);
+  if (!resultado.rowCount) {
+    const existente = await db.query(`
+      SELECT calculado_em, resumo, recebido_em, atualizado_em
+      FROM murade_folhas_dp_origem
+      WHERE cnpj = $1 AND competencia = $2 AND processamento_id = $3
+    `, [cnpj, preparado.competencia, preparado.processamentoId]);
+    const row = existente.rows[0];
+    if (!row) throw new Error("Não foi possível confirmar o resumo DP já recebido.");
+    const mesmoResumo = resumoCanonico(row.resumo) === resumoCanonico(preparado.resumo);
+    if (!mesmoResumo) {
+      throw new ErroConflitoResumoDP("Este processamentoId já foi recebido com outro resumo. Gere um novo UUID para preservar as versões anteriores da folha.");
+    }
+    return {
+      novo: false,
+      registro: {
+        cnpj,
+        competencia: preparado.competencia,
+        processamentoId: preparado.processamentoId,
+        calculadoEm: new Date(row.calculado_em).toISOString(),
+        resumo: row.resumo,
+        recebidoEm: new Date(row.recebido_em).toISOString(),
+        atualizadoEm: new Date(row.atualizado_em).toISOString(),
+      },
+    };
+  }
   return {
     novo: resultado.rows[0]?.inserido === true,
     registro: {

@@ -44,13 +44,13 @@ export const ModulosFinaisTab: React.FC<ModulosFinaisTabProps> = ({ empresa, lan
 
       <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
         <h3 className="flex items-center gap-2 font-bold"><AlertTriangle className="h-4 w-4" /> Integrações e obrigações</h3>
-        <p className="mt-1">Há APIs autenticadas para receber documentos fiscais e resumos agregados da folha no PostgreSQL, além da tela Revisão das Origens. A disponibilidade depende de dados enviados pelas origens e dos segredos de integração configurados em produção.</p>
-        <p className="mt-1">Pré-lançamentos só são preparados para origens mapeadas e dados conciliados; o contador precisa revisar e confirmar antes da contabilização. Balancete, Diário e Razão usam lançamentos definitivos. DRE e Balanço gerencial são relatórios internos derivados do plano de contas; não são demonstrações assinadas. Apuração de ICMS, PIS, COFINS, ISS, IRPJ e CSLL e transmissão oficial ainda não estão concluídas.</p>
+        <p className="mt-1">O Fiscal é responsável por buscar as notas na SEFAZ. O Contábil não consulta a SEFAZ: recebe e armazena documentos que o Fiscal já capturou e encaminhou. O DP pode encaminhar resumos agregados da folha. O funcionamento depende das filas, bancos e segredos de integração configurados em cada serviço.</p>
+        <p className="mt-1">O Contábil pode preparar rascunhos automaticamente em segundo plano, em regras ainda limitadas, quando há dados persistidos, completos e mapeamentos válidos. Isso não comprova um fluxo contínuo validado com dados reais. O contador confere e aprova; nenhum rascunho vira lançamento definitivo sozinho. Balancete, Diário e Razão usam lançamentos definitivos. DRE e Balanço são gerenciais; apurações de impostos e transmissões oficiais ainda não estão concluídas.</p>
       </section>
 
       <section className="grid gap-3 md:grid-cols-3">
         <WorkCard title="Departamento Pessoal" status={resumo.dpCount ? "Há lançamentos definitivos do DP" : "Sem lançamentos definitivos do DP"} text="Resumos agregados podem ser recebidos e classificados por regras revisadas. Dados nulos permanecem pendentes; o recebimento, por si só, não fecha a folha nem autoriza a contabilização." />
-        <WorkCard title="Fiscal" status={resumo.fiscalCount ? "Há lançamentos definitivos do Fiscal" : "Sem lançamentos definitivos do Fiscal"} text="Documentos fiscais podem ser recebidos para revisão. O lançamento depende de autorização confirmada, dados tributários disponíveis e mapeamento adequado por operação." />
+        <WorkCard title="Fiscal" status={resumo.fiscalCount ? "Há lançamentos definitivos do Fiscal" : "Sem lançamentos definitivos do Fiscal"} text="A captura das notas na SEFAZ pertence ao Fiscal. O Contábil apenas recebe documentos já capturados e encaminhados; o lançamento exige autorização confirmada, dados completos e mapeamento adequado por operação." />
         <WorkCard title="Contábil" status={resumo.total ? "Livros internos disponíveis" : "Aguardando lançamentos definitivos"} text="Balancete, Diário, Razão e demonstrações gerenciais estão disponíveis a partir dos lançamentos definitivos. Apurações fiscais por regime e obrigações oficiais seguem pendentes." />
       </section>
 

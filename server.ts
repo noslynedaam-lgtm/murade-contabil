@@ -4,10 +4,11 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import { timingSafeEqual } from "node:crypto";
-import { ErroValidacaoDocumentoFiscal, fiscalStoreConfigurado, gravarDocumentosFiscais, lerDocumentosFiscais, verificarEstadoStoreFiscal } from "./src/server/documentosFiscaisStore";
-import { dpStoreConfigurado, ErroValidacaoResumoDP, gravarResumoDP, lerResumosDP, verificarEstadoStoreDP } from "./src/server/dadosDpStore";
+import { ErroValidacaoDocumentoFiscal, fiscalStoreConfigurado, gravarDocumentosFiscais, lerDocumentosFiscais, lerVersoesDocumentoFiscal, verificarEstadoStoreFiscal } from "./src/server/documentosFiscaisStore";
+import { dpStoreConfigurado, ErroConflitoResumoDP, ErroValidacaoResumoDP, gravarResumoDP, lerResumosDP, verificarEstadoStoreDP } from "./src/server/dadosDpStore";
 import { adicionarEmpresaAcessoContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil } from "./src/server/authContabil";
 import { gerarCandidatosRascunhosAutomaticos, mesclarRascunhosNoWorkspace, prepararRascunhosContabeisAutomaticos } from "./src/server/prepararRascunhosContabeis";
+import { omitirXmlOriginal, resumirCoberturaXmlFiscal } from "./src/server/coberturaXmlFiscal";
 
 dotenv.config();
 
@@ -178,7 +179,17 @@ async function startServer() {
         lerDocumentosFiscais(cnpj, desde, ate, limiteFiscal),
         lerResumosDP(cnpj, desde, ate, limiteDP),
       ]);
-      return res.json({ sucesso: true, cnpj, periodo: { desde: desde || null, ate: ate || null }, documentos, folhas, lancamentosGerados: 0, revisaoNecessaria: true });
+      const coberturaXmlFiscal = resumirCoberturaXmlFiscal(documentos);
+      return res.json({
+        sucesso: true,
+        cnpj,
+        periodo: { desde: desde || null, ate: ate || null },
+        documentos: documentos.map(omitirXmlOriginal),
+        coberturaXmlFiscal,
+        folhas,
+        lancamentosGerados: 0,
+        revisaoNecessaria: true,
+      });
     } catch (error: any) {
       console.error("Falha ao montar fila de revisão das origens:", error);
       return res.status(503).json({ sucesso: false, motivo: error?.message || "Não foi possível carregar os dados recebidos." });
@@ -298,6 +309,35 @@ async function startServer() {
     }
   });
 
+  // Historical fiscal document versions are available only to authenticated
+  // server-to-server callers and only within the authorized company scope.
+  app.get("/api/integracao/fiscal/documentos/versoes", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Vary", "Authorization");
+    if (negarIntegracao(req, res)) return;
+    if (!fiscalStoreConfigurado()) {
+      return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil." });
+    }
+    // Reject repeated/structured query parameters instead of coercing them to
+    // strings (for example ?cnpj[]=... or ?chave=a&chave=b).
+    if (typeof req.query.cnpj !== "string" || typeof req.query.chave !== "string") {
+      return res.status(400).json({ sucesso: false, motivo: "Informe um único CNPJ e uma única chave de documento." });
+    }
+    const cnpj = normalizarCnpjAcesso(req.query.cnpj);
+    const chave = req.query.chave.trim();
+    const limite = req.query.limite == null ? 10 : Number(req.query.limite);
+    if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
+    if (!chave || chave.length > 128) return res.status(400).json({ sucesso: false, motivo: "Informe uma chave de documento válida." });
+    if (!Number.isInteger(limite) || limite < 1 || limite > 10) return res.status(400).json({ sucesso: false, motivo: "Limite deve estar entre 1 e 10 versões." });
+    try {
+      if (!await verificarCnpjAutorizadoContabil(cnpj)) return res.status(403).json({ sucesso: false, motivo: "CNPJ não autorizado no cadastro seguro do Contábil." });
+      const versoes = await lerVersoesDocumentoFiscal(cnpj, chave, limite);
+      return res.json({ sucesso: true, cnpj, chave, retornadas: versoes.length, versoes });
+    } catch (error: any) {
+      return res.status(503).json({ sucesso: false, motivo: error?.message || "Não foi possível consultar as versões arquivadas." });
+    }
+  });
+
   // Authenticated server-to-server status used by Murade Departamento Pessoal.
   app.get("/api/integracao/dp/status", async (req, res) => {
     const expected = process.env.MURADE_INTEGRATION_TOKEN;
@@ -365,7 +405,7 @@ async function startServer() {
         pendente: "Os rascunhos aguardam conferência e aprovação do contador; nenhum lançamento definitivo foi criado.",
       });
     } catch (error: any) {
-      const status = error instanceof ErroValidacaoResumoDP ? 422 : 503;
+      const status = error instanceof ErroConflitoResumoDP ? 409 : error instanceof ErroValidacaoResumoDP ? 422 : 503;
       return res.status(status).json({ sucesso: false, motivo: error?.message || "Não foi possível persistir o resumo agregado do DP." });
     }
   });

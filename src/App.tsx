@@ -40,6 +40,7 @@ function AppWorkspace() {
   const workspacePendenteRef = React.useRef<{ cnpj: string; dados: Record<string, unknown> } | null>(null);
   const workspaceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const flushWorkspaceRef = React.useRef<() => Promise<boolean>>(async () => true);
+  const workspaceSnapshotPersistidoRef = React.useRef<string | null>(null);
   const [assistenteAberta, setAssistenteAberta] = useState(false);
   const [tabAtiva, setTabAtiva] = useState<TabId>("inicio");
   const [empresa, setEmpresa] = useState<EmpresaDados>(initialEmpresa);
@@ -175,6 +176,10 @@ function AppWorkspace() {
     if (!cnpj || dadosEmpresaCarregadosCnpj !== cnpj) return;
     if (!auth.cnpjs.includes(cnpj)) return;
     const dados = { empresa: { ...empresa, certificadoAtivo: false, certificadoNomeArquivo: undefined }, contas, centrosCusto, mapeamentosOrigem, preLancamentos, lancamentos, livros, lembretes };
+    if (workspaceSnapshotPersistidoRef.current === JSON.stringify(dados)) {
+      workspaceSnapshotPersistidoRef.current = null;
+      return;
+    }
     try {
       localStorage.setItem(`murade_contabil_dados_${cnpj}`, JSON.stringify(dados));
       localStorage.setItem("murad_empresa_salva", JSON.stringify(dados.empresa));
@@ -198,27 +203,68 @@ function AppWorkspace() {
     });
   }, [contas]);
 
-  const handleImportarDadosContabeis = (dados: { contas: ContaPlano[]; centrosCusto: CentroCustoContabil[]; lancamentos: LancamentoContabil[] }) => {
+  const handleImportarDadosContabeis = async (dados: { contas: ContaPlano[]; centrosCusto: CentroCustoContabil[]; lancamentos: LancamentoContabil[] }): Promise<boolean> => {
+    const workspaceAnteriorSalvo = await flushWorkspaceRef.current();
+    if (!workspaceAnteriorSalvo) {
+      showToast("Há alterações anteriores sem confirmação do PostgreSQL. A migração foi interrompida para evitar sobrescrever dados.", "info");
+      return false;
+    }
     const contasPorCodigo = new Map<string, ContaPlano>(contas.map((item) => [item.codigo, item]));
     dados.contas.forEach((item) => contasPorCodigo.set(item.codigo, item));
     const centrosPorCodigo = new Map<string, CentroCustoContabil>(centrosCusto.map((item) => [item.codigo, item]));
     dados.centrosCusto.forEach((item) => centrosPorCodigo.set(item.codigo, item));
     const chaveLancamento = (item: LancamentoContabil) => [item.data, item.documentoRef || "", item.contaDebitoCodigo, item.contaCreditoCodigo, item.valor.toFixed(2), item.historico].join("|");
     const lancamentosPorChave = new Map<string, LancamentoContabil>(lancamentos.map((item) => [chaveLancamento(item), item]));
-    dados.lancamentos.forEach((item) => lancamentosPorChave.set(chaveLancamento(item), item));
+    dados.lancamentos.forEach((item) => {
+      const chave = chaveLancamento(item);
+      if (!lancamentosPorChave.has(chave)) lancamentosPorChave.set(chave, item);
+    });
     const novasContas = ordenarContasPorSequenciaNumerica([...contasPorCodigo.values()]);
     const novosCentros = [...centrosPorCodigo.values()];
     const novosLancamentos = [...lancamentosPorChave.values()];
-    setContas(novasContas);
-    setCentrosCusto(novosCentros);
-    setLancamentos(novosLancamentos);
     const cnpj = String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
-    if (cnpj) {
-      try {
-        localStorage.setItem(`murade_contabil_dados_${cnpj}`, JSON.stringify({ contas: novasContas, centrosCusto: novosCentros, lancamentos: novosLancamentos }));
-      } catch {
-        showToast("Os dados foram importados nesta sessão, mas o navegador não conseguiu salvá-los localmente.", "info");
+    if (!cnpj || !auth.cnpjs.includes(cnpj) || dadosEmpresaCarregadosCnpj !== cnpj) {
+      showToast("A empresa ainda não está carregada e autorizada no banco. A migração não foi aplicada.", "info");
+      return false;
+    }
+    const dadosWorkspace = {
+      empresa: { ...empresa, certificadoAtivo: false, certificadoNomeArquivo: undefined },
+      contas: novasContas,
+      centrosCusto: novosCentros,
+      mapeamentosOrigem,
+      preLancamentos,
+      lancamentos: novosLancamentos,
+      livros,
+      lembretes,
+    };
+    try {
+      const response = await fetch(`/api/workspaces/${encodeURIComponent(cnpj)}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ dados: dadosWorkspace, versaoAnterior: versoesWorkspaceRef.current.get(cnpj) ?? null }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.sucesso !== true || !Number.isSafeInteger(result.versao)) {
+        showToast(result.motivo || "O PostgreSQL não confirmou a migração. Os dados continuam na etapa de revisão.", "info");
+        return false;
       }
+      versoesWorkspaceRef.current.set(cnpj, result.versao);
+      workspaceSnapshotPersistidoRef.current = JSON.stringify(dadosWorkspace);
+      setContas(novasContas);
+      setCentrosCusto(novosCentros);
+      setLancamentos(novosLancamentos);
+      setWorkspacePersistido(true);
+      try {
+        localStorage.setItem(`murade_contabil_dados_${cnpj}`, JSON.stringify(dadosWorkspace));
+      } catch {
+        console.warn("PostgreSQL confirmou a migração, mas o navegador não atualizou a cópia local de compatibilidade.");
+      }
+      return true;
+    } catch (error) {
+      console.warn("Falha ao confirmar a migração contábil no PostgreSQL:", error);
+      showToast("O PostgreSQL não confirmou a migração. Os dados continuam na etapa de revisão.", "info");
+      return false;
     }
   };
 

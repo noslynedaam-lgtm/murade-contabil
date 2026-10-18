@@ -260,12 +260,14 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                     {l.origem}
                   </span>
                   {manualPendente && <span className="ml-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">Aguardando aprovação</span>}
+                  {l.sistemaMigracao && <span className="ml-1 inline-block rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-900">Importado: {l.sistemaMigracao}</span>}
+                  {l.classificacaoDeclaradaArquivo && l.classificacaoDeclaradaArquivo !== "Manual" && <div className="mt-1 text-[10px] text-slate-500">Tipo informado no arquivo: {l.classificacaoDeclaradaArquivo} · não verificado</div>}
                   {manualRejeitado && <span className="ml-1 inline-block rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-900">Rejeitado</span>}
                   {l.statusManual === "aprovado" && <span className="ml-1 inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-900">Aprovado</span>}
                 </td>
                 <td className="py-2.5 px-2 text-center">
                   {manualPendente ? <div className="flex justify-center gap-1">
-                    <button type="button" disabled={!workspacePersistido} onClick={async () => { if (window.confirm("Aprovar este lançamento manual e incluí-lo nos livros e relatórios?")) await onDecidirLancamentoManual(l.id, "aprovar"); }} className="rounded bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800 disabled:opacity-40" title="Aprovar após conferir os dados">Aprovar</button>
+                    <button type="button" disabled={!workspacePersistido} onClick={async () => { if (window.confirm("Aprovar este lançamento pendente e incluí-lo nos livros e relatórios? Confira os valores, as contas e a origem antes de continuar.")) await onDecidirLancamentoManual(l.id, "aprovar"); }} className="rounded bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800 disabled:opacity-40" title="Aprovar após conferir os dados">Aprovar</button>
                     <button type="button" disabled={!workspacePersistido} onClick={async () => { if (!window.confirm("Rejeitar este lançamento? Ele ficará no histórico, mas não entrará nos livros.")) return; const motivo = window.prompt("Informe o motivo da rejeição:")?.trim(); if (motivo) await onDecidirLancamentoManual(l.id, "rejeitar", motivo); }} className="rounded bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-800 disabled:opacity-40">Rejeitar</button>
                   </div> : <button
                     onClick={() => {

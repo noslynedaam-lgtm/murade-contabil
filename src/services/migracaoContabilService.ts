@@ -109,9 +109,15 @@ function parseMoney(input: string): number | null {
 function parseDate(input: string): string {
   const value = input.trim();
   const br = value.match(/^(\d{2})[/. -](\d{2})[/. -](\d{4})$/);
-  if (br) return `${br[3]}-${br[2]}-${br[1]}`;
+  if (br) {
+    const normalized = `${br[3]}-${br[2]}-${br[1]}`;
+    return Number.isNaN(Date.parse(`${normalized}T00:00:00Z`)) || new Date(`${normalized}T00:00:00Z`).toISOString().slice(0, 10) !== normalized ? "" : normalized;
+  }
   const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  if (iso) {
+    const normalized = `${iso[1]}-${iso[2]}-${iso[3]}`;
+    return Number.isNaN(Date.parse(`${normalized}T00:00:00Z`)) || new Date(`${normalized}T00:00:00Z`).toISOString().slice(0, 10) !== normalized ? "" : normalized;
+  }
   return "";
 }
 
@@ -227,11 +233,16 @@ function parseAlterdataTextoContabil(rows: string[][], fileName: string, errors:
 }
 
 function isPackage(value: any): value is PacoteMigracaoContabil {
-  return value?.formato === "murade-contabil-migration" && value?.versao === 1 &&
-    typeof value?.empresa?.cnpj === "string" && typeof value?.empresa?.razaoSocial === "string" &&
-    Array.isArray(value.planoContas) && value.planoContas.every((item: any) => typeof item?.codigo === "string" && typeof item?.descricao === "string" && ["D", "C"].includes(item?.natureza)) &&
-    Array.isArray(value.centrosCusto) && value.centrosCusto.every((item: any) => typeof item?.codigo === "string" && typeof item?.nome === "string") &&
-    Array.isArray(value.lancamentos) && value.lancamentos.every((item: any) => typeof item?.id === "string" && typeof item?.data === "string" && typeof item?.contaDebitoCodigo === "string" && typeof item?.contaCreditoCodigo === "string" && Number.isFinite(item?.valor) && typeof item?.historico === "string");
+  const origensPermitidas = new Set(["Cadastro", "Fiscal — NFe Entrada", "Fiscal — NFe Saída", "Fiscal — Apuração ICMS", "DP — Folha", "DP — INSS", "DP — INSS patronal", "DP — IRRF", "DP — FGTS", "Financeiro / Bancos", "Manual"]);
+  const chavesPermitidas = (item: any, permitidas: string[]) => item && typeof item === "object" && !Array.isArray(item) && Object.keys(item).every((key) => permitidas.includes(key));
+  const camposConta = ["codigo", "descricao", "nivel", "tipo", "natureza", "saldoInicial", "saldoInicialCompetencia", "saldoInicialConvertidoEm"];
+  const camposCentro = ["id", "codigo", "nome", "descricao", "centroPaiCodigo"];
+  const camposLancamento = ["id", "data", "contaDebitoCodigo", "contaDebitoNome", "contaCreditoCodigo", "contaCreditoNome", "valor", "historico", "origem", "documentoRef", "competencia", "centroCustoCodigo", "centroCustoNome", "centroCustoDebitoCodigo", "centroCustoCreditoCodigo", "estornoDe", "statusManual", "saldoInicialContaCodigo", "sistemaMigracao", "classificacaoDeclaradaArquivo"];
+  return chavesPermitidas(value, ["formato", "versao", "exportadoEm", "empresa", "planoContas", "centrosCusto", "lancamentos"]) && value.formato === "murade-contabil-migration" && value.versao === 1 && typeof value.exportadoEm === "string" && Number.isFinite(Date.parse(value.exportadoEm)) &&
+    chavesPermitidas(value.empresa, ["cnpj", "razaoSocial"]) && typeof value.empresa.cnpj === "string" && /^[A-Z0-9]{12}[0-9]{2}$/.test(value.empresa.cnpj.replace(/[^0-9a-z]/gi, "").toUpperCase()) && typeof value.empresa.razaoSocial === "string" && value.empresa.razaoSocial.trim().length > 0 && value.empresa.razaoSocial.length <= 240 &&
+    Array.isArray(value.planoContas) && value.planoContas.length <= 20000 && value.planoContas.every((item: any) => chavesPermitidas(item, camposConta) && typeof item.codigo === "string" && item.codigo.trim().length > 0 && item.codigo.length <= 64 && typeof item.descricao === "string" && item.descricao.length <= 240 && Number.isInteger(item.nivel) && item.nivel >= 1 && item.nivel <= 5 && ["sintetica", "analitica"].includes(item.tipo) && ["D", "C"].includes(item.natureza) && (item.saldoInicial == null || (Number.isFinite(item.saldoInicial) && Math.abs(item.saldoInicial) <= 999999999999)) && (item.saldoInicialCompetencia == null || /^\d{4}-(0[1-9]|1[0-2])$/.test(item.saldoInicialCompetencia)) && (item.saldoInicialConvertidoEm == null || typeof item.saldoInicialConvertidoEm === "string")) &&
+    Array.isArray(value.centrosCusto) && value.centrosCusto.length <= 20000 && value.centrosCusto.every((item: any) => chavesPermitidas(item, camposCentro) && typeof item.codigo === "string" && item.codigo.trim().length > 0 && item.codigo.length <= 64 && typeof item.nome === "string" && item.nome.trim().length > 0 && item.nome.length <= 240 && (item.descricao == null || typeof item.descricao === "string") && (item.centroPaiCodigo == null || typeof item.centroPaiCodigo === "string")) &&
+    Array.isArray(value.lancamentos) && value.lancamentos.length <= 20000 && value.lancamentos.every((item: any) => chavesPermitidas(item, camposLancamento) && typeof item.id === "string" && item.id.length > 0 && item.id.length <= 200 && typeof item.data === "string" && Boolean(parseDate(item.data)) && typeof item.contaDebitoCodigo === "string" && item.contaDebitoCodigo.length > 0 && item.contaDebitoCodigo.length <= 64 && typeof item.contaCreditoCodigo === "string" && item.contaCreditoCodigo.length > 0 && item.contaCreditoCodigo.length <= 64 && Number.isFinite(item.valor) && item.valor > 0 && item.valor <= 999999999999 && typeof item.historico === "string" && item.historico.trim().length > 0 && item.historico.length <= 240 && origensPermitidas.has(item.origem) && (item.competencia == null || /^\d{4}-(0[1-9]|1[0-2])$/.test(item.competencia)) && ["pendente_aprovacao", "aprovado", "rejeitado", undefined, null].includes(item.statusManual) && (item.documentoRef == null || (typeof item.documentoRef === "string" && item.documentoRef.length <= 200)));
 }
 
 export async function lerArquivosContabeis(files: File[], origem: OrigemMigracaoContabil, cnpjAtivo = ""): Promise<LeituraMigracaoContabil> {
@@ -253,10 +264,35 @@ export async function lerArquivosContabeis(files: File[], origem: OrigemMigracao
             result.erros.push({ arquivo: file.name, linha: 0, motivo: `Pacote pertence ao CNPJ ${parsed.empresa.cnpj}, diferente da empresa ativa.` });
             continue;
           }
-          result.empresa = parsed.empresa;
-          result.contas.push(...parsed.planoContas);
-          result.centrosCusto.push(...parsed.centrosCusto);
-          result.lancamentos.push(...parsed.lancamentos);
+          result.empresa = { cnpj: pacoteCnpj, razaoSocial: parsed.empresa.razaoSocial.trim() };
+          result.contas.push(...parsed.planoContas.map((item: any) => ({
+            codigo: item.codigo.trim(), descricao: item.descricao.trim(), nivel: item.nivel, tipo: item.tipo, natureza: item.natureza,
+            ...(Number.isFinite(item.saldoInicial) ? { saldoInicial: item.saldoInicial } : {}),
+            ...(typeof item.saldoInicialCompetencia === "string" ? { saldoInicialCompetencia: item.saldoInicialCompetencia } : {}),
+          })));
+          result.centrosCusto.push(...parsed.centrosCusto.map((item: any) => ({
+            id: typeof item.id === "string" ? item.id.slice(0, 128) : `cc-${item.codigo.trim()}`,
+            codigo: item.codigo.trim(), nome: item.nome.trim(),
+            ...(typeof item.descricao === "string" ? { descricao: item.descricao.slice(0, 500) } : {}),
+            ...(typeof item.centroPaiCodigo === "string" ? { centroPaiCodigo: item.centroPaiCodigo.slice(0, 64) } : {}),
+          })));
+          result.lancamentos.push(...parsed.lancamentos.map((item: any) => ({
+            id: item.id,
+            data: parseDate(item.data),
+            contaDebitoCodigo: item.contaDebitoCodigo,
+            contaDebitoNome: typeof item.contaDebitoNome === "string" ? item.contaDebitoNome.slice(0, 240) : item.contaDebitoCodigo,
+            contaCreditoCodigo: item.contaCreditoCodigo,
+            contaCreditoNome: typeof item.contaCreditoNome === "string" ? item.contaCreditoNome.slice(0, 240) : item.contaCreditoCodigo,
+            valor: item.valor,
+            historico: item.historico.trim(),
+            origem: item.origem,
+            ...(typeof item.documentoRef === "string" ? { documentoRef: item.documentoRef.slice(0, 200) } : {}),
+            ...(typeof item.competencia === "string" ? { competencia: item.competencia } : {}),
+            ...(typeof item.centroCustoCodigo === "string" ? { centroCustoCodigo: item.centroCustoCodigo.slice(0, 64) } : {}),
+            ...(typeof item.centroCustoNome === "string" ? { centroCustoNome: item.centroCustoNome.slice(0, 240) } : {}),
+            ...(typeof item.centroCustoDebitoCodigo === "string" ? { centroCustoDebitoCodigo: item.centroCustoDebitoCodigo.slice(0, 64) } : {}),
+            ...(typeof item.centroCustoCreditoCodigo === "string" ? { centroCustoCreditoCodigo: item.centroCustoCreditoCodigo.slice(0, 64) } : {}),
+          })));
         } else result.erros.push({ arquivo: file.name, linha: 0, motivo: "JSON não é um pacote Murade Contábil compatível (versão 1)." });
       } catch { result.erros.push({ arquivo: file.name, linha: 0, motivo: "JSON inválido." }); }
       continue;
@@ -277,13 +313,13 @@ export async function lerArquivosContabeis(files: File[], origem: OrigemMigracao
       const atualCnpj = cnpjAtivo.replace(/[^0-9a-z]/gi, "").toUpperCase();
       const correspondentes = rows.filter((row) => String(row[cnpjField] || "").replace(/[^0-9a-z]/gi, "").toUpperCase() === atualCnpj);
       const ignoradas = rows.length - correspondentes.length;
-      if (ignoradas > 0) result.avisos.push(`${file.name}: ${ignoradas} linha(s) de outro CNPJ ou sem CNPJ foram excluídas da importação.`);
+      if (ignoradas > 0) result.erros.push({ arquivo: file.name, linha: 0, motivo: `${ignoradas} linha(s) estão sem CNPJ ou pertencem a outro CNPJ. A importação inteira deste arquivo foi bloqueada; separe os dados por empresa e corrija as linhas antes de tentar novamente.` });
       if (!correspondentes.length) {
         result.erros.push({ arquivo: file.name, linha: 0, motivo: `Nenhuma linha corresponde ao CNPJ ativo ${cnpjAtivo}.` });
         continue;
       }
       rows.splice(0, rows.length, ...correspondentes);
-    }
+    } else if (!cnpjField && cnpjAtivo) result.avisos.push(`${file.name}: o arquivo não informa CNPJ. Confira se todo o conteúdo pertence à empresa ativa antes de importar.`);
     const category = inferCategory(file.name, rows[0]);
     if (!category) { result.erros.push({ arquivo: file.name, linha: 1, motivo: "Não identifiquei se o arquivo contém plano de contas, centros de custo ou lançamentos. Ajuste o nome ou cabeçalho do CSV." }); continue; }
     if (origem === "CSV") result.avisos.push(`Arquivo ${file.name} lido com correspondência genérica pelo cabeçalho.`);
@@ -295,17 +331,17 @@ export async function lerArquivosContabeis(files: File[], origem: OrigemMigracao
   }
   const seenAccounts = new Set<string>();
   result.contas = result.contas.filter((item) => {
-    if (seenAccounts.has(item.codigo)) { result.avisos.push(`Conta duplicada ${item.codigo} no arquivo; mantida a primeira ocorrência.`); return false; }
+    if (seenAccounts.has(item.codigo)) { result.erros.push({ arquivo: "Plano de contas", linha: 0, motivo: `Código de conta duplicado (${item.codigo}) nos arquivos. A importação foi bloqueada para evitar descartar uma definição; resolva a duplicidade na origem.` }); return false; }
     seenAccounts.add(item.codigo); return true;
   });
   const seenCenters = new Set<string>();
   result.centrosCusto = result.centrosCusto.filter((item) => {
-    if (seenCenters.has(item.codigo)) { result.avisos.push(`Centro de custo duplicado ${item.codigo}; mantida a primeira ocorrência.`); return false; }
+    if (seenCenters.has(item.codigo)) { result.erros.push({ arquivo: "Centros de custo", linha: 0, motivo: `Código de centro de custo duplicado (${item.codigo}) nos arquivos. A importação foi bloqueada para evitar descartar uma definição; resolva a duplicidade na origem.` }); return false; }
     seenCenters.add(item.codigo); return true;
   });
   const seenEntries = new Set<string>();
   result.lancamentos = result.lancamentos.filter((item) => {
-    if (seenEntries.has(item.id)) { result.avisos.push(`Lançamento duplicado (${item.id}) no arquivo; mantida a primeira ocorrência.`); return false; }
+    if (seenEntries.has(item.id)) { result.erros.push({ arquivo: "Lançamentos", linha: 0, motivo: `Há linhas de lançamento duplicadas ou indistinguíveis (${item.id}). A importação foi bloqueada para evitar descartar movimento; diferencie as referências no arquivo de origem e tente novamente.` }); return false; }
     seenEntries.add(item.id); return true;
   });
   if (origem !== "CSV") result.avisos.push(`Origem selecionada: ${origem}. A leitura usa nomes de colunas reconhecidos; layouts proprietários precisam ser exportados como CSV/TXT com cabeçalho.`);
@@ -313,10 +349,15 @@ export async function lerArquivosContabeis(files: File[], origem: OrigemMigracao
 }
 
 export function validarLancamentosContraPlano(lancamentos: LancamentoContabil[], contasAtuais: ContaPlano[], contasImportadas: ContaPlano[]): ErroLinhaMigracao[] {
-  const validCodes = new Set([...contasAtuais, ...contasImportadas].map((conta) => conta.codigo));
+  const contasPorCodigo = new Map([...contasAtuais, ...contasImportadas].map((conta) => [conta.codigo, conta]));
   return lancamentos.flatMap((lancamento, index) => {
-    const faltantes = [lancamento.contaDebitoCodigo, lancamento.contaCreditoCodigo].filter((codigo) => !validCodes.has(codigo));
-    return faltantes.length ? [{ arquivo: "Lançamentos", linha: index + 1, motivo: `Conta não encontrada no plano importado ou atual: ${faltantes.join(", ")}.` }] : [];
+    const invalidas = [lancamento.contaDebitoCodigo, lancamento.contaCreditoCodigo].flatMap((codigo) => {
+      const conta = contasPorCodigo.get(codigo);
+      if (!conta) return [`${codigo} (não encontrada)`];
+      if (conta.tipo !== "analitica") return [`${codigo} (conta sintética; use uma conta analítica)`];
+      return [];
+    });
+    return invalidas.length ? [{ arquivo: "Lançamentos", linha: index + 1, motivo: `Conta(s) incompatível(is): ${invalidas.join(", ")}.` }] : [];
   });
 }
 

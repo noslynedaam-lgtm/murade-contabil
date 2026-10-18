@@ -15,7 +15,7 @@ interface Props {
   contas: ContaPlano[];
   centrosCusto: CentroCustoContabil[];
   lancamentos: LancamentoContabil[];
-  onImportar: (dados: { contas: ContaPlano[]; centrosCusto: CentroCustoContabil[]; lancamentos: LancamentoContabil[] }) => void;
+  onImportar: (dados: { contas: ContaPlano[]; centrosCusto: CentroCustoContabil[]; lancamentos: LancamentoContabil[] }) => Promise<boolean>;
   onNotificar: (mensagem: string) => void;
 }
 
@@ -34,12 +34,38 @@ export const MigracaoContabilTab: React.FC<Props> = ({ empresa, contas, centrosC
   const [arquivos, setArquivos] = useState<File[]>([]);
   const [leitura, setLeitura] = useState<LeituraMigracaoContabil | null>(null);
   const [lendo, setLendo] = useState(false);
+  const [persistindo, setPersistindo] = useState(false);
+  const [mensagemPersistencia, setMensagemPersistencia] = useState("");
   const [resultado, setResultado] = useState<{ contas: number; centros: number; lancamentos: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const codigos = useMemo(() => new Set([...contas, ...(leitura?.contas || [])].map((item) => item.codigo)), [contas, leitura?.contas]);
+  const errosConflitosExistentes = useMemo(() => {
+    if (!leitura) return [];
+    const erros: Array<{ arquivo: string; linha: number; motivo: string }> = [];
+    const contasPorCodigo = new Map(contas.map((item) => [item.codigo, item]));
+    for (const conta of leitura.contas) {
+      const atual = contasPorCodigo.get(conta.codigo);
+      const saldoDivergente = atual && ((atual.saldoInicial === undefined) !== (conta.saldoInicial === undefined) || (atual.saldoInicial !== undefined && conta.saldoInicial !== undefined && atual.saldoInicial !== conta.saldoInicial));
+      if (atual && (atual.descricao !== conta.descricao || atual.nivel !== conta.nivel || atual.tipo !== conta.tipo || atual.natureza !== conta.natureza || saldoDivergente || atual.saldoInicialCompetencia !== conta.saldoInicialCompetencia)) {
+        erros.push({ arquivo: "Plano de contas", linha: 0, motivo: `O código ${conta.codigo} já existe com outros dados. Resolva o conflito antes de importar para não substituir o cadastro atual.` });
+      }
+    }
+    const centrosPorCodigo = new Map(centrosCusto.map((item) => [item.codigo, item]));
+    for (const centro of leitura.centrosCusto) {
+      const atual = centrosPorCodigo.get(centro.codigo);
+      if (atual && (atual.nome !== centro.nome || atual.descricao !== centro.descricao || atual.centroPaiCodigo !== centro.centroPaiCodigo)) {
+        erros.push({ arquivo: "Centros de custo", linha: 0, motivo: `O código ${centro.codigo} já existe com outros dados. Resolva o conflito antes de importar para não substituir o cadastro atual.` });
+      }
+    }
+    return erros;
+  }, [leitura, contas, centrosCusto]);
   const errosContasLancamento = useMemo(() => leitura ? validarLancamentosContraPlano(leitura.lancamentos, contas, leitura.contas) : [], [leitura, contas]);
-  const lancamentosValidos = useMemo(() => leitura?.lancamentos.filter((item) => codigos.has(item.contaDebitoCodigo) && codigos.has(item.contaCreditoCodigo)) || [], [leitura, codigos]);
+  const lancamentosValidos = useMemo(() => {
+    if (!leitura) return [];
+    const errosPorLinha = new Set(errosContasLancamento.map((item) => item.linha));
+    return leitura.lancamentos.filter((_item, index) => !errosPorLinha.has(index + 1));
+  }, [leitura, errosContasLancamento]);
+  const temErrosBloqueantes = Boolean(leitura && (leitura.erros.length > 0 || errosContasLancamento.length > 0 || errosConflitosExistentes.length > 0));
   const totalImportavel = (leitura?.contas.length || 0) + (leitura?.centrosCusto.length || 0) + lancamentosValidos.length;
   const cnpjAtivo = String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
   const cnpjPacote = String(leitura?.empresa?.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
@@ -48,6 +74,7 @@ export const MigracaoContabilTab: React.FC<Props> = ({ empresa, contas, centrosC
   const handleLerArquivos = async () => {
     if (!arquivos.length) return;
     setLendo(true);
+    setMensagemPersistencia("");
     try {
       const parsed = await lerArquivosContabeis(arquivos, origem, cnpjAtivo);
       setLeitura(parsed);
@@ -59,24 +86,43 @@ export const MigracaoContabilTab: React.FC<Props> = ({ empresa, contas, centrosC
     }
   };
 
-  const handleImportar = () => {
-    if (!leitura || !totalImportavel) return;
+  const handleImportar = async () => {
+    if (!leitura || !totalImportavel || persistindo) return;
     if (pacoteDeOutraEmpresa) { onNotificar("Este arquivo pertence a outro CNPJ. Ative a empresa correspondente antes de importar."); return; }
     const centrosPorCodigo = new Map<string, CentroCustoContabil>(leitura.centrosCusto.map((centro) => [centro.codigo, centro]));
-    onImportar({
-      contas: leitura.contas,
-      centrosCusto: leitura.centrosCusto,
-      lancamentos: lancamentosValidos.map((item) => {
-        const centro = item.centroCustoCodigo ? centrosPorCodigo.get(item.centroCustoCodigo) : undefined;
-        return centro ? { ...item, centroCustoNome: centro.nome } : item;
-      }),
-    });
-    setResultado({ contas: leitura.contas.length, centros: leitura.centrosCusto.length, lancamentos: lancamentosValidos.length });
-    setEtapa(4);
-    onNotificar(`${totalImportavel} registro(s) contábeis enviados para o cadastro desta empresa.`);
+    setPersistindo(true);
+    setMensagemPersistencia("Gravando os dados no PostgreSQL e aguardando confirmação do servidor…");
+    try {
+      const confirmado = await onImportar({
+        contas: leitura.contas,
+        centrosCusto: leitura.centrosCusto,
+        lancamentos: lancamentosValidos.map((item) => {
+          const centro = item.centroCustoCodigo ? centrosPorCodigo.get(item.centroCustoCodigo) : undefined;
+          return {
+            ...(centro ? { ...item, centroCustoNome: centro.nome } : item),
+            origem: "Manual",
+            sistemaMigracao: origem,
+            classificacaoDeclaradaArquivo: item.origem,
+            statusManual: "pendente_aprovacao",
+          };
+        }),
+      });
+      if (!confirmado) {
+        setMensagemPersistencia("O banco não confirmou a gravação. Os dados não foram marcados como concluídos; revise os avisos e tente novamente após corrigir a pendência.");
+        return;
+      }
+      setResultado({ contas: leitura.contas.length, centros: leitura.centrosCusto.length, lancamentos: lancamentosValidos.length });
+      setMensagemPersistencia("");
+      setEtapa(4);
+      onNotificar(`A gravação dos dados contábeis foi confirmada no PostgreSQL para esta empresa.`);
+    } catch (error) {
+      setMensagemPersistencia(error instanceof Error ? error.message : "O banco não confirmou a gravação. A migração permanece pendente.");
+    } finally {
+      setPersistindo(false);
+    }
   };
 
-  const reiniciar = () => { setEtapa(1); setArquivos([]); setLeitura(null); setResultado(null); };
+  const reiniciar = () => { setEtapa(1); setArquivos([]); setLeitura(null); setResultado(null); setMensagemPersistencia(""); };
   const baixar = () => baixarPacoteMigracaoContabil(criarPacoteMigracaoContabil(empresa, contas, centrosCusto, lancamentos));
   const empresaPronta = Boolean(empresa.cnpj && empresa.razaoSocial);
 
@@ -134,19 +180,22 @@ export const MigracaoContabilTab: React.FC<Props> = ({ empresa, contas, centrosC
       </section>}
 
       {etapa === 3 && leitura && <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-sm font-black uppercase tracking-wide text-slate-800">3. Validação e Relatório</h2><p className="mt-1 text-xs text-slate-500">Confira a amostra antes de gravar. Lançamentos com contas ausentes no plano são ignorados.</p></div><span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-800">{leitura.arquivosLidos.length} arquivo(s) lido(s)</span></div>
-        <div className="grid gap-3 sm:grid-cols-3"><div className="rounded-lg border border-blue-100 bg-blue-50 p-3"><Database size={17} className="text-blue-700" /><strong className="mt-2 block text-xl text-blue-900">{leitura.contas.length}</strong><span className="text-xs text-blue-800">Contas no plano</span></div><div className="rounded-lg border border-purple-100 bg-purple-50 p-3"><Database size={17} className="text-purple-700" /><strong className="mt-2 block text-xl text-purple-900">{leitura.centrosCusto.length}</strong><span className="text-xs text-purple-800">Centros de custo</span></div><div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3"><Database size={17} className="text-emerald-700" /><strong className="mt-2 block text-xl text-emerald-900">{lancamentosValidos.length}</strong><span className="text-xs text-emerald-800">Lançamentos válidos</span></div></div>
+        <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-sm font-black uppercase tracking-wide text-slate-800">3. Validação e Relatório</h2><p className="mt-1 text-xs text-slate-500">Confira os registros antes de gravar. Conta ausente ou sintética bloqueia a importação; nenhuma linha inválida é descartada silenciosamente.</p></div><span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-800">{leitura.arquivosLidos.length} arquivo(s) lido(s)</span></div>
+        <div className="grid gap-3 sm:grid-cols-3"><div className="rounded-lg border border-blue-100 bg-blue-50 p-3"><Database size={17} className="text-blue-700" /><strong className="mt-2 block text-xl text-blue-900">{leitura.contas.length}</strong><span className="text-xs text-blue-800">Contas no plano</span></div><div className="rounded-lg border border-purple-100 bg-purple-50 p-3"><Database size={17} className="text-purple-700" /><strong className="mt-2 block text-xl text-purple-900">{leitura.centrosCusto.length}</strong><span className="text-xs text-purple-800">Centros de custo</span></div><div className="rounded-lg border border-amber-100 bg-amber-50 p-3"><Database size={17} className="text-amber-700" /><strong className="mt-2 block text-xl text-amber-900">{lancamentosValidos.length}</strong><span className="text-xs text-amber-800">Lançamentos para aprovação</span></div></div>
+        {lancamentosValidos.length > 0 && <div role="note" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950"><strong>Importação não aprova lançamentos.</strong> Cada lançamento será salvo como proposta pendente para conferência do contador. O sistema registra que veio da migração e a classificação declarada no arquivo, mas não importa nem inventa aprovações ou auditorias históricas. Enquanto pendente, não entra nos livros nem no balancete.</div>}
         {leitura.contas.length > 0 && <div className="overflow-x-auto rounded-lg border border-slate-200"><table className="w-full text-left text-xs"><thead className="bg-slate-100"><tr><th className="p-2">Código</th><th className="p-2">Descrição</th><th className="p-2">Nível</th><th className="p-2">Tipo</th><th className="p-2">Natureza</th></tr></thead><tbody>{leitura.contas.slice(0, 6).map((item) => <tr key={item.codigo} className="border-t border-slate-100"><td className="p-2 font-mono">{item.codigo}</td><td className="p-2">{item.descricao}</td><td className="p-2">{item.nivel}</td><td className="p-2">{item.tipo}</td><td className="p-2">{item.natureza}</td></tr>)}</tbody></table></div>}
         {pacoteDeOutraEmpresa && <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs font-semibold text-rose-800">Este pacote foi exportado para CNPJ {leitura.empresa?.cnpj}; a empresa ativa é {empresa.cnpj}. Selecione a empresa do pacote antes de importar para evitar misturar dados.</div>}
         {leitura.centrosCusto.length > 0 && <p className="text-xs text-slate-600">Centros de custo: {leitura.centrosCusto.slice(0, 8).map((item) => `${item.codigo} — ${item.nome}`).join(" · ")}</p>}
         {leitura.lancamentos.length > 0 && <p className="text-xs text-slate-600">Amostra de lançamento: {leitura.lancamentos[0].data} · débito {leitura.lancamentos[0].contaDebitoCodigo} · crédito {leitura.lancamentos[0].contaCreditoCodigo} · R$ {leitura.lancamentos[0].valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</p>}
-        {(leitura.erros.length > 0 || errosContasLancamento.length > 0) && <div className="space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950"><div className="flex items-center gap-2 font-bold"><AlertCircle size={15} /> {leitura.erros.length + errosContasLancamento.length} aviso(s) de leitura/validação</div><ul className="max-h-36 list-disc space-y-1 overflow-auto pl-5">{[...leitura.erros, ...errosContasLancamento].slice(0, 30).map((item, index) => <li key={`${item.arquivo}-${item.linha}-${index}`}>{item.arquivo}{item.linha ? `, linha ${item.linha}` : ""}: {item.motivo}</li>)}</ul></div>}
+        {(leitura.erros.length > 0 || errosContasLancamento.length > 0 || errosConflitosExistentes.length > 0) && <div className="space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950"><div className="flex items-center gap-2 font-bold"><AlertCircle size={15} /> {leitura.erros.length + errosContasLancamento.length + errosConflitosExistentes.length} aviso(s) de leitura/validação</div><ul className="max-h-36 list-disc space-y-1 overflow-auto pl-5">{[...leitura.erros, ...errosContasLancamento, ...errosConflitosExistentes].slice(0, 30).map((item, index) => <li key={`${item.arquivo}-${item.linha}-${index}`}>{item.arquivo}{item.linha ? `, linha ${item.linha}` : ""}: {item.motivo}</li>)}</ul></div>}
+        {temErrosBloqueantes && <div role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-xs font-semibold text-rose-900">Importação bloqueada: corrija os avisos de leitura, contas e conflitos de cadastro antes de gravar. O arquivo original não é alterado.</div>}
         {leitura.avisos.length > 0 && <div className="rounded-lg border border-sky-100 bg-sky-50 p-3 text-xs text-sky-900">{leitura.avisos.map((aviso) => <p key={aviso}>• {aviso}</p>)}</div>}
         {totalImportavel === 0 && <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs font-semibold text-rose-800">Nenhum registro válido para importar. Corrija o cabeçalho/dados e selecione os arquivos novamente.</div>}
-        <div className="flex flex-wrap justify-between gap-2"><button type="button" onClick={() => setEtapa(2)} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700"><ArrowLeft size={15} /> Voltar aos arquivos</button><button type="button" disabled={!totalImportavel || pacoteDeOutraEmpresa} onClick={handleImportar} className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">Importar {totalImportavel} registro(s) <ArrowRight size={15} /></button></div>
+        {mensagemPersistencia && <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-950">{mensagemPersistencia}</div>}
+        <div className="flex flex-wrap justify-between gap-2"><button type="button" disabled={persistindo} onClick={() => setEtapa(2)} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 disabled:opacity-50"><ArrowLeft size={15} /> Voltar aos arquivos</button><button type="button" disabled={!totalImportavel || pacoteDeOutraEmpresa || persistindo || temErrosBloqueantes} onClick={() => void handleImportar()} className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{persistindo ? <><RefreshCw size={15} className="animate-spin" /> Gravando no PostgreSQL…</> : <>Importar {totalImportavel} registro(s) <ArrowRight size={15} /></>}</button></div>
       </section>}
 
-      {etapa === 4 && resultado && <section className="space-y-4 rounded-xl border border-emerald-200 bg-white p-6 text-center shadow-sm"><CheckCircle2 size={44} className="mx-auto text-emerald-600" /><h2 className="text-lg font-black text-emerald-900">Importação concluída</h2><p className="text-sm text-slate-600">Os dados foram incorporados ao Contábil de {empresa.razaoSocial}.</p><div className="mx-auto grid max-w-xl grid-cols-3 gap-3 text-left"><div className="rounded-lg bg-blue-50 p-3"><strong className="block text-xl text-blue-900">{resultado.contas}</strong><span className="text-xs text-blue-800">Contas</span></div><div className="rounded-lg bg-purple-50 p-3"><strong className="block text-xl text-purple-900">{resultado.centros}</strong><span className="text-xs text-purple-800">Centros</span></div><div className="rounded-lg bg-emerald-50 p-3"><strong className="block text-xl text-emerald-900">{resultado.lancamentos}</strong><span className="text-xs text-emerald-800">Lançamentos</span></div></div><div className="flex justify-center gap-2"><button type="button" onClick={reiniciar} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700">Nova migração</button><button type="button" onClick={() => setEtapa(1)} className="rounded-lg bg-[#0F2B5B] px-4 py-2 text-xs font-bold text-white">Voltar ao início</button></div></section>}
+      {etapa === 4 && resultado && <section className="space-y-4 rounded-xl border border-emerald-200 bg-white p-6 text-center shadow-sm"><CheckCircle2 size={44} className="mx-auto text-emerald-600" /><h2 className="text-lg font-black text-emerald-900">Dados gravados no banco</h2><p className="text-sm text-slate-600">O PostgreSQL confirmou a gravação para {empresa.razaoSocial}. Isso confirma a persistência, não a aprovação contábil dos lançamentos.</p><div className="mx-auto grid max-w-xl grid-cols-3 gap-3 text-left"><div className="rounded-lg bg-blue-50 p-3"><strong className="block text-xl text-blue-900">{resultado.contas}</strong><span className="text-xs text-blue-800">Contas no arquivo</span></div><div className="rounded-lg bg-purple-50 p-3"><strong className="block text-xl text-purple-900">{resultado.centros}</strong><span className="text-xs text-purple-800">Centros no arquivo</span></div><div className="rounded-lg bg-amber-50 p-3"><strong className="block text-xl text-amber-900">{resultado.lancamentos}</strong><span className="text-xs text-amber-800">Lançamentos no arquivo</span></div></div><p className="text-xs text-slate-500">Novos lançamentos importados ficam identificados como propostas pendentes; registros que já existiam são preservados. Nenhuma aprovação histórica é presumida, e propostas pendentes não entram nos livros nem no balancete.</p><div className="flex justify-center gap-2"><button type="button" onClick={reiniciar} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700">Nova migração</button><button type="button" onClick={() => setEtapa(1)} className="rounded-lg bg-[#0F2B5B] px-4 py-2 text-xs font-bold text-white">Voltar ao início</button></div></section>}
     </div>
   );
 };

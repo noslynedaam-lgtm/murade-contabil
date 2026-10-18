@@ -122,9 +122,12 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
   const checksECD = [
     { titulo: "Empresa identificada", detalhe: "Razão social e CNPJ cadastrados", ok: Boolean(String(empresa.razaoSocial || "").trim()) && cnpjInformadoECD },
     { titulo: "Obrigatoriedade e escopo", detalhe: "Pendente de confirmação para esta empresa e ano; o regime, sozinho, não determina todos os casos de entrega", ok: false },
+    { titulo: "Identificação do livro e período", detalhe: "O cadastro atual não contém os parâmetros completos da escrituração ECD (forma, finalidade, período e termos do livro); pendente", ok: false },
     { titulo: "Contador responsável", detalhe: "Nome e CRC informados no cadastro da empresa", ok: Boolean(String(empresa.contadorNome || "").trim() && String(empresa.contadorCrc || "").trim()) },
+    { titulo: "Signatários da escrituração", detalhe: "O cadastro atual não contém CPF, qualificação e demais dados dos signatários exigidos no registro próprio da ECD; pendente", ok: false },
     { titulo: "Plano de contas", detalhe: contasAnaliticasECD.length ? `${contasAnaliticasECD.length} contas analíticas; ${contasSemDescricaoECD.length} sem descrição` : "Nenhuma conta analítica cadastrada", ok: contasAnaliticasECD.length > 0 && contasSemDescricaoECD.length === 0 },
     { titulo: "Escrituração do ano", detalhe: lancamentosAnoECD.length ? `${lancamentosAnoECD.length} lançamento(s) definitivo(s) validados em ${anoECD}` : `Nenhum lançamento localizado em ${anoECD}; confirme se houve movimento e qual obrigação se aplica`, ok: lancamentosAnoECD.length > 0 },
+    { titulo: "Demonstrações e termos do livro", detalhe: "Balanço/DRE locais são gerenciais; os registros e termos próprios do leiaute ECD ainda não são montados", ok: false },
     { titulo: "Integridade dos lançamentos", detalhe: invalidosAnoECD.length ? `${invalidosAnoECD.length} registro(s) inválido(s) no ano` : "Nenhum lançamento inválido identificado no ano", ok: invalidosAnoECD.length === 0 },
     { titulo: "Saldos iniciais", detalhe: relatoriosECD.saldosIniciaisPendentes.length ? `${relatoriosECD.saldosIniciaisPendentes.length} saldo(s) pendentes ou inconsistentes` : "Nenhum saldo inicial pendente identificado", ok: relatoriosECD.saldosIniciaisPendentes.length === 0 },
     { titulo: "Persistência confirmada", detalhe: workspaceCarregado && workspacePersistido ? "Workspace lido e gravado no banco" : "Aguardando confirmação de leitura e gravação no banco", ok: workspaceCarregado && workspacePersistido },
@@ -177,6 +180,9 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
   const contasSemClassificacaoBalanco = relatorios.balancete.filter((item) => item.conta.tipo === "analitica"
     && grupoDemonstracao(item.conta, contas) === null
     && (item.saldoDevedorCentavos || item.saldoCredorCentavos));
+  const contasResultadoNaoEncerradasBalanco = relatorios.balancete.filter((item) => item.conta.tipo === "analitica"
+    && ["receita", "despesa"].includes(grupoDemonstracao(item.conta, contas) || "")
+    && (item.saldoDevedorCentavos || item.saldoCredorCentavos || item.debitoPeriodoCentavos || item.creditoPeriodoCentavos));
   const totalAtivo = contasPatrimoniais.filter((item) => grupoDemonstracao(item.conta, contas) === "ativo").reduce((soma, item) => soma + item.saldoDevedorCentavos - item.saldoCredorCentavos, 0);
   const totalPassivo = contasPatrimoniais.filter((item) => grupoDemonstracao(item.conta, contas) === "passivo").reduce((soma, item) => soma + item.saldoCredorCentavos - item.saldoDevedorCentavos, 0);
   const totalPatrimonio = contasPatrimoniais.filter((item) => grupoDemonstracao(item.conta, contas) === "patrimonio").reduce((soma, item) => soma + item.saldoCredorCentavos - item.saldoDevedorCentavos, 0);
@@ -186,6 +192,8 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
     ? "Pendente: não há saldo patrimonial classificado para comparar"
     : contasSemClassificacaoBalanco.length
       ? `Parcial: ${contasSemClassificacaoBalanco.length} conta(s) com saldo estão fora da classificação; diferença provisória ${moedaContabil(diferencaBalancoCentavos)}`
+      : contasResultadoNaoEncerradasBalanco.length
+        ? `Parcial: ${contasResultadoNaoEncerradasBalanco.length} conta(s) de resultado não entram no Balanço até o encerramento contábil; diferença aritmética ${moedaContabil(diferencaBalancoCentavos)}`
       : diferencaBalancoCentavos === 0
         ? "Conferência aritmética interna sem diferença; requer revisão profissional"
         : `Divergência interna de ${moedaContabil(diferencaBalancoCentavos)}; revise saldos e classificações`;
@@ -243,6 +251,13 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
     const saidasCentavos = linhas.reduce((soma, item) => soma + item.saida, 0);
     return { disponivel: true, motivo: "Valores derivados de lançamentos definitivos e contas de disponibilidades explicitamente selecionadas.", saldoInicialCentavos, entradasCentavos, saidasCentavos, saldoFinalCentavos: saldoInicialCentavos + entradasCentavos - saidasCentavos, linhas };
   }, [contasDisponibilidades, periodo, relatorios.validos]);
+  const saldoContabilDisponibilidadesCentavos = contasDisponibilidades.reduce((total, conta) => {
+    const linha = relatorios.balancete.find((item) => item.conta.codigo === conta.codigo);
+    return total + (linha?.saldoDevedorCentavos || 0) - (linha?.saldoCredorCentavos || 0);
+  }, 0);
+  const diferencaFluxoCaixaContabilidadeCentavos = fluxoCaixa.disponivel
+    ? fluxoCaixa.saldoFinalCentavos - saldoContabilDisponibilidadesCentavos
+    : null;
 
   const exportarExcel = () => {
     if (!workspaceCarregado || !workspacePersistido || !empresa.cnpj) {
@@ -432,10 +447,17 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
       {aviso && <p role="status" className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">{aviso}</p>}
 
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Livros contábeis">
-        {([ ["diario", "Livro Diário"], ["razao", "Livro Razão"], ["balancete", "Balancete"], ["dre", "DRE gerencial"], ["balanco", "Balanço gerencial"], ["fluxo-caixa", "Fluxo de caixa"] ] as const).map(([id, nome]) => (
+        {([ ["diario", "Livro Diário"], ["razao", "Livro Razão"], ["balancete", "Balancete"], ["dre", "DRE gerencial"], ["balanco", "Balanço gerencial"], ["fluxo-caixa", "Fluxo de caixa interno"] ] as const).map(([id, nome]) => (
           <button key={id} type="button" role="tab" aria-selected={livroVisivel === id} onClick={() => setLivroVisivel(id)} className={`rounded-lg px-3 py-2 text-xs font-bold ${livroVisivel === id ? "bg-slate-900 text-white" : "border border-slate-200 bg-white text-slate-700"}`}>{nome}</button>
         ))}
       </div>
+
+      {(["dre", "balanco", "fluxo-caixa"] as LivroVisivel[]).includes(livroVisivel) && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
+        <strong className="block">Relatório gerencial interno — não é demonstração oficial assinada</strong>
+        {livroVisivel === "dre" && <span className="mt-1 block">A DRE atual classifica contas pelas descrições do plano. {contasSemClassificacaoDRE.length ? `${contasSemClassificacaoDRE.length} conta(s) com movimento estão sem classificação e aparecem abaixo como pendência.` : "A classificação textual local não substitui revisão e mapeamento formal do plano."} Este relatório não possui assinatura ou validação oficial.</span>}
+        {livroVisivel === "balanco" && <span className="mt-1 block">O balanço atual agrupa contas pela descrição. {contasSemClassificacaoBalanco.length ? `${contasSemClassificacaoBalanco.length} conta(s) com saldo estão sem classificação e aparecem abaixo como pendência.` : "A classificação textual local não substitui revisão e mapeamento formal do plano."} Este relatório não possui assinatura ou validação oficial.</span>}
+        {livroVisivel === "fluxo-caixa" && <span className="mt-1 block">O fluxo de caixa interno considera apenas contas de caixa/bancos explicitamente selecionadas. Ele não classifica as atividades nem é uma demonstração oficial assinada ou validada.</span>}
+      </div>}
 
       <div className="overflow-x-auto rounded-lg border border-slate-200">
         {livroVisivel === "diario" && <table className="min-w-[900px] w-full border-collapse text-left text-xs">
@@ -474,7 +496,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
         </div>}
 
         {livroVisivel === "balanco" && <div className="p-3">
-          <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950">Balanço gerencial classifica Ativo, Passivo e Patrimônio Líquido pelas descrições das contas e dos grupos superiores, independentemente do código. Saldos de contas sem descrição reconhecível não são inferidos e ficam fora deste resumo. Confira o plano, os saldos de abertura e o equilíbrio.</p>
+          <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950">Balanço gerencial classifica Ativo, Passivo e Patrimônio Líquido pelas descrições das contas e dos grupos superiores, independentemente do código. Saldos de contas sem descrição reconhecível ficam fora deste resumo. Contas de receita e despesa também não são transferidas automaticamente para o patrimônio líquido: {contasResultadoNaoEncerradasBalanco.length} conta(s) de resultado têm movimento/saldo e exigem conferência do encerramento. Nenhum encerramento ou ajuste é criado aqui.</p>
           <div className="mb-3 grid gap-2 sm:grid-cols-3"><div className="rounded-md border bg-slate-50 p-3"><span className="text-xs text-slate-600">Ativo</span><strong className="block text-lg">{moedaContabil(totalAtivo)}</strong></div><div className="rounded-md border bg-slate-50 p-3"><span className="text-xs text-slate-600">Passivo</span><strong className="block text-lg">{moedaContabil(totalPassivo)}</strong></div><div className="rounded-md border bg-slate-50 p-3"><span className="text-xs text-slate-600">Patrimônio líquido</span><strong className="block text-lg">{moedaContabil(totalPatrimonio)}</strong></div></div>
           <table className="w-full min-w-[600px] border-collapse text-left text-xs"><thead className="bg-slate-50 text-slate-700"><tr><th className="px-3 py-2">Grupo</th><th className="px-3 py-2">Conta</th><th className="px-3 py-2">Descrição</th><th className="px-3 py-2 text-right">Saldo devedor</th><th className="px-3 py-2 text-right">Saldo credor</th></tr></thead><tbody>{contasPatrimoniais.map((item) => <tr key={`bp-${item.conta.codigo}`} className="border-t border-slate-100"><td>{rotuloGrupoDemonstracao(item.conta, contas)}</td><td className="px-3 py-2 font-mono">{item.conta.codigo}</td><td className="px-3 py-2">{item.conta.descricao}</td><td className="px-3 py-2 text-right">{moedaContabil(item.saldoDevedorCentavos)}</td><td className="px-3 py-2 text-right">{moedaContabil(item.saldoCredorCentavos)}</td></tr>)}{!contasPatrimoniais.length && <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">Sem saldo patrimonial informado para este período.</td></tr>}</tbody></table>
           <p role="status" className={`mt-3 rounded-md border p-3 text-xs font-bold ${diferencaBalancoCentavos === 0 && contasPatrimoniais.length > 0 && !contasSemClassificacaoBalanco.length ? "border-emerald-300 bg-emerald-50 text-emerald-950" : "border-amber-300 bg-amber-50 text-amber-950"}`}>Conferência aritmética interna: {estadoConferenciaBalanco}. Diferença Ativo − Passivo − Patrimônio líquido: {moedaContabil(diferencaBalancoCentavos)}. Nenhum saldo foi ajustado automaticamente.</p>
@@ -498,6 +520,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
           {!fluxoCaixa.disponivel && <p role="status" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">Fluxo pendente: {fluxoCaixa.motivo}</p>}
           {fluxoCaixa.disponivel && <>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4"><div className="rounded border p-3"><span className="text-xs text-slate-500">Saldo inicial</span><strong className="block">{moedaContabil(fluxoCaixa.saldoInicialCentavos)}</strong></div><div className="rounded border p-3"><span className="text-xs text-slate-500">Entradas no período</span><strong className="block text-emerald-700">{moedaContabil(fluxoCaixa.entradasCentavos)}</strong></div><div className="rounded border p-3"><span className="text-xs text-slate-500">Saídas no período</span><strong className="block text-rose-700">{moedaContabil(fluxoCaixa.saidasCentavos)}</strong></div><div className="rounded border p-3"><span className="text-xs text-slate-500">Saldo final calculado</span><strong className="block">{moedaContabil(fluxoCaixa.saldoFinalCentavos)}</strong></div></div>
+            <p role="status" className={`rounded-md border p-3 text-xs ${diferencaFluxoCaixaContabilidadeCentavos === 0 ? "border-emerald-300 bg-emerald-50 text-emerald-950" : "border-amber-300 bg-amber-50 text-amber-950"}`}><strong>Conferência interna com o balancete:</strong> saldo das contas de caixa/bancos selecionadas {moedaContabil(saldoContabilDisponibilidadesCentavos)}; diferença entre o fluxo calculado e o saldo contábil {moedaContabil(diferencaFluxoCaixaContabilidadeCentavos || 0)}. {diferencaFluxoCaixaContabilidadeCentavos === 0 ? "Os totais internos conciliam neste período; isso não representa auditoria nem validação oficial." : "Há diferença para revisar. Nenhum valor foi ajustado automaticamente."}</p>
             <div className="overflow-x-auto"><table className="w-full min-w-[760px] border-collapse text-left text-xs"><thead className="bg-slate-50"><tr><th className="px-3 py-2">Data</th><th className="px-3 py-2">Conta</th><th className="px-3 py-2">Contrapartida</th><th className="px-3 py-2">Histórico</th><th className="px-3 py-2 text-right">Entrada</th><th className="px-3 py-2 text-right">Saída</th></tr></thead><tbody>{fluxoCaixa.linhas.map((linha, indice) => <tr key={`${linha.referencia}-${linha.conta}-${indice}`} className="border-t border-slate-100"><td className="px-3 py-2">{dataLegivelContabil(linha.dataISO)}</td><td className="px-3 py-2">{linha.conta}</td><td className="px-3 py-2">{linha.contraparte}</td><td className="px-3 py-2">{linha.historico}<span className="block text-[10px] text-slate-500">{linha.referencia}</span></td><td className="px-3 py-2 text-right">{linha.entrada ? moedaContabil(linha.entrada) : "—"}</td><td className="px-3 py-2 text-right">{linha.saida ? moedaContabil(linha.saida) : "—"}</td></tr>)}{!fluxoCaixa.linhas.length && <tr><td colSpan={6} className="px-3 py-8 text-center text-slate-500">Nenhum movimento definitivo de caixa ou banco nesta competência.</td></tr>}</tbody></table></div>
           </>}
         </div>}
@@ -508,7 +531,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
 
       <section className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
         <h3 className="font-bold">Autenticação oficial da ECD</h3>
-        <p className="mt-1">A obrigatoriedade depende do enquadramento e das exceções aplicáveis à entidade e ao ano; o sistema não presume a entrega só pelo regime tributário. O caminho oficial é o PGE da ECD: importar o arquivo estruturado no leiaute vigente, validar, assinar e transmitir; guarde o recibo. O Murade ainda não gera esse arquivo nem executa a validação oficial.</p>
+        <p className="mt-1">A obrigatoriedade depende do enquadramento e das exceções aplicáveis à entidade e ao ano; o sistema não presume a entrega só pelo regime tributário. O leiaute oficial publicado atualmente é o 9 (manual atualizado em janeiro de 2026). O programa validador oficial da ECD está na versão 10.4.1, válida para o ano-calendário 2025, situações especiais de 2026 e anos anteriores. O Murade ainda não gera esse TXT nem executa a validação oficial.</p>
         <div className="mt-3 rounded-md border border-amber-200 bg-white p-3">
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div><h4 className="font-bold">Conferência prévia local da ECD</h4><p className="mt-1 text-[11px]">Verifica dados existentes no workspace desta empresa; não monta TXT, não confirma obrigatoriedade e não equivale à validação pelo PGE.</p></div>
@@ -540,6 +563,9 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
         <p className="mt-2 rounded-md border border-amber-200 bg-white/70 p-2"><strong>Limite atual do Murade:</strong> esta tela exporta relatório interno em PDF para impressão e planilha XLS. Ainda não gera o arquivo estruturado TXT da ECD para importar no PGE. Portanto, esses arquivos não devem ser enviados como ECD nem são autenticados por esta exportação.</p>
         <a href="https://sped.rfb.gov.br/projeto/show/273" target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold text-amber-950 hover:bg-amber-100">
           <ExternalLink className="h-3.5 w-3.5" /> Abrir página oficial da ECD no SPED
+        </a>
+        <a href="https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/download/sped/ecd" target="_blank" rel="noreferrer" className="ml-2 mt-3 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold text-amber-950 hover:bg-amber-100">
+          <ExternalLink className="h-3.5 w-3.5" /> Baixar/abrir o validador oficial ECD
         </a>
         <p className="mt-2 text-[11px]">A Receita Federal lista exceções à obrigatoriedade, incluindo Simples Nacional e casos específicos de lucro presumido; a análise deve ser feita para o CNPJ e o ano-calendário. Consulte as <a className="font-semibold underline" href="https://www.gov.br/receitafederal/pt-br/acesso-a-informacao/perguntas-frequentes/sped/ecd/ecd/" target="_blank" rel="noreferrer">perguntas frequentes oficiais da ECD</a> e o <a className="font-semibold underline" href="https://www.gov.br/sped/pt-br/assuntos/escrituracoes-digitais/ecd/manuais-e-documentos-tecnicos/manual_de_orientacao_da_ecd_leiaute_9_janeiro_2026.pdf" target="_blank" rel="noreferrer">Manual da ECD — Leiaute 9, atualização de janeiro de 2026</a>.</p>
       </section>
