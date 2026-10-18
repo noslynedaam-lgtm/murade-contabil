@@ -42,7 +42,7 @@ export const MigracaoContabilTab: React.FC<Props> = ({ empresa, contas, centrosC
   const errosConflitosExistentes = useMemo(() => {
     if (!leitura) return [];
     const erros: Array<{ arquivo: string; linha: number; motivo: string }> = [];
-    const contasPorCodigo = new Map(contas.map((item) => [item.codigo, item]));
+    const contasPorCodigo = new Map<string, ContaPlano>(contas.map((item) => [item.codigo, item]));
     for (const conta of leitura.contas) {
       const atual = contasPorCodigo.get(conta.codigo);
       const saldoDivergente = atual && ((atual.saldoInicial === undefined) !== (conta.saldoInicial === undefined) || (atual.saldoInicial !== undefined && conta.saldoInicial !== undefined && atual.saldoInicial !== conta.saldoInicial));
@@ -50,7 +50,7 @@ export const MigracaoContabilTab: React.FC<Props> = ({ empresa, contas, centrosC
         erros.push({ arquivo: "Plano de contas", linha: 0, motivo: `O código ${conta.codigo} já existe com outros dados. Resolva o conflito antes de importar para não substituir o cadastro atual.` });
       }
     }
-    const centrosPorCodigo = new Map(centrosCusto.map((item) => [item.codigo, item]));
+    const centrosPorCodigo = new Map<string, CentroCustoContabil>(centrosCusto.map((item) => [item.codigo, item]));
     for (const centro of leitura.centrosCusto) {
       const atual = centrosPorCodigo.get(centro.codigo);
       if (atual && (atual.nome !== centro.nome || atual.descricao !== centro.descricao || atual.centroPaiCodigo !== centro.centroPaiCodigo)) {

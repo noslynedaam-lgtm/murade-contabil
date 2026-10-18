@@ -37,6 +37,36 @@ async function startServer() {
     emCurso: boolean;
   } = { iniciouEm: null, concluiuEm: null, empresas: 0, criados: 0, atualizados: 0, falhas: 0, emCurso: false };
 
+  type EstadoOrigemRemota = { disponivel: boolean; mensagem: string; verificadoEm: string };
+  const consultarOrigemRemota = async (url: string, sistemaEsperado: "Murade Fiscal" | "Murade Departamento Pessoal"): Promise<EstadoOrigemRemota> => {
+    const verificadoEm = new Date().toISOString();
+    const token = process.env.MURADE_INTEGRATION_TOKEN?.trim();
+    if (!token) return { disponivel: false, mensagem: "Token de integração não configurado no Contábil.", verificadoEm };
+    try {
+      const destino = new URL(url);
+      const hostsPermitidos = new Set(["murade-fiscal-1.onrender.com", "murade-dp.onrender.com"]);
+      if (destino.protocol !== "https:" || !hostsPermitidos.has(destino.hostname) || destino.username || destino.password) {
+        return { disponivel: false, mensagem: "Endereço do serviço fora da lista permitida.", verificadoEm };
+      }
+      const resposta = await fetch(destino, {
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        signal: AbortSignal.timeout(6000),
+      });
+      const payload = await resposta.json().catch(() => ({})) as Record<string, unknown>;
+      if (!resposta.ok || payload.conectado !== true || payload.sistema !== sistemaEsperado) {
+        return {
+          disponivel: false,
+          mensagem: !resposta.ok ? `O serviço respondeu HTTP ${resposta.status}.` : "O serviço não confirmou a identidade e a conexão esperadas.",
+          verificadoEm,
+        };
+      }
+      return { disponivel: true, mensagem: "API autenticada respondeu; isso não confirma recebimento de novos dados.", verificadoEm };
+    } catch (erro) {
+      const timeout = erro instanceof Error && (erro.name === "TimeoutError" || erro.name === "AbortError");
+      return { disponivel: false, mensagem: timeout ? "Tempo limite ao consultar o serviço." : "Não foi possível alcançar o serviço remoto.", verificadoEm };
+    }
+  };
+
   app.set("trust proxy", 1);
   app.use(express.json({ limit: "20mb" }));
 
@@ -100,9 +130,11 @@ async function startServer() {
     }
     const escopoCnpjs = cnpjSolicitado ? [cnpjSolicitado] : cnpjs;
     try {
-      const [fiscal, dp] = await Promise.all([
+      const [fiscal, dp, apiFiscal, apiDp] = await Promise.all([
         verificarEstadoStoreFiscal(escopoCnpjs),
         verificarEstadoStoreDP(escopoCnpjs),
+        consultarOrigemRemota("https://murade-fiscal-1.onrender.com/api/integracao/contabil/status", "Murade Fiscal"),
+        consultarOrigemRemota("https://murade-dp.onrender.com/api/integracao/contabil/status", "Murade Departamento Pessoal"),
       ]);
       return res.json({
         sucesso: true,
@@ -112,6 +144,8 @@ async function startServer() {
         tokenServicoConfigurado: Boolean(process.env.MURADE_INTEGRATION_TOKEN?.trim()),
         fiscal,
         departamentoPessoal: dp,
+        apiFiscal,
+        apiDepartamentoPessoal: apiDp,
         reconciliacaoRascunhos: { ...reconciliacaoRascunhosStatus },
         rascunhosAguardamConferencia: true,
         transmissaoAutomaticaHabilitada: false,

@@ -11,6 +11,8 @@ type EstadoIntegracao = {
   tokenServicoConfigurado: boolean;
   fiscal: EstadoOrigem;
   departamentoPessoal: EstadoOrigem;
+  apiFiscal: { disponivel: boolean; mensagem: string; verificadoEm: string };
+  apiDepartamentoPessoal: { disponivel: boolean; mensagem: string; verificadoEm: string };
   rascunhosAguardamConferencia: true;
   transmissaoAutomaticaHabilitada: false;
   reconciliacaoRascunhos: { iniciouEm: string | null; concluiuEm: string | null; empresas: number; criados: number; atualizados: number; falhas: number; emCurso: boolean };
@@ -64,9 +66,11 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({ empresa }) => {
     {!estado && !erro && <p role="status" className="text-sm text-slate-500">Consultando o estado real do servidor…</p>}
 
     {estado && <>
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <Metric titulo="Banco de dados" valor={estado.armazenamento === "postgresql" ? "PostgreSQL" : "Indisponível"} detalhe="Persistência consultada no servidor" ok={estado.armazenamento === "postgresql"} />
         <Metric titulo="Token de serviço" valor={estado.tokenServicoConfigurado ? "Configurado" : "Pendente"} detalhe="O segredo não é exibido no navegador" ok={estado.tokenServicoConfigurado} />
+        <Metric titulo="API Fiscal" valor={estado.apiFiscal.disponivel ? "Acessível" : "Pendente"} detalhe={estado.apiFiscal.mensagem} ok={estado.apiFiscal.disponivel} />
+        <Metric titulo="API Departamento Pessoal" valor={estado.apiDepartamentoPessoal.disponivel ? "Acessível" : "Pendente"} detalhe={estado.apiDepartamentoPessoal.mensagem} ok={estado.apiDepartamentoPessoal.disponivel} />
         <Metric titulo="Envio automático" valor="Desativado" detalhe="Rascunhos exigem revisão antes de contabilizar" ok={false} />
       </div>
 
@@ -85,7 +89,7 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({ empresa }) => {
       </div>
 
       <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-950">
-        <strong>Como os dados chegam:</strong> os serviços de origem mantêm filas persistentes e enviam dados ao Contábil por APIs autenticadas quando o destino e o token estão configurados. O Fiscal tenta novamente os lotes pendentes; o DP repete falhas temporárias e pausa erros permanentes para revisão. O Fiscal só transmite documentos já armazenados nele; isso não busca notas na SEFAZ. O DP transmite apenas resumos agregados por competência, sem dados pessoais. O Contábil reconcilia os dados recebidos e mapeados e prepara rascunhos; eles aguardam revisão e aprovação, sem contabilização definitiva automática. Esses ciclos rodam no processo dos serviços: se a hospedagem suspender um processo por inatividade, a automação fica pausada até o serviço voltar. Isso não é um worker 24/7 garantido.
+        <strong>Como os dados chegam:</strong> o Contábil verifica as APIs do Fiscal e do DP com autenticação de servidor e armazena os documentos e resumos recebidos no PostgreSQL. “API acessível” confirma somente a conexão autenticada; os totais abaixo mostram o que foi persistido para as empresas autorizadas nesta sessão. O Fiscal tenta novamente os lotes pendentes; o DP repete falhas temporárias e pausa erros permanentes para revisão. O Fiscal só transmite documentos já armazenados nele; isso não busca notas na SEFAZ. O DP transmite apenas resumos agregados por competência, sem dados pessoais. O Contábil reconcilia os dados recebidos e mapeados e prepara rascunhos; eles aguardam revisão e aprovação, sem contabilização definitiva automática. Esses ciclos rodam no processo dos serviços: se a hospedagem suspender um processo por inatividade, a automação fica pausada até o serviço voltar. Isso não é um worker 24/7 garantido.
       </div>
       {empresa?.cnpj && <p className="text-xs text-slate-500">Empresa selecionada: {empresa.razaoSocial || "Sem razão social"} · CNPJ {empresa.cnpj}. {estado.cnpjEmpresa === empresa.cnpj.replace(/[^A-Z0-9]/gi, "").toUpperCase() ? "Os totais acima correspondem somente a esta empresa." : "O servidor não confirmou o escopo desta empresa; atualize ou confira a autorização."}</p>}
       <p className="flex items-center gap-1 text-[11px] text-slate-500"><Clock3 className="h-3.5 w-3.5" /> Consultado em {new Date(estado.consultadoEm).toLocaleString("pt-BR")}</p>
