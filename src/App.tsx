@@ -362,7 +362,7 @@ function AppWorkspace() {
   // 1. Testar conexões com todos os órgãos em TEMPO REAL (Chamada ao Gateway Oficial)
   const handleTestarConexoes = async () => {
     setIsTestingOrgaos(true);
-    showToast("Robô Murade: Executando handshake real com servidores da Receita Federal, SEFAZ, eSocial, PGFN e portais públicos...", "info");
+    showToast("Verificando resposta de rede dos endereços oficiais listados. Isso não testa certificado, login, consulta fiscal nem transmissão.", "info");
 
     try {
       const resp = await fetch("/api/orgaos/status");
@@ -410,7 +410,7 @@ function AppWorkspace() {
 
   // Testar conexão de órgão individual em tempo real
   const handleTestarOrgaoIndividual = async (id: string) => {
-    showToast(`🔄 Robô Murade testando canal direto com órgão '${id}'...`, "info");
+    showToast(`Verificando resposta de rede do endereço listado para '${id}'. Isso não testa certificado, login, consulta fiscal nem transmissão.`, "info");
     try {
       const resp = await fetch("/api/orgaos/status");
       if (resp.ok) {

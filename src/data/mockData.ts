@@ -236,11 +236,12 @@ export const orgaosIniciais: OrgaoConectado[] = ([
   },
 ] as OrgaoConectado[]).map((org) => ({
   ...org,
-  status: "alerta" as const,
+  // Só uma consulta de rede executada agora pode marcar o endereço como respondendo.
+  status: "offline" as const,
   autenticacao: "Não configurada",
   detalhes: "Conexão e situação cadastral não verificadas; configure uma integração antes de usar.",
   ultimaVerificacao: "Não verificado",
-  pingMs: 0,
+  pingMs: undefined,
   statusCode: undefined,
   statusTexto: "Não verificado",
   ambiente: "Homologação" as const,
