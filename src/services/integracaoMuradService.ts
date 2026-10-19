@@ -8,6 +8,14 @@ export interface RespostaConexaoFiscal {
   lancamentosFiscais?: LancamentoContabil[];
 }
 
+export interface RespostaConexaoDP {
+  sucesso: true;
+  cnpj: string;
+  folhasRecebidas: number;
+  ultimoRecebimento: string | null;
+  mensagem: string;
+}
+
 function normalizarEmpresa(raw: Partial<EmpresaDados>): EmpresaDados {
   return {
     id: raw.id,
@@ -70,11 +78,36 @@ export async function conectarEPuxarEmpresaMuradFiscal(): Promise<RespostaConexa
   };
 }
 
-export async function conectarMuradDP(): Promise<any> {
-  const response = await fetch("/api/integracao/dp/dados");
-  const details = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(details.error || "Integração com Murad DP indisponível.");
-  throw new Error("O formato da integração Murad DP ainda não foi implementado.");
+/** Reads only company-scoped aggregates already persisted by the authenticated DP→Contábil flow. */
+export async function conectarMuradDP(cnpj: string): Promise<RespostaConexaoDP> {
+  const normalizado = String(cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
+  if (!/^[A-Z0-9]{12}\d{2}$/.test(normalizado)) throw new Error("Selecione uma empresa com CNPJ válido antes de consultar os dados do DP.");
+
+  const query = new URLSearchParams({ cnpj: normalizado });
+  const response = await fetch(`/api/integracao/status?${query.toString()}`, {
+    credentials: "include",
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.sucesso !== true) throw new Error(data.motivo || "Não foi possível consultar o estado do DP para esta empresa.");
+  if (String(data.cnpjEmpresa || "").replace(/[^0-9a-z]/gi, "").toUpperCase() !== normalizado) {
+    throw new Error("O servidor não confirmou o CNPJ solicitado; nenhum dado foi exibido.");
+  }
+
+  const estadoDP = data.departamentoPessoal && typeof data.departamentoPessoal === "object" ? data.departamentoPessoal : {};
+  if (estadoDP.disponivel !== true) throw new Error("O servidor não confirmou o armazenamento persistente dos resumos do DP para esta consulta.");
+  const folhasRecebidas = Number.isSafeInteger(estadoDP.folhasRecebidas) && estadoDP.folhasRecebidas >= 0 ? estadoDP.folhasRecebidas : 0;
+  const ultimoRecebimento = typeof estadoDP.ultimoRecebimento === "string" ? estadoDP.ultimoRecebimento : null;
+  return {
+    sucesso: true,
+    cnpj: normalizado,
+    folhasRecebidas,
+    ultimoRecebimento,
+    mensagem: folhasRecebidas
+      ? `${folhasRecebidas} resumo(s) agregado(s) do DP estão persistidos para esta empresa${ultimoRecebimento ? `; último recebimento em ${new Date(ultimoRecebimento).toLocaleString("pt-BR")}` : ""}. Nenhum lançamento definitivo foi criado.`
+      : "Consulta concluída para esta empresa; ainda não há resumo agregado do DP persistido no Contábil.",
+  };
 }
 
 /** Salva somente no navegador atual; não representa sincronização com outros módulos. */
