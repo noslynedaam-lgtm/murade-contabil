@@ -42,6 +42,12 @@ interface AgendaTabProps {
   empresa?: EmpresaDados;
 }
 
+// Lê a data de vencimento (dd/mm/aaaa) de um lembrete; null se não estiver nesse formato.
+const partesDataLembrete = (item: LembreteItem): { d: number; m: number; y: number } | null => {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(item.dataVencimento || "").trim());
+  return m ? { d: Number(m[1]), m: Number(m[2]), y: Number(m[3]) } : null;
+};
+
 export const AgendaTab: React.FC<AgendaTabProps> = ({
   onVoltar,
   onIrParaCadastro,
@@ -100,8 +106,13 @@ export const AgendaTab: React.FC<AgendaTabProps> = ({
   // Filtragem dos lembretes exibidos
   const lembretesFiltrados = lembretes.filter((item) => {
     // Se um dia específico do calendário estiver selecionado
-    if (diaSelecionado !== null && item.diaDoMes && item.diaDoMes !== diaSelecionado) {
-      return false;
+    if (diaSelecionado !== null) {
+      const partes = partesDataLembrete(item);
+      if (partes) {
+        if (partes.d !== diaSelecionado || partes.m !== mesIndex + 1 || partes.y !== ano) return false;
+      } else if (item.diaDoMes && item.diaDoMes !== diaSelecionado) {
+        return false;
+      }
     }
     if (filtroStatus === "todos") return true;
     return item.tipo === filtroStatus;
@@ -455,11 +466,11 @@ export const AgendaTab: React.FC<AgendaTabProps> = ({
             )}
             <button
               onClick={() => {
-                setMesIndex(8);
-                setAno(2026);
+                setMesIndex(new Date().getMonth());
+                setAno(new Date().getFullYear());
                 setDiaSelecionado(null);
                 setFiltroStatus("todos");
-                showToast("📅 Retornado para a competência atual (Setembro/2026).");
+                showToast(`📅 Retornado para a competência atual (${nomesMeses[new Date().getMonth()]}/${new Date().getFullYear()}).`);
               }}
               className="text-xs px-2.5 py-1 rounded-md bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 font-medium cursor-pointer transition"
             >
@@ -485,76 +496,28 @@ export const AgendaTab: React.FC<AgendaTabProps> = ({
             </div>
 
             <div className="grid grid-cols-7 gap-1.5">
-              {/* Dias vazios início de setembro (Terça começou dia 1) */}
-              <div className="h-16 rounded-lg bg-slate-50/50 border border-slate-100" />
-              <div className="h-16 rounded-lg bg-slate-50/50 border border-slate-100" />
+              {/* Dias vazios antes do dia 1 do mês exibido */}
+              {Array.from({ length: new Date(ano, mesIndex, 1).getDay() }, (_, i) => (
+                <div key={`vazio-${i}`} className="h-16 rounded-lg bg-slate-50/50 border border-slate-100" />
+              ))}
 
-              {/* Dias 1 a 30 gerados dinamicamente com interatividade */}
-              {Array.from({ length: 30 }, (_, i) => i + 1).map((d) => {
-                // Descobre se tem obrigação neste dia
-                const temICMS = d === 15;
-                const temINSS = d === 18;
-                const temFGTS = d === 19; // HOJE
-                const temGPS = d === 20;
-                const temESocial = d === 25;
-                const temDIRF = d === 29;
-                const temECD = d === 30;
-
+              {/* Dias do mês exibido; só aparecem marcas dos lembretes realmente cadastrados */}
+              {Array.from({ length: new Date(ano, mesIndex + 1, 0).getDate() }, (_, i) => i + 1).map((d) => {
+                const doDia = lembretes.filter((item) => {
+                  const partes = partesDataLembrete(item);
+                  return partes ? partes.d === d && partes.m === mesIndex + 1 && partes.y === ano : false;
+                });
+                const temLembrete = doDia.length > 0;
+                const temVencido = doDia.some((item) => item.tipo === "vencido");
+                const hoje = new Date();
+                const ehHoje = hoje.getDate() === d && hoje.getMonth() === mesIndex && hoje.getFullYear() === ano;
                 const isSelected = diaSelecionado === d;
 
-                let borderStyle = "border-slate-200 bg-white border-l-4 border-l-[#2E7D32]";
-                let badge = null;
-
-                if (temFGTS) {
-                  borderStyle = "border-2 border-[#6A1B9A] bg-purple-50/80 shadow-xs";
-                  badge = (
-                    <span className="text-[9px] font-bold px-1 py-0.5 rounded-xs bg-[#6A1B9A] text-white truncate">
-                      FGTS (HOJE)
-                    </span>
-                  );
-                } else if (temICMS) {
-                  borderStyle = "border border-amber-300 bg-amber-50/60 border-l-4 border-l-[#F57C00]";
-                  badge = (
-                    <span className="text-[9px] font-bold px-1 py-0.5 rounded-xs bg-amber-200 text-amber-900 truncate">
-                      ICMS
-                    </span>
-                  );
-                } else if (temINSS) {
-                  borderStyle = "border border-amber-300 bg-amber-50/60 border-l-4 border-l-[#F57C00]";
-                  badge = (
-                    <span className="text-[9px] font-bold px-1 py-0.5 rounded-xs bg-amber-200 text-amber-900 truncate">
-                      INSS
-                    </span>
-                  );
-                } else if (temGPS) {
-                  borderStyle = "border border-rose-300 bg-rose-50/60 border-l-4 border-l-[#D32F2F]";
-                  badge = (
-                    <span className="text-[9px] font-bold px-1 py-0.5 rounded-xs bg-rose-200 text-rose-900 truncate">
-                      GPS / PIS
-                    </span>
-                  );
-                } else if (temESocial) {
-                  borderStyle = "border border-slate-200 bg-white border-l-4 border-l-[#2E7D32]";
-                  badge = (
-                    <span className="text-[9px] font-bold px-1 py-0.5 rounded-xs bg-emerald-100 text-emerald-800 truncate">
-                      eSocial
-                    </span>
-                  );
-                } else if (temDIRF) {
-                  borderStyle = "border border-slate-200 bg-white border-l-4 border-l-[#2E7D32]";
-                  badge = (
-                    <span className="text-[9px] font-bold px-1 py-0.5 rounded-xs bg-emerald-100 text-emerald-800 truncate">
-                      DIRF
-                    </span>
-                  );
-                } else if (temECD) {
-                  borderStyle = "border border-slate-200 bg-white border-l-4 border-l-[#2E7D32]";
-                  badge = (
-                    <span className="text-[9px] font-bold px-1 py-0.5 rounded-xs bg-emerald-100 text-emerald-800 truncate">
-                      ECD
-                    </span>
-                  );
-                }
+                let borderStyle = "border-slate-200 bg-white border-l-4 border-l-slate-300";
+                if (temLembrete) borderStyle = temVencido
+                  ? "border border-rose-300 bg-rose-50/60 border-l-4 border-l-[#D32F2F]"
+                  : "border border-amber-300 bg-amber-50/60 border-l-4 border-l-[#F57C00]";
+                if (ehHoje) borderStyle = "border-2 border-[#6A1B9A] bg-purple-50/80 shadow-xs";
 
                 return (
                   <button
@@ -564,10 +527,7 @@ export const AgendaTab: React.FC<AgendaTabProps> = ({
                         setDiaSelecionado(null);
                       } else {
                         setDiaSelecionado(d);
-                        // Se tem obrigação, avisa
-                        if (temICMS || temINSS || temFGTS || temGPS || temESocial || temECD) {
-                          showToast(`📅 Filtrando obrigações para o dia ${d} de ${nomesMeses[mesIndex]}.`);
-                        }
+                        if (temLembrete) showToast(`📅 Filtrando obrigações para o dia ${d} de ${nomesMeses[mesIndex]}.`);
                       }
                     }}
                     className={`h-16 p-1.5 rounded-lg transition flex flex-col justify-between text-left cursor-pointer ${borderStyle} ${
@@ -575,14 +535,18 @@ export const AgendaTab: React.FC<AgendaTabProps> = ({
                     }`}
                   >
                     <div className="flex justify-between items-center">
-                      <span className={`text-xs font-bold ${temFGTS ? "text-[#6A1B9A] font-black" : "text-slate-700"}`}>
+                      <span className={`text-xs font-bold ${ehHoje ? "text-[#6A1B9A] font-black" : "text-slate-700"}`}>
                         {d}
                       </span>
-                      {temFGTS && (
+                      {ehHoje && (
                         <span className="text-[8px] font-black bg-[#6A1B9A] text-white px-1 rounded-xs">HOJE</span>
                       )}
                     </div>
-                    {badge}
+                    {temLembrete && (
+                      <span className={`text-[9px] font-bold px-1 py-0.5 rounded-xs truncate ${temVencido ? "bg-rose-200 text-rose-900" : "bg-amber-200 text-amber-900"}`}>
+                        {doDia.length === 1 ? doDia[0].nome.replace(/^📌\s*/, "") : `${doDia.length} lembretes`}
+                      </span>
+                    )}
                   </button>
                 );
               })}

@@ -8,7 +8,7 @@ export const initialEmpresa: EmpresaDados = {
   regime: "",
   municipio: "",
   uf: "",
-  competencia: "2026-10",
+  competencia: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`,
   ibsAliquota: 0,
   cbsAliquota: 0,
   cnae: "",

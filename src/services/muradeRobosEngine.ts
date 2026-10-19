@@ -284,7 +284,7 @@ class MuradeRobosEngine {
   }> = [
     {
       id: "init_1",
-      hora: "14:30:00",
+      hora: new Date().toLocaleTimeString("pt-BR"),
       origem: "Sistema Murade",
       tipo: "info",
       mensagem: "Modo de demonstração. Nenhuma rotina ou integração foi executada automaticamente.",

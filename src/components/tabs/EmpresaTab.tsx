@@ -37,6 +37,8 @@ import { ModalConexaoMuradFiscal } from "../modals/ModalConexaoMuradFiscal";
 import { conectarEPuxarEmpresaMuradFiscal, conectarMuradDP } from "../../services/integracaoMuradService";
 import { baixarPacoteEmpresasMurade, lerPacoteEmpresasMurade } from "../../services/migracaoEmpresaService";
 
+const competenciaAtualISO = () => { const hoje = new Date(); return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`; };
+
 interface EmpresaTabProps {
   empresa: EmpresaDados;
   onUpdateEmpresa: (dados: Partial<EmpresaDados>) => void;
@@ -399,7 +401,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
           regime: "",
           municipio: "",
           uf: "",
-          competencia: "2026-10",
+          competencia: competenciaAtualISO(),
           ibsAliquota: 0,
           cbsAliquota: 0,
           cnae: "",
@@ -649,7 +651,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
       certificadoEmissor: undefined,
       certificadoDataUpload: undefined,
       fonteDados: fonteDados || "Cadastrado pelo Usuário",
-      competencia: "2026-10",
+      competencia: competenciaAtualISO(),
     };
 
     // Atualizar lista: se já existe pelo id ou pelo mesmo CNPJ, ATUALIZA NO MESMO LUGAR (NUNCA DUPLICA!)
