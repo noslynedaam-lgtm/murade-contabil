@@ -63,8 +63,11 @@ export function normalizarDataContabil(data: string): string | null {
 export function converterCentavos(valor: unknown): number | null {
   const numero = Number(valor);
   if (!Number.isFinite(numero)) return null;
-  const centavos = Math.round((numero + Number.EPSILON) * 100);
-  return Number.isSafeInteger(centavos) ? centavos : null;
+  // Meio centavo arredonda para cima (em módulo). O toPrecision remove o ruído binário
+  // (ex.: 10.075 * 100 = 1007.4999999999999) antes de arredondar.
+  const arredondado = Math.round(Number((Math.abs(numero) * 100).toPrecision(15)));
+  const centavos = numero < 0 ? -arredondado : arredondado;
+  return Number.isSafeInteger(centavos) ? (centavos === 0 ? 0 : centavos) : null;
 }
 
 function dataNoPeriodo(dataISO: string, periodo: PeriodoContabil): boolean {

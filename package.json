@@ -14,6 +14,7 @@
     "db:validate": "node scripts/validar-migracao-banco.mjs",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "lint": "tsc --noEmit",
+    "test": "tsx --test scripts/testes/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
