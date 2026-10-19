@@ -68,7 +68,40 @@ async function startServer() {
   };
 
   app.set("trust proxy", 1);
-  app.use(express.json({ limit: "20mb" }));
+  app.disable("x-powered-by");
+
+  // Cabeçalhos de proteção. Sem CSP de propósito: precisa ser testada no navegador antes de ativar.
+  app.use((req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader("Permissions-Policy", "camera=(), geolocation=()");
+    if (req.secure) res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    next();
+  });
+
+  // O corpo é lido antes de checar o login, então o limite padrão é menor para reduzir abuso.
+  // Só o workspace da empresa e o recebimento de documentos fiscais precisam de corpo grande.
+  // O analisador específico vem primeiro: o geral não relê um corpo já lido.
+  app.use(["/api/workspaces", "/api/integracao/fiscal/documentos"], express.json({ limit: "20mb" }));
+  app.use(express.json({ limit: "2mb" }));
+
+  // Limite simples por IP para rotas públicas que consultam serviços externos.
+  const usoPublico = new Map<string, { inicio: number; total: number }>();
+  const limitarUsoPublico = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const agora = Date.now();
+    const chave = req.ip || "desconhecido";
+    const atual = usoPublico.get(chave);
+    if (!atual || agora - atual.inicio > 60_000) {
+      if (usoPublico.size > 5000) usoPublico.clear();
+      usoPublico.set(chave, { inicio: agora, total: 1 });
+      return next();
+    }
+    atual.total += 1;
+    if (atual.total > 30) return res.status(429).json({ sucesso: false, error: "Muitas consultas. Aguarde um minuto." });
+    next();
+  };
+  app.use(["/api/receita", "/api/orgaos/status"], limitarUsoPublico);
 
   const integracaoAutorizada = (req: express.Request): boolean => {
     const expected = process.env.MURADE_INTEGRATION_TOKEN || "";
@@ -841,6 +874,21 @@ async function startServer() {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
+
+  // Erros não tratados nas rotas viram resposta JSON, sem vazar detalhes internos.
+  app.use((error: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (res.headersSent) return next(error);
+    const status = Number(error?.status || error?.statusCode);
+    if (status === 413) return res.status(413).json({ sucesso: false, motivo: "O envio é maior que o limite permitido." });
+    if (status >= 400 && status < 500) return res.status(status).json({ sucesso: false, motivo: "Pedido inválido." });
+    console.error("[Murad Contábil] Erro não tratado na API:", error?.message || error);
+    return res.status(500).json({ sucesso: false, motivo: "Erro interno. Tente novamente em instantes." });
+  });
+
+  // Promessa rejeitada sem tratamento derrubaria o processo no Node 24.
+  process.on("unhandledRejection", (motivo) => console.error("[Murad Contábil] Promessa rejeitada sem tratamento:", (motivo as any)?.message || motivo));
+  // Exceção síncrona fora de qualquer tratador: estado incerto; o Render reinicia o serviço.
+  process.on("uncaughtException", (error) => { console.error("[Murad Contábil] Exceção não capturada; reiniciando:", error?.message || error); process.exit(1); });
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[Murad Contábil] Servidor ativo em http://localhost:${PORT}`);
