@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { escolherVozPtBr } from "../utils/vozNatural";
 import { Mic, MicOff, Volume2, VolumeX, Send, Bot, Sparkles, X, RotateCcw } from "lucide-react";
 import { ChatMessage, EmpresaDados, LancamentoContabil } from "../types";
 
@@ -44,12 +45,11 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
     window.speechSynthesis.cancel(); // Para falas anteriores
     const utterance = new SpeechSynthesisUtterance(texto.replace(/[#*`_]/g, ""));
     utterance.lang = "pt-BR";
-    utterance.rate = 1.05;
+    utterance.rate = 1.0;
     utterance.pitch = 1.0;
 
     // Tentar selecionar voz brasileira natural
-    const voices = window.speechSynthesis.getVoices();
-    const ptVoice = voices.find((v) => v.lang.includes("pt-BR") || v.lang.includes("pt"));
+    const ptVoice = escolherVozPtBr(window.speechSynthesis.getVoices());
     if (ptVoice) {
       utterance.voice = ptVoice;
     }

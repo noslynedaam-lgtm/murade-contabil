@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { escolherVozPtBr } from "../../utils/vozNatural";
 import { Mic, Send, Bot, Sparkles, Volume2 } from "lucide-react";
 import { EmpresaDados, LancamentoContabil } from "../../types";
 
@@ -48,7 +49,9 @@ export const IAPremiumTab: React.FC<IAPremiumTabProps> = ({ empresa, lancamentos
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(texto.replace(/[#*•]/g, ""));
       utterance.lang = "pt-BR";
-      utterance.rate = 1.05;
+      utterance.rate = 1.0;
+      const vozPt = escolherVozPtBr(window.speechSynthesis.getVoices());
+      if (vozPt) utterance.voice = vozPt;
       utterance.pitch = vozSelecionada.includes("Carla") ? 1.15 : 0.95;
       utterance.onstart = () => setFalando(true);
       utterance.onend = () => setFalando(false);
