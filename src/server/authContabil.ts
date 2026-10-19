@@ -366,7 +366,10 @@ export async function criarConviteUsuarioContabil(req: Request, res: Response): 
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
     await obterBanco().query("INSERT INTO contabil_auth_invites(token_hash,login,cnpjs,role,created_by,expires_at) VALUES($1,$2,$3,$4,$5,now()+interval '24 hours')", [tokenHash, login, cnpjs, role, sessao.userId]);
     res.setHeader('Cache-Control', 'no-store');
-    res.status(201).json({ sucesso: true, convite: token, login, cnpjs, expiraEmHoras: 24, mensagem: 'Convite de uso único. Envie-o em particular; a pessoa escolherá sua própria senha.' });
+    const base = process.env.PUBLIC_APP_URL?.trim() || process.env.RENDER_EXTERNAL_URL?.trim() || `${req.protocol}://${req.get('host')}`;
+    const conviteUrl = new URL('/', base);
+    conviteUrl.hash = new URLSearchParams({ convite: token, login }).toString();
+    res.status(201).json({ sucesso: true, convite: token, conviteUrl: conviteUrl.toString(), login, cnpjs, expiraEmHoras: 24, mensagem: 'Convite de uso único. Envie o link em particular; a pessoa escolherá sua própria senha.' });
   } catch (error) { console.error('Falha ao criar convite no Contábil:', error); res.status(503).json({ sucesso: false, motivo: 'Não foi possível criar o convite.' }); }
 }
 
