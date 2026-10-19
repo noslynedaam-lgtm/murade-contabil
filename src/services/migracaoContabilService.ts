@@ -334,7 +334,11 @@ function parseEntry(row: Record<string, string>, index: number, fileName: string
 // Layout oficial Alterdata Específico Modelo 1 (9 colunas) e Modelo 2 (10 colunas).
 function parseAlterdataTextoContabil(rows: string[][], fileName: string, errors: ErroLinhaMigracao[]): LancamentoContabil[] | null {
   const primeira = rows.find((row) => row.some((cell) => cell.trim()));
-  if (!primeira || primeira.length < 9 || !parseDate(primeira[3] || "") || parseMoney(primeira[4] || "") === null) return null;
+  // Reconhece o layout pela forma (coluna 4 parece data, coluna 5 parece valor), não pela validade da primeira
+  // linha: assim uma data impossível na linha 1 vira erro daquela linha, e não "arquivo não identificado".
+  const pareceData = (valor: string) => /^\d{1,2}[/. -]\d{1,2}[/. -]\d{2,4}$|^\d{4}-\d{2}-\d{2}/.test(valor.trim());
+  const pareceValor = (valor: string) => /^[R$\s-]*\(?[\d.,]+\)?-?$/.test(valor.trim()) && /\d/.test(valor);
+  if (!primeira || primeira.length < 9 || !pareceData(primeira[3] || "") || !pareceValor(primeira[4] || "")) return null;
   const modelo = primeira.length >= 10 ? 2 : 1;
   const saida: LancamentoContabil[] = [];
   rows.forEach((row, index) => {
