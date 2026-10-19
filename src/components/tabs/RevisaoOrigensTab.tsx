@@ -345,7 +345,6 @@ export const RevisaoOrigensTab: React.FC<{
     const partidas: PreviaPartidaFiscal[] = [];
     const pendencias: EstadoPreviaFiscal["pendencias"] = [];
     const porOrigem = new Map<OrigemMapeadaContabil, MapeamentoOrigemContabil>(mapeamentos.map((item) => [item.origem, item]));
-    const camposTributarios = ["valorIcms", "valorIpi", "valorPis", "valorCofins", "valorIss"];
     for (const doc of analiseDuplicidadeFiscal.duplicados) {
       const chave = String(doc.chaveAcesso || "").replace(/\s/g, "");
       const data = String(doc.dataEmissao || doc.emissao || "");
@@ -377,8 +376,25 @@ export const RevisaoOrigensTab: React.FC<{
         continue;
       }
       const valor = Number(doc.valorTotal);
-      if (!Number.isFinite(valor) || valor <= 0 || doc.dadosTributariosDisponiveis !== true || camposTributarios.some((campo) => typeof doc[campo] !== "number" || !Number.isFinite(doc[campo]) || doc[campo] !== 0)) {
-        pendencias.push({ competencia, motivo: "Valor inválido, composição tributária incompleta ou tributo destacado. Revise o XML e faça a classificação fiscal antes de lançar." });
+      const tributosAusentes = camposTributariosFiscal.filter(({ campo }) => typeof doc[campo] !== "number" || !Number.isFinite(Number(doc[campo])));
+      const tributosInvalidos = camposTributariosFiscal.filter(({ campo }) => typeof doc[campo] === "number" && Number.isFinite(Number(doc[campo])) && Number(doc[campo]) < 0);
+      const tributosDestacados = camposTributariosFiscal.filter(({ campo }) => typeof doc[campo] === "number" && Number.isFinite(Number(doc[campo])) && Number(doc[campo]) > 0);
+      if (!Number.isFinite(valor) || valor <= 0) {
+        pendencias.push({ competencia, motivo: "Valor total ausente ou inválido. Revise a origem fiscal; nenhum valor foi presumido." });
+        continue;
+      }
+      if (doc.dadosTributariosDisponiveis !== true || tributosAusentes.length > 0) {
+        const campos = tributosAusentes.map(({ titulo }) => titulo);
+        pendencias.push({ competencia, motivo: `Composição tributária incompleta${campos.length ? `; campos sem valor informado: ${campos.join(", ")}` : " na origem"}. Revise o XML antes de preparar o lançamento.` });
+        continue;
+      }
+      if (tributosInvalidos.length > 0) {
+        pendencias.push({ competencia, motivo: `Valores tributários negativos em ${tributosInvalidos.map(({ titulo }) => titulo).join(", ")}; corrija a origem antes de lançar.` });
+        continue;
+      }
+      if (tributosDestacados.length > 0) {
+        const detalhamento = tributosDestacados.map(({ campo, titulo }) => `${titulo}: ${dinheiro(Number(doc[campo]))}`).join(" · ");
+        pendencias.push({ competencia, motivo: `Tributos destacados impedem a prévia bruta de partida única (${detalhamento}). A nota permanece pendente de classificação contábil dos tributos.` });
         continue;
       }
       const origemMapeada: OrigemMapeadaContabil = tipo === "Entrada" ? "fiscal_entrada" : "fiscal_saida";
