@@ -1,4 +1,5 @@
 import type { CentroCustoContabil, ContaPlano, EmpresaDados, LancamentoContabil } from "../types";
+import { getTextContent, parseXml, type XmlElement } from "@f-o-t/xml";
 
 export type OrigemMigracaoContabil = "ALTERDATA" | "DOMINIO" | "ATRON" | "CSV";
 
@@ -18,6 +19,38 @@ export interface ErroLinhaMigracao {
   motivo: string;
 }
 
+export interface DocumentoXmlContabilPreview {
+  arquivo: string;
+  modelo: string;
+  chaveAcesso: string;
+  dataEmissao: string;
+  cnpjEmitente: string;
+  cnpjDestinatario: string;
+  emitente: string;
+  valorTotal: string;
+  valorProdutos: string;
+  valorBaseIcms: string;
+  valorIcms: string;
+  valorIcmsDesonerado: string;
+  valorIcmsSt: string;
+  valorBaseIcmsSt: string;
+  valorFcp: string;
+  valorFcpSt: string;
+  valorFcpStRetido: string;
+  valorDifalDestino: string;
+  valorFcpDestino: string;
+  valorDifalOrigem: string;
+  valorPisSt: string;
+  valorCofinsSt: string;
+  valorIi: string;
+  valorIpi: string;
+  valorIpiDevolvido: string;
+  valorPis: string;
+  valorCofins: string;
+  valorTributosTotais: string;
+  itens: number;
+}
+
 export interface LeituraMigracaoContabil {
   contas: ContaPlano[];
   centrosCusto: CentroCustoContabil[];
@@ -26,6 +59,105 @@ export interface LeituraMigracaoContabil {
   avisos: string[];
   arquivosLidos: string[];
   empresa?: { cnpj: string; razaoSocial: string };
+  documentosXml: DocumentoXmlContabilPreview[];
+}
+
+function descendentesXml(elemento: XmlElement, nome: string): XmlElement[] {
+  const encontrados: XmlElement[] = [];
+  for (const filho of elemento.children) {
+    if (filho.type !== "element") continue;
+    if (filho.localName === nome) encontrados.push(filho);
+    encontrados.push(...descendentesXml(filho, nome));
+  }
+  return encontrados;
+}
+
+function textoXml(elemento: XmlElement, nome: string): string {
+  return descendentesXml(elemento, nome).map(getTextContent).find((valor) => valor.trim())?.trim() || "";
+}
+
+function resumirXmlNfe(arquivo: string, xml: string): DocumentoXmlContabilPreview {
+  if (/<!DOCTYPE|<!ENTITY/i.test(xml)) throw new Error("XML com DTD/entidades não é aceito na prévia por segurança.");
+  const root = parseXml(xml, { preserveComments: false, preserveProcessingInstructions: false }).root;
+  if (!root || !["nfeProc", "NFe"].includes(root.localName)) throw new Error("O XML não é uma NF-e reconhecida (raiz nfeProc/NFe). Nenhum dado foi preparado.");
+  const infNfe = descendentesXml(root, "infNFe")[0];
+  if (!infNfe) throw new Error("NF-e sem grupo infNFe; não é possível montar a prévia.");
+  const ide = descendentesXml(infNfe, "ide")[0];
+  const emit = descendentesXml(infNfe, "emit")[0];
+  const dest = descendentesXml(infNfe, "dest")[0];
+  const total = descendentesXml(infNfe, "ICMSTot")[0];
+  const itens = descendentesXml(infNfe, "det").length;
+  const id = (infNfe.attributes || []).find((attribute) => attribute.name === "Id" || attribute.localName === "Id")?.value || "";
+  const chaveAcesso = id.replace(/^NFe/i, "");
+  return {
+    arquivo,
+    modelo: textoXml(ide || infNfe, "mod") || "NF-e",
+    chaveAcesso,
+    dataEmissao: textoXml(ide || infNfe, "dhEmi") || textoXml(ide || infNfe, "dEmi"),
+    cnpjEmitente: textoXml(emit || infNfe, "CNPJ").replace(/[^0-9A-Za-z]/g, "").toUpperCase(),
+    cnpjDestinatario: (textoXml(dest || infNfe, "CNPJ") || textoXml(dest || infNfe, "CPF")).replace(/[^0-9A-Za-z]/g, "").toUpperCase(),
+    emitente: textoXml(emit || infNfe, "xNome"),
+    valorTotal: textoXml(total || infNfe, "vNF"),
+    valorProdutos: textoXml(total || infNfe, "vProd"),
+    valorBaseIcms: textoXml(total || infNfe, "vBC"),
+    valorIcms: textoXml(total || infNfe, "vICMS"),
+    valorIcmsDesonerado: textoXml(total || infNfe, "vICMSDeson"),
+    valorIcmsSt: textoXml(total || infNfe, "vST"),
+    valorBaseIcmsSt: textoXml(total || infNfe, "vBCST"),
+    valorFcp: textoXml(total || infNfe, "vFCP"),
+    valorFcpSt: textoXml(total || infNfe, "vFCPST"),
+    valorFcpStRetido: textoXml(total || infNfe, "vFCPSTRet"),
+    valorDifalDestino: textoXml(total || infNfe, "vICMSUFDest"),
+    valorFcpDestino: textoXml(total || infNfe, "vFCPUFDest"),
+    valorDifalOrigem: textoXml(total || infNfe, "vICMSUFRemet"),
+    valorPisSt: textoXml(total || infNfe, "vPISST"),
+    valorCofinsSt: textoXml(total || infNfe, "vCOFINSST"),
+    valorIi: textoXml(total || infNfe, "vII"),
+    valorIpi: textoXml(total || infNfe, "vIPI"),
+    valorIpiDevolvido: textoXml(total || infNfe, "vIPIDevol"),
+    valorPis: textoXml(total || infNfe, "vPIS"),
+    valorCofins: textoXml(total || infNfe, "vCOFINS"),
+    valorTributosTotais: textoXml(total || infNfe, "vTotTrib"),
+    itens,
+  };
+}
+
+/** Creates a migration proposal only when XML tax totals are explicit zero and the user chose both accounts. */
+export function criarPropostaContabilXml(
+  documento: DocumentoXmlContabilPreview,
+  cnpjAtivo: string,
+  contaDebito: ContaPlano | undefined,
+  contaCredito: ContaPlano | undefined,
+): LancamentoContabil | null {
+  const normalizar = (value: string) => value.replace(/[^0-9A-Za-z]/g, "").toUpperCase();
+  const cnpj = normalizar(cnpjAtivo);
+  const emitente = normalizar(documento.cnpjEmitente);
+  const destinatario = normalizar(documento.cnpjDestinatario);
+  const tributos = [documento.valorIcms, documento.valorIcmsDesonerado, documento.valorIcmsSt, documento.valorBaseIcmsSt,
+    documento.valorFcp, documento.valorFcpSt, documento.valorFcpStRetido, documento.valorDifalDestino, documento.valorFcpDestino,
+    documento.valorDifalOrigem, documento.valorPisSt, documento.valorCofinsSt, documento.valorIi, documento.valorIpi,
+    documento.valorIpiDevolvido, documento.valorPis, documento.valorCofins];
+  const total = Number(documento.valorTotal);
+  const data = /^\d{4}-\d{2}-\d{2}/.exec(documento.dataEmissao)?.[0] || parseDate(documento.dataEmissao);
+  const dataValida = Boolean(data && parseDate(data));
+  const direction = emitente === cnpj ? "Fiscal — NFe Saída" : destinatario === cnpj ? "Fiscal — NFe Entrada" : null;
+  if (!cnpj || !direction || !/^\d{44}$/.test(documento.chaveAcesso) || !dataValida || !Number.isFinite(total) || total <= 0
+    || tributos.some((value) => value.trim() === "" || !Number.isFinite(Number(value)) || Number(value) !== 0)
+    || !contaDebito || !contaCredito || contaDebito.tipo !== "analitica" || contaCredito.tipo !== "analitica" || contaDebito.codigo === contaCredito.codigo) return null;
+  const chave = documento.chaveAcesso;
+  return {
+    id: `mig-nfe-${chave}`,
+    data,
+    contaDebitoCodigo: contaDebito.codigo,
+    contaDebitoNome: contaDebito.descricao,
+    contaCreditoCodigo: contaCredito.codigo,
+    contaCreditoNome: contaCredito.descricao,
+    valor: Math.round((total + Number.EPSILON) * 100) / 100,
+    historico: `NF-e importada — ${documento.emitente || "emitente não informado"} — proposta para conferência`,
+    origem: direction,
+    documentoRef: `XML-NFE:${chave}`,
+    competencia: data.slice(0, 7),
+  };
 }
 
 const normalizarChave = (valor: unknown) => String(valor ?? "")
@@ -246,7 +378,7 @@ function isPackage(value: any): value is PacoteMigracaoContabil {
 }
 
 export async function lerArquivosContabeis(files: File[], origem: OrigemMigracaoContabil, cnpjAtivo = ""): Promise<LeituraMigracaoContabil> {
-  const result: LeituraMigracaoContabil = { contas: [], centrosCusto: [], lancamentos: [], erros: [], avisos: [], arquivosLidos: [] };
+  const result: LeituraMigracaoContabil = { contas: [], centrosCusto: [], lancamentos: [], erros: [], avisos: [], arquivosLidos: [], documentosXml: [] };
   for (const file of files) {
     if (file.size > 30 * 1024 * 1024) { result.erros.push({ arquivo: file.name, linha: 0, motivo: "Arquivo acima do limite de 30 MB." }); continue; }
     const bytes = await file.arrayBuffer();
@@ -254,6 +386,24 @@ export async function lerArquivosContabeis(files: File[], origem: OrigemMigracao
     try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
     catch { text = new TextDecoder("windows-1252").decode(bytes); }
     result.arquivosLidos.push(file.name);
+    if (/\.xml$/i.test(file.name)) {
+      if (bytes.byteLength > 2_000_000) { result.erros.push({ arquivo: file.name, linha: 0, motivo: "XML acima do limite de 2 MB para prévia." }); continue; }
+      try {
+        const documento = resumirXmlNfe(file.name, text);
+        const cnpjNormalizado = cnpjAtivo.replace(/[^0-9A-Za-z]/g, "").toUpperCase();
+        const emitenteAtivo = documento.cnpjEmitente && documento.cnpjEmitente === cnpjNormalizado;
+        const destinatarioAtivo = documento.cnpjDestinatario && documento.cnpjDestinatario === cnpjNormalizado;
+        if (cnpjAtivo && !emitenteAtivo && !destinatarioAtivo) {
+          result.erros.push({ arquivo: file.name, linha: 0, motivo: "CNPJ da empresa ativa não corresponde ao emitente nem ao destinatário deste XML. Prévia bloqueada para evitar misturar empresas." });
+          continue;
+        }
+        result.documentosXml.push(documento);
+        result.avisos.push(`${file.name}: NF-e lida para prévia; nenhum lançamento contábil foi criado. A conversão depende de mapeamento e aprovação do contador.`);
+      } catch (error) {
+        result.erros.push({ arquivo: file.name, linha: 0, motivo: error instanceof Error ? error.message : "XML inválido ou não reconhecido." });
+      }
+      continue;
+    }
     if (file.name.toLowerCase().endsWith(".json")) {
       try {
         const parsed = JSON.parse(text);
@@ -297,7 +447,7 @@ export async function lerArquivosContabeis(files: File[], origem: OrigemMigracao
       } catch { result.erros.push({ arquivo: file.name, linha: 0, motivo: "JSON inválido." }); }
       continue;
     }
-    if (!/\.(csv|txt)$/i.test(file.name)) { result.erros.push({ arquivo: file.name, linha: 0, motivo: "Formato não suportado. Use CSV, TXT delimitado ou pacote JSON Murade." }); continue; }
+    if (!/\.(csv|txt)$/i.test(file.name)) { result.erros.push({ arquivo: file.name, linha: 0, motivo: "Formato não suportado. Use CSV, TXT delimitado, XML de NF-e ou pacote JSON Murade." }); continue; }
     if (origem === "ALTERDATA") {
       const alterdataEntries = parseAlterdataTextoContabil(parseDelimited(text), file.name, result.erros);
       if (alterdataEntries) {
@@ -343,6 +493,15 @@ export async function lerArquivosContabeis(files: File[], origem: OrigemMigracao
   result.lancamentos = result.lancamentos.filter((item) => {
     if (seenEntries.has(item.id)) { result.erros.push({ arquivo: "Lançamentos", linha: 0, motivo: `Há linhas de lançamento duplicadas ou indistinguíveis (${item.id}). A importação foi bloqueada para evitar descartar movimento; diferencie as referências no arquivo de origem e tente novamente.` }); return false; }
     seenEntries.add(item.id); return true;
+  });
+  const seenXmlKeys = new Set<string>();
+  result.documentosXml = result.documentosXml.filter((item) => {
+    if (!item.chaveAcesso || seenXmlKeys.has(item.chaveAcesso)) {
+      result.erros.push({ arquivo: item.arquivo, linha: 0, motivo: "Chave de acesso da NF-e ausente ou repetida entre os arquivos. Corrija a seleção para evitar importação duplicada." });
+      return false;
+    }
+    seenXmlKeys.add(item.chaveAcesso);
+    return true;
   });
   if (origem !== "CSV") result.avisos.push(`Origem selecionada: ${origem}. A leitura usa nomes de colunas reconhecidos; layouts proprietários precisam ser exportados como CSV/TXT com cabeçalho.`);
   return result;
