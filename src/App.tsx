@@ -634,18 +634,8 @@ function AppWorkspace() {
   const handleConectarMuradDP = async () => {
     showToast("Verificando a integração com Departamento Pessoal...", "info");
     try {
-      const res = await conectarMuradDP();
-      if (res.sucesso) {
-        if (res.lancamentosDP && res.lancamentosDP.length > 0) {
-          setLancamentos((prev) => {
-            const novos = res.lancamentosDP.filter(
-              (nl: any) => !prev.some((p) => p.numeroDocumento === nl.numeroDocumento)
-            );
-            return [...novos, ...prev];
-          });
-        }
-        showToast("Integração com Departamento Pessoal consultada.", "info");
-      }
+      const res = await conectarMuradDP(empresa.cnpj);
+      showToast(res.mensagem, "info");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Integração com Murad DP indisponível.", "info");
     }

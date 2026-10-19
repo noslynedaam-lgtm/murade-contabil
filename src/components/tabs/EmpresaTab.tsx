@@ -801,7 +801,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
                 className="bg-white/15 hover:bg-white/25 text-white font-bold text-xs px-3 py-2.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer border border-white/20"
               >
                 <Users className="w-3.5 h-3.5 text-blue-200" />
-                <span>Verificar integração DP</span>
+                <span>Consultar resumos do DP</span>
               </button>
             )}
           </div>
