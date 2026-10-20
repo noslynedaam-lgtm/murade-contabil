@@ -43,7 +43,12 @@ function fiscalAutorizado(documento: Registro): boolean {
   return !cancelado && documento.statusVerificadoSefaz === true && /autorizad/i.test(String(documento.statusSefaz || ""));
 }
 
-function gerarRascunhosFiscal(cnpj: string, documentos: Registro[], contas: Registro[], mapeamentos: Registro[], agora: string): RascunhoAutomaticoContabil[] {
+/** Regime informado no cadastro da empresa. No Simples Nacional o imposto destacado em nota não gera crédito/débito próprio: o pré-lançamento usa o valor bruto. */
+export function regimeSimplesNacional(regime: unknown): boolean {
+  return /^\s*simples\s+nacional/i.test(String(regime || ""));
+}
+
+export function gerarRascunhosFiscal(cnpj: string, documentos: Registro[], contas: Registro[], mapeamentos: Registro[], agora: string, simplesNacional = false): RascunhoAutomaticoContabil[] {
   const candidatos: RascunhoAutomaticoContabil[] = [];
   const contasAnaliticas = new Set(contas.filter((conta) => conta?.tipo === "analitica").map((conta) => conta.codigo));
   const tributarios = ["valorIcms", "valorIpi", "valorPis", "valorCofins", "valorIss"];
@@ -55,7 +60,7 @@ function gerarRascunhosFiscal(cnpj: string, documentos: Registro[], contas: Regi
     const valor = valorNumerico(documento.valorTotal);
     if (!referenciaDocumento || referenciaDocumento.length > 128 || !periodo || valor === null || valor <= 0
       || documento.dadosTributariosDisponiveis !== true
-      || tributarios.some((campo) => valorNumerico(documento[campo]) !== 0)) continue;
+      || (!simplesNacional && tributarios.some((campo) => valorNumerico(documento[campo]) !== 0))) continue;
 
     const origem = (documento.tipo === "Entrada" ? "Fiscal — Entrada" : "Fiscal — Saída") as keyof typeof mapeamentosOrigem;
     const mapping = mapeamentos.find((item) => item.origem === mapeamentosOrigem[origem]);
@@ -157,7 +162,7 @@ export async function gerarCandidatosRascunhosAutomaticos(cnpj: string, workspac
   ]);
   const agora = new Date().toISOString();
   const candidatos = [
-    ...gerarRascunhosFiscal(cnpj, documentos as Registro[], contas, mapeamentos, agora),
+    ...gerarRascunhosFiscal(cnpj, documentos as Registro[], contas, mapeamentos, agora, regimeSimplesNacional((workspace.empresa as Registro | undefined)?.regime)),
     ...gerarRascunhosFolha(cnpj, folhas, contas, mapeamentos, agora),
   ];
   return candidatos;
