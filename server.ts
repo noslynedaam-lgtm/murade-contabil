@@ -167,7 +167,7 @@ async function startServer() {
         verificarEstadoStoreFiscal(escopoCnpjs),
         verificarEstadoStoreDP(escopoCnpjs),
         consultarOrigemRemota("https://murade-fiscal-1.onrender.com/api/integracao/contabil/status", "Murade Fiscal"),
-        consultarOrigemRemota("https://murade-dp.onrender.com/api/integracao/contabil/status", "Murade Departamento Pessoal"),
+        consultarOrigemRemota("https://murade-dp.onrender.com/api/integracao/contabil/ping", "Murade Departamento Pessoal"),
       ]);
       return res.json({
         sucesso: true,
