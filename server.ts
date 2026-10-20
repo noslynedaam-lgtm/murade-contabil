@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 import { timingSafeEqual } from "node:crypto";
 import { ErroValidacaoDocumentoFiscal, fiscalStoreConfigurado, gravarDocumentosFiscais, lerDocumentosFiscais, lerVersoesDocumentoFiscal, verificarEstadoStoreFiscal } from "./src/server/documentosFiscaisStore";
 import { dpStoreConfigurado, ErroConflitoResumoDP, ErroValidacaoResumoDP, gravarResumoDP, lerResumosDP, verificarEstadoStoreDP } from "./src/server/dadosDpStore";
-import { adicionarEmpresaAcessoContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil } from "./src/server/authContabil";
+import { adicionarEmpresaAcessoContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, sessaoDaRequisicaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil } from "./src/server/authContabil";
 import { gerarCandidatosRascunhosAutomaticos, mesclarRascunhosNoWorkspace, prepararRascunhosContabeisAutomaticos } from "./src/server/prepararRascunhosContabeis";
 import { omitirXmlOriginal, resumirCoberturaXmlFiscal } from "./src/server/coberturaXmlFiscal";
 
@@ -152,6 +152,25 @@ async function startServer() {
   app.get("/api/workspaces/:cnpj/historico-aprovacoes", exigirSessaoContabil, listarHistoricoAprovacoesContabil);
   app.get("/api/workspaces/:cnpj/fechamentos", exigirSessaoContabil, listarFechamentosContabil);
   app.post("/api/workspaces/:cnpj/fechamentos", exigirOrigemNavegador, exigirSessaoContabil, fecharCompetenciaContabil);
+  // Licença por empresa: cadastrada e gerenciada no Murade DP; aqui só se lê (servidor a servidor).
+  app.get("/api/licenca", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const cnpj = String(req.query.cnpj ?? "").replace(/[^0-9A-Za-z]/g, "").toUpperCase();
+    if (cnpj.length !== 14) return res.status(400).json({ motivo: "CNPJ inválido." });
+    const sessao = sessaoDaRequisicaoContabil(req);
+    if (!sessao || !sessao.cnpjs.includes(cnpj)) return res.status(403).json({ motivo: "Este CNPJ não está vinculado ao seu acesso." });
+    const token = process.env.MURADE_INTEGRATION_TOKEN;
+    if (!token) return res.json({ indisponivel: true, motivo: "Integração com o DP não configurada neste sistema." });
+    const base = (process.env.MURADE_DP_URL || "https://murade-dp.onrender.com").replace(/\/$/, "");
+    try {
+      const r = await fetch(`${base}/api/integracao/licenca?cnpj=${encodeURIComponent(cnpj)}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8000) });
+      if (!r.ok) return res.json({ indisponivel: true, motivo: "O DP não respondeu à consulta de licença." });
+      return res.json({ licenca: (await r.json()).licenca });
+    } catch {
+      return res.json({ indisponivel: true, motivo: "Não foi possível falar com o DP agora." });
+    }
+  });
+
   app.get("/api/integracao/status", exigirSessaoContabil, async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     const sessao = (req as express.Request & { sessaoContabil?: { cnpjs: string[] } }).sessaoContabil;

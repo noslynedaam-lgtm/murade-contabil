@@ -15,6 +15,7 @@ import {
   Home,
 } from "lucide-react";
 import { TabId } from "../types";
+import { CabecalhoPadrao } from "./CabecalhoPadrao";
 
 interface HeaderProps {
   tabAtiva: TabId;
@@ -22,6 +23,8 @@ interface HeaderProps {
   onToggleMobileSidebar?: () => void;
   onConectarFiscal?: () => void;
   usuario?: string;
+  empresaNome?: string | null;
+  empresaCnpj?: string | null;
   onLogout?: () => void;
 }
 
@@ -44,6 +47,8 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleMobileSidebar,
   onConectarFiscal,
   usuario,
+  empresaNome,
+  empresaCnpj,
   onLogout,
 }) => {
   return (
@@ -82,8 +87,19 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         <div className="flex items-center gap-2 font-medium text-[11px]">
-          {usuario && <span className="hidden lg:inline text-blue-100">{usuario}</span>}
-          {onLogout && <button onClick={onLogout} className="rounded-lg border border-blue-300/30 px-2 py-1 text-blue-100 hover:bg-white/10">Sair</button>}
+          {onLogout && (
+            <CabecalhoPadrao
+              usuario={usuario || null}
+              empresaNome={empresaNome || null}
+              empresaCnpj={empresaCnpj || null}
+              buscarLicenca={async (cnpj) => {
+                const r = await fetch(`/api/licenca?cnpj=${encodeURIComponent(cnpj)}`, { credentials: "include" });
+                const d = r.ok ? await r.json() : null;
+                return d && d.licenca ? d.licenca : null;
+              }}
+              onSair={onLogout}
+            />
+          )}
           {onConectarFiscal && (
             <button
               onClick={onConectarFiscal}

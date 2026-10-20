@@ -685,6 +685,8 @@ function AppWorkspace() {
           onToggleMobileSidebar={() => setMobileSidebarOpen(true)}
           onConectarFiscal={handleConectarMuradFiscal}
           usuario={auth.usuario}
+          empresaNome={empresa.razaoSocial || null}
+          empresaCnpj={String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase() || null}
           onLogout={auth.sair}
         />
 
