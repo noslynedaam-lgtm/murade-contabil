@@ -27,6 +27,27 @@ const origensMapeaveis: Array<{ id: OrigemMapeadaContabil; titulo: string; descr
   { id: "dp_fgts", titulo: "FGTS informado pelo DP", descricao: "Despesa de FGTS contra FGTS a recolher. Valores só chegam após cálculo persistido no DP." },
 ];
 
+/** O cadastro pode trazer o regime com sufixo de fonte (ex.: "Simples Nacional (opção cadastral informada pela fonte)"). */
+const regimeBase = (valor: string): string => {
+  const r = String(valor || "");
+  if (/^\s*simples\s+nacional/i.test(r)) return "Simples Nacional";
+  if (/^\s*mei\b/i.test(r)) return "MEI";
+  if (/lucro\s+presumido/i.test(r)) return "Lucro Presumido";
+  if (/lucro\s+real/i.test(r)) return "Lucro Real";
+  return r;
+};
+
+/** Contas do plano padrão de comércio sugeridas por origem; só valem se código e descrição baterem com o plano da empresa. */
+const SUGESTOES_CONTAS: Record<OrigemMapeadaContabil, { debito: [string, RegExp]; credito: [string, RegExp] }> = {
+  fiscal_entrada: { debito: ["1.2.1", /estoque/i], credito: ["2.1.1", /fornecedor/i] },
+  fiscal_saida: { debito: ["1.1.5", /cliente/i], credito: ["4.1.1", /receita.*venda/i] },
+  dp_folha_bruta: { debito: ["5.2.1", /pessoal/i], credito: ["2.1.2", /sal[áa]rio/i] },
+  dp_descontos_inss: { debito: ["2.1.2", /sal[áa]rio/i], credito: ["2.2.1", /inss/i] },
+  dp_inss_patronal: { debito: ["5.2.1", /pessoal/i], credito: ["2.2.1", /inss/i] },
+  dp_descontos_irrf: { debito: ["2.1.2", /sal[áa]rio/i], credito: ["2.1.3", /obriga[çc][õo]es fiscais|tribut/i] },
+  dp_fgts: { debito: ["5.2.1", /pessoal/i], credito: ["2.2.2", /fgts/i] },
+};
+
 const competenciaAtual = () => new Date().toISOString().slice(0, 7);
 const dinheiro = (value: unknown) => typeof value === "number" && Number.isFinite(value)
   ? value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
@@ -81,6 +102,9 @@ export const RevisaoOrigensTab: React.FC<{
   onSalvarPreLancamentos: (preLancamentos: PreLancamentoContabil[]) => void;
   onContabilizar: (referencias: string[]) => Promise<boolean>;
 }> = ({ cnpj, regime, workspaceCarregado, contas, mapeamentos, onSalvarMapeamentos, preLancamentos, lancamentos, onSalvarPreLancamentos, onContabilizar }) => {
+  const regimeNorm = regimeBase(regime);
+  const [mensagemSugestao, setMensagemSugestao] = useState("");
+  const simplesNacional = regimeNorm === "Simples Nacional";
   const [desde, setDesde] = useState(competenciaAtual);
   const [ate, setAte] = useState(competenciaAtual);
   const [dados, setDados] = useState<LoteOrigens>({ documentos: [], folhas: [], coberturaXmlFiscal: { documentosAnalisados: 0, documentosSemXmlCompleto: 0, documentosXmlInvalido: 0, itens: 0, itensComCfop: 0, itensComNcm: 0, itensComCstIcmsOuCsosn: 0, itensComCstPis: 0, itensComCstCofins: 0 } });
@@ -392,7 +416,7 @@ export const RevisaoOrigensTab: React.FC<{
         pendencias.push({ competencia, motivo: `Valores tributários negativos em ${tributosInvalidos.map(({ titulo }) => titulo).join(", ")}; corrija a origem antes de lançar.` });
         continue;
       }
-      if (tributosDestacados.length > 0) {
+      if (tributosDestacados.length > 0 && !simplesNacional) {
         const detalhamento = tributosDestacados.map(({ campo, titulo }) => `${titulo}: ${dinheiro(Number(doc[campo]))}`).join(" · ");
         pendencias.push({ competencia, motivo: `Tributos destacados impedem a prévia bruta de partida única (${detalhamento}). A nota permanece pendente de classificação contábil dos tributos.` });
         continue;
@@ -418,7 +442,7 @@ export const RevisaoOrigensTab: React.FC<{
       });
     }
     return { partidas, pendencias };
-  }, [analiseDuplicidadeFiscal.duplicados, analiseDuplicidadeFiscal.documentosSemDuplicidade, mapeamentos, contasAnaliticas, cnpjNormalizado]);
+  }, [analiseDuplicidadeFiscal.duplicados, analiseDuplicidadeFiscal.documentosSemDuplicidade, mapeamentos, contasAnaliticas, cnpjNormalizado, simplesNacional]);
 
   const selecionarConta = (origem: OrigemMapeadaContabil, lado: keyof RascunhoMapeamento, valor: string) => {
     const salvo = mapeamentos.find((item) => item.origem === origem);
@@ -447,6 +471,23 @@ export const RevisaoOrigensTab: React.FC<{
       revisadoEm: new Date().toISOString(),
     };
     onSalvarMapeamentos([...mapeamentos.filter((item) => item.origem !== origem), mapeamento]);
+  };
+
+  /** Preenche só as origens ainda sem mapeamento, e só quando código E descrição do plano da empresa conferem. A pessoa revisa nos seletores. */
+  const sugerirContasPadrao = () => {
+    const novos: MapeamentoOrigemContabil[] = [];
+    for (const origem of origensMapeaveis) {
+      if (mapeamentos.some((item) => item.origem === origem.id)) continue;
+      const sugestao = SUGESTOES_CONTAS[origem.id];
+      const debito = contasAnaliticas.find((conta) => conta.codigo === sugestao.debito[0] && sugestao.debito[1].test(String(conta.descricao || "")));
+      const credito = contasAnaliticas.find((conta) => conta.codigo === sugestao.credito[0] && sugestao.credito[1].test(String(conta.descricao || "")));
+      if (!debito || !credito) continue;
+      novos.push({ origem: origem.id, contaDebitoCodigo: debito.codigo, contaCreditoCodigo: credito.codigo, revisadoEm: new Date().toISOString() });
+    }
+    if (novos.length) onSalvarMapeamentos([...mapeamentos, ...novos]);
+    setMensagemSugestao(novos.length
+      ? `${novos.length} origem(ns) preenchida(s) com contas do plano padrão. Revise cada débito/crédito abaixo; nada foi contabilizado.`
+      : "Nenhuma sugestão aplicável: as origens já têm mapeamento ou o plano desta empresa não usa as contas padrão (código e descrição).");
   };
 
   const referenciasElegiveis = useMemo(() => new Set([
@@ -584,9 +625,9 @@ export const RevisaoOrigensTab: React.FC<{
       for (const [tributo, campo] of campos) {
         const entrada = valorFonte(competencia.fiscal.entrada[campo]);
         const saida = valorFonte(competencia.fiscal.saida[campo]);
-        const motivo = regime === "Simples Nacional" || regime === "MEI"
+        const motivo = regimeNorm === "Simples Nacional" || regimeNorm === "MEI"
           ? "Apuração do regime e dados segregados não foram recebidos; conferir no PGDAS-D/portal aplicável."
-          : regime === "Lucro Presumido" || regime === "Lucro Real"
+          : regimeNorm === "Lucro Presumido" || regimeNorm === "Lucro Real"
             ? "Bases, ajustes, créditos e regras da competência não foram recebidos; destaque documental não é saldo devido."
             : "Regime tributário não informado; validar cadastro e origem oficial antes de apurar.";
         linhas.push([competencia.competencia, tributo, entrada.valor, entrada.status, saida.valor, saida.status, "", "PENDENTE — não apurado", motivo]);
@@ -716,6 +757,7 @@ export const RevisaoOrigensTab: React.FC<{
         <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3"><Save className="h-4 w-4 text-blue-700" /><h2 className="font-bold text-slate-900">Mapeamento de contas por empresa</h2></div>
         <div className="space-y-3 p-4">
           <p className="text-sm text-slate-600">Escolha contas analíticas do plano desta empresa. O mapeamento fica salvo no espaço contábil do CNPJ. Ele prepara a classificação; não cria lançamentos automaticamente nem envia valores ao governo.</p>
+          <div className="flex flex-wrap items-center gap-3"><button type="button" onClick={sugerirContasPadrao} disabled={!workspaceCarregado} className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-800 hover:bg-blue-100 disabled:opacity-50">Sugerir contas padrão</button>{mensagemSugestao && <p role="status" className="text-xs text-blue-800">{mensagemSugestao}</p>}</div>
           {origensMapeaveis.map((origem) => {
             const salvo = mapeamentos.find((item) => item.origem === origem.id);
             const rascunho = rascunhos[origem.id];
@@ -806,11 +848,11 @@ export const RevisaoOrigensTab: React.FC<{
       <section className="overflow-hidden rounded-xl border border-amber-300 bg-white">
         <div className="border-b border-amber-100 px-4 py-3"><h2 className="font-bold text-slate-900">Conferência de tributos por regime</h2><p className="mt-1 text-xs text-slate-600">Regime cadastrado: <strong>{regime || "Não informado"}</strong>. Esta conferência não calcula imposto devido nem emite guia.</p></div>
         <div className="space-y-3 p-4">
-          {regime === "Simples Nacional" && <>
+          {regimeNorm === "Simples Nacional" && <>
             <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950"><strong>DAS unificado: apuração pendente.</strong> Antes de calcular, faltam receita bruta segregada por atividade/anexo e tratamento fiscal, competência e validações do PGDAS-D. Destaques de NF-e não substituem a declaração nem determinam sozinhos o DAS.</p>
             <p className="text-xs text-slate-600"><strong>Próximo passo seguro:</strong> completar/conferir os dados de receita e operação e comparar a apuração no PGDAS-D. O sistema ainda não recebe o resultado oficial nem emite a guia.</p>
           </>}
-          {(regime === "Lucro Presumido" || regime === "Lucro Real") && <>
+          {(regimeNorm === "Lucro Presumido" || regimeNorm === "Lucro Real") && <>
             <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">Os valores de ICMS, ISS, PIS e COFINS abaixo são destaques dos documentos, não saldo a recolher. A apuração exige escrituração/base tributável, CST e natureza das operações, ajustes e créditos aplicáveis, além dos parâmetros válidos para a empresa e competência. IRPJ e CSLL dependem da base e forma de apuração próprias do regime, não recebidas nesta integração.</p>
             <p className="text-xs text-slate-600"><strong>Próximo passo seguro:</strong> completar e validar as escriturações fiscais e bases da competência, e então confrontar a apuração com os ambientes oficiais. O sistema ainda não recebe esses resultados oficiais nem emite guias.</p>
           </>}
