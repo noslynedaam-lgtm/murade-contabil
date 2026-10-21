@@ -14,7 +14,6 @@ import { LivrosTab } from "./components/tabs/LivrosTab";
 import { PlanoContasTab } from "./components/tabs/PlanoContasTab";
 import { IntegracaoTab } from "./components/tabs/IntegracaoTab";
 import { AgenteTab } from "./components/tabs/AgenteTab";
-import { IAPremiumTab } from "./components/tabs/IAPremiumTab";
 import { AgendaTab } from "./components/tabs/AgendaTab";
 import { CalculadoraTab } from "./components/tabs/CalculadoraTab";
 import { FluxoPreviticoTab } from "./components/tabs/FluxoPreviticoTab";
@@ -43,6 +42,13 @@ function AppWorkspace() {
   const workspaceSnapshotPersistidoRef = React.useRef<string | null>(null);
   const [assistenteAberta, setAssistenteAberta] = useState(false);
   const [tabAtiva, setTabAtiva] = useState<TabId>("inicio");
+  // Uma IA só: os atalhos antigos "IA Premium" abrem o mesmo assistente da tela.
+  React.useEffect(() => {
+    if (tabAtiva === "ia-premium") {
+      setAssistenteAberta(true);
+      setTabAtiva("inicio");
+    }
+  }, [tabAtiva]);
   const [empresa, setEmpresa] = useState<EmpresaDados>(initialEmpresa);
   const [orgaos, setOrgaos] = useState<OrgaoConectado[]>(() => orgaosIniciais.map((org) => ({
     ...org,
@@ -726,12 +732,6 @@ function AppWorkspace() {
                 />
               )}
 
-              {tabAtiva === "ia-premium" && (
-                <IAPremiumTab
-                  empresa={empresa}
-                  lancamentos={lancamentos}
-                />
-              )}
 
               {tabAtiva === "conexoes" && (
                 <ConexoesTab
