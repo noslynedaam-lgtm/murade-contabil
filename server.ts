@@ -14,6 +14,7 @@ import { criarAtividadeEscritorio } from './src/server/atividadeEscritorio';
 import type { SessaoContabil } from './src/server/authContabil';
 import { listarRegistroAgenteIAContabil, bancoContabilConfigurado, consultaBancoContabil, hashSessaoContabil, registrarAcaoAgenteIAContabil } from "./src/server/authContabil";
 import { executarRobo, registrarRobo, statusRobos } from "./src/server/robosStatus";
+import { rodarConferidorContabil } from "./src/server/conferidorContabil";
 import { gerarCandidatosRascunhosAutomaticos, mesclarRascunhosNoWorkspace, prepararRascunhosContabeisAutomaticos } from "./src/server/prepararRascunhosContabeis";
 import { omitirXmlOriginal, resumirCoberturaXmlFiscal } from "./src/server/coberturaXmlFiscal";
 
@@ -968,6 +969,10 @@ async function startServer() {
   registrarRobo({ id: "reconciliador", nome: "Robô Reconciliador", posto: "integrador", missao: "Trazer do Fiscal e do DP os dados novos e preparar pré-lançamentos para conferência.", intervaloMs: 60_000 });
   registrarRobo({ id: "contabilizador", nome: "Robô Contabilizador", posto: "calculador", missao: "Transformar pré-lançamentos em lançamentos definitivos.", motivoSemRotina: "Sem rotina automática por regra: lançamento definitivo só nasce depois da aprovação de uma pessoa." });
   registrarRobo({ id: "mensageiro", nome: "Robô Mensageiro", posto: "integrador", missao: "Reenviar pedidos entre as Agentes dos sistemas Murade que não chegaram ao destino.", intervaloMs: 60_000 });
+  registrarRobo({ id: "conferidor", nome: "Robô Conferidor", posto: "conferidor", missao: "Conferir todas as empresas: o que falta para fechar o mês (aprovações, rascunhos do Fiscal e do DP, depreciação, partidas) e deixar o resultado para a tela e para a Agente.", intervaloMs: 30 * 60_000 });
+  const rodarConferidor = () => executarRobo("conferidor", () => rodarConferidorContabil((sql, params) => consultaBancoContabil(sql, params))).catch((e) => console.error("Falha no Robô Conferidor:", e?.message || e));
+  setTimeout(() => void rodarConferidor(), 45_000).unref();
+  setInterval(() => void rodarConferidor(), 30 * 60_000).unref();
   const timerMensageiro = setInterval(() => { executarRobo("mensageiro", () => centralDePedidos.reenviarPendentes()).catch((e) => console.error("Falha ao reenviar pedidos entre agentes:", e?.message || e)); }, 60_000);
   timerMensageiro.unref();
 

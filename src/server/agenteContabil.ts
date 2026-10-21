@@ -5,6 +5,9 @@ import {
   erroApi, ok, q, reais,
   type Ferramenta, type KitAgente,
 } from './agenteMotor';
+import { achadosDoConferidor } from './conferidorContabil';
+import { conferirFechamento } from '../utils/fechamentoContabil';
+import { compararPeriodos, explicarVariacoes } from '../utils/analiseContabil';
 import { FERRAMENTAS_ENTRE_SISTEMAS, INSTRUCAO_ENTRE_SISTEMAS } from './ferramentasEntreSistemas';
 
 const cnpjDe = (v: unknown): string | null => { const d = String(v ?? '').replace(/[^0-9A-Za-z]/g, '').toUpperCase(); return d.length === 14 ? d : null; };
@@ -91,6 +94,40 @@ const FERRAMENTAS: Ferramenta[] = [
     async executar(ctx) {
       const r = await ctx.chamarApi('GET', '/api/robos/status');
       return ok(r) ? { robos: r.corpo?.robos, servidor: r.corpo?.servidor } : erroApi(r);
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'achados_do_conferidor', description: 'Mostra o que o Robô Conferidor encontrou nas empresas do usuário para fechar o mês anterior: pendências automáticas, rascunhos vindos do DP e do Fiscal ainda sem conferir e lançamentos aguardando aprovação.', parameters: { type: 'OBJECT', properties: {} } },
+    async executar(ctx) {
+      const lista = await ctx.chamarApi('GET', '/api/workspaces');
+      if (!ok(lista)) return erroApi(lista);
+      const cnpjs = (lista.corpo?.empresas || []).map((e: any) => String(e.cnpj || '').replace(/[^0-9A-Za-z]/g, '').toUpperCase());
+      const itens = achadosDoConferidor(cnpjs);
+      return { empresasConferidas: itens.length, achados: itens.map((a) => ({ cnpj: a.cnpj, competencia: a.competencia, verificadoEm: a.verificadoEm, pendencias: a.pendencias, rascunhosPendentesPorOrigem: a.preLancamentosPendentesPorOrigem, lancamentosAguardandoAprovacao: a.lancamentosAguardandoAprovacao })), observacao: itens.length ? undefined : 'O robô ainda não rodou ou nenhuma empresa tem movimento a conferir.' };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'conferir_fechamento', description: 'Confere, na hora, o que impede de fechar a competência da empresa (itens automáticos). Banco, contas a pagar/receber, folha e impostos dependem de confirmação do usuário na tela.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, competencia: props.competencia }, required: ['cnpj', 'competencia'] } },
+    async executar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj), competencia = competenciaDe(args.competencia);
+      if (!cnpj || !competencia) return { erro: 'Informe CNPJ e competência (AAAA-MM) válidos.' };
+      const ws = await lerWorkspace(ctx, cnpj); if ('erro' in ws) return ws;
+      const r = conferirFechamento({ competencia, contas: ws.dados.contas || [], lancamentos: ws.dados.lancamentos || [], preLancamentos: ws.dados.preLancamentos || [], bens: ws.dados.bensImobilizado || [], confirmacoes: {} });
+      return { cnpj, competencia, itensAutomaticos: r.itens.filter((i) => i.tipo === 'automatico').map((i) => ({ item: i.titulo, ok: i.ok, bloqueia: i.bloqueia, detalhe: i.detalhe })), confirmacoesDoUsuario: r.itens.filter((i) => i.tipo === 'manual').map((i) => i.titulo) };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'comparar_periodos', description: 'Compara receitas e despesas do mês com o mês anterior e o mesmo mês do ano anterior e explica as variações relevantes.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, competencia: props.competencia }, required: ['cnpj', 'competencia'] } },
+    async executar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj), competencia = competenciaDe(args.competencia);
+      if (!cnpj || !competencia) return { erro: 'Informe CNPJ e competência (AAAA-MM) válidos.' };
+      const ws = await lerWorkspace(ctx, cnpj); if ('erro' in ws) return ws;
+      const c = compararPeriodos(ws.dados.contas || [], ws.dados.lancamentos || [], competencia);
+      const v = (n: number) => reais(n / 100);
+      return { cnpj, competencia, mesAnterior: c.periodoMesAnterior, anoAnterior: c.periodoAnoAnterior, receitas: c.totais.receitas.map(v), despesas: c.totais.despesas.map(v), resultado: c.totais.resultado.map(v), explicacoes: explicarVariacoes(c) };
     },
   },
   {
