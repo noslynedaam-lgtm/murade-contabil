@@ -214,6 +214,17 @@ export interface ChatMessage {
   text: string;
   timestamp: string;
   sources?: { title: string; url: string }[];
+  acoes?: AcaoAgenteCartao[];
+}
+
+export interface AcaoAgenteCartao {
+  id: string;
+  titulo: string;
+  descricao: string[];
+  aviso: string | null;
+  irreversivel: boolean;
+  estado: "pendente" | "executando" | "confirmada" | "falhou" | "recusada";
+  resultado?: string;
 }
 
 export interface SistemaConectavel {

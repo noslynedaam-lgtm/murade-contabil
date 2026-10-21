@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { escolherVozPtBr } from "../utils/vozNatural";
 import { Mic, MicOff, Volume2, VolumeX, Send, Bot, Sparkles, X, RotateCcw } from "lucide-react";
-import { ChatMessage, EmpresaDados, LancamentoContabil } from "../types";
+import { AcaoAgenteCartao, ChatMessage, EmpresaDados, LancamentoContabil } from "../types";
 
 interface IAMuradModalProps {
   isOpen: boolean;
@@ -118,22 +118,38 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
     setLoading(true);
 
     try {
-      const res = await fetch("/api/ai/chat", {
+      const historico = messages
+        .filter((m) => m.id !== "msg-0")
+        .slice(-10)
+        .map((m) => ({ papel: m.sender === "user" ? "usuario" : "ia", texto: m.text }));
+      let res = await fetch("/api/ai/agente", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: texto,
-          context: {
-            regime: empresa.regime,
-            totalLancamentos: lancamentos.length,
-          },
-          module: "contabil",
-        }),
+        credentials: "same-origin",
+        body: JSON.stringify({ message: texto, historico }),
       });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Serviço de IA indisponível.");
-      const respostaTexto = data.reply;
+      let data = await res.json().catch(() => ({}));
+      let respostaTexto: string = data.resposta;
+      let acoes: AcaoAgenteCartao[] = [];
+      if (res.ok && typeof respostaTexto === "string" && respostaTexto.trim()) {
+        acoes = Array.isArray(data.acoes)
+          ? data.acoes
+              .filter((a: any) => a && typeof a.id === "string" && typeof a.titulo === "string")
+              .map((a: any) => ({ id: a.id, titulo: a.titulo, descricao: Array.isArray(a.descricao) ? a.descricao.map(String) : [], aviso: typeof a.aviso === "string" ? a.aviso : null, irreversivel: a.irreversivel === true, estado: "pendente" as const }))
+          : [];
+      } else if (res.status === 401 || res.status === 429) {
+        throw new Error(data.error || "Não foi possível usar a agente agora.");
+      } else {
+        // Agente indisponível (ex.: sem chave de IA): mantém a pesquisa de dúvidas como antes.
+        res = await fetch("/api/ai/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: texto, context: { regime: empresa.regime, totalLancamentos: lancamentos.length }, module: "contabil" }),
+        });
+        data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Serviço de IA indisponível.");
+        respostaTexto = data.reply;
+      }
 
       const iaMsg: ChatMessage = {
         id: `msg-${Date.now() + 1}`,
@@ -141,6 +157,7 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
         text: respostaTexto,
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         sources: Array.isArray(data.sources) ? data.sources : [],
+        acoes,
       };
 
       setMessages((prev) => [...prev, iaMsg]);
@@ -156,6 +173,34 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
     } finally {
       setLoading(false);
     }
+  };
+
+  const atualizarAcao = (acaoId: string, mudanca: Partial<AcaoAgenteCartao>) => {
+    setMessages((prev) => prev.map((m) => (m.acoes ? { ...m, acoes: m.acoes.map((a) => (a.id === acaoId ? { ...a, ...mudanca } : a)) } : m)));
+  };
+  const responderComoIA = (texto: string) => {
+    setMessages((prev) => [...prev, { id: `msg-${Date.now()}`, sender: "ia", text: texto, timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]);
+    falarTexto(texto);
+  };
+  const confirmarAcao = async (acaoId: string) => {
+    atualizarAcao(acaoId, { estado: "executando" });
+    try {
+      const response = await fetch("/api/ai/agente/confirmar", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ id: acaoId }) });
+      const data = await response.json().catch(() => ({}));
+      const mensagem = typeof data.mensagem === "string" && data.mensagem ? data.mensagem : `O sistema respondeu com erro (HTTP ${response.status}).`;
+      const deuCerto = response.ok && data.sucesso === true;
+      atualizarAcao(acaoId, { estado: deuCerto ? "confirmada" : "falhou", resultado: mensagem });
+      responderComoIA(deuCerto ? `Feito. ${mensagem}` : `Não foi feito. ${mensagem}`);
+    } catch {
+      atualizarAcao(acaoId, { estado: "falhou", resultado: "Sem resposta do servidor. Confira a tela antes de tentar de novo." });
+      responderComoIA("Não consegui falar com o servidor. Confira a tela antes de tentar de novo.");
+    }
+  };
+  const recusarAcao = async (acaoId: string) => {
+    atualizarAcao(acaoId, { estado: "recusada" });
+    try {
+      await fetch("/api/ai/agente/recusar", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ id: acaoId }) });
+    } catch { /* a ação expira sozinha em 15 minutos */ }
   };
 
   if (!isOpen) return null;
@@ -185,7 +230,7 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
                 </span>
               </div>
               <div className="text-[11px] text-blue-100 flex items-center gap-1">
-                <span>{falando ? "🔊 Sintetizando fala..." : loading ? "Pesquisando fontes atuais..." : "Assistente contábil com pesquisa"}</span>
+                <span>{falando ? "🔊 Sintetizando fala..." : loading ? "Pesquisando fontes atuais..." : "Agente contábil: consulta e executa"}</span>
               </div>
             </div>
           </div>
@@ -232,6 +277,24 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
               >
                 <div className="whitespace-pre-wrap">{m.text}</div>
                 {!!m.sources?.length && <div className="mt-2 border-t border-slate-100 pt-2"><strong className="text-[10px]">Fontes consultadas</strong>{m.sources.map((source) => <a key={source.url} href={source.url} target="_blank" rel="noreferrer" className="block text-[10px] text-blue-700 underline">{source.title}</a>)}</div>}
+                {!!m.acoes?.length && m.acoes.map((a) => (
+                  <div key={a.id} className="mt-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-slate-800">
+                    <div className="text-xs font-bold">{a.titulo}</div>
+                    {a.descricao.map((d, i) => <div key={i} className="text-[11px] mt-0.5">{d}</div>)}
+                    {a.aviso && <div className="text-[11px] mt-1 font-semibold text-amber-800">{a.aviso}</div>}
+                    {a.irreversivel && <div className="text-[11px] mt-1 font-bold text-rose-700">Não dá para desfazer.</div>}
+                    {a.estado === "pendente" && (
+                      <div className="mt-2 flex gap-2">
+                        <button type="button" onClick={() => confirmarAcao(a.id)} className="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold px-3 py-1.5 rounded-lg cursor-pointer">Confirmar</button>
+                        <button type="button" onClick={() => recusarAcao(a.id)} className="bg-white border border-slate-300 text-slate-700 text-[11px] font-semibold px-3 py-1.5 rounded-lg cursor-pointer">Cancelar</button>
+                      </div>
+                    )}
+                    {a.estado === "executando" && <div className="mt-2 text-[11px] font-semibold">Executando…</div>}
+                    {a.estado === "confirmada" && <div className="mt-2 text-[11px] font-bold text-emerald-700">Confirmada: {a.resultado}</div>}
+                    {a.estado === "falhou" && <div className="mt-2 text-[11px] font-bold text-rose-700">Não foi feito: {a.resultado}</div>}
+                    {a.estado === "recusada" && <div className="mt-2 text-[11px] font-semibold text-slate-500">Cancelada.</div>}
+                  </div>
+                ))}
                 <div
                   className={`text-[10px] mt-1.5 text-right font-medium ${
                     m.sender === "user" ? "text-blue-200" : "text-slate-400"
@@ -257,6 +320,18 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
 
         {/* Perguntas Rápidas */}
         <div className="px-4 py-2 bg-slate-100/80 border-t border-slate-200 flex gap-2 overflow-x-auto text-[11px] whitespace-nowrap shrink-0">
+          <button
+            onClick={() => enviarMensagem("O que está pendente de conferência no Contábil?")}
+            className="bg-white hover:bg-blue-50 border border-slate-300 text-slate-700 px-2.5 py-1 rounded-full cursor-pointer transition"
+          >
+            ✅ Pendências de conferência
+          </button>
+          <button
+            onClick={() => enviarMensagem("Como estão os robôs e as integrações com o Fiscal e o DP?")}
+            className="bg-white hover:bg-blue-50 border border-slate-300 text-slate-700 px-2.5 py-1 rounded-full cursor-pointer transition"
+          >
+            🤖 Robôs e integrações
+          </button>
           <button
             onClick={() => enviarMensagem("Como funciona o IBS e CBS da Reforma Tributária em 2026?")}
             className="bg-white hover:bg-blue-50 border border-slate-300 text-slate-700 px-2.5 py-1 rounded-full cursor-pointer transition"

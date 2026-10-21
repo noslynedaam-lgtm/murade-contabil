@@ -7,6 +7,11 @@ import { timingSafeEqual } from "node:crypto";
 import { ErroValidacaoDocumentoFiscal, fiscalStoreConfigurado, gravarDocumentosFiscais, lerDocumentosFiscais, lerVersoesDocumentoFiscal, verificarEstadoStoreFiscal } from "./src/server/documentosFiscaisStore";
 import { dpStoreConfigurado, ErroConflitoResumoDP, ErroValidacaoResumoDP, gravarResumoDP, lerResumosDP, verificarEstadoStoreDP } from "./src/server/dadosDpStore";
 import { adicionarEmpresaAcessoContabil, adicionarEquipeContabil, bloquearEscritorioContabil, convidarEquipeContabil, convidarEscritorioContabil, listarEquipeContabil, listarEscritoriosContabil, removerEquipeContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, sessaoDaRequisicaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil } from "./src/server/authContabil";
+import { ArmazemAcoesPendentes, confirmarAcao as confirmarAcaoAgenteIA, conversar as conversarAgenteIA, recusarAcao as recusarAcaoAgenteIA, type ChamarApi, type ContextoAgente, type ModeloIA } from "./src/server/agenteMotor";
+import { kitContabil } from "./src/server/agenteContabil";
+import { ArmazemPedidosMemoria, ArmazemPedidosPg, CentralDePedidos, tokenValido } from "./src/server/agentesEntreSistemas";
+import { bancoContabilConfigurado, consultaBancoContabil, hashSessaoContabil, registrarAcaoAgenteIAContabil } from "./src/server/authContabil";
+import { executarRobo, registrarRobo, statusRobos } from "./src/server/robosStatus";
 import { gerarCandidatosRascunhosAutomaticos, mesclarRascunhosNoWorkspace, prepararRascunhosContabeisAutomaticos } from "./src/server/prepararRascunhosContabeis";
 import { omitirXmlOriginal, resumirCoberturaXmlFiscal } from "./src/server/coberturaXmlFiscal";
 
@@ -829,6 +834,131 @@ async function startServer() {
   });
 
   // API do Agente IA Murad (Contabilidade, Fisco e Reforma Tributária 2026)
+  // ==================================================
+  // AGENTE IA DO CONTÁBIL — executa pedidos dentro do sistema
+  // ==================================================
+  // Cada ferramenta chama uma rota existente com a sessão (cookie) do próprio usuário: escopo por empresa,
+  // perfil somente leitura e travas de conferência/fechamento continuam valendo.
+  const acoesPendentesAgenteIA = new ArmazemAcoesPendentes();
+  const usoAgenteIAPorSessao = new Map<string, number[]>();
+
+  const centralDePedidos = new CentralDePedidos(
+    "contabil",
+    bancoContabilConfigurado() ? new ArmazemPedidosPg(consultaBancoContabil) : new ArmazemPedidosMemoria(),
+    {
+      robos: async () => statusRobos(),
+      resumo: async () => ({ sistema: "Contábil", reconciliacaoRascunhos: { ...reconciliacaoRascunhosStatus }, robos: statusRobos().robos.map((r) => ({ nome: r.nome, estado: r.estado })) }),
+    },
+  );
+
+  const chamarApiComoUsuario = (req: express.Request): ChamarApi => {
+    const cookie = req.headers.cookie || "";
+    return async (metodo, caminho, corpo) => {
+      if (!/^\/api\/[A-Za-z0-9/_\-.?=&%:]*$/.test(caminho)) throw new Error("Caminho interno inválido.");
+      const resposta = await fetch(`http://127.0.0.1:${PORT}${caminho}`, {
+        method: metodo,
+        headers: { cookie, "Content-Type": "application/json", Accept: "application/json", Origin: `http://127.0.0.1:${PORT}` },
+        body: corpo === undefined ? undefined : JSON.stringify(corpo),
+        signal: AbortSignal.timeout(45_000),
+      });
+      const texto = await resposta.text();
+      let json: any = {};
+      try { json = JSON.parse(texto); } catch { /* resposta não JSON: o status basta */ }
+      return { status: resposta.status, corpo: json };
+    };
+  };
+
+  const contextoAgenteIA = (req: express.Request): ContextoAgente | null => {
+    const sessao = sessaoDaRequisicaoContabil(req);
+    if (!sessao) return null;
+    return {
+      sessaoHash: hashSessaoContabil(req),
+      login: sessao.login,
+      hoje: new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" }),
+      chamarApi: chamarApiComoUsuario(req),
+      registrar: (evento) => registrarAcaoAgenteIAContabil(sessao.login, evento),
+      pendentes: acoesPendentesAgenteIA,
+      kit: kitContabil,
+      central: centralDePedidos,
+    };
+  };
+
+  const limiteUsoAgenteIA = (sessaoHash: string): boolean => {
+    const agora = Date.now();
+    const recentes = (usoAgenteIAPorSessao.get(sessaoHash) || []).filter((t) => agora - t < 10 * 60_000);
+    if (recentes.length >= 40) { usoAgenteIAPorSessao.set(sessaoHash, recentes); return false; }
+    recentes.push(agora);
+    usoAgenteIAPorSessao.set(sessaoHash, recentes);
+    if (usoAgenteIAPorSessao.size > 500) for (const [chave, lista] of usoAgenteIAPorSessao) if (!lista.some((t) => agora - t < 10 * 60_000)) usoAgenteIAPorSessao.delete(chave);
+    return true;
+  };
+
+  const modeloGeminiAgente = (): ModeloIA => async ({ instrucao, conteudos, declaracoes }) => {
+    const ai = getAI();
+    if (!ai) throw new Error("GEMINI_API_KEY não configurada.");
+    const response = await ai.models.generateContent({
+      model: process.env.GEMINI_MODEL || "gemini-3.8-flash",
+      contents: conteudos as any,
+      config: { systemInstruction: instrucao, tools: [{ functionDeclarations: declaracoes as any }], temperature: 0.2 },
+    });
+    const turno: any = response.candidates?.[0]?.content;
+    const partes: any[] = Array.isArray(turno?.parts) ? turno.parts : [];
+    return {
+      texto: partes.filter((p) => typeof p?.text === "string" && !p.thought).map((p) => p.text).join(""),
+      chamadas: partes.filter((p) => p?.functionCall?.name).map((p) => ({ nome: String(p.functionCall.name), args: (p.functionCall.args || {}) as Record<string, any> })),
+      turnoModelo: turno,
+    };
+  };
+
+  app.post("/api/ai/agente", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const ctx = contextoAgenteIA(req);
+    if (!ctx) return res.status(401).json({ error: "Entre novamente para continuar." });
+    const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
+    if (!message) return res.status(400).json({ error: "Digite seu pedido." });
+    if (message.length > 4000) return res.status(413).json({ error: "O pedido deve ter até 4.000 caracteres." });
+    if (!getAI()) return res.status(503).json({ error: "Agente indisponível: configure GEMINI_API_KEY no servidor." });
+    if (!limiteUsoAgenteIA(ctx.sessaoHash)) return res.status(429).json({ error: "Muitos pedidos em pouco tempo. Aguarde alguns minutos." });
+    const historico = Array.isArray(req.body?.historico)
+      ? req.body.historico.filter((t: any) => t && (t.papel === "usuario" || t.papel === "ia") && typeof t.texto === "string").slice(-10)
+      : [];
+    try {
+      return res.json({ sucesso: true, ...(await conversarAgenteIA(ctx, modeloGeminiAgente(), message, historico)) });
+    } catch (error) {
+      console.error("Falha na Agente IA do Contábil:", error instanceof Error ? error.message : error);
+      return res.status(502).json({ error: "Não foi possível falar com o serviço de IA agora. Tente novamente." });
+    }
+  });
+  app.post("/api/ai/agente/confirmar", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const ctx = contextoAgenteIA(req);
+    if (!ctx) return res.status(401).json({ sucesso: false, mensagem: "Entre novamente para continuar." });
+    const resultado = await confirmarAcaoAgenteIA(ctx, String(req.body?.id || ""));
+    return res.status(resultado.sucesso ? 200 : 422).json(resultado);
+  });
+  app.post("/api/ai/agente/recusar", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const ctx = contextoAgenteIA(req);
+    if (!ctx) return res.status(401).json({ sucesso: false });
+    return res.json(await recusarAcaoAgenteIA(ctx, String(req.body?.id || "")));
+  });
+  app.get("/api/robos/status", exigirSessaoContabil, (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    return res.json({ sucesso: true, ...statusRobos() });
+  });
+  // Mensagens entre Agentes IA dos sistemas Murade (token de integração).
+  app.post("/api/integracao/agente/mensagem", async (req, res) => {
+    if (negarIntegracao(req, res)) return;
+    try { const r = await centralDePedidos.receber(req.body); return res.status(r.status).json(r.corpo); }
+    catch { return res.status(503).json({ ok: false, erro: "Não foi possível registrar agora." }); }
+  });
+
+  registrarRobo({ id: "reconciliador", nome: "Robô Reconciliador", posto: "integrador", missao: "Trazer do Fiscal e do DP os dados novos e preparar pré-lançamentos para conferência.", intervaloMs: 60_000 });
+  registrarRobo({ id: "contabilizador", nome: "Robô Contabilizador", posto: "calculador", missao: "Transformar pré-lançamentos em lançamentos definitivos.", motivoSemRotina: "Sem rotina automática por regra: lançamento definitivo só nasce depois da aprovação de uma pessoa." });
+  registrarRobo({ id: "mensageiro", nome: "Robô Mensageiro", posto: "integrador", missao: "Reenviar pedidos entre as Agentes dos sistemas Murade que não chegaram ao destino.", intervaloMs: 60_000 });
+  const timerMensageiro = setInterval(() => { executarRobo("mensageiro", () => centralDePedidos.reenviarPendentes()).catch((e) => console.error("Falha ao reenviar pedidos entre agentes:", e?.message || e)); }, 60_000);
+  timerMensageiro.unref();
+
   app.post("/api/ai/chat", exigirSessaoContabil, async (req, res) => {
     const { message, context, module: requestedModule } = req.body;
     const moduleName = requestedModule === "fiscal" || requestedModule === "dp" ? requestedModule : "contabil";
@@ -955,9 +1085,9 @@ async function startServer() {
         reconciliacaoEmCurso = false;
       }
     };
-    const primeiraRecon = setTimeout(() => void reconciliarRascunhos(), 1_000);
+    const primeiraRecon = setTimeout(() => void executarRobo("reconciliador", reconciliarRascunhos), 1_000);
     primeiraRecon.unref();
-    const reconciliacaoPeriodica = setInterval(() => void reconciliarRascunhos(), 60_000);
+    const reconciliacaoPeriodica = setInterval(() => void executarRobo("reconciliador", reconciliarRascunhos), 60_000);
     reconciliacaoPeriodica.unref();
     console.log("[Murad Contábil] Reconciliação de rascunhos habilitada a cada 60 segundos; lançamentos definitivos continuam exigindo aprovação.");
   });

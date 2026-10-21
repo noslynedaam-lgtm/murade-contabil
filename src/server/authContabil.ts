@@ -1458,3 +1458,25 @@ export async function logoutAuthContabil(req: Request, res: Response): Promise<v
     res.status(503).json({ sucesso: false, motivo: "Não foi possível encerrar a sessão." });
   }
 }
+
+/** Acesso genérico ao banco do Contábil para módulos próprios (protocolo entre agentes, auditoria da Agente IA). */
+export function consultaBancoContabil(sql: string, params: unknown[] = []): Promise<{ rows: any[] }> {
+  return obterBanco().query(sql, params as any[]);
+}
+export function bancoContabilConfigurado(): boolean { return Boolean(process.env.DATABASE_URL?.trim()); }
+/** Identificador não reversível da sessão atual (para vincular ações pendentes a quem as pediu). */
+export function hashSessaoContabil(req: Request): string {
+  return crypto.createHash("sha256").update(cookieDaRequisicao(req)).digest("hex").slice(0, 32);
+}
+
+let tabelaAgenteIAContabil: Promise<void> | null = null;
+export async function registrarAcaoAgenteIAContabil(login: string, e: { evento: string; ferramenta: string; cnpj: string | null; resumo: string; resultado?: string }): Promise<void> {
+  if (!bancoContabilConfigurado()) return;
+  tabelaAgenteIAContabil ??= obterBanco().query(`
+    CREATE TABLE IF NOT EXISTS contabil_ai_agent_log (
+      id BIGSERIAL PRIMARY KEY, login TEXT NOT NULL, cnpj TEXT, event TEXT NOT NULL, tool TEXT NOT NULL,
+      summary TEXT NOT NULL, result TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`).then(() => undefined).catch((erro) => { tabelaAgenteIAContabil = null; throw erro; });
+  await tabelaAgenteIAContabil;
+  await obterBanco().query('INSERT INTO contabil_ai_agent_log (login,cnpj,event,tool,summary,result) VALUES ($1,$2,$3,$4,$5,$6)',
+    [String(login).slice(0, 120), e.cnpj ? normalizarCnpjAcesso(e.cnpj) : null, e.evento.slice(0, 40), e.ferramenta.slice(0, 60), e.resumo.slice(0, 300), e.resultado ? e.resultado.slice(0, 300) : null]);
+}

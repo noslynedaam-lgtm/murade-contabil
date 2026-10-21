@@ -1,0 +1,166 @@
+// Ferramentas da Agente IA do Murade Contábil. Cada ferramenta chama uma rota que já existe, com a
+// sessão do próprio usuário, então escopo por empresa, perfil "somente leitura" e as travas de
+// conferência/fechamento continuam valendo. A Agente nunca grava lançamento definitivo por conta própria.
+import {
+  erroApi, ok, q, reais,
+  type Ferramenta, type KitAgente,
+} from './agenteMotor';
+import { FERRAMENTAS_ENTRE_SISTEMAS, INSTRUCAO_ENTRE_SISTEMAS } from './ferramentasEntreSistemas';
+
+const cnpjDe = (v: unknown): string | null => { const d = String(v ?? '').replace(/[^0-9A-Za-z]/g, '').toUpperCase(); return d.length === 14 ? d : null; };
+const competenciaDe = (v: unknown): string | null => (typeof v === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(v.trim()) ? v.trim() : null);
+const mesAno = (c: string) => `${c.slice(5)}/${c.slice(0, 4)}`;
+
+const props = {
+  cnpj: { type: 'STRING', description: 'CNPJ da empresa (14 caracteres). Obtenha em listar_empresas.' },
+  competencia: { type: 'STRING', description: 'Competência no formato AAAA-MM, por exemplo 2026-10.' },
+};
+
+async function lerWorkspace(ctx: Parameters<Extract<Ferramenta, { tipo: 'leitura' }>['executar']>[0], cnpj: string) {
+  const r = await ctx.chamarApi('GET', `/api/workspaces/${q(cnpj)}`);
+  if (!ok(r)) return { erro: erroApi(r).erro } as const;
+  if (!r.corpo?.dados) return { erro: 'Esta empresa ainda não tem dados contábeis salvos.' } as const;
+  return { dados: r.corpo.dados as Record<string, any> } as const;
+}
+
+const FERRAMENTAS: Ferramenta[] = [
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'listar_empresas', description: 'Lista as empresas autorizadas para este usuário (CNPJ e nome).', parameters: { type: 'OBJECT', properties: {} } },
+    async executar(ctx) {
+      const r = await ctx.chamarApi('GET', '/api/workspaces');
+      if (!ok(r)) return erroApi(r);
+      return { empresas: (r.corpo?.empresas || []).map((e: any) => ({ cnpj: e.cnpj, nome: e.razaoSocial || e.nomeFantasia || e.nome || null, regime: e.regime || null })) };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'consultar_pendencias', description: 'Mostra o que está pendente na contabilidade da empresa: pré-lançamentos aguardando conferência (vindos do DP e do Fiscal), lançamentos manuais aguardando aprovação e competências já fechadas. Informe competência para filtrar.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, competencia: props.competencia }, required: ['cnpj'] } },
+    async executar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const competencia = args.competencia ? competenciaDe(args.competencia) : null;
+      if (args.competencia && !competencia) return { erro: 'Competência inválida. Use AAAA-MM.' };
+      const ws = await lerWorkspace(ctx, cnpj); if ('erro' in ws) return ws;
+      const pre: any[] = Array.isArray(ws.dados.preLancamentos) ? ws.dados.preLancamentos : [];
+      const pend = pre.filter((p) => p?.status === 'pendente_conferencia' && (!competencia || p.competencia === competencia));
+      const manuais = (Array.isArray(ws.dados.lancamentos) ? ws.dados.lancamentos : []).filter((l: any) => l?.statusManual === 'pendente_aprovacao' && (!competencia || String(l.data || '').slice(0, 7) === competencia));
+      const fech = await ctx.chamarApi('GET', `/api/workspaces/${q(cnpj)}/fechamentos`);
+      const porOrigem: Record<string, number> = {};
+      for (const p of pend) porOrigem[p.origem] = (porOrigem[p.origem] || 0) + 1;
+      return {
+        cnpj, competencia: competencia || 'todas',
+        preLancamentosPendentes: pend.length, totalPendente: reais(pend.reduce((s, p) => s + Number(p.valor || 0), 0)), porOrigem,
+        amostra: pend.slice(0, 10).map((p) => ({ referencia: p.referenciaOrigem, competencia: p.competencia, origem: p.origem, valor: reais(Number(p.valor || 0)), historico: String(p.historico || '').slice(0, 80) })),
+        lancamentosManuaisAguardandoAprovacao: manuais.length,
+        competenciasFechadas: ok(fech) ? (fech.corpo?.fechamentos || []).map((f: any) => f.competencia) : erroApi(fech),
+      };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'consultar_fechamentos', description: 'Lista as competências já fechadas da empresa, com quem fechou e quando.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj }, required: ['cnpj'] } },
+    async executar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const r = await ctx.chamarApi('GET', `/api/workspaces/${q(cnpj)}/fechamentos`);
+      return ok(r) ? { fechamentos: r.corpo?.fechamentos || [] } : erroApi(r);
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'consultar_historico_aprovacoes', description: 'Mostra as últimas aprovações (contabilizações) feitas na empresa e por quem.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj }, required: ['cnpj'] } },
+    async executar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const r = await ctx.chamarApi('GET', `/api/workspaces/${q(cnpj)}/historico-aprovacoes?limite=15`);
+      return ok(r) ? { aprovacoes: r.corpo?.aprovacoes || [], conferenciaIntegridade: r.corpo?.conferenciaIntegridade } : erroApi(r);
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'status_integracoes', description: 'Mostra se o Contábil está recebendo dados do Fiscal e do DP (armazenamento, conexão com as APIs, reconciliação automática de rascunhos).', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj } } },
+    async executar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj);
+      const r = await ctx.chamarApi('GET', `/api/integracao/status${cnpj ? `?cnpj=${q(cnpj)}` : ''}`);
+      if (!ok(r)) return erroApi(r);
+      const c = r.corpo;
+      return { armazenamento: c.armazenamento, tokenServicoConfigurado: c.tokenServicoConfigurado, fiscal: c.fiscal, departamentoPessoal: c.departamentoPessoal, apiFiscal: c.apiFiscal, apiDepartamentoPessoal: c.apiDepartamentoPessoal, reconciliacaoRascunhos: c.reconciliacaoRascunhos, transmissaoAutomaticaHabilitada: c.transmissaoAutomaticaHabilitada };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'status_robos', description: 'Mostra se os robôs do Contábil estão ativos, a missão de cada um, quando rodaram pela última vez e erros.', parameters: { type: 'OBJECT', properties: {} } },
+    async executar(ctx) {
+      const r = await ctx.chamarApi('GET', '/api/robos/status');
+      return ok(r) ? { robos: r.corpo?.robos, servidor: r.corpo?.servidor } : erroApi(r);
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'consultar_legislacao', description: 'Responde dúvida contábil/tributária (SPED, ECD, ECF, ICMS, ISS, Simples, Reforma Tributária, prazos) pesquisando fontes oficiais.', parameters: { type: 'OBJECT', properties: { pergunta: { type: 'STRING', description: 'A dúvida completa, com competência, UF e município quando relevantes.' } }, required: ['pergunta'] } },
+    async executar(ctx, args) {
+      const pergunta = typeof args.pergunta === 'string' ? args.pergunta.trim().slice(0, 3900) : '';
+      if (!pergunta) return { erro: 'Informe a pergunta.' };
+      const r = await ctx.chamarApi('POST', '/api/ai/chat', { message: pergunta, module: 'contabil' });
+      if (r.status < 200 || r.status >= 300 || typeof r.corpo?.reply !== 'string') return erroApi(r);
+      return { resposta: r.corpo.reply, fontesOficiais: r.corpo.sources || [] };
+    },
+  },
+
+  // ---------------------------------------------------------------- ações (exigem confirmação)
+  {
+    tipo: 'acao',
+    declaracao: { name: 'contabilizar_prelancamentos', description: 'Propõe contabilizar (aprovar) os pré-lançamentos pendentes de conferência de UMA competência de UMA empresa. Vira cartão de confirmação mostrando quantidade e total; o servidor revalida cada um com os dados atuais do Fiscal e do DP e recusa o que não bater. Só proponha quando o usuário pedir.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, competencia: props.competencia }, required: ['cnpj', 'competencia'] } },
+    async preparar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); const competencia = competenciaDe(args.competencia);
+      if (!cnpj || !competencia) return { erro: 'Informe CNPJ e competência (AAAA-MM) válidos.' };
+      const ws = await lerWorkspace(ctx, cnpj); if ('erro' in ws) return { erro: ws.erro };
+      const pend = (Array.isArray(ws.dados.preLancamentos) ? ws.dados.preLancamentos : []).filter((p: any) => p?.status === 'pendente_conferencia' && p.geradoAutomaticamente === true && p.competencia === competencia && typeof p.referenciaOrigem === 'string');
+      if (!pend.length) return { erro: `Não há pré-lançamentos pendentes de conferência em ${mesAno(competencia)}.` };
+      if (pend.length > 500) return { erro: 'São mais de 500 pré-lançamentos; aprove em lotes pela tela.' };
+      const total = pend.reduce((s: number, p: any) => s + Number(p.valor || 0), 0);
+      return {
+        cnpj, params: { cnpj, referencias: pend.map((p: any) => p.referenciaOrigem) },
+        titulo: `Contabilizar ${pend.length} pré-lançamento(s) de ${mesAno(competencia)}`,
+        descricao: [`Total: ${reais(total)}`, ...pend.slice(0, 6).map((p: any) => `${p.origem}: ${reais(Number(p.valor || 0))} — ${String(p.historico || '').slice(0, 60)}`), ...(pend.length > 6 ? [`… e mais ${pend.length - 6}`] : [])],
+        aviso: 'Vira lançamento definitivo no razão. O servidor revalida cada item e bloqueia se algo mudou.',
+        irreversivel: true, resumo: `Contabilizar ${pend.length} pré-lançamentos ${competencia}`,
+      };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', `/api/workspaces/${q(params.cnpj)}/contabilizar`, { referencias: params.referencias });
+      if (!ok(r)) return { sucesso: false, mensagem: erroApi(r).erro };
+      return { sucesso: true, mensagem: String(r.corpo?.mensagem || `Pré-lançamentos contabilizados (${params.referencias.length}).`) };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'fechar_competencia', description: 'Propõe FECHAR a competência contábil da empresa. Irreversível. O servidor bloqueia se houver pré-lançamentos ou lançamentos manuais pendentes ou inconsistências. Só proponha quando o usuário pedir expressamente.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, competencia: props.competencia }, required: ['cnpj', 'competencia'] } },
+    async preparar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); const competencia = competenciaDe(args.competencia);
+      if (!cnpj || !competencia) return { erro: 'Informe CNPJ e competência (AAAA-MM) válidos.' };
+      const f = await ctx.chamarApi('GET', `/api/workspaces/${q(cnpj)}/fechamentos`);
+      if (ok(f) && (f.corpo?.fechamentos || []).some((x: any) => x.competencia === competencia)) return { erro: `A competência ${mesAno(competencia)} já está fechada.` };
+      return { cnpj, params: { cnpj, competencia }, titulo: `Fechar a competência ${mesAno(competencia)}`, descricao: ['Bloqueia o mês para novos lançamentos.', 'O sistema recusa se houver conferências pendentes.'], aviso: 'Não dá para desfazer.', irreversivel: true, resumo: `Fechar competência ${competencia}` };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', `/api/workspaces/${q(params.cnpj)}/fechamentos`, { competencia: params.competencia });
+      if (!ok(r)) return { sucesso: false, mensagem: erroApi(r).erro };
+      return { sucesso: true, mensagem: String(r.corpo?.mensagem || `Competência ${mesAno(params.competencia)} fechada.`) };
+    },
+  },
+];
+
+const INSTRUCAO_BASE = `Você é a Agente IA do Murade Contábil. Trabalha dentro do sistema para o contador, em português do Brasil, com tom calmo, direto e prático. Respostas curtas.
+
+COMO TRABALHAR
+- Para saber qualquer coisa do sistema (empresas, pendências de conferência, fechamentos, integrações, robôs), use as ferramentas de consulta. Nunca responda de memória sobre dados do cliente.
+- Para dúvidas de legislação, regra, alíquota ou prazo, use consultar_legislacao e repasse as fontes oficiais.
+- Se o usuário tem uma única empresa, use-a. Se há várias e ele não disse qual, pergunte. Se não disse a competência (mês), pergunte antes de agir.
+- Ações que alteram dados (contabilizar_prelancamentos, fechar_competencia) NÃO são executadas por você: viram um cartão de confirmação. Depois de chamar uma ação, diga em uma frase o que ficou pronto para ele confirmar. Nunca diga que algo foi feito antes de ele confirmar.
+- Você não cria nem edita lançamentos manuais, plano de contas ou mapeamentos: isso é feito nas telas.
+
+LIMITES (diga com clareza quando o pedido bater neles)
+- Folha, guias de FGTS/INSS e eSocial são do Departamento Pessoal; DAS e notas fiscais são do Fiscal. Não os faça aqui: consulte ou peça à Agente do outro sistema pelas ferramentas de comunicação.
+- O Murade não transmite SPED, ECD ou ECF automaticamente.
+- Nunca invente valores, datas, protocolos ou status. Se uma ferramenta devolver erro, explique o motivo com as palavras do sistema e diga o que falta.`;
+
+export const kitContabil: KitAgente = { ferramentas: [...FERRAMENTAS, ...FERRAMENTAS_ENTRE_SISTEMAS], instrucao: INSTRUCAO_BASE + INSTRUCAO_ENTRE_SISTEMAS };
