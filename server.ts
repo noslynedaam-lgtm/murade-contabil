@@ -10,7 +10,7 @@ import { adicionarEmpresaAcessoContabil, adicionarEquipeContabil, bloquearEscrit
 import { ArmazemAcoesPendentes, confirmarAcao as confirmarAcaoAgenteIA, conversar as conversarAgenteIA, recusarAcao as recusarAcaoAgenteIA, type ChamarApi, type ContextoAgente, type ModeloIA } from "./src/server/agenteMotor";
 import { kitContabil } from "./src/server/agenteContabil";
 import { ArmazemPedidosMemoria, ArmazemPedidosPg, CentralDePedidos, tokenValido } from "./src/server/agentesEntreSistemas";
-import { bancoContabilConfigurado, consultaBancoContabil, hashSessaoContabil, registrarAcaoAgenteIAContabil } from "./src/server/authContabil";
+import { listarRegistroAgenteIAContabil, bancoContabilConfigurado, consultaBancoContabil, hashSessaoContabil, registrarAcaoAgenteIAContabil } from "./src/server/authContabil";
 import { executarRobo, registrarRobo, statusRobos } from "./src/server/robosStatus";
 import { gerarCandidatosRascunhosAutomaticos, mesclarRascunhosNoWorkspace, prepararRascunhosContabeisAutomaticos } from "./src/server/prepararRascunhosContabeis";
 import { omitirXmlOriginal, resumirCoberturaXmlFiscal } from "./src/server/coberturaXmlFiscal";
@@ -941,6 +941,11 @@ async function startServer() {
     const ctx = contextoAgenteIA(req);
     if (!ctx) return res.status(401).json({ sucesso: false });
     return res.json(await recusarAcaoAgenteIA(ctx, String(req.body?.id || "")));
+  });
+  app.get("/api/ai/agente/registro", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    try { return res.json({ sucesso: true, registros: await listarRegistroAgenteIAContabil(req, req.query.limite) }); }
+    catch (error) { console.error("Falha ao ler o registro da Agente IA:", error instanceof Error ? error.message : error); return res.status(503).json({ sucesso: false, motivo: "Não foi possível consultar o registro." }); }
   });
   app.get("/api/robos/status", exigirSessaoContabil, (_req, res) => {
     res.setHeader("Cache-Control", "no-store");

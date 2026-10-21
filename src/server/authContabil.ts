@@ -1480,3 +1480,16 @@ export async function registrarAcaoAgenteIAContabil(login: string, e: { evento: 
   await obterBanco().query('INSERT INTO contabil_ai_agent_log (login,cnpj,event,tool,summary,result) VALUES ($1,$2,$3,$4,$5,$6)',
     [String(login).slice(0, 120), e.cnpj ? normalizarCnpjAcesso(e.cnpj) : null, e.evento.slice(0, 40), e.ferramenta.slice(0, 60), e.resumo.slice(0, 300), e.resultado ? e.resultado.slice(0, 300) : null]);
 }
+
+export async function listarRegistroAgenteIAContabil(req: Request, limiteInformado: unknown = 30): Promise<any[]> {
+  const sessao = sessaoDaRequisicaoContabil(req);
+  if (!sessao) throw new Error("Sessão não autorizada.");
+  if (!bancoContabilConfigurado()) return [];
+  const limite = Math.max(1, Math.min(100, Number(limiteInformado) || 30));
+  try {
+  const r = await obterBanco().query(
+    "SELECT id, login, cnpj, event, tool, summary, result, created_at FROM contabil_ai_agent_log WHERE (cnpj = ANY($1::text[]) OR (cnpj IS NULL AND login=$2)) ORDER BY id DESC LIMIT $3",
+    [sessao.cnpjs, sessao.login, limite]);
+  return r.rows.map((x) => ({ id: String(x.id), usuario: x.login, cnpj: x.cnpj, evento: x.event, ferramenta: x.tool, resumo: x.summary, resultado: x.result, em: new Date(x.created_at).toISOString() }));
+  } catch { return []; /* tabela ainda não criada: nenhuma ação registrada */ }
+}
