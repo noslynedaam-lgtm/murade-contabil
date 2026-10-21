@@ -1,8 +1,10 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { UserPlus, X, LogOut, KeyRound } from "lucide-react";
+import { PainelEquipe } from "./PainelEquipe";
+import { PainelEscritorios } from "./PainelEscritorios";
 
 type Membership = { cnpj: string; role: "admin" | "operator" | "viewer" };
-type AuthData = { usuario: string; cnpjs: string[]; memberships: Membership[]; administrador: boolean };
+type AuthData = { usuario: string; cnpjs: string[]; memberships: Membership[]; administrador: boolean; escritorio?: boolean; donoSistema?: boolean };
 type AuthContextValue = AuthData & { sair: () => Promise<void>; atualizarAcesso: () => Promise<void> };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -44,7 +46,7 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
     const response = await fetch("/api/auth/session", { credentials: "include", cache: "no-store" });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.motivo || "Não foi possível consultar a sessão.");
-    setAuth(data.autenticado ? { usuario: data.usuario, cnpjs: data.cnpjs || [], memberships: data.memberships || [], administrador: data.administrador === true } : null);
+    setAuth(data.autenticado ? { usuario: data.usuario, cnpjs: data.cnpjs || [], memberships: data.memberships || [], administrador: data.administrador === true, escritorio: data.escritorio === true, donoSistema: data.donoSistema === true } : null);
   };
 
   useEffect(() => {
@@ -59,7 +61,7 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
         if (!ativo) return;
         if (!statusResponse.ok || !statusData.disponivel) throw new Error(statusData.motivo || "Autenticação indisponível.");
         setStatus({ carregando: false, primeiroAcesso: statusData.primeiroAcesso === true, configuracaoNecessaria: statusData.configuracaoNecessaria === true, erro: "" });
-        setAuth(sessionResponse.ok && sessionData.autenticado ? { usuario: sessionData.usuario, cnpjs: sessionData.cnpjs || [], memberships: sessionData.memberships || [], administrador: sessionData.administrador === true } : null);
+        setAuth(sessionResponse.ok && sessionData.autenticado ? { usuario: sessionData.usuario, cnpjs: sessionData.cnpjs || [], memberships: sessionData.memberships || [], administrador: sessionData.administrador === true, escritorio: sessionData.escritorio === true, donoSistema: sessionData.donoSistema === true } : null);
       } catch (error) {
         if (!ativo) return;
         setStatus({ carregando: false, primeiroAcesso: false, configuracaoNecessaria: false, erro: error instanceof Error ? error.message : "Não foi possível validar o acesso." });
@@ -115,7 +117,7 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const value = useMemo(() => auth ? { ...auth, sair, atualizarAcesso } : null, [auth]);
-  const empresasAdministradas = auth?.administrador ? auth.cnpjs : auth?.memberships.filter((item) => item.role === "admin").map((item) => item.cnpj) || [];
+  const empresasAdministradas = auth?.memberships.filter((item) => item.role === "admin").map((item) => item.cnpj) || [];
   useEffect(() => { if (!cnpjUsuarios && empresasAdministradas.length) setCnpjUsuarios(empresasAdministradas[0]); }, [empresasAdministradas.join(",")]);
   useEffect(() => {
     if (!painelUsuarios || !cnpjUsuarios) return;
@@ -148,9 +150,9 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
     } catch (error) { setErroConvite(error instanceof Error ? error.message : "Falha ao vincular usuário."); }
   };
   if (auth) return <AuthContext.Provider value={value!}>
-    <div className="sticky top-0 z-[100] flex min-h-10 flex-wrap items-center justify-between gap-2 bg-slate-950 px-4 py-1.5 text-xs text-white"><span>Conta: <strong>{auth.usuario}</strong> · {auth.cnpjs.length} empresa(s) autorizada(s)</span><div className="flex gap-2">{empresasAdministradas.length > 0 && <button onClick={() => setPainelUsuarios(true)} className="rounded bg-white/15 px-3 py-1 hover:bg-white/25"><UserPlus className="mr-1 inline h-3.5 w-3.5" /> Usuários e licenças</button>}<button onClick={() => void sair()} className="rounded bg-white/15 px-3 py-1 hover:bg-white/25"><LogOut className="mr-1 inline h-3.5 w-3.5" /> Sair</button></div></div>
+    <div className="sticky top-0 z-[100] flex min-h-10 flex-wrap items-center justify-between gap-2 bg-slate-950 px-4 py-1.5 text-xs text-white"><span>Conta: <strong>{auth.usuario}</strong> · {auth.cnpjs.length} empresa(s) autorizada(s)</span><div className="flex gap-2">{(empresasAdministradas.length > 0 || auth.administrador) && <button onClick={() => setPainelUsuarios(true)} className="rounded bg-white/15 px-3 py-1 hover:bg-white/25"><UserPlus className="mr-1 inline h-3.5 w-3.5" /> Usuários e licenças</button>}<button onClick={() => void sair()} className="rounded bg-white/15 px-3 py-1 hover:bg-white/25"><LogOut className="mr-1 inline h-3.5 w-3.5" /> Sair</button></div></div>
     {painelUsuarios && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4"><section className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white p-5 text-slate-900 shadow-2xl"><header className="mb-4 flex items-center justify-between"><h2 className="text-lg font-bold">Usuários e licenças por empresa</h2><button onClick={() => setPainelUsuarios(false)} aria-label="Fechar"><X /></button></header>
-      <label className="block text-sm font-semibold">Empresa<select value={cnpjUsuarios} onChange={(e) => setCnpjUsuarios(e.target.value)} className="mt-1 w-full rounded-lg border p-2">{empresasAdministradas.map((cnpj) => <option key={cnpj}>{cnpj}</option>)}</select></label>
+      {auth.donoSistema && <PainelEscritorios />}{auth.administrador && <PainelEquipe />}<label className="block text-sm font-semibold">Empresa<select value={cnpjUsuarios} onChange={(e) => setCnpjUsuarios(e.target.value)} className="mt-1 w-full rounded-lg border p-2">{empresasAdministradas.map((cnpj) => <option key={cnpj}>{cnpj}</option>)}</select></label>
       <form onSubmit={criarConvite} className="mt-4 space-y-3 rounded-xl border border-slate-200 p-4"><h3 className="font-semibold">Convidar usuário individual</h3><p className="text-xs text-slate-600">A pessoa define a própria senha ao ativar o convite; você não recebe nem compartilha a senha.</p><label className="block text-sm">Login<input required value={novoLogin} onChange={(e) => setNovoLogin(e.target.value)} className="mt-1 w-full rounded-lg border p-2" /></label><label className="block text-sm">Acesso<select value={novoPerfil} onChange={(e) => setNovoPerfil(e.target.value as Membership["role"])} className="mt-1 w-full rounded-lg border p-2"><option value="operator">Operador</option><option value="viewer">Somente leitura</option><option value="admin">Administrador da empresa</option></select></label><button className="rounded-lg bg-blue-700 px-4 py-2 font-semibold text-white"><KeyRound className="mr-1 inline h-4 w-4" /> Gerar convite (válido por 24 horas)</button></form>
       <form onSubmit={vincularExistente} className="mt-3 space-y-2 rounded-xl border border-slate-200 p-4"><h3 className="font-semibold">Dar acesso a uma conta existente</h3><p className="text-xs text-slate-600">A senha que o usuário já escolheu não muda nem é compartilhada.</p><input required value={loginExistente} onChange={(e) => setLoginExistente(e.target.value)} placeholder="Login cadastrado" className="w-full rounded-lg border p-2" /><div className="flex gap-2"><select value={perfilExistente} onChange={(e) => setPerfilExistente(e.target.value as Membership["role"])} className="flex-1 rounded-lg border p-2"><option value="operator">Operador</option><option value="viewer">Somente leitura</option><option value="admin">Administrador da empresa</option></select><button className="rounded-lg bg-slate-800 px-3 text-white">Vincular</button></div></form>
       {codigoConvite && <div className="mt-3 break-all rounded-lg border border-green-300 bg-green-50 p-3 text-sm"><strong>Link de convite (válido por 24 horas):</strong><p className="mt-1"><a className="font-semibold text-blue-800 underline" href={codigoConvite}>{codigoConvite}</a></p><button type="button" className="mt-2 rounded bg-green-800 px-3 py-1.5 font-semibold text-white" onClick={() => void navigator.clipboard.writeText(codigoConvite)}>Copiar link</button><a className="ml-2 mt-2 inline-block rounded bg-emerald-700 px-3 py-1.5 font-semibold text-white" href={`https://wa.me/?text=${encodeURIComponent(`Convite de acesso ao Murade Contábil (válido por 24 horas). Abra o link e crie sua senha: ${codigoConvite}`)}`} target="_blank" rel="noreferrer">Enviar pelo WhatsApp</a><p className="mt-1 text-xs">Envie o link em particular pelo WhatsApp. Ao abrir, a pessoa cria a própria senha.</p></div>}{erroConvite && <p role="alert" className="mt-3 text-sm text-red-700">{erroConvite}</p>}

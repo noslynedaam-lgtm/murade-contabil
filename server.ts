@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 import { timingSafeEqual } from "node:crypto";
 import { ErroValidacaoDocumentoFiscal, fiscalStoreConfigurado, gravarDocumentosFiscais, lerDocumentosFiscais, lerVersoesDocumentoFiscal, verificarEstadoStoreFiscal } from "./src/server/documentosFiscaisStore";
 import { dpStoreConfigurado, ErroConflitoResumoDP, ErroValidacaoResumoDP, gravarResumoDP, lerResumosDP, verificarEstadoStoreDP } from "./src/server/dadosDpStore";
-import { adicionarEmpresaAcessoContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, sessaoDaRequisicaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil } from "./src/server/authContabil";
+import { adicionarEmpresaAcessoContabil, adicionarEquipeContabil, bloquearEscritorioContabil, convidarEquipeContabil, convidarEscritorioContabil, listarEquipeContabil, listarEscritoriosContabil, removerEquipeContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, sessaoDaRequisicaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil } from "./src/server/authContabil";
 import { gerarCandidatosRascunhosAutomaticos, mesclarRascunhosNoWorkspace, prepararRascunhosContabeisAutomaticos } from "./src/server/prepararRascunhosContabeis";
 import { omitirXmlOriginal, resumirCoberturaXmlFiscal } from "./src/server/coberturaXmlFiscal";
 
@@ -147,6 +147,13 @@ async function startServer() {
   app.post("/api/auth/access", exigirOrigemNavegador, exigirSessaoContabil, vincularUsuarioExistenteContabil);
   app.get("/api/auth/users", exigirSessaoContabil, listarUsuariosEmpresaContabil);
   app.delete("/api/auth/users/:login", exigirOrigemNavegador, exigirSessaoContabil, revogarUsuarioEmpresaContabil);
+  app.get("/api/auth/team", exigirSessaoContabil, listarEquipeContabil);
+  app.post("/api/auth/team/invite", exigirOrigemNavegador, exigirSessaoContabil, convidarEquipeContabil);
+  app.post("/api/auth/team", exigirOrigemNavegador, exigirSessaoContabil, adicionarEquipeContabil);
+  app.delete("/api/auth/team/:login", exigirOrigemNavegador, exigirSessaoContabil, removerEquipeContabil);
+  app.get("/api/auth/tenants", exigirSessaoContabil, listarEscritoriosContabil);
+  app.post("/api/auth/tenants/invite", exigirOrigemNavegador, exigirSessaoContabil, convidarEscritorioContabil);
+  app.post("/api/auth/tenants/:login/bloqueio", exigirOrigemNavegador, exigirSessaoContabil, bloquearEscritorioContabil);
   app.get("/api/workspaces", exigirSessaoContabil, listarWorkspacesContabil);
   app.get("/api/workspaces/:cnpj", exigirSessaoContabil, lerWorkspaceContabil);
   app.get("/api/workspaces/:cnpj/historico-aprovacoes", exigirSessaoContabil, listarHistoricoAprovacoesContabil);

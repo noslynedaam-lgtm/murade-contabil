@@ -9,7 +9,7 @@ let pool: Pool | null = null;
 let schemaPromise: Promise<void> | null = null;
 let ultimaLimpezaSessao = 0;
 
-export type SessaoContabil = { userId: string; login: string; cnpjs: string[]; memberships: Array<{ cnpj: string; role: 'admin' | 'operator' | 'viewer' }>; administrador: boolean };
+export type SessaoContabil = { userId: string; login: string; cnpjs: string[]; memberships: Array<{ cnpj: string; role: 'admin' | 'operator' | 'viewer' }>; administrador: boolean; escritorioDe?: string; tenantId?: string; donoSistema?: boolean };
 
 function obterBanco(): Pool {
   const url = process.env.DATABASE_URL?.trim();
@@ -131,6 +131,14 @@ export async function prepararAuthContabil(): Promise<void> {
     );
   `).then(async () => {
     await obterBanco().query("ALTER TABLE contabil_auth_users ADD COLUMN IF NOT EXISTS global_admin boolean NOT NULL DEFAULT false");
+    await obterBanco().query(`
+      ALTER TABLE contabil_auth_users ADD COLUMN IF NOT EXISTS office_owner uuid REFERENCES contabil_auth_users(id) ON DELETE SET NULL;
+      ALTER TABLE contabil_auth_invites ADD COLUMN IF NOT EXISTS office_owner uuid;
+      ALTER TABLE contabil_auth_users ADD COLUMN IF NOT EXISTS tenant_id uuid;
+      ALTER TABLE contabil_auth_invites ADD COLUMN IF NOT EXISTS novo_escritorio boolean NOT NULL DEFAULT false;
+      UPDATE contabil_auth_users SET tenant_id=id WHERE tenant_id IS NULL AND global_admin=true;
+      UPDATE contabil_auth_users SET tenant_id=office_owner WHERE tenant_id IS NULL AND office_owner IS NOT NULL;
+    `);
     await obterBanco().query("ALTER TABLE contabil_company_workspaces ADD COLUMN IF NOT EXISTS version bigint NOT NULL DEFAULT 1");
     await obterBanco().query("ALTER TABLE contabil_opening_balance_audit ADD COLUMN IF NOT EXISTS competencia text");
     await obterBanco().query(`
@@ -205,19 +213,45 @@ export async function obterSessaoContabil(req: Request): Promise<SessaoContabil 
   }
   const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
   const user = await obterBanco().query(`
-    SELECT u.id, u.login, u.global_admin FROM contabil_auth_sessions s
+    SELECT u.id, u.login, u.global_admin, u.office_owner, u.tenant_id FROM contabil_auth_sessions s
     JOIN contabil_auth_users u ON u.id = s.user_id
     WHERE s.token_hash = $1 AND s.expires_at > now() AND u.disabled = false
   `, [tokenHash]);
   if (!user.rowCount) return null;
-  const memberships = await obterBanco().query("SELECT cnpj,role FROM contabil_auth_company_access WHERE user_id = $1 ORDER BY cnpj", [user.rows[0].id]);
-  const acessos = memberships.rows.map((row) => ({ cnpj: row.cnpj, role: row.role as 'admin' | 'operator' | 'viewer' }));
+  return montarSessaoContabil(user.rows[0]);
+}
+
+async function ehDonoDoSistemaContabil(userId: string, login: string): Promise<boolean> {
+  const lista = (process.env.MURADE_DONO_SISTEMA || "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
+  if (lista.length) return lista.includes(login);
+  const primeiro = await obterBanco().query("SELECT id FROM contabil_auth_users WHERE global_admin=true ORDER BY created_at, id LIMIT 1");
+  return String(primeiro.rows[0]?.id) === String(userId);
+}
+
+/** Acesso efetivo: empresas próprias + (se for equipe do escritório) todas as empresas do dono do escritório. */
+async function montarSessaoContabil(user: { id: string; login: string; global_admin: boolean; office_owner?: string | null; tenant_id?: string | null }): Promise<SessaoContabil> {
+  const access = await obterBanco().query("SELECT cnpj,role FROM contabil_auth_company_access WHERE user_id = $1 ORDER BY cnpj", [user.id]);
+  const porCnpj = new Map<string, 'admin' | 'operator' | 'viewer'>();
+  let escritorioDe: string | undefined;
+  if (user.office_owner && user.global_admin !== true) {
+    const dono = await obterBanco().query("SELECT 1 FROM contabil_auth_users WHERE id=$1 AND disabled=false AND global_admin=true", [user.office_owner]);
+    if (dono.rowCount) {
+      escritorioDe = String(user.office_owner);
+      const empresas = await obterBanco().query("SELECT cnpj FROM contabil_auth_company_access WHERE user_id=$1", [user.office_owner]);
+      for (const row of empresas.rows) porCnpj.set(String(row.cnpj).trim(), "operator");
+    }
+  }
+  for (const row of access.rows) porCnpj.set(String(row.cnpj).trim(), row.role as 'admin' | 'operator' | 'viewer');
+  const memberships = [...porCnpj.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([cnpj, role]) => ({ cnpj, role }));
   return {
-    userId: user.rows[0].id,
-    login: user.rows[0].login,
-    cnpjs: acessos.map((row) => row.cnpj),
-    memberships: acessos,
-    administrador: user.rows[0].global_admin === true,
+    userId: user.id,
+    login: user.login,
+    cnpjs: memberships.map((item) => item.cnpj),
+    memberships,
+    administrador: user.global_admin === true,
+    escritorioDe,
+    tenantId: String(user.tenant_id || escritorioDe || user.id),
+    donoSistema: user.global_admin === true && await ehDonoDoSistemaContabil(user.id, user.login),
   };
 }
 
@@ -293,7 +327,7 @@ export async function loginAuthContabil(req: Request, res: Response): Promise<vo
   const senha = String(req.body?.senha || "");
   try {
     await prepararAuthContabil();
-    const result = await obterBanco().query("SELECT id,login,password_salt,password_hash,global_admin FROM contabil_auth_users WHERE login=$1 AND disabled=false", [login]);
+    const result = await obterBanco().query("SELECT id,login,password_salt,password_hash,global_admin,office_owner,tenant_id FROM contabil_auth_users WHERE login=$1 AND disabled=false", [login]);
     const row = result.rows[0];
     const salt = row?.password_salt || "murade-contabil-dummy-salt";
     const calculated = await senhaHash(senha.slice(0, 256), salt);
@@ -311,8 +345,8 @@ export async function loginAuthContabil(req: Request, res: Response): Promise<vo
     await obterBanco().query("INSERT INTO contabil_auth_sessions(token_hash,user_id,expires_at) VALUES($1,$2,now() + ($3 * interval '1 second'))", [hash, row.id, SESSION_SECONDS]);
     gravarCookie(res, token);
     res.setHeader("Cache-Control", "no-store");
-    const access = await obterBanco().query("SELECT cnpj,role FROM contabil_auth_company_access WHERE user_id=$1 ORDER BY cnpj", [row.id]);
-    res.json({ sucesso: true, usuario: row.login, cnpjs: access.rows.map((item) => item.cnpj), memberships: access.rows, administrador: row.global_admin === true });
+    const completa = await montarSessaoContabil(row);
+    res.json({ sucesso: true, usuario: row.login, cnpjs: completa.cnpjs, memberships: completa.memberships, administrador: row.global_admin === true, escritorio: Boolean(completa.escritorioDe), donoSistema: completa.donoSistema === true });
   } catch (error) {
     console.error("Falha no login do Contábil:", error);
     res.status(503).json({ sucesso: false, motivo: "Autenticação indisponível: confira o PostgreSQL do Contábil." });
@@ -324,7 +358,7 @@ export async function sessaoAtualContabil(req: Request, res: Response): Promise<
     const sessao = await obterSessaoContabil(req);
     res.setHeader("Cache-Control", "no-store");
     if (!sessao) { res.json({ autenticado: false }); return; }
-    res.json({ autenticado: true, usuario: sessao.login, cnpjs: sessao.cnpjs, memberships: sessao.memberships, administrador: sessao.administrador });
+    res.json({ autenticado: true, usuario: sessao.login, cnpjs: sessao.cnpjs, memberships: sessao.memberships, administrador: sessao.administrador, escritorio: Boolean(sessao.escritorioDe), donoSistema: sessao.donoSistema === true });
   } catch (error) {
     console.error("Falha ao consultar sessão do Contábil:", error);
     res.status(503).json({ autenticado: false, motivo: "Autenticação indisponível." });
@@ -334,12 +368,14 @@ export async function sessaoAtualContabil(req: Request, res: Response): Promise<
 export async function adicionarEmpresaAcessoContabil(req: Request, res: Response): Promise<void> {
   const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
   const cnpj = normalizarCnpjAcesso(req.body?.cnpj);
-  if (!sessao?.administrador) { res.status(403).json({ sucesso: false, motivo: "Somente o administrador geral pode liberar outro CNPJ." }); return; }
+  if (!sessao || (!sessao.administrador && !sessao.escritorioDe)) { res.status(403).json({ sucesso: false, motivo: "Somente o administrador ou a equipe do escritório pode cadastrar uma nova empresa." }); return; }
   if (!cnpjContabilValido(cnpj)) { res.status(400).json({ sucesso: false, motivo: "Informe um CNPJ com formato e dígitos verificadores válidos." }); return; }
   try {
-    await obterBanco().query("INSERT INTO contabil_auth_company_access(user_id,cnpj,role) VALUES($1,$2,'admin') ON CONFLICT(user_id,cnpj) DO NOTHING", [sessao.userId, cnpj]);
+    const outro = await obterBanco().query("SELECT 1 FROM contabil_auth_company_access a JOIN contabil_auth_users u ON u.id=a.user_id WHERE a.cnpj=$1 AND u.tenant_id IS NOT NULL AND u.tenant_id<>$2 LIMIT 1", [cnpj, sessao.tenantId]);
+    if (outro.rowCount) { res.status(409).json({ sucesso: false, motivo: "Este CNPJ já está cadastrado em outro escritório. Cada empresa pertence a um único escritório." }); return; }
+    await obterBanco().query("INSERT INTO contabil_auth_company_access(user_id,cnpj,role) VALUES($1,$2,'admin') ON CONFLICT(user_id,cnpj) DO UPDATE SET role='admin'", [sessao.escritorioDe || sessao.userId, cnpj]);
     res.setHeader("Cache-Control", "no-store");
-    res.status(201).json({ sucesso: true, cnpj, mensagem: "CNPJ autorizado para este usuário. Cadastre ou selecione a empresa para continuar." });
+    res.status(201).json({ sucesso: true, cnpj, mensagem: "Empresa cadastrada no escritório. Toda a equipe passa a enxergá-la." });
   } catch (error) {
     console.error("Falha ao autorizar CNPJ no Contábil:", error);
     res.status(503).json({ sucesso: false, motivo: "Não foi possível atualizar o acesso à empresa." });
@@ -347,7 +383,7 @@ export async function adicionarEmpresaAcessoContabil(req: Request, res: Response
 }
 
 function usuarioPodeAdministrarCnpj(sessao: SessaoContabil, cnpj: string): boolean {
-  return sessao.administrador || sessao.memberships.some((item) => item.cnpj === cnpj && item.role === 'admin');
+  return sessao.memberships.some((item) => item.cnpj === cnpj && item.role === 'admin');
 }
 
 export async function criarConviteUsuarioContabil(req: Request, res: Response): Promise<void> {
@@ -395,12 +431,17 @@ export async function resgatarConviteUsuarioContabil(req: Request, res: Response
   try {
     await prepararAuthContabil(); client = await obterBanco().connect(); await client.query('BEGIN');
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-    const convite = await client.query('SELECT login,cnpjs,role FROM contabil_auth_invites WHERE token_hash=$1 AND expires_at>now() FOR UPDATE', [tokenHash]);
+    const convite = await client.query('SELECT login,cnpjs,role,office_owner,novo_escritorio,created_by FROM contabil_auth_invites WHERE token_hash=$1 AND expires_at>now() FOR UPDATE', [tokenHash]);
     if (!convite.rowCount || convite.rows[0].login !== login) { await client.query('ROLLBACK'); res.status(400).json({ sucesso: false, motivo: 'Convite inválido, expirado ou destinado a outro usuário.' }); return; }
     const existente = await client.query('SELECT 1 FROM contabil_auth_users WHERE login=$1', [login]);
     if (existente.rowCount) { await client.query('ROLLBACK'); res.status(409).json({ sucesso: false, motivo: 'Este usuário já está cadastrado.' }); return; }
     const id = crypto.randomUUID(); const salt = crypto.randomBytes(16).toString('hex'); const hash = (await senhaHash(senha, salt)).toString('hex');
-    await client.query('INSERT INTO contabil_auth_users(id,login,password_salt,password_hash) VALUES($1,$2,$3,$4)', [id, login, salt, hash]);
+    const cv = convite.rows[0]; let tenantId: string = id; const donoDoEscritorio = cv.novo_escritorio === true;
+    if (!donoDoEscritorio) {
+      if (cv.office_owner) tenantId = String(cv.office_owner);
+      else { const criador = await client.query('SELECT tenant_id FROM contabil_auth_users WHERE id=$1', [cv.created_by]); tenantId = String(criador.rows[0]?.tenant_id || cv.created_by); }
+    }
+    await client.query('INSERT INTO contabil_auth_users(id,login,password_salt,password_hash,office_owner,global_admin,tenant_id) VALUES($1,$2,$3,$4,$5,$6,$7)', [id, login, salt, hash, cv.office_owner || null, donoDoEscritorio, tenantId]);
     for (const cnpj of convite.rows[0].cnpjs as string[]) await client.query('INSERT INTO contabil_auth_company_access(user_id,cnpj,role) VALUES($1,$2,$3)', [id, cnpj, convite.rows[0].role]);
     await client.query('DELETE FROM contabil_auth_invites WHERE token_hash=$1', [tokenHash]); await client.query('COMMIT');
     res.status(201).json({ sucesso: true, usuario: login, cnpjs: convite.rows[0].cnpjs });
@@ -444,6 +485,97 @@ export async function removerEmpresaAcessoContabil(req: Request, res: Response):
     console.error("Falha ao revogar acesso da empresa no Contábil:", error);
     res.status(503).json({ sucesso: false, motivo: "Não foi possível remover o acesso da empresa." });
   } finally { client?.release(); }
+}
+
+function loginValidoContabil(login: string): boolean { return login.length >= 3 && login.length <= 80 && /^[a-z0-9._@+-]+$/.test(login); }
+function hashTokenContabil(token: string): string { return crypto.createHash('sha256').update(token).digest('hex'); }
+
+// ---- Equipe do escritório: vê todas as empresas do escritório (inclusive as futuras) ----
+export async function listarEquipeContabil(req: Request, res: Response): Promise<void> {
+  const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
+  if (!sessao?.administrador) { res.status(403).json({ sucesso: false, motivo: 'Somente o administrador do escritório consulta a equipe.' }); return; }
+  try {
+    const r = await obterBanco().query('SELECT login FROM contabil_auth_users WHERE office_owner=$1 AND disabled=false ORDER BY login', [sessao.userId]);
+    res.setHeader('Cache-Control', 'no-store'); res.json({ sucesso: true, equipe: r.rows.map((row) => row.login) });
+  } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível listar a equipe.' }); }
+}
+
+export async function convidarEquipeContabil(req: Request, res: Response): Promise<void> {
+  const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil; const login = String(req.body?.login || '').trim().toLowerCase();
+  if (!sessao?.administrador) { res.status(403).json({ sucesso: false, motivo: 'Somente o administrador do escritório convida a equipe.' }); return; }
+  if (!loginValidoContabil(login)) { res.status(400).json({ sucesso: false, motivo: 'Informe um nome de usuário válido.' }); return; }
+  try {
+    const exists = await obterBanco().query('SELECT 1 FROM contabil_auth_users WHERE login=$1', [login]);
+    if (exists.rowCount) { res.status(409).json({ sucesso: false, motivo: 'Este usuário já existe. Use "Adicionar conta existente à equipe".' }); return; }
+    const token = crypto.randomBytes(32).toString('base64url');
+    await obterBanco().query("INSERT INTO contabil_auth_invites(token_hash,login,cnpjs,role,created_by,expires_at,office_owner) VALUES($1,$2,'{}','operator',$3,now()+interval '24 hours',$3)", [hashTokenContabil(token), login, sessao.userId]);
+    const base = process.env.PUBLIC_APP_URL?.trim() || process.env.RENDER_EXTERNAL_URL?.trim() || `${req.protocol}://${req.get('host')}`;
+    const conviteUrl = new URL('/', base); conviteUrl.hash = new URLSearchParams({ convite: token, login }).toString();
+    res.setHeader('Cache-Control', 'no-store'); res.status(201).json({ sucesso: true, conviteUrl: conviteUrl.toString(), login, expiraEmHoras: 24 });
+  } catch (error) { console.error('Falha ao convidar equipe Contábil:', error); res.status(503).json({ sucesso: false, motivo: 'Não foi possível criar o convite da equipe.' }); }
+}
+
+export async function adicionarEquipeContabil(req: Request, res: Response): Promise<void> {
+  const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil; const login = String(req.body?.login || '').trim().toLowerCase();
+  if (!sessao?.administrador) { res.status(403).json({ sucesso: false, motivo: 'Somente o administrador do escritório altera a equipe.' }); return; }
+  try {
+    const r = await obterBanco().query('UPDATE contabil_auth_users SET office_owner=$1, tenant_id=$1 WHERE login=$2 AND disabled=false AND global_admin=false AND office_owner IS NULL AND (tenant_id IS NULL OR tenant_id=$1) RETURNING login', [sessao.userId, login]);
+    if (!r.rowCount) { res.status(404).json({ sucesso: false, motivo: 'Usuário não encontrado, já pertence a outro escritório ou é administrador. Gere um convite para ele criar a conta.' }); return; }
+    res.setHeader('Cache-Control', 'no-store'); res.json({ sucesso: true, login });
+  } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível adicionar à equipe.' }); }
+}
+
+export async function removerEquipeContabil(req: Request, res: Response): Promise<void> {
+  const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil; const login = String(req.params.login || '').trim().toLowerCase();
+  if (!sessao?.administrador) { res.status(403).json({ sucesso: false, motivo: 'Somente o administrador do escritório altera a equipe.' }); return; }
+  try {
+    const r = await obterBanco().query('UPDATE contabil_auth_users SET office_owner=NULL WHERE login=$1 AND office_owner=$2 RETURNING login', [login, sessao.userId]);
+    if (!r.rowCount) { res.status(404).json({ sucesso: false, motivo: 'Esse usuário não é da sua equipe.' }); return; }
+    res.setHeader('Cache-Control', 'no-store'); res.json({ sucesso: true, login, dadosPreservados: true });
+  } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível remover da equipe.' }); }
+}
+
+
+// ---- Dono do sistema: contrata/bloqueia escritórios, sem acesso às empresas deles ----
+export async function convidarEscritorioContabil(req: Request, res: Response): Promise<void> {
+  const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil; const login = String(req.body?.login || '').trim().toLowerCase();
+  if (!sessao?.donoSistema) { res.status(403).json({ sucesso: false, motivo: 'Somente o dono do sistema convida novos escritórios.' }); return; }
+  if (!loginValidoContabil(login)) { res.status(400).json({ sucesso: false, motivo: 'Informe um nome de usuário válido.' }); return; }
+  try {
+    const exists = await obterBanco().query('SELECT 1 FROM contabil_auth_users WHERE login=$1', [login]);
+    if (exists.rowCount) { res.status(409).json({ sucesso: false, motivo: 'Este usuário já existe.' }); return; }
+    const token = crypto.randomBytes(32).toString('base64url');
+    await obterBanco().query("INSERT INTO contabil_auth_invites(token_hash,login,cnpjs,role,created_by,expires_at,novo_escritorio) VALUES($1,$2,'{}','admin',$3,now()+interval '24 hours',true)", [hashTokenContabil(token), login, sessao.userId]);
+    const base = process.env.PUBLIC_APP_URL?.trim() || process.env.RENDER_EXTERNAL_URL?.trim() || `${req.protocol}://${req.get('host')}`;
+    const conviteUrl = new URL('/', base); conviteUrl.hash = new URLSearchParams({ convite: token, login }).toString();
+    res.setHeader('Cache-Control', 'no-store'); res.status(201).json({ sucesso: true, conviteUrl: conviteUrl.toString(), login, expiraEmHoras: 24 });
+  } catch (error) { console.error('Falha ao convidar escritório Contábil:', error); res.status(503).json({ sucesso: false, motivo: 'Não foi possível criar o convite do escritório.' }); }
+}
+
+export async function listarEscritoriosContabil(req: Request, res: Response): Promise<void> {
+  const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
+  if (!sessao?.donoSistema) { res.status(403).json({ sucesso: false, motivo: 'Somente o dono do sistema consulta os escritórios.' }); return; }
+  try {
+    // Só dados de contratação: usuário, situação e quantidades. Nunca nomes de empresas nem documentos.
+    const r = await obterBanco().query(`SELECT u.login, u.disabled, u.created_at,
+      (SELECT count(*)::int FROM contabil_auth_company_access a WHERE a.user_id=u.id) AS empresas,
+      (SELECT count(*)::int FROM contabil_auth_users t WHERE t.tenant_id=u.id AND t.id<>u.id) AS usuarios
+      FROM contabil_auth_users u WHERE u.global_admin=true AND u.tenant_id=u.id AND u.id<>$1 ORDER BY u.created_at`, [sessao.userId]);
+    res.setHeader('Cache-Control', 'no-store'); res.json({ sucesso: true, escritorios: r.rows });
+  } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível listar os escritórios.' }); }
+}
+
+export async function bloquearEscritorioContabil(req: Request, res: Response): Promise<void> {
+  const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil; const login = String(req.params.login || '').trim().toLowerCase(); const bloquear = req.body?.bloqueado === true;
+  if (!sessao?.donoSistema) { res.status(403).json({ sucesso: false, motivo: 'Somente o dono do sistema bloqueia escritórios.' }); return; }
+  try {
+    const alvo = await obterBanco().query('SELECT id FROM contabil_auth_users WHERE login=$1 AND global_admin=true AND tenant_id=id AND id<>$2', [login, sessao.userId]);
+    if (!alvo.rowCount) { res.status(404).json({ sucesso: false, motivo: 'Escritório não encontrado.' }); return; }
+    const tenant = alvo.rows[0].id;
+    await obterBanco().query('UPDATE contabil_auth_users SET disabled=$1 WHERE tenant_id=$2', [bloquear, tenant]);
+    if (bloquear) await obterBanco().query('DELETE FROM contabil_auth_sessions WHERE user_id IN (SELECT id FROM contabil_auth_users WHERE tenant_id=$1)', [tenant]);
+    res.setHeader('Cache-Control', 'no-store'); res.json({ sucesso: true, login, bloqueado: bloquear, dadosPreservados: true });
+  } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível alterar o bloqueio.' }); }
 }
 
 const CAMPOS_WORKSPACE = new Set(["empresa", "contas", "centrosCusto", "mapeamentosOrigem", "preLancamentos", "lancamentos", "livros", "lembretes"]);
