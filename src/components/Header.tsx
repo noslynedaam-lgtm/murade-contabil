@@ -34,6 +34,7 @@ const navBotoes: Array<{ id: TabId; label: string; icon: React.FC<{ className?: 
   { id: "agenda", label: "Agenda", icon: Calendar },
   { id: "fluxo-previtico", label: "Fluxo", icon: Zap, badge: "90D", corBadge: "bg-emerald-400 text-slate-950" },
   { id: "modulos-finais", label: "Obrigação & Gestão", icon: FileText, badge: "2026", corBadge: "bg-emerald-300 text-slate-950" },
+  { id: "gestao-contabil", label: "Gestão contábil", icon: FileSpreadsheet },
   { id: "conexoes", label: "Operação (Órgãos)", icon: Globe },
   { id: "revisao-origens", label: "Revisão Fiscal + DP", icon: ClipboardCheck },
   { id: "lancamentos", label: "Lançamento", icon: FileSpreadsheet },

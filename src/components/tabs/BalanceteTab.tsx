@@ -12,6 +12,8 @@ interface BalanceteTabProps {
   workspacePersistido: boolean;
   competenciasFechadas: string[];
   onFecharMes: (competencia: string) => Promise<boolean>;
+  /** Itens do fechamento guiado ainda não atendidos para a competência (vazio = liberado). */
+  pendenciasFechamento?: (competencia: string) => string[];
 }
 
 interface LinhaBalancete {
@@ -33,7 +35,7 @@ function escaparCsv(valor: string): string {
   return `"${String(valor).replace(/"/g, '""')}"`;
 }
 
-export const BalanceteTab: React.FC<BalanceteTabProps> = ({ cnpj, competencia, lancamentos, contas, workspaceCarregado, workspacePersistido, competenciasFechadas, onFecharMes }) => {
+export const BalanceteTab: React.FC<BalanceteTabProps> = ({ cnpj, competencia, lancamentos, contas, workspaceCarregado, workspacePersistido, competenciasFechadas, onFecharMes, pendenciasFechamento }) => {
   const [competenciaSelecionada, setCompetenciaSelecionada] = useState(competencia || "");
   const [modoVisualizacao, setModoVisualizacao] = useState<"resumido" | "analitico">("analitico");
   const [geradoEm, setGeradoEm] = useState<string | null>(null);
@@ -75,6 +77,7 @@ export const BalanceteTab: React.FC<BalanceteTabProps> = ({ cnpj, competencia, l
   const linhasVisiveis = resumo.linhas.filter((linha) => modoVisualizacao === "analitico" || linha.tipo === "sintetica");
   const equilibrado = resumo.temDados && resumo.lancamentosInvalidos === 0 && resumo.diferencaSaldos === 0 && resumo.saldosIniciaisPendentes.length === 0;
   const competenciaFechada = competenciasFechadas.includes(competenciaSelecionada);
+  const pendenciasGuiadas = /^\d{4}-(0[1-9]|1[0-2])$/.test(competenciaSelecionada) && !competenciaFechada ? (pendenciasFechamento?.(competenciaSelecionada) ?? []) : [];
   const fecharMes = async () => {
     if (!competenciaSelecionada || competenciaFechada) return;
     const confirmado = window.confirm(`Fechar a competência ${competenciaSelecionada} da empresa ${cnpj}? O servidor vai validar o PostgreSQL, bloquear alterações nos lançamentos e rascunhos desse mês e registrar quem confirmou. Essa ação não envia nada a órgãos oficiais.`);
@@ -127,7 +130,7 @@ export const BalanceteTab: React.FC<BalanceteTabProps> = ({ cnpj, competencia, l
           <button type="button" onClick={() => setGeradoEm(new Date().toISOString())} className="flex items-center gap-1.5 rounded-md bg-blue-700 px-3 py-2 text-xs font-bold text-white">
             <RefreshCw className="h-3.5 w-3.5" /> Atualizar balancete
           </button>
-          <button type="button" onClick={() => void fecharMes()} disabled={!workspaceCarregado || !workspacePersistido || !/^\d{4}-(0[1-9]|1[0-2])$/.test(competenciaSelecionada) || competenciaFechada || !resumo.temDados || resumo.saldosIniciaisPendentes.length > 0 || resumo.diferencaSaldos !== 0} className="flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 disabled:cursor-not-allowed disabled:opacity-50" title={resumo.saldosIniciaisPendentes.length ? "Informe a competência-base de cada saldo inicial pendente" : !resumo.temDados ? "Informe movimentos ou saldos iniciais antes de fechar" : !workspacePersistido ? "Aguarde a confirmação do PostgreSQL" : competenciaFechada ? "Competência já fechada" : ""}>
+          <button type="button" onClick={() => void fecharMes()} disabled={!workspaceCarregado || !workspacePersistido || !/^\d{4}-(0[1-9]|1[0-2])$/.test(competenciaSelecionada) || competenciaFechada || !resumo.temDados || resumo.saldosIniciaisPendentes.length > 0 || resumo.diferencaSaldos !== 0 || pendenciasGuiadas.length > 0} className="flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 disabled:cursor-not-allowed disabled:opacity-50" title={pendenciasGuiadas.length ? `Fechamento guiado pendente: ${pendenciasGuiadas.join("; ")}` : resumo.saldosIniciaisPendentes.length ? "Informe a competência-base de cada saldo inicial pendente" : !resumo.temDados ? "Informe movimentos ou saldos iniciais antes de fechar" : !workspacePersistido ? "Aguarde a confirmação do PostgreSQL" : competenciaFechada ? "Competência já fechada" : ""}>
             <Lock className="h-3.5 w-3.5" /> {competenciaFechada ? "Mês fechado" : "Fechar mês"}
           </button>
         </div>

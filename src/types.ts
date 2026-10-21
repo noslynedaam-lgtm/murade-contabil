@@ -11,6 +11,7 @@ export type TabId =
   | "calculadora"
   | "fluxo-previtico"
   | "modulos-finais"
+  | "gestao-contabil"
   | "integracao"
   | "revisao-origens"
   | "agente"

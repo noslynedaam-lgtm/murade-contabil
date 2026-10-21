@@ -604,7 +604,7 @@ export async function bloquearEscritorioContabil(req: Request, res: Response): P
   } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível alterar o bloqueio.' }); }
 }
 
-const CAMPOS_WORKSPACE = new Set(["empresa", "contas", "centrosCusto", "mapeamentosOrigem", "preLancamentos", "lancamentos", "livros", "lembretes"]);
+const CAMPOS_WORKSPACE = new Set(["empresa", "contas", "centrosCusto", "mapeamentosOrigem", "preLancamentos", "lancamentos", "livros", "lembretes", "bensImobilizado"]);
 const ORIGENS_MAPEAVEIS = new Set(["fiscal_entrada", "fiscal_saida", "dp_folha_bruta", "dp_descontos_inss", "dp_inss_patronal", "dp_descontos_irrf", "dp_fgts"]);
 const ORIGENS_PRELANCAMENTO = new Set(["DP — Folha", "DP — INSS", "DP — INSS patronal", "DP — IRRF", "DP — FGTS", "Fiscal — Entrada", "Fiscal — Saída"]);
 const CHAVES_CERTIFICADO_INFORMATIVAS = new Set([
@@ -624,6 +624,28 @@ function workspaceValido(value: unknown): value is Record<string, unknown> {
   if (Object.keys(payload).some((key) => !CAMPOS_WORKSPACE.has(key))) return false;
   const arrays = ["contas", "centrosCusto", "lancamentos", "livros", "lembretes"];
   if (arrays.some((key) => !Array.isArray(payload[key]) || (payload[key] as unknown[]).length > 20000)) return false;
+  if (payload.bensImobilizado !== undefined) {
+    if (!Array.isArray(payload.bensImobilizado) || payload.bensImobilizado.length > 5000) return false;
+    const camposBem = ["id", "descricao", "filial", "custoCentavos", "residualCentavos", "vidaUtilMeses", "inicioDepreciacao", "depreciavel", "baixa", "transferencias"];
+    const idsBens = new Set<string>();
+    for (const item of payload.bensImobilizado) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+      const bem = item as Record<string, unknown>;
+      if (Object.keys(bem).some((key) => !camposBem.includes(key))) return false;
+      if (typeof bem.id !== "string" || !bem.id || bem.id.length > 64 || idsBens.has(bem.id)) return false;
+      if (typeof bem.descricao !== "string" || bem.descricao.length > 240) return false;
+      if (bem.filial !== undefined && (typeof bem.filial !== "string" || bem.filial.length > 120)) return false;
+      if (!Number.isSafeInteger(bem.custoCentavos) || (bem.custoCentavos as number) <= 0 || !Number.isSafeInteger(bem.residualCentavos) || (bem.residualCentavos as number) < 0) return false;
+      if (!Number.isInteger(bem.vidaUtilMeses) || (bem.vidaUtilMeses as number) < 0 || (bem.vidaUtilMeses as number) > 1200) return false;
+      if (typeof bem.inicioDepreciacao !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(bem.inicioDepreciacao) || typeof bem.depreciavel !== "boolean") return false;
+      if (bem.baixa !== undefined) {
+        const b = bem.baixa as Record<string, unknown>;
+        if (!b || typeof b !== "object" || typeof b.competencia !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(b.competencia) || !Number.isSafeInteger(b.valorVendaCentavos) || (b.valorVendaCentavos as number) < 0 || !["venda", "baixa"].includes(String(b.motivo))) return false;
+      }
+      if (bem.transferencias !== undefined && (!Array.isArray(bem.transferencias) || bem.transferencias.length > 200 || bem.transferencias.some((t) => !t || typeof t !== "object" || typeof (t as any).competencia !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test((t as any).competencia) || typeof (t as any).para !== "string" || (t as any).para.length > 120))) return false;
+      idsBens.add(bem.id);
+    }
+  }
   if (payload.mapeamentosOrigem !== undefined) {
     if (!Array.isArray(payload.mapeamentosOrigem) || payload.mapeamentosOrigem.length > ORIGENS_MAPEAVEIS.size) return false;
     const contasAnaliticas = new Set((payload.contas as Array<Record<string, unknown>>).filter((conta) => conta && conta.tipo === "analitica" && typeof conta.codigo === "string").map((conta) => conta.codigo as string));

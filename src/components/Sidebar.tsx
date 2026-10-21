@@ -61,6 +61,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab }) => {
       badgeColor: "bg-amber-300 text-slate-950 font-bold",
     },
     {
+      id: "gestao-contabil" as TabId,
+      label: "Gestão contábil",
+      icon: Briefcase,
+    },
+    {
       id: "conexoes" as TabId,
       label: "Conexão Órgãos",
       icon: Plug,
