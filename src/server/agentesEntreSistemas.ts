@@ -92,7 +92,8 @@ export class ArmazemPedidosPg implements ArmazemPedidos {
 
 export function urlDoSistema(s: SistemaMurade, env: Record<string, string | undefined> = process.env): string {
   const chave = { dp: 'MURADE_DP_URL', fiscal: 'MURADE_FISCAL_URL', contabil: 'MURADE_CONTABIL_URL' }[s];
-  return (env[chave] || '').trim().replace(/\/$/, '');
+  const padrao = { dp: 'https://murade-dp.onrender.com', fiscal: 'https://murade-fiscal-1.onrender.com', contabil: 'https://murade-contabil.onrender.com' }[s];
+  return (env[chave] || padrao).trim().replace(/\/$/, '');
 }
 
 export function tokenValido(cabecalho: string | undefined, esperado = process.env.MURADE_INTEGRATION_TOKEN): boolean {
