@@ -3,7 +3,7 @@
 import { NOME_SISTEMA, SISTEMAS, type SistemaMurade } from './agentesEntreSistemas';
 import type { Ferramenta } from './agenteMotor';
 
-const SISTEMA_PROP = { type: 'STRING', description: 'Sistema de destino: dp (Departamento Pessoal), fiscal ou contabil.', enum: ['dp', 'fiscal', 'contabil'] };
+const SISTEMA_PROP = { type: 'STRING', description: 'Sistema de destino: dp (Departamento Pessoal), fiscal, contabil ou fiscoia (Fisco IA, conferência).', enum: ['dp', 'fiscal', 'contabil', 'fiscoia'] };
 const sistemaDe = (v: unknown): SistemaMurade | null => (SISTEMAS.includes(v as SistemaMurade) ? (v as SistemaMurade) : null);
 const cnpjOpc = (v: unknown) => { const d = String(v ?? '').replace(/\D/g, ''); return d.length === 14 ? d : null; };
 const SEM_CENTRAL = { erro: 'A comunicação entre sistemas não está disponível nesta sessão.' };
@@ -19,7 +19,7 @@ export const FERRAMENTAS_ENTRE_SISTEMAS: Ferramenta[] = [
     async executar(ctx, args) {
       if (!ctx.central) return SEM_CENTRAL;
       const s = sistemaDe(args.sistema);
-      if (!s) return { erro: 'Sistema inválido. Use dp, fiscal ou contabil.' };
+      if (!s) return { erro: 'Sistema inválido. Use dp, fiscal, contabil ou fiscoia.' };
       const r = await ctx.central.perguntar(s, String(args.consulta || '').slice(0, 40), cnpjOpc(args.cnpj));
       return r.ok ? { sistema: NOME_SISTEMA[s], dados: r.dados } : { erro: r.erro };
     },
@@ -34,7 +34,7 @@ export const FERRAMENTAS_ENTRE_SISTEMAS: Ferramenta[] = [
     async preparar(ctx, args) {
       if (!ctx.central) return SEM_CENTRAL;
       const s = sistemaDe(args.sistema); const texto = typeof args.texto === 'string' ? args.texto.trim() : '';
-      if (!s) return { erro: 'Sistema inválido. Use dp, fiscal ou contabil.' };
+      if (!s) return { erro: 'Sistema inválido. Use dp, fiscal, contabil ou fiscoia.' };
       if (texto.length < 5 || texto.length > 1000) return { erro: 'Descreva o pedido (entre 5 e 1000 caracteres).' };
       const cnpj = cnpjOpc(args.cnpj);
       return { cnpj: cnpj || '', params: { sistema: s, texto, cnpj }, titulo: `Enviar pedido ao ${NOME_SISTEMA[s]}`, descricao: [texto], aviso: 'O pedido só será atendido quando alguém do outro sistema aceitar. Você acompanha o andamento aqui.', resumo: `Pedido ao ${NOME_SISTEMA[s]}: ${texto.slice(0, 120)}` };

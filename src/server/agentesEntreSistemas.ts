@@ -9,9 +9,9 @@
 //    o destino ignora o mesmo idPedido repetido.
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 
-export type SistemaMurade = 'dp' | 'fiscal' | 'contabil';
-export const SISTEMAS: SistemaMurade[] = ['dp', 'fiscal', 'contabil'];
-export const NOME_SISTEMA: Record<SistemaMurade, string> = { dp: 'Departamento Pessoal', fiscal: 'Fiscal', contabil: 'Contábil' };
+export type SistemaMurade = 'dp' | 'fiscal' | 'contabil' | 'fiscoia';
+export const SISTEMAS: SistemaMurade[] = ['dp', 'fiscal', 'contabil', 'fiscoia'];
+export const NOME_SISTEMA: Record<SistemaMurade, string> = { dp: 'Departamento Pessoal', fiscal: 'Fiscal', contabil: 'Contábil', fiscoia: 'Fisco IA' };
 
 export type TipoMensagem = 'pergunta' | 'pedido';
 export type EstadoPedido = 'a_enviar' | 'enviado' | 'recebido' | 'aceito' | 'recusado' | 'concluido' | 'falhou';
@@ -91,8 +91,8 @@ export class ArmazemPedidosPg implements ArmazemPedidos {
 }
 
 export function urlDoSistema(s: SistemaMurade, env: Record<string, string | undefined> = process.env): string {
-  const chave = { dp: 'MURADE_DP_URL', fiscal: 'MURADE_FISCAL_URL', contabil: 'MURADE_CONTABIL_URL' }[s];
-  const padrao = { dp: 'https://murade-dp.onrender.com', fiscal: 'https://murade-fiscal-1.onrender.com', contabil: 'https://murade-contabil.onrender.com' }[s];
+  const chave = { dp: 'MURADE_DP_URL', fiscal: 'MURADE_FISCAL_URL', contabil: 'MURADE_CONTABIL_URL', fiscoia: 'MURADE_FISCOIA_URL' }[s];
+  const padrao = { dp: 'https://murade-dp.onrender.com', fiscal: 'https://murade-fiscal-1.onrender.com', contabil: 'https://murade-contabil.onrender.com', fiscoia: 'https://murade-fisco-ia.onrender.com' }[s];
   return (env[chave] || padrao).trim().replace(/\/$/, '');
 }
 
