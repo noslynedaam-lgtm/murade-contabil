@@ -19,6 +19,7 @@ import { normalizarDataContabil } from "../../utils/livrosContabeis";
 interface LancamentosTabProps {
   lancamentos: LancamentoContabil[];
   contas?: ContaPlano[];
+  centrosCusto?: Array<{ codigo: string; nome: string }>;
   onImportarFiscal: () => void;
   onImportarDP: () => void;
   onGerarTudo: () => void;
@@ -31,6 +32,7 @@ interface LancamentosTabProps {
 export const LancamentosTab: React.FC<LancamentosTabProps> = ({
   lancamentos,
   contas = [],
+  centrosCusto = [],
   onImportarFiscal,
   onImportarDP,
   onGerarTudo,
@@ -56,9 +58,10 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
   const [creditoNome, setCreditoNome] = useState("");
   const [valorLan, setValorLan] = useState("");
   const [histLan, setHistLan] = useState("");
+  const [centroLan, setCentroLan] = useState("");
   const [erroNovo, setErroNovo] = useState("");
   const limparRascunhoManual = () => {
-    setDataLan(""); setDebitoCod(""); setDebitoNome(""); setCreditoCod(""); setCreditoNome(""); setValorLan(""); setHistLan(""); setErroNovo("");
+    setDataLan(""); setDebitoCod(""); setDebitoNome(""); setCreditoCod(""); setCreditoNome(""); setValorLan(""); setHistLan(""); setCentroLan(""); setErroNovo("");
   };
 
   // Atualizar conta a débito a partir da seleção no plano de contas sequencial
@@ -111,6 +114,7 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
       origem: "Manual",
       documentoRef: `MAN-${crypto.randomUUID()}`,
       statusManual: "pendente_aprovacao",
+      ...(centroLan ? { centroCustoCodigo: centroLan, centroCustoNome: centrosCusto.find((c) => c.codigo === centroLan)?.nome } : {}),
     };
 
     onAdicionarLancamento(novo);
@@ -455,6 +459,16 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                   onChange={(e) => setHistLan(e.target.value)}
                 />
               </div>
+
+              {centrosCusto.length > 0 && (
+                <div>
+                  <label className="block text-slate-700 font-semibold mb-1">Centro de custo (opcional)</label>
+                  <select className="w-full border border-slate-300 rounded-lg p-2 text-xs" value={centroLan} onChange={(e) => setCentroLan(e.target.value)}>
+                    <option value="">Sem centro de custo</option>
+                    {centrosCusto.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} — {c.nome}</option>)}
+                  </select>
+                </div>
+              )}
 
               <div className="flex items-center justify-between pt-2 border-t border-slate-100">
                 <div className="text-[11px] text-slate-500 flex items-center gap-1">

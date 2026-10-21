@@ -834,6 +834,7 @@ function AppWorkspace() {
                 <LancamentosTab
                   lancamentos={lancamentos}
                   contas={contas}
+                  centrosCusto={centrosCusto}
                   onImportarFiscal={handleImportarFiscal}
                   onImportarDP={handleImportarDP}
                   onGerarTudo={handleGerarTudo}
