@@ -89,6 +89,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center gap-2 font-medium text-[11px]">
           {onLogout && (
             <CabecalhoPadrao
+          urlGerenciarLicenca="https://murade-dp.onrender.com"
               usuario={usuario || null}
               empresaNome={empresaNome || null}
               empresaCnpj={empresaCnpj || null}

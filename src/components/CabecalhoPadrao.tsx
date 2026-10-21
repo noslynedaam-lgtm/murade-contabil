@@ -14,6 +14,8 @@ interface Props {
   buscarLicenca: (cnpj: string) => Promise<LicencaEmpresa | null>;
   onSair: () => void;
   onClicarEmpresa?: () => void;
+  /** Fora do DP: abre o DP, onde a licença é cadastrada e gerenciada. */
+  urlGerenciarLicenca?: string;
   /** Só no DP: permite cadastrar/alterar a licença da empresa. */
   salvarLicenca?: (cnpj: string, dados: { plano: string; vencimento: string; ativa: boolean }) => Promise<string | null>;
 }
@@ -25,7 +27,7 @@ function formatarData(iso: string): string {
   return `${d}/${m}/${a}`;
 }
 
-export const CabecalhoPadrao: React.FC<Props> = ({ usuario, empresaNome, empresaCnpj, buscarLicenca, onSair, salvarLicenca, onClicarEmpresa }) => {
+export const CabecalhoPadrao: React.FC<Props> = ({ usuario, empresaNome, empresaCnpj, buscarLicenca, onSair, salvarLicenca, onClicarEmpresa, urlGerenciarLicenca }) => {
   const [licenca, setLicenca] = useState<LicencaEmpresa | null | undefined>(undefined);
   const [aberto, setAberto] = useState(false);
   const [plano, setPlano] = useState('P50');
@@ -58,6 +60,7 @@ export const CabecalhoPadrao: React.FC<Props> = ({ usuario, empresaNome, empresa
   }
 
   const abrir = () => {
+    if (!salvarLicenca && urlGerenciarLicenca) { window.open(urlGerenciarLicenca, '_blank', 'noopener,noreferrer'); return; }
     if (!salvarLicenca || !empresaCnpj) return;
     if (licenca && licenca.cadastrada) { setPlano(licenca.plano); setVencimento(licenca.vencimento); setAtiva(licenca.ativa); }
     setMsg('');
@@ -86,8 +89,8 @@ export const CabecalhoPadrao: React.FC<Props> = ({ usuario, empresaNome, empresa
         <button
           type="button"
           onClick={abrir}
-          className={`flex items-center gap-1 px-2 py-0.5 rounded border ${cor} ${salvarLicenca && empresaCnpj ? 'cursor-pointer' : 'cursor-default'}`}
-          title={salvarLicenca ? 'Licença da empresa (cadastrada e gerenciada pelo DP) — clique para editar' : 'Licença da empresa (gerenciada pelo Departamento Pessoal)'}
+          className={`flex items-center gap-1 px-2 py-0.5 rounded border ${cor} ${(salvarLicenca && empresaCnpj) || urlGerenciarLicenca ? 'cursor-pointer' : 'cursor-default'}`}
+          title={salvarLicenca ? 'Licença da empresa (cadastrada e gerenciada pelo DP) — clique para editar' : urlGerenciarLicenca ? 'Licença da empresa — clique para abrir o Murade DP, onde ela é cadastrada' : 'Licença da empresa (gerenciada pelo Departamento Pessoal)'}
         >
           <KeyRound size={13} className="shrink-0" />
           <span className="truncate max-w-[210px]">{texto}</span>
