@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { PainelAtividade } from './PainelAtividade';
 
 // Equipe do escritório: quem entra aqui enxerga TODAS as empresas do escritório (inclusive as cadastradas depois).
 // Clientes continuam vendo só a própria empresa (convite normal, por empresa).
@@ -39,6 +40,7 @@ export function PainelEquipe() {
       {link && <div className="mt-2 break-all rounded-lg border border-green-300 bg-green-50 p-3 text-sm"><strong>Link (24 horas):</strong> <a className="text-blue-800 underline" href={link}>{link}</a> <button type="button" className="ml-2 rounded bg-green-800 px-2 py-1 text-white" onClick={() => void navigator.clipboard.writeText(link)}>Copiar</button></div>}
       {msg && <p role="alert" className="mt-2 text-sm text-red-700">{msg}</p>}
       {equipe.length > 0 && <div className="mt-3">{equipe.map((u) => <div key={u} className="flex justify-between border-t py-2 text-sm"><span>{u}</span><button onClick={() => void remover(u)} className="text-red-700 hover:underline">Tirar da equipe</button></div>)}</div>}
+      <div className="mt-4"><PainelAtividade /></div>
     </div>
   );
 }

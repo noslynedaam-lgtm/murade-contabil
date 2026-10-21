@@ -10,6 +10,8 @@ import { adicionarEmpresaAcessoContabil, adicionarEquipeContabil, bloquearEscrit
 import { ArmazemAcoesPendentes, confirmarAcao as confirmarAcaoAgenteIA, conversar as conversarAgenteIA, recusarAcao as recusarAcaoAgenteIA, type ChamarApi, type ContextoAgente, type ModeloIA } from "./src/server/agenteMotor";
 import { kitContabil } from "./src/server/agenteContabil";
 import { ArmazemPedidosMemoria, ArmazemPedidosPg, CentralDePedidos, tokenValido } from "./src/server/agentesEntreSistemas";
+import { criarAtividadeEscritorio } from './src/server/atividadeEscritorio';
+import type { SessaoContabil } from './src/server/authContabil';
 import { listarRegistroAgenteIAContabil, bancoContabilConfigurado, consultaBancoContabil, hashSessaoContabil, registrarAcaoAgenteIAContabil } from "./src/server/authContabil";
 import { executarRobo, registrarRobo, statusRobos } from "./src/server/robosStatus";
 import { gerarCandidatosRascunhosAutomaticos, mesclarRascunhosNoWorkspace, prepararRascunhosContabeisAutomaticos } from "./src/server/prepararRascunhosContabeis";
@@ -90,6 +92,9 @@ async function startServer() {
   // O analisador específico vem primeiro: o geral não relê um corpo já lido.
   app.use(["/api/workspaces", "/api/integracao/fiscal/documentos"], express.json({ limit: "20mb" }));
   app.use(express.json({ limit: "2mb" }));
+  const sessaoAtividade = (req: express.Request) => (req as express.Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
+  const atividadeEquipe = criarAtividadeEscritorio({ consultar: consultaBancoContabil, tabela: "contabil_atividade_equipe", sessao: sessaoAtividade, podeVer: (req) => sessaoAtividade(req)?.administrador === true });
+  app.use("/api", atividadeEquipe.registrar);
 
   // Limite simples por IP para rotas públicas que consultam serviços externos.
   const usoPublico = new Map<string, { inicio: number; total: number }>();
@@ -153,6 +158,7 @@ async function startServer() {
   app.get("/api/auth/users", exigirSessaoContabil, listarUsuariosEmpresaContabil);
   app.delete("/api/auth/users/:login", exigirOrigemNavegador, exigirSessaoContabil, revogarUsuarioEmpresaContabil);
   app.get("/api/auth/team", exigirSessaoContabil, listarEquipeContabil);
+  app.get("/api/auth/atividade", exigirSessaoContabil, atividadeEquipe.listar);
   app.post("/api/auth/team/invite", exigirOrigemNavegador, exigirSessaoContabil, convidarEquipeContabil);
   app.post("/api/auth/team", exigirOrigemNavegador, exigirSessaoContabil, adicionarEquipeContabil);
   app.delete("/api/auth/team/:login", exigirOrigemNavegador, exigirSessaoContabil, removerEquipeContabil);
