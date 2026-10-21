@@ -20,7 +20,7 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
     {
       id: "msg-0",
       sender: "ia",
-      text: "Olá! Eu sou o Agente Murade, sua inteligência tributária e contábil autônoma. Posso analisar balancetes, explicar lançamentos de partidas dobradas, orientar sobre o IBS e CBS da Reforma Tributária 2026 ou auditar suas transmissões para a Receita e SEFAZ. Como posso ajudar agora?",
+      text: "Olá, quem fala é o Murade Contábil. O que você deseja? Sou sua inteligência tributária e contábil. Posso analisar balancetes, explicar lançamentos de partidas dobradas, orientar sobre o IBS e CBS da Reforma Tributária 2026 ou auditar suas transmissões para a Receita e SEFAZ. Como posso ajudar agora?",
       timestamp: "Agora",
     },
   ]);
