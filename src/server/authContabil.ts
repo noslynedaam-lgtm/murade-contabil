@@ -135,6 +135,7 @@ export async function prepararAuthContabil(): Promise<void> {
       ALTER TABLE contabil_auth_users ADD COLUMN IF NOT EXISTS office_owner uuid REFERENCES contabil_auth_users(id) ON DELETE SET NULL;
       ALTER TABLE contabil_auth_invites ADD COLUMN IF NOT EXISTS office_owner uuid;
       ALTER TABLE contabil_auth_users ADD COLUMN IF NOT EXISTS tenant_id uuid;
+      ALTER TABLE contabil_auth_users ADD COLUMN IF NOT EXISTS max_usuarios integer CHECK (max_usuarios IS NULL OR max_usuarios BETWEEN 1 AND 1000);
       ALTER TABLE contabil_auth_invites ADD COLUMN IF NOT EXISTS novo_escritorio boolean NOT NULL DEFAULT false;
       UPDATE contabil_auth_users SET tenant_id=id WHERE tenant_id IS NULL AND global_admin=true;
       UPDATE contabil_auth_users SET tenant_id=office_owner WHERE tenant_id IS NULL AND office_owner IS NOT NULL;
@@ -500,9 +501,33 @@ export async function listarEquipeContabil(req: Request, res: Response): Promise
   } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível listar a equipe.' }); }
 }
 
+// Limite de usuários contratado pelo escritório (dono + equipe). Sem limite definido, não bloqueia.
+async function limiteEquipeAtingidoContabil(donoId: string): Promise<string | null> {
+  const r = await obterBanco().query(`SELECT o.max_usuarios,
+    (SELECT count(*)::int FROM contabil_auth_users t WHERE t.tenant_id=o.id AND t.id<>o.id AND t.disabled=false)
+    + (SELECT count(*)::int FROM contabil_auth_invites i WHERE i.office_owner=o.id AND i.expires_at>now()) AS equipe
+    FROM contabil_auth_users o WHERE o.id=$1`, [donoId]);
+  const linha = r.rows[0]; if (!linha || linha.max_usuarios == null) return null;
+  const usados = 1 + Number(linha.equipe);
+  return usados >= Number(linha.max_usuarios) ? `O plano deste escritório permite ${linha.max_usuarios} usuário(s) (dono incluso) e todos já estão em uso. Fale com o fornecedor para ampliar.` : null;
+}
+
+export async function definirLimiteEscritorioContabil(req: Request, res: Response): Promise<void> {
+  const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil; const login = String(req.params.login || '').trim().toLowerCase();
+  const bruto = req.body?.limite; const limite = bruto === null ? null : Number(bruto);
+  if (!sessao?.donoSistema) { res.status(403).json({ sucesso: false, motivo: 'Somente o dono do sistema define o limite de usuários.' }); return; }
+  if (limite !== null && (!Number.isInteger(limite) || limite < 1 || limite > 1000)) { res.status(400).json({ sucesso: false, motivo: 'Informe um limite de 1 a 1000 usuários (ou vazio para sem limite).' }); return; }
+  try {
+    const r = await obterBanco().query('UPDATE contabil_auth_users SET max_usuarios=$1 WHERE login=$2 AND global_admin=true AND tenant_id=id AND id<>$3 RETURNING login', [limite, login, sessao.userId]);
+    if (!r.rowCount) { res.status(404).json({ sucesso: false, motivo: 'Escritório não encontrado.' }); return; }
+    res.setHeader('Cache-Control', 'no-store'); res.json({ sucesso: true, login, limite });
+  } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível definir o limite.' }); }
+}
+
 export async function convidarEquipeContabil(req: Request, res: Response): Promise<void> {
   const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil; const login = String(req.body?.login || '').trim().toLowerCase();
   if (!sessao?.administrador) { res.status(403).json({ sucesso: false, motivo: 'Somente o administrador do escritório convida a equipe.' }); return; }
+  try { const cheio = await limiteEquipeAtingidoContabil(sessao.userId); if (cheio) { res.status(409).json({ sucesso: false, motivo: cheio }); return; } } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível conferir o limite de usuários.' }); return; }
   if (!loginValidoContabil(login)) { res.status(400).json({ sucesso: false, motivo: 'Informe um nome de usuário válido.' }); return; }
   try {
     const exists = await obterBanco().query('SELECT 1 FROM contabil_auth_users WHERE login=$1', [login]);
@@ -518,6 +543,7 @@ export async function convidarEquipeContabil(req: Request, res: Response): Promi
 export async function adicionarEquipeContabil(req: Request, res: Response): Promise<void> {
   const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil; const login = String(req.body?.login || '').trim().toLowerCase();
   if (!sessao?.administrador) { res.status(403).json({ sucesso: false, motivo: 'Somente o administrador do escritório altera a equipe.' }); return; }
+  try { const cheio = await limiteEquipeAtingidoContabil(sessao.userId); if (cheio) { res.status(409).json({ sucesso: false, motivo: cheio }); return; } } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível conferir o limite de usuários.' }); return; }
   try {
     const r = await obterBanco().query('UPDATE contabil_auth_users SET office_owner=$1, tenant_id=$1 WHERE login=$2 AND disabled=false AND global_admin=false AND office_owner IS NULL AND (tenant_id IS NULL OR tenant_id=$1) RETURNING login', [sessao.userId, login]);
     if (!r.rowCount) { res.status(404).json({ sucesso: false, motivo: 'Usuário não encontrado, já pertence a outro escritório ou é administrador. Gere um convite para ele criar a conta.' }); return; }
@@ -557,7 +583,7 @@ export async function listarEscritoriosContabil(req: Request, res: Response): Pr
   if (!sessao?.donoSistema) { res.status(403).json({ sucesso: false, motivo: 'Somente o dono do sistema consulta os escritórios.' }); return; }
   try {
     // Só dados de contratação: usuário, situação e quantidades. Nunca nomes de empresas nem documentos.
-    const r = await obterBanco().query(`SELECT u.login, u.disabled, u.created_at,
+    const r = await obterBanco().query(`SELECT u.login, u.disabled, u.created_at, u.max_usuarios,
       (SELECT count(*)::int FROM contabil_auth_company_access a WHERE a.user_id=u.id) AS empresas,
       (SELECT count(*)::int FROM contabil_auth_users t WHERE t.tenant_id=u.id AND t.id<>u.id) AS usuarios
       FROM contabil_auth_users u WHERE u.global_admin=true AND u.tenant_id=u.id AND u.id<>$1 ORDER BY u.created_at`, [sessao.userId]);

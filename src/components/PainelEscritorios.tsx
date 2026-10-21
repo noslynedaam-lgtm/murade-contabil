@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 
 // Só o dono do sistema vê este painel: contrata (convida) e bloqueia escritórios.
 // Não mostra empresas nem documentos de nenhum escritório, apenas a contratação.
-type Escritorio = { login: string; disabled: boolean; created_at: string; empresas: number; usuarios: number };
+type Escritorio = { login: string; disabled: boolean; created_at: string; empresas: number; usuarios: number; max_usuarios: number | null };
 
 export function PainelEscritorios() {
   const [lista, setLista] = useState<Escritorio[]>([]);
@@ -21,6 +21,13 @@ export function PainelEscritorios() {
     e.preventDefault(); setMsg(''); setLink('');
     try { const d = await chamar('/api/auth/tenants/invite', { login }); setLink(d.conviteUrl); setLogin(''); } catch (c) { setMsg(c instanceof Error ? c.message : 'Falha.'); }
   };
+  const definirLimite = async (e: Escritorio) => {
+    const atual = e.max_usuarios == null ? '' : String(e.max_usuarios);
+    const resp = window.prompt(`Quantos usuários o escritório ${e.login} contratou (dono incluso)? Deixe vazio para sem limite.`, atual);
+    if (resp === null) return;
+    const limite = resp.trim() === '' ? null : Number(resp);
+    try { await chamar(`/api/auth/tenants/${encodeURIComponent(e.login)}/limite`, { limite }); await carregar(); } catch (c) { setMsg(c instanceof Error ? c.message : 'Não foi possível definir o limite.'); }
+  };
   const alternar = async (e: Escritorio) => {
     const bloquear = !e.disabled;
     if (!window.confirm(bloquear ? `Bloquear o escritório ${e.login} e toda a equipe e clientes dele? Os dados ficam guardados.` : `Liberar o escritório ${e.login}?`)) return;
@@ -36,7 +43,7 @@ export function PainelEscritorios() {
       </form>
       {link && <div className="mt-2 break-all rounded-lg border border-green-300 bg-green-50 p-3 text-sm"><strong>Link (24 horas):</strong> <a className="text-blue-800 underline" href={link}>{link}</a> <button type="button" className="ml-2 rounded bg-green-800 px-2 py-1 text-white" onClick={() => void navigator.clipboard.writeText(link)}>Copiar</button></div>}
       {msg && <p role="alert" className="mt-2 text-sm text-red-700">{msg}</p>}
-      {lista.length > 0 && <div className="mt-3">{lista.map((e) => <div key={e.login} className="flex items-center justify-between border-t py-2 text-sm"><span>{e.login} <span className="text-slate-500">· {e.empresas} empresa(s) · {e.usuarios} usuário(s) {e.disabled && <strong className="text-red-700">· BLOQUEADO</strong>}</span></span><button onClick={() => void alternar(e)} className={e.disabled ? 'text-green-800 hover:underline' : 'text-red-700 hover:underline'}>{e.disabled ? 'Liberar' : 'Bloquear'}</button></div>)}</div>}
+      {lista.length > 0 && <div className="mt-3">{lista.map((e) => <div key={e.login} className="flex items-center justify-between border-t py-2 text-sm"><span>{e.login} <span className="text-slate-500">· {e.empresas} empresa(s) · {e.usuarios + 1} de {e.max_usuarios ?? 'sem limite'} usuário(s) {e.disabled && <strong className="text-red-700">· BLOQUEADO</strong>}</span></span><span className="flex gap-3"><button onClick={() => void definirLimite(e)} className="text-blue-800 hover:underline">Limite</button><button onClick={() => void alternar(e)} className={e.disabled ? 'text-green-800 hover:underline' : 'text-red-700 hover:underline'}>{e.disabled ? 'Liberar' : 'Bloquear'}</button></span></div>)}</div>}
     </div>
   );
 }
