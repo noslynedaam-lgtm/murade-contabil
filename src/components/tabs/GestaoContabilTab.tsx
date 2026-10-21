@@ -5,6 +5,7 @@ import { BemImobilizado, depreciacaoAcumulada, filialAtual, quotaDoMes, resultad
 import { conciliar, lancamentoDoMovimento, lerOFX, MovimentoExtrato, sugerirContraPartida } from "../../utils/extratoBancario";
 import { CONFIRMACOES_MANUAIS, conferirFechamento, referenciaDepreciacao } from "../../utils/fechamentoContabil";
 import { moedaContabil } from "../../utils/livrosContabeis";
+import { baseFolhaBruta, calcularProvisaoFolha, gerarDlpa } from "../../utils/demonstracoesExtras";
 
 interface Props {
   empresa: EmpresaDados;
@@ -23,7 +24,7 @@ interface Props {
   onConfirmacoes: (v: Record<string, Record<string, boolean>>) => void;
 }
 
-type Secao = "comparativo" | "centros" | "imobilizado" | "extrato" | "fechamento";
+type Secao = "comparativo" | "centros" | "imobilizado" | "extrato" | "provisoes" | "dlpa" | "fechamento";
 const mesAtual = () => new Date().toISOString().slice(0, 7);
 const pct = (v: number | null) => (v === null ? "—" : `${v > 0 ? "+" : ""}${v.toLocaleString("pt-BR")}%`);
 const reais = (s: string) => { const n = Number(String(s).replace(/\./g, "").replace(",", ".")); return Number.isFinite(n) ? Math.round(n * 100) : NaN; };
@@ -41,7 +42,7 @@ export const GestaoContabilTab: React.FC<Props> = (p) => {
         <h2 className="text-base font-bold text-slate-900">Gestão contábil</h2>
         <p className="mt-1 text-xs text-slate-600">Comparativos, centros de custo, ativo imobilizado, extrato bancário e fechamento guiado. Os números vêm dos lançamentos definitivos deste Contábil; lançamentos novos gerados aqui ficam pendentes de aprovação.</p>
         <div className="mt-3 flex flex-wrap items-end gap-2">
-          {aba("comparativo", "Comparativo e explicações")}{aba("centros", "Centros de custo")}{aba("imobilizado", "Ativo imobilizado")}{aba("extrato", "Extrato e conciliação")}{aba("fechamento", "Fechamento guiado")}
+          {aba("comparativo", "Comparativo e explicações")}{aba("centros", "Centros de custo")}{aba("imobilizado", "Ativo imobilizado")}{aba("extrato", "Extrato e conciliação")}{aba("provisoes", "Provisões")}{aba("dlpa", "Lucros acumulados (DLPA)")}{aba("fechamento", "Fechamento guiado")}
           <label className="ml-auto text-xs font-bold text-slate-700">Competência
             <input type="month" value={periodo} onChange={(e) => setPeriodo(e.target.value)} className="ml-2 rounded-md border border-slate-300 px-2 py-1 text-sm font-medium" />
           </label>
@@ -53,6 +54,8 @@ export const GestaoContabilTab: React.FC<Props> = (p) => {
           {secao === "centros" && <Centros {...p} periodo={periodo} />}
           {secao === "imobilizado" && <Imobilizado {...p} periodo={periodo} analiticas={analiticas} />}
           {secao === "extrato" && <Extrato {...p} analiticas={analiticas} periodo={periodo} />}
+          {secao === "provisoes" && <Provisoes {...p} analiticas={analiticas} periodo={periodo} />}
+          {secao === "dlpa" && <Dlpa {...p} periodo={periodo} />}
           {secao === "fechamento" && <Fechamento {...p} periodo={periodo} />}
         </>
       )}
@@ -267,6 +270,68 @@ const Fechamento: React.FC<Props & { periodo: string }> = ({ contas, lancamentos
       </ul>
       <button type="button" disabled={!r.podeFechar || fechada || !workspacePersistido} onClick={async () => { if (window.confirm(`Fechar a competência ${periodo}? O servidor vai bloquear alterações nesse mês.`)) await onFecharMes(periodo); }} className="mt-3 rounded-md bg-blue-700 px-4 py-2 font-bold text-white disabled:opacity-50">{fechada ? "Competência já fechada" : r.podeFechar ? "Fechar competência" : "Resolva os itens para fechar"}</button>
       <p className="mt-2 text-slate-600">Os itens automáticos vêm dos dados deste Contábil. Os itens "confirmação sua" o sistema não consegue verificar sozinho (banco, contas a pagar/receber, folha e impostos): você confirma depois de conferir. O servidor ainda aplica suas próprias validações no fechamento.</p>
+    </Cartao>
+  );
+};
+
+const Provisoes: React.FC<Props & { periodo: string; analiticas: ContaPlano[] }> = ({ lancamentos, analiticas, periodo, onAdicionarLancamento, workspacePersistido }) => {
+  const [enc, setEnc] = useState(8);
+  const [c, setC] = useState({ despFerias: "", provFerias: "", despDecimo: "", provDecimo: "" });
+  const [msg, setMsg] = useState("");
+  const base = useMemo(() => baseFolhaBruta(lancamentos, periodo), [lancamentos, periodo]);
+  const prov = useMemo(() => calcularProvisaoFolha(base, enc), [base, enc]);
+  const lancado = (tipo: string) => lancamentos.some((l) => l.documentoRef === `PROV:${tipo}:${periodo}` && l.statusManual !== "rejeitado");
+  const lancar = (tipo: "FERIAS" | "DECIMO") => {
+    const d = analiticas.find((x) => x.codigo === (tipo === "FERIAS" ? c.despFerias : c.despDecimo)), a = analiticas.find((x) => x.codigo === (tipo === "FERIAS" ? c.provFerias : c.provDecimo));
+    const valor = tipo === "FERIAS" ? prov.totalFerias : prov.totalDecimo;
+    if (!d || !a || d.codigo === a.codigo) return setMsg("Escolha duas contas diferentes: despesa e provisão (passivo).");
+    if (valor <= 0) return setMsg("A base da folha deste mês é zero: não há o que provisionar.");
+    if (lancado(tipo)) return setMsg("Esta provisão já foi lançada neste mês.");
+    if (!workspacePersistido) return setMsg("Aguarde a confirmação do banco desta empresa antes de lançar.");
+    onAdicionarLancamento({ id: `PROV-${tipo}-${periodo}`, data: `${periodo}-28`, contaDebitoCodigo: d.codigo, contaDebitoNome: d.descricao, contaCreditoCodigo: a.codigo, contaCreditoNome: a.descricao, valor: valor / 100, historico: `Provisão de ${tipo === "FERIAS" ? "férias e 1/3" : "13º salário"} com encargos de ${enc}% — ${periodo}`, origem: "Manual", documentoRef: `PROV:${tipo}:${periodo}`, competencia: periodo, statusManual: "pendente_aprovacao" });
+    setMsg("Provisão enviada para aprovação na aba Lançamentos.");
+  };
+  const seletor = (rot: string, chave: keyof typeof c) => (
+    <label className="grid gap-1">{rot}<select value={c[chave]} onChange={(e) => setC({ ...c, [chave]: e.target.value })} className="max-w-[260px] rounded border px-2 py-1"><option value="">Escolha…</option>{analiticas.map((x) => <option key={x.codigo} value={x.codigo}>{x.codigo} {x.descricao}</option>)}</select></label>
+  );
+  return (
+    <Cartao titulo={`Provisões de férias e 13º — ${periodo}`}>
+      <p>Base: folha bruta do DP contabilizada no mês = <strong>{moedaContabil(base)}</strong>{base === 0 && " (nenhum lançamento definitivo de “DP — Folha” nesta competência)"}.</p>
+      <label className="mt-2 flex items-center gap-2">Encargos sobre as provisões (%)<input type="number" min={0} max={100} step={0.5} value={enc} onChange={(e) => setEnc(Number(e.target.value) || 0)} className="w-20 rounded border px-2 py-1" /></label>
+      <table className="mt-2 w-full max-w-md text-left"><tbody>
+        <tr><td>Férias (1/12)</td><td>{moedaContabil(prov.ferias)}</td></tr><tr><td>1/3 constitucional</td><td>{moedaContabil(prov.tercoFerias)}</td></tr>
+        <tr><td>13º salário (1/12)</td><td>{moedaContabil(prov.decimoTerceiro)}</td></tr><tr><td>Encargos ({enc}%)</td><td>{moedaContabil(prov.encargos)}</td></tr>
+        <tr className="font-bold"><td>Total a provisionar</td><td>{moedaContabil(prov.total)}</td></tr>
+      </tbody></table>
+      <div className="mt-3 flex flex-wrap items-end gap-2">
+        {seletor("Despesa de férias", "despFerias")}{seletor("Provisão de férias (passivo)", "provFerias")}
+        <button type="button" onClick={() => lancar("FERIAS")} disabled={lancado("FERIAS")} className="rounded-md bg-emerald-700 px-3 py-1.5 font-bold text-white disabled:opacity-50">{lancado("FERIAS") ? "Férias já lançada" : `Lançar férias (${moedaContabil(prov.totalFerias)})`}</button>
+      </div>
+      <div className="mt-2 flex flex-wrap items-end gap-2">
+        {seletor("Despesa de 13º", "despDecimo")}{seletor("Provisão de 13º (passivo)", "provDecimo")}
+        <button type="button" onClick={() => lancar("DECIMO")} disabled={lancado("DECIMO")} className="rounded-md bg-emerald-700 px-3 py-1.5 font-bold text-white disabled:opacity-50">{lancado("DECIMO") ? "13º já lançado" : `Lançar 13º (${moedaContabil(prov.totalDecimo)})`}</button>
+      </div>
+      {msg && <p className="mt-2">{msg}</p>}
+      <p className="mt-2 text-slate-600">Estimativa: 1/12 da folha bruta para férias, mais 1/3 constitucional (CF, art. 7º, XVII), e 1/12 para o 13º (Lei 4.749/1965). O percentual de encargos é seu (FGTS 8%; INSS patronal depende do regime da empresa). A base é a folha bruta que o DP enviou, sem separar horas extras e adicionais. Impostos a recolher entram pelos lançamentos do Fiscal e do DP.</p>
+    </Cartao>
+  );
+};
+
+const Dlpa: React.FC<Props & { periodo: string }> = ({ contas, lancamentos, periodo }) => {
+  const ano = Number(periodo.slice(0, 4));
+  const d = useMemo(() => gerarDlpa(contas, lancamentos, ano), [contas, lancamentos, ano]);
+  return (
+    <Cartao titulo={`Demonstração de Lucros ou Prejuízos Acumulados — ${ano} (gerencial)`}>
+      {d.contasLucros.length === 0 ? <p className="text-amber-800">Não há conta analítica de “Lucros/Prejuízos Acumulados” no plano. Crie ou renomeie a conta para gerar a demonstração.</p> : (
+        <table className="w-full max-w-xl text-left"><tbody>
+          <tr><td>Saldo no início do exercício</td><td>{moedaContabil(d.saldoInicial)}</td></tr>
+          <tr><td>(+/−) Resultado do exercício (receitas − despesas)</td><td>{moedaContabil(d.resultadoExercicio)}</td></tr>
+          {d.outrosMovimentos.map((m, i) => <tr key={i}><td>{m.data.split("-").reverse().join("/")} · {m.historico} <span className="text-slate-500">({m.contaContra})</span></td><td>{moedaContabil(m.centavos)}</td></tr>)}
+          <tr className="font-bold"><td>Saldo no fim do exercício</td><td>{moedaContabil(d.saldoFinal)}</td></tr>
+        </tbody></table>
+      )}
+      {d.avisoEncerramento && <p className="mt-2 text-red-700">Atenção: há crédito vindo de conta de apuração/resultado nas contas de lucros acumulados. Se for o encerramento do exercício, o resultado já está nesse lançamento e aparece em dobro acima. Confira antes de usar.</p>}
+      <p className="mt-2 text-slate-600">Demonstração prevista no art. 186 da Lei 6.404/1976. Calculada pelos lançamentos definitivos: saldo anterior ao ano, resultado das contas de receita e despesa e movimentos nas contas de lucros/prejuízos acumulados (dividendos, reservas, ajustes). É gerencial: não substitui a demonstração assinada pelo contador.</p>
     </Cartao>
   );
 };
