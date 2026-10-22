@@ -29,6 +29,10 @@ export function PainelEquipe() {
     if (!window.confirm(`${acao} o acesso de ${u}? ${bloqueado ? 'A pessoa poderá entrar novamente.' : 'As sessões atuais serão encerradas.'}`)) return;
     try { await chamar(`/api/auth/team/${encodeURIComponent(u)}/bloqueio`, 'POST', { bloqueado: !bloqueado }); await carregar(); } catch (c) { setMsg(c instanceof Error ? c.message : 'Falha.'); }
   };
+  const redefinirSenha = async (u: string) => {
+    setMsg(''); setLink('');
+    try { const d = await chamar(`/api/auth/team/${encodeURIComponent(u)}/redefinir-senha`, 'POST'); setLink(d.conviteUrl); setMsg(`Link de redefinição gerado para ${u}; envie-o em particular. Ele expira em 24 horas.`); } catch (c) { setMsg(c instanceof Error ? c.message : 'Falha.'); }
+  };
   const remover = async (u: string) => {
     if (!window.confirm(`Tirar ${u} da equipe? O acesso às empresas do escritório será removido; os dados da pessoa não serão apagados.`)) return;
     try { await chamar(`/api/auth/team/${encodeURIComponent(u)}`, 'DELETE'); await carregar(); } catch (c) { setMsg(c instanceof Error ? c.message : 'Falha.'); }
@@ -44,7 +48,7 @@ export function PainelEquipe() {
       </form>
       {link && <div className="mt-2 break-all rounded-lg border border-green-300 bg-green-50 p-3 text-sm"><strong>Link (24 horas):</strong> <a className="text-blue-800 underline" href={link}>{link}</a> <button type="button" className="ml-2 rounded bg-green-800 px-2 py-1 text-white" onClick={() => void navigator.clipboard.writeText(link)}>Copiar</button></div>}
       {msg && <p role="alert" className="mt-2 text-sm text-red-700">{msg}</p>}
-      {equipe.length > 0 && <div className="mt-3">{equipe.map((m) => <div key={m.login} className="flex items-center justify-between gap-3 border-t py-2 text-sm"><span>{m.login} {m.bloqueado && <strong className="ml-2 text-amber-700">Bloqueado</strong>}</span><div className="flex gap-3"><button type="button" onClick={() => void bloquear(m.login, m.bloqueado)} className="text-amber-700 hover:underline">{m.bloqueado ? 'Desbloquear' : 'Bloquear'}</button><button type="button" onClick={() => void remover(m.login)} className="text-red-700 hover:underline">Remover</button></div></div>)}</div>
+      {equipe.length > 0 && <div className="mt-3">{equipe.map((m) => <div key={m.login} className="flex items-center justify-between gap-3 border-t py-2 text-sm"><span>{m.login} {m.bloqueado && <strong className="ml-2 text-amber-700">Bloqueado</strong>}</span><div className="flex gap-3"><button type="button" onClick={() => void bloquear(m.login, m.bloqueado)} className="text-amber-700 hover:underline">{m.bloqueado ? 'Desbloquear' : 'Bloquear'}</button>{!m.bloqueado && <button type="button" onClick={() => void redefinirSenha(m.login)} className="text-blue-700 hover:underline">Gerar novo link de senha</button>}<button type="button" onClick={() => void remover(m.login)} className="text-red-700 hover:underline">Remover</button></div></div>)}</div>
       <div className="mt-4"><PainelAtividade /></div>
     </div>
   );
