@@ -443,10 +443,10 @@ export async function resgatarConviteUsuarioContabil(req: Request, res: Response
       await client.query('UPDATE contabil_auth_users SET password_salt=$1,password_hash=$2 WHERE id=$3', [salt, hash, existente.rows[0].id]);
       await client.query('DELETE FROM contabil_auth_sessions WHERE user_id=$1', [existente.rows[0].id]);
       await client.query('DELETE FROM contabil_auth_invites WHERE token_hash=$1', [tokenHash]); await client.query('COMMIT');
-      return res.json({ sucesso: true, usuario: login, redefinida: true });
+      res.json({ sucesso: true, usuario: login, redefinida: true }); return;
     }
     if (existente.rowCount) { await client.query('ROLLBACK'); res.status(409).json({ sucesso: false, motivo: 'Este usuário já está cadastrado.' }); return; }
-    const id = crypto.randomUUID(); const donoDoEscritorio = cv.novo_escritorio === true;
+    const id = crypto.randomUUID(); let tenantId: string = id; const donoDoEscritorio = cv.novo_escritorio === true;
     if (!donoDoEscritorio) {
       if (cv.office_owner) tenantId = String(cv.office_owner);
       else { const criador = await client.query('SELECT tenant_id FROM contabil_auth_users WHERE id=$1', [cv.created_by]); tenantId = String(criador.rows[0]?.tenant_id || cv.created_by); }
