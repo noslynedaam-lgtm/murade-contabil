@@ -68,6 +68,7 @@ export async function prepararAuthContabil(): Promise<void> {
       created_by uuid NOT NULL REFERENCES contabil_auth_users(id), expires_at timestamptz NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     );
+    ALTER TABLE contabil_auth_invites ADD COLUMN IF NOT EXISTS reset_password boolean NOT NULL DEFAULT false;
     CREATE TABLE IF NOT EXISTS contabil_company_workspaces (
       cnpj text PRIMARY KEY CHECK (cnpj ~ '^[A-Z0-9]{12}[0-9]{2}$'),
       payload jsonb NOT NULL,
@@ -432,12 +433,20 @@ export async function resgatarConviteUsuarioContabil(req: Request, res: Response
   try {
     await prepararAuthContabil(); client = await obterBanco().connect(); await client.query('BEGIN');
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-    const convite = await client.query('SELECT login,cnpjs,role,office_owner,novo_escritorio,created_by FROM contabil_auth_invites WHERE token_hash=$1 AND expires_at>now() FOR UPDATE', [tokenHash]);
+    const convite = await client.query('SELECT login,cnpjs,role,office_owner,novo_escritorio,reset_password,created_by FROM contabil_auth_invites WHERE token_hash=$1 AND expires_at>now() FOR UPDATE', [tokenHash]);
     if (!convite.rowCount || convite.rows[0].login !== login) { await client.query('ROLLBACK'); res.status(400).json({ sucesso: false, motivo: 'Convite inválido, expirado ou destinado a outro usuário.' }); return; }
-    const existente = await client.query('SELECT 1 FROM contabil_auth_users WHERE login=$1', [login]);
+    const cv = convite.rows[0];
+    const existente = await client.query('SELECT id,office_owner,disabled FROM contabil_auth_users WHERE login=$1 FOR UPDATE', [login]);
+    const salt = crypto.randomBytes(16).toString('hex'); const hash = (await senhaHash(senha, salt)).toString('hex');
+    if (cv.reset_password === true) {
+      if (!existente.rowCount || existente.rows[0].disabled === true || String(existente.rows[0].office_owner || '') !== String(cv.office_owner || '')) { await client.query('ROLLBACK'); res.status(400).json({ sucesso: false, motivo: 'Este link não corresponde a um membro ativo deste escritório.' }); return; }
+      await client.query('UPDATE contabil_auth_users SET password_salt=$1,password_hash=$2 WHERE id=$3', [salt, hash, existente.rows[0].id]);
+      await client.query('DELETE FROM contabil_auth_sessions WHERE user_id=$1', [existente.rows[0].id]);
+      await client.query('DELETE FROM contabil_auth_invites WHERE token_hash=$1', [tokenHash]); await client.query('COMMIT');
+      res.json({ sucesso: true, usuario: login, redefinida: true }); return;
+    }
     if (existente.rowCount) { await client.query('ROLLBACK'); res.status(409).json({ sucesso: false, motivo: 'Este usuário já está cadastrado.' }); return; }
-    const id = crypto.randomUUID(); const salt = crypto.randomBytes(16).toString('hex'); const hash = (await senhaHash(senha, salt)).toString('hex');
-    const cv = convite.rows[0]; let tenantId: string = id; const donoDoEscritorio = cv.novo_escritorio === true;
+    const id = crypto.randomUUID(); let tenantId: string = id; const donoDoEscritorio = cv.novo_escritorio === true;
     if (!donoDoEscritorio) {
       if (cv.office_owner) tenantId = String(cv.office_owner);
       else { const criador = await client.query('SELECT tenant_id FROM contabil_auth_users WHERE id=$1', [cv.created_by]); tenantId = String(criador.rows[0]?.tenant_id || cv.created_by); }
@@ -496,8 +505,9 @@ export async function listarEquipeContabil(req: Request, res: Response): Promise
   const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
   if (!sessao?.administrador) { res.status(403).json({ sucesso: false, motivo: 'Somente o administrador do escritório consulta a equipe.' }); return; }
   try {
-    const r = await obterBanco().query('SELECT login FROM contabil_auth_users WHERE office_owner=$1 AND disabled=false ORDER BY login', [sessao.userId]);
-    res.setHeader('Cache-Control', 'no-store'); res.json({ sucesso: true, equipe: r.rows.map((row) => row.login) });
+    const r = await obterBanco().query('SELECT login,disabled FROM contabil_auth_users WHERE office_owner=$1 ORDER BY login', [sessao.userId]);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ sucesso: true, equipe: r.rows.filter((row) => row.disabled !== true).map((row) => row.login), membros: r.rows.map((row) => ({ login: row.login, bloqueado: row.disabled === true })) });
   } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível listar a equipe.' }); }
 }
 
@@ -505,7 +515,7 @@ export async function listarEquipeContabil(req: Request, res: Response): Promise
 async function limiteEquipeAtingidoContabil(donoId: string): Promise<string | null> {
   const r = await obterBanco().query(`SELECT o.max_usuarios,
     (SELECT count(*)::int FROM contabil_auth_users t WHERE t.tenant_id=o.id AND t.id<>o.id AND t.disabled=false)
-    + (SELECT count(*)::int FROM contabil_auth_invites i WHERE i.office_owner=o.id AND i.expires_at>now()) AS equipe
+    + (SELECT count(*)::int FROM contabil_auth_invites i WHERE i.office_owner=o.id AND i.expires_at>now() AND i.reset_password=false) AS equipe
     FROM contabil_auth_users o WHERE o.id=$1`, [donoId]);
   const linha = r.rows[0]; if (!linha || linha.max_usuarios == null) return null;
   const usados = 1 + Number(linha.equipe);
@@ -555,12 +565,41 @@ export async function removerEquipeContabil(req: Request, res: Response): Promis
   const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil; const login = String(req.params.login || '').trim().toLowerCase();
   if (!sessao?.administrador) { res.status(403).json({ sucesso: false, motivo: 'Somente o administrador do escritório altera a equipe.' }); return; }
   try {
-    const r = await obterBanco().query('UPDATE contabil_auth_users SET office_owner=NULL WHERE login=$1 AND office_owner=$2 RETURNING login', [login, sessao.userId]);
+    const r = await obterBanco().query('UPDATE contabil_auth_users SET office_owner=NULL WHERE login=$1 AND office_owner=$2 AND id<>$3 RETURNING id,login', [login, sessao.userId, sessao.userId]);
     if (!r.rowCount) { res.status(404).json({ sucesso: false, motivo: 'Esse usuário não é da sua equipe.' }); return; }
+    await obterBanco().query('DELETE FROM contabil_auth_sessions WHERE user_id=$1', [r.rows[0].id]);
     res.setHeader('Cache-Control', 'no-store'); res.json({ sucesso: true, login, dadosPreservados: true });
   } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível remover da equipe.' }); }
 }
 
+
+export async function bloquearMembroEquipeContabil(req: Request, res: Response): Promise<void> {
+  const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
+  const login = String(req.params.login || '').trim().toLowerCase(); const bloqueado = req.body?.bloqueado === true;
+  if (!sessao?.administrador) { res.status(403).json({ sucesso: false, motivo: 'Somente o administrador do escritório altera a equipe.' }); return; }
+  try {
+    const r = await obterBanco().query('UPDATE contabil_auth_users SET disabled=$1 WHERE login=$2 AND office_owner=$3 AND id<>$3 RETURNING id,login', [bloqueado, login, sessao.userId]);
+    if (!r.rowCount) { res.status(404).json({ sucesso: false, motivo: 'Esse usuário não é da sua equipe.' }); return; }
+    if (bloqueado) await obterBanco().query('DELETE FROM contabil_auth_sessions WHERE user_id=$1', [r.rows[0].id]);
+    res.setHeader('Cache-Control', 'no-store'); res.json({ sucesso: true, login, bloqueado });
+  } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível alterar o bloqueio do membro.' }); }
+}
+
+export async function gerarLinkRedefinicaoEquipeContabil(req: Request, res: Response): Promise<void> {
+  const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
+  const login = String(req.params.login || '').trim().toLowerCase();
+  if (!sessao?.administrador) { res.status(403).json({ sucesso: false, motivo: 'Somente o administrador do escritório gerencia a equipe.' }); return; }
+  try {
+    const membro = await obterBanco().query('SELECT id FROM contabil_auth_users WHERE login=$1 AND office_owner=$2 AND disabled=false AND id<>$2', [login, sessao.userId]);
+    if (!membro.rowCount) { res.status(404).json({ sucesso: false, motivo: 'Membro ativo não encontrado neste escritório.' }); return; }
+    const token = crypto.randomBytes(32).toString('base64url'); const tokenHash = hashTokenContabil(token);
+    await obterBanco().query('DELETE FROM contabil_auth_invites WHERE office_owner=$1 AND login=$2 AND reset_password=true', [sessao.userId, login]);
+    await obterBanco().query("INSERT INTO contabil_auth_invites(token_hash,login,cnpjs,role,created_by,expires_at,office_owner,reset_password) VALUES($1,$2,'{}','operator',$3,now()+interval '24 hours',$3,true)", [tokenHash, login, sessao.userId]);
+    const base = process.env.PUBLIC_APP_URL?.trim() || process.env.RENDER_EXTERNAL_URL?.trim() || `${req.protocol}://${req.get('host')}`;
+    const link = new URL('/', base); link.hash = new URLSearchParams({ convite: token, login }).toString();
+    res.setHeader('Cache-Control', 'no-store'); res.status(201).json({ sucesso: true, conviteUrl: link.toString(), login, redefinirSenha: true, expiraEmHoras: 24 });
+  } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível gerar o link de redefinição.' }); }
+}
 
 // ---- Dono do sistema: contrata/bloqueia escritórios, sem acesso às empresas deles ----
 export async function convidarEscritorioContabil(req: Request, res: Response): Promise<void> {
