@@ -85,7 +85,7 @@ export const CabecalhoPadrao: React.FC<Props> = ({ usuario, empresaNome, empresa
         <Building2 size={13} className="shrink-0" />
         <span className="truncate">{empresaNome || 'Nenhuma empresa'}</span>
       </span>
-      <div className="relative">
+      <div className="relative hidden" aria-hidden="true">
         <button
           type="button"
           onClick={abrir}
