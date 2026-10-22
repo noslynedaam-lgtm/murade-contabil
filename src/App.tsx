@@ -81,6 +81,9 @@ function AppWorkspace() {
   const [lembretes, setLembretes] = useState<LembreteItem[]>([]);
   const [dadosEmpresaCarregadosCnpj, setDadosEmpresaCarregadosCnpj] = useState("");
   const [workspacePersistido, setWorkspacePersistido] = useState(false);
+  const [tentativaOnline, setTentativaOnline] = useState(0);
+  // Voltou a internet: tenta gravar de novo o que não foi confirmado no servidor.
+  React.useEffect(() => { const f = () => setTentativaOnline((n) => n + 1); window.addEventListener('online', f); return () => window.removeEventListener('online', f); }, []);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   // Estados de controle e feedback
@@ -207,7 +210,7 @@ function AppWorkspace() {
       workspaceTimerRef.current = null;
       void flushWorkspaceRef.current();
     }, 600);
-  }, [empresa, dadosEmpresaCarregadosCnpj, contas, centrosCusto, bensImobilizado, mapeamentosOrigem, preLancamentos, lancamentos, livros, lembretes, auth.cnpjs.join(",")]);
+  }, [empresa, dadosEmpresaCarregadosCnpj, contas, centrosCusto, bensImobilizado, mapeamentosOrigem, preLancamentos, lancamentos, livros, lembretes, auth.cnpjs.join(","), tentativaOnline]);
 
   React.useEffect(() => {
     const analiticas = new Set(contas.filter((conta) => conta.tipo === "analitica").map((conta) => conta.codigo));
