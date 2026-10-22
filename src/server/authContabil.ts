@@ -496,8 +496,9 @@ export async function listarEquipeContabil(req: Request, res: Response): Promise
   const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
   if (!sessao?.administrador) { res.status(403).json({ sucesso: false, motivo: 'Somente o administrador do escritório consulta a equipe.' }); return; }
   try {
-    const r = await obterBanco().query('SELECT login FROM contabil_auth_users WHERE office_owner=$1 AND disabled=false ORDER BY login', [sessao.userId]);
-    res.setHeader('Cache-Control', 'no-store'); res.json({ sucesso: true, equipe: r.rows.map((row) => row.login) });
+    const r = await obterBanco().query('SELECT login,disabled FROM contabil_auth_users WHERE office_owner=$1 ORDER BY login', [sessao.userId]);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ sucesso: true, equipe: r.rows.filter((row) => row.disabled !== true).map((row) => row.login), membros: r.rows.map((row) => ({ login: row.login, bloqueado: row.disabled === true })) });
   } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível listar a equipe.' }); }
 }
 
@@ -555,12 +556,25 @@ export async function removerEquipeContabil(req: Request, res: Response): Promis
   const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil; const login = String(req.params.login || '').trim().toLowerCase();
   if (!sessao?.administrador) { res.status(403).json({ sucesso: false, motivo: 'Somente o administrador do escritório altera a equipe.' }); return; }
   try {
-    const r = await obterBanco().query('UPDATE contabil_auth_users SET office_owner=NULL WHERE login=$1 AND office_owner=$2 RETURNING login', [login, sessao.userId]);
+    const r = await obterBanco().query('UPDATE contabil_auth_users SET office_owner=NULL WHERE login=$1 AND office_owner=$2 AND id<>$3 RETURNING id,login', [login, sessao.userId, sessao.userId]);
     if (!r.rowCount) { res.status(404).json({ sucesso: false, motivo: 'Esse usuário não é da sua equipe.' }); return; }
+    await obterBanco().query('DELETE FROM contabil_auth_sessions WHERE user_id=$1', [r.rows[0].id]);
     res.setHeader('Cache-Control', 'no-store'); res.json({ sucesso: true, login, dadosPreservados: true });
   } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível remover da equipe.' }); }
 }
 
+
+export async function bloquearMembroEquipeContabil(req: Request, res: Response): Promise<void> {
+  const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
+  const login = String(req.params.login || '').trim().toLowerCase(); const bloqueado = req.body?.bloqueado === true;
+  if (!sessao?.administrador) { res.status(403).json({ sucesso: false, motivo: 'Somente o administrador do escritório altera a equipe.' }); return; }
+  try {
+    const r = await obterBanco().query('UPDATE contabil_auth_users SET disabled=$1 WHERE login=$2 AND office_owner=$3 AND id<>$3 RETURNING id,login', [bloqueado, login, sessao.userId]);
+    if (!r.rowCount) { res.status(404).json({ sucesso: false, motivo: 'Esse usuário não é da sua equipe.' }); return; }
+    if (bloqueado) await obterBanco().query('DELETE FROM contabil_auth_sessions WHERE user_id=$1', [r.rows[0].id]);
+    res.setHeader('Cache-Control', 'no-store'); res.json({ sucesso: true, login, bloqueado });
+  } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível alterar o bloqueio do membro.' }); }
+}
 
 // ---- Dono do sistema: contrata/bloqueia escritórios, sem acesso às empresas deles ----
 export async function convidarEscritorioContabil(req: Request, res: Response): Promise<void> {
