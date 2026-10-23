@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { UserPlus, X, LogOut, KeyRound } from "lucide-react";
 import { PainelEquipe } from "./PainelEquipe";
+import { EsqueciSenha } from "./EsqueciSenha";
 import { PainelEscritorios } from "./PainelEscritorios";
 
 type Membership = { cnpj: string; role: "admin" | "operator" | "viewer" };
@@ -209,6 +210,7 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
           {!status.carregando && !status.erro && !status.configuracaoNecessaria && !auth && (
             <button disabled={enviando} className="w-full rounded-lg bg-blue-700 px-4 py-3 font-bold text-white disabled:opacity-60">{enviando ? "Aguarde…" : status.primeiroAcesso ? "Criar acesso e entrar" : modo === "ativar" ? "Ativar conta e entrar" : "Entrar"}</button>
           )}
+          {!status.primeiroAcesso && !auth && <EsqueciSenha />}
           <p className="text-xs text-slate-500">A senha é armazenada como hash; o navegador recebe apenas um cookie de sessão HTTP-only.</p>
         </form>
       </section>

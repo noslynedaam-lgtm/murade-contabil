@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import type { Express, NextFunction, Request, Response } from 'express';
 import type { Pool } from 'pg';
+import { emailConfigurado, enviarEmail } from './emailMurade';
 
 // Gestão da equipe do escritório: convites pendentes (reenviar/cancelar), nova senha, bloquear e excluir.
 // Só o administrador do escritório age, e só sobre quem é da própria equipe.
@@ -46,6 +47,30 @@ export function registrarGestaoEquipe(app: Express, cfg: ConfigGestaoEquipe, par
       await db().query(`DELETE FROM ${tabelaReset} WHERE user_id=$1`, [r.rows[0].user_id]);
       res.setHeader('Cache-Control', 'no-store'); res.status(201).json({ sucesso: true, usuario: lg, cnpjs: [], senhaRedefinida: true });
     } catch (e) { falha(res, e); }
+  });
+
+  // Esqueci minha senha: envia por e-mail um link de uso único (24 h). A resposta é sempre a mesma, exista ou não a conta.
+  const tentativasEmail = new Map<string, number[]>();
+  if (parte !== 'rotas') app.post('/api/auth/esqueci-senha', ...o, async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    if (!emailConfigurado()) { res.status(503).json({ sucesso: false, motivo: 'A recuperação por e-mail ainda não foi ativada neste sistema. Peça ao administrador do escritório para gerar um link de nova senha.' }); return; }
+    const lg = String(req.body?.login || '').trim().toLowerCase();
+    const resposta = { sucesso: true, mensagem: 'Se este e-mail estiver cadastrado, enviamos um link para criar a nova senha. Confira também a caixa de spam.' };
+    const agora = Date.now(); const ip = req.ip || 'x'; const chaves = [`ip:${ip}`, `lg:${lg}`];
+    for (const k of chaves) { const l = (tentativasEmail.get(k) || []).filter((t) => agora - t < 15 * 60_000); if (l.length >= (k.startsWith('ip:') ? 10 : 3)) { res.status(429).json({ sucesso: false, motivo: 'Muitas tentativas. Aguarde alguns minutos.' }); return; } l.push(agora); tentativasEmail.set(k, l); }
+    if (tentativasEmail.size > 5000) tentativasEmail.clear();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lg) || lg.length > 120) { res.json(resposta); return; }
+    try {
+      await garantir();
+      const u = await db().query(`SELECT id FROM ${T.usuarios} WHERE login=$1 AND disabled=false`, [lg]);
+      if (u.rowCount) {
+        const token = crypto.randomBytes(32).toString('base64url');
+        await db().query(`DELETE FROM ${tabelaReset} WHERE user_id=$1`, [u.rows[0].id]);
+        await db().query(`INSERT INTO ${tabelaReset}(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '24 hours')`, [hash(token), u.rows[0].id]);
+        await enviarEmail(lg, 'Murade: criar nova senha', `Olá!\n\nRecebemos um pedido para criar uma nova senha no Murade.\nAbra o link abaixo (vale 24 horas e só pode ser usado uma vez):\n\n${linkConvite(req, token, lg)}\n\nSe não foi você, ignore este e-mail: sua senha continua a mesma.`);
+      }
+      res.json(resposta);
+    } catch (e) { console.error('Falha no envio de recuperação de senha:', e instanceof Error ? e.message : e); res.json(resposta); }
   });
 
   if (parte === 'redefinir') return;
