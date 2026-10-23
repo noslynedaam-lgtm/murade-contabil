@@ -39,6 +39,7 @@ export function PainelEquipe() {
     <div className="mb-5 rounded-xl border border-slate-200 p-4">
       <h3 className="mb-1 font-semibold">Equipe do escritório</h3>
       <p className="mb-2 text-xs text-slate-600">Quem está na equipe acessa todas as empresas do escritório, as de hoje e as futuras, de qualquer computador. Cliente não entra aqui: convide-o pela empresa dele, abaixo.</p>
+      <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm"><strong>Aplicativo instalado travou ou ficou desatualizado?</strong> Não precisa reenviar convite nem instalar de novo. Mande este link para a pessoa abrir uma vez; o usuário, a senha e os dados dela continuam iguais: <a className="break-all text-blue-800 underline" href="/reparar.html">{`${window.location.origin}/reparar.html`}</a> <button type="button" className="ml-2 rounded bg-blue-800 px-2 py-1 text-white" onClick={() => void navigator.clipboard.writeText(`${window.location.origin}/reparar.html`)}>Copiar</button></div>
       <form onSubmit={convidar} className="flex gap-2">
         <input required value={login} onChange={(e) => setLogin(e.target.value)} placeholder="Usuário (e-mail) do funcionário" className="min-w-0 flex-1 rounded-lg border p-2" />
         <button className="rounded-lg bg-slate-800 px-3 text-white">Gerar convite</button>
