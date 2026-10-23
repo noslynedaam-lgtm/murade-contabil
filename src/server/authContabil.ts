@@ -531,7 +531,7 @@ export async function convidarEquipeContabil(req: Request, res: Response): Promi
   if (!loginValidoContabil(login)) { res.status(400).json({ sucesso: false, motivo: 'Informe um nome de usuário válido.' }); return; }
   try {
     const exists = await obterBanco().query('SELECT 1 FROM contabil_auth_users WHERE login=$1', [login]);
-    if (exists.rowCount) { res.status(409).json({ sucesso: false, motivo: 'Este usuário já existe. Use "Adicionar conta existente à equipe".' }); return; }
+    if (exists.rowCount) { res.status(409).json({ sucesso: false, motivo: 'Este usuário já existe. Se ele já é da sua equipe, use "Nova senha" na lista abaixo; se tem conta em outro lugar, use "Adicionar conta existente".' }); return; }
     const token = crypto.randomBytes(32).toString('base64url');
     await obterBanco().query("INSERT INTO contabil_auth_invites(token_hash,login,cnpjs,role,created_by,expires_at,office_owner) VALUES($1,$2,'{}','operator',$3,now()+interval '24 hours',$3)", [hashTokenContabil(token), login, sessao.userId]);
     const base = process.env.PUBLIC_APP_URL?.trim() || process.env.RENDER_EXTERNAL_URL?.trim() || `${req.protocol}://${req.get('host')}`;
@@ -1540,4 +1540,8 @@ export async function listarRegistroAgenteIAContabil(req: Request, limiteInforma
     [sessao.cnpjs, sessao.login, limite]);
   return r.rows.map((x) => ({ id: String(x.id), usuario: x.login, cnpj: x.cnpj, evento: x.event, ferramenta: x.tool, resumo: x.summary, resultado: x.result, em: new Date(x.created_at).toISOString() }));
   } catch { return []; /* tabela ainda não criada: nenhuma ação registrada */ }
+}
+
+export function configGestaoEquipeContabil(exigirSessao: (req: Request, res: Response, next: NextFunction) => unknown, origem: (req: Request, res: Response, next: NextFunction) => unknown) {
+  return { pool: obterBanco, tabelas: { usuarios: 'contabil_auth_users', sessoes: 'contabil_auth_sessions', convites: 'contabil_auth_invites' }, preparar: prepararAuthContabil, sessao: (req: Request) => { const s = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil; return s ? { userId: s.userId, admin: s.administrador === true } : undefined; }, middlewares: [exigirSessao], origem };
 }
