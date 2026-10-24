@@ -80,9 +80,9 @@ export function registrarGestaoEquipe(app: Express, cfg: ConfigGestaoEquipe, par
     try {
       await garantir();
       const m = await db().query(`SELECT login, disabled FROM ${T.usuarios} WHERE office_owner=$1 ORDER BY login`, [s.userId]);
-      const c = await db().query(`SELECT login, expires_at FROM ${T.convites} WHERE office_owner=$1 AND expires_at>now() ORDER BY created_at DESC`, [s.userId]);
+      const c = await db().query(`SELECT login, expires_at, (expires_at<=now()) AS vencido FROM ${T.convites} WHERE office_owner=$1 AND expires_at>now()-interval '30 days' ORDER BY created_at DESC`, [s.userId]); // vencidos continuam na lista (30 dias) para poder reenviar
       res.setHeader('Cache-Control', 'no-store');
-      res.json({ sucesso: true, membros: m.rows.map((x) => ({ login: x.login, bloqueado: x.disabled === true })), convites: c.rows.map((x) => ({ login: x.login, expiraEm: x.expires_at })) });
+      res.json({ sucesso: true, membros: m.rows.map((x) => ({ login: x.login, bloqueado: x.disabled === true })), convites: c.rows.map((x) => ({ login: x.login, expiraEm: x.expires_at, vencido: x.vencido === true })) });
     } catch (e) { falha(res, e); }
   });
 
