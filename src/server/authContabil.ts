@@ -401,12 +401,12 @@ export async function criarConviteUsuarioContabil(req: Request, res: Response): 
     if (existe.rowCount) { res.status(409).json({ sucesso: false, motivo: 'Este usuário já existe. Não alteramos a senha existente; peça que ele entre e vincule a empresa com um administrador.' }); return; }
     const token = crypto.randomBytes(32).toString('base64url');
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-    await obterBanco().query("INSERT INTO contabil_auth_invites(token_hash,login,cnpjs,role,created_by,expires_at) VALUES($1,$2,$3,$4,$5,now()+interval '24 hours')", [tokenHash, login, cnpjs, role, sessao.userId]);
+    await obterBanco().query("INSERT INTO contabil_auth_invites(token_hash,login,cnpjs,role,created_by,expires_at) VALUES($1,$2,$3,$4,$5,now()+interval '30 days')", [tokenHash, login, cnpjs, role, sessao.userId]);
     res.setHeader('Cache-Control', 'no-store');
     const base = process.env.PUBLIC_APP_URL?.trim() || process.env.RENDER_EXTERNAL_URL?.trim() || `${req.protocol}://${req.get('host')}`;
     const conviteUrl = new URL('/', base);
     conviteUrl.hash = new URLSearchParams({ convite: token, login }).toString();
-    res.status(201).json({ sucesso: true, convite: token, conviteUrl: conviteUrl.toString(), login, cnpjs, expiraEmHoras: 24, mensagem: 'Convite de uso único. Envie o link em particular; a pessoa escolherá sua própria senha.' });
+    res.status(201).json({ sucesso: true, convite: token, conviteUrl: conviteUrl.toString(), login, cnpjs, expiraEmHoras: 720, mensagem: 'Convite de uso único. Envie o link em particular; a pessoa escolherá sua própria senha.' });
   } catch (error) { console.error('Falha ao criar convite no Contábil:', error); res.status(503).json({ sucesso: false, motivo: 'Não foi possível criar o convite.' }); }
 }
 
@@ -533,10 +533,10 @@ export async function convidarEquipeContabil(req: Request, res: Response): Promi
     const exists = await obterBanco().query('SELECT 1 FROM contabil_auth_users WHERE login=$1', [login]);
     if (exists.rowCount) { res.status(409).json({ sucesso: false, motivo: 'Este usuário já existe. Se ele já é da sua equipe, use "Nova senha" na lista abaixo; se tem conta em outro lugar, use "Adicionar conta existente".' }); return; }
     const token = crypto.randomBytes(32).toString('base64url');
-    await obterBanco().query("INSERT INTO contabil_auth_invites(token_hash,login,cnpjs,role,created_by,expires_at,office_owner) VALUES($1,$2,'{}','operator',$3,now()+interval '24 hours',$3)", [hashTokenContabil(token), login, sessao.userId]);
+    await obterBanco().query("INSERT INTO contabil_auth_invites(token_hash,login,cnpjs,role,created_by,expires_at,office_owner) VALUES($1,$2,'{}','operator',$3,now()+interval '30 days',$3)", [hashTokenContabil(token), login, sessao.userId]);
     const base = process.env.PUBLIC_APP_URL?.trim() || process.env.RENDER_EXTERNAL_URL?.trim() || `${req.protocol}://${req.get('host')}`;
     const conviteUrl = new URL('/', base); conviteUrl.hash = new URLSearchParams({ convite: token, login }).toString();
-    res.setHeader('Cache-Control', 'no-store'); res.status(201).json({ sucesso: true, conviteUrl: conviteUrl.toString(), login, expiraEmHoras: 24 });
+    res.setHeader('Cache-Control', 'no-store'); res.status(201).json({ sucesso: true, conviteUrl: conviteUrl.toString(), login, expiraEmHoras: 720 });
   } catch (error) { console.error('Falha ao convidar equipe Contábil:', error); res.status(503).json({ sucesso: false, motivo: 'Não foi possível criar o convite da equipe.' }); }
 }
 
@@ -571,10 +571,10 @@ export async function convidarEscritorioContabil(req: Request, res: Response): P
     const exists = await obterBanco().query('SELECT 1 FROM contabil_auth_users WHERE login=$1', [login]);
     if (exists.rowCount) { res.status(409).json({ sucesso: false, motivo: 'Este usuário já existe.' }); return; }
     const token = crypto.randomBytes(32).toString('base64url');
-    await obterBanco().query("INSERT INTO contabil_auth_invites(token_hash,login,cnpjs,role,created_by,expires_at,novo_escritorio) VALUES($1,$2,'{}','admin',$3,now()+interval '24 hours',true)", [hashTokenContabil(token), login, sessao.userId]);
+    await obterBanco().query("INSERT INTO contabil_auth_invites(token_hash,login,cnpjs,role,created_by,expires_at,novo_escritorio) VALUES($1,$2,'{}','admin',$3,now()+interval '30 days',true)", [hashTokenContabil(token), login, sessao.userId]);
     const base = process.env.PUBLIC_APP_URL?.trim() || process.env.RENDER_EXTERNAL_URL?.trim() || `${req.protocol}://${req.get('host')}`;
     const conviteUrl = new URL('/', base); conviteUrl.hash = new URLSearchParams({ convite: token, login }).toString();
-    res.setHeader('Cache-Control', 'no-store'); res.status(201).json({ sucesso: true, conviteUrl: conviteUrl.toString(), login, expiraEmHoras: 24 });
+    res.setHeader('Cache-Control', 'no-store'); res.status(201).json({ sucesso: true, conviteUrl: conviteUrl.toString(), login, expiraEmHoras: 720 });
   } catch (error) { console.error('Falha ao convidar escritório Contábil:', error); res.status(503).json({ sucesso: false, motivo: 'Não foi possível criar o convite do escritório.' }); }
 }
 

@@ -86,14 +86,14 @@ export function registrarGestaoEquipe(app: Express, cfg: ConfigGestaoEquipe, par
     } catch (e) { falha(res, e); }
   });
 
-  // Reenviar: troca o link do convite pendente por um novo (o antigo deixa de valer) e renova por 24 h.
+  // Reenviar: troca o link do convite pendente por um novo (o antigo deixa de valer) e renova por 30 dias.
   app.post('/api/auth/team/:login/reenviar', ...o, ...mid, async (req, res) => {
     const s = admin(req, res); if (!s) return;
     try {
       await garantir(); const token = crypto.randomBytes(32).toString('base64url');
-      const r = await db().query(`UPDATE ${T.convites} SET token_hash=$1, expires_at=now()+interval '24 hours' WHERE login=$2 AND office_owner=$3 RETURNING login`, [hash(token), login(req), s.userId]);
+      const r = await db().query(`UPDATE ${T.convites} SET token_hash=$1, expires_at=now()+interval '30 days' WHERE login=$2 AND office_owner=$3 RETURNING login`, [hash(token), login(req), s.userId]);
       if (!r.rowCount) { res.status(404).json({ sucesso: false, motivo: 'Não há convite pendente para este usuário. Gere um convite novo.' }); return; }
-      res.setHeader('Cache-Control', 'no-store'); res.json({ sucesso: true, login: login(req), conviteUrl: linkConvite(req, token, login(req)), expiraEmHoras: 24 });
+      res.setHeader('Cache-Control', 'no-store'); res.json({ sucesso: true, login: login(req), conviteUrl: linkConvite(req, token, login(req)), expiraEmHoras: 720 });
     } catch (e) { falha(res, e); }
   });
 
@@ -117,7 +117,7 @@ export function registrarGestaoEquipe(app: Express, cfg: ConfigGestaoEquipe, par
       const token = crypto.randomBytes(32).toString('base64url');
       await db().query(`DELETE FROM ${tabelaReset} WHERE user_id=$1`, [u.rows[0].id]);
       await db().query(`INSERT INTO ${tabelaReset}(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '24 hours')`, [hash(token), u.rows[0].id]);
-      res.setHeader('Cache-Control', 'no-store'); res.status(201).json({ sucesso: true, login: login(req), conviteUrl: linkConvite(req, token, login(req)), expiraEmHoras: 24 });
+      res.setHeader('Cache-Control', 'no-store'); res.status(201).json({ sucesso: true, login: login(req), conviteUrl: linkConvite(req, token, login(req)), expiraEmHoras: 720 });
     } catch (e) { falha(res, e); }
   });
 
