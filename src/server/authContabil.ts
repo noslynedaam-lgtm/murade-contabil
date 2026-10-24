@@ -524,12 +524,23 @@ export async function definirLimiteEscritorioContabil(req: Request, res: Respons
   } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível definir o limite.' }); }
 }
 
+// Conta solta (tirada da equipe ou excluída/bloqueada por este escritório): apaga de vez para o e-mail poder receber convite novo.
+async function liberarLoginSoltoContabil(login: string, donoId: string): Promise<void> {
+  const r = await obterBanco().query(`SELECT u.id FROM contabil_auth_users u WHERE u.login=$1 AND u.global_admin=false AND ((u.office_owner=$2 AND u.disabled=true) OR (u.office_owner IS NULL AND (u.tenant_id IS NULL OR u.tenant_id=$2) AND NOT EXISTS (SELECT 1 FROM contabil_auth_company_access a WHERE a.user_id=u.id)))`, [login, donoId]);
+  if (!r.rowCount) return;
+  const id = r.rows[0].id;
+  await obterBanco().query('DELETE FROM contabil_auth_sessions WHERE user_id=$1', [id]).catch(() => undefined);
+  try { await obterBanco().query('DELETE FROM contabil_auth_users WHERE id=$1', [id]); }
+  catch { await obterBanco().query("UPDATE contabil_auth_users SET login=left(login,40)||'#removido-'||extract(epoch from now())::bigint::text, disabled=true, office_owner=NULL WHERE id=$1", [id]); }
+}
+
 export async function convidarEquipeContabil(req: Request, res: Response): Promise<void> {
   const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil; const login = String(req.body?.login || '').trim().toLowerCase();
   if (!sessao?.administrador) { res.status(403).json({ sucesso: false, motivo: 'Somente o administrador do escritório convida a equipe.' }); return; }
   try { const cheio = await limiteEquipeAtingidoContabil(sessao.userId); if (cheio) { res.status(409).json({ sucesso: false, motivo: cheio }); return; } } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível conferir o limite de usuários.' }); return; }
   if (!loginValidoContabil(login)) { res.status(400).json({ sucesso: false, motivo: 'Informe um nome de usuário válido.' }); return; }
   try {
+    await liberarLoginSoltoContabil(login, sessao.userId);
     const exists = await obterBanco().query('SELECT 1 FROM contabil_auth_users WHERE login=$1', [login]);
     if (exists.rowCount) { res.status(409).json({ sucesso: false, motivo: 'Este usuário já existe. Se ele já é da sua equipe, use "Nova senha" na lista abaixo; se tem conta em outro lugar, use "Adicionar conta existente".' }); return; }
     const token = crypto.randomBytes(32).toString('base64url');
