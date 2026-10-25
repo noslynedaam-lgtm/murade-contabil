@@ -143,8 +143,8 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
           </div>
           <div className="bg-white/90 border border-slate-300/80 rounded-lg p-3 shadow-2xs">
             <div className="text-[10px] text-slate-600 uppercase font-bold">Departamento Pessoal · origem da folha</div>
-            <div className="mt-1 text-xs font-black text-amber-800">Folha e encargos não processados</div>
-            <p className="mt-1 text-[11px] text-slate-600">A API de cálculo de folha ainda não está implementada; nenhum custo trabalhista deve ser lançado como concluído.</p>
+            <div className="mt-1 text-xs font-black text-amber-800">Folha calculada no DP; chega aqui só como totais</div>
+            <p className="mt-1 text-[11px] text-slate-600">O cálculo da folha é feito no Departamento Pessoal. O Contábil só recebe os totais agregados (sem nomes, CPF ou dados bancários) e cria rascunhos que aguardam conferência do contador. Sem folha enviada pelo DP, nada é lançado.</p>
           </div>
           <div className="bg-white/90 border border-slate-300/80 rounded-lg p-3 shadow-2xs">
             <div className="text-[10px] text-slate-600 uppercase font-bold">Contábil · consolidação</div>
