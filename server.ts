@@ -833,7 +833,32 @@ async function startServer() {
       })
     );
 
-    const todosResultados = resultados;
+    // SERPRO/Integra Contador: lê do Fisco IA (token de integração) só se as variáveis existem lá. Não autentica nada.
+    const todosResultados: any[] = resultados;
+    try {
+      const token = process.env.MURADE_INTEGRATION_TOKEN?.trim();
+      const base = (process.env.MURADE_FISCO_IA_URL || "https://murade-fisco-ia.onrender.com").trim().replace(/\/$/, "");
+      const alvo = todosResultados.find((r) => r.id === "serpro");
+      if (token && alvo) {
+        const r = await fetch(`${base}/api/serpro/status-integracao`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(4000) });
+        if (r.ok) {
+          const j: any = await r.json();
+          const faltam = [
+            !j?.producao?.consumerKey && "SERPRO_PRODUCAO_CONSUMER_KEY",
+            !j?.producao?.consumerSecret && "SERPRO_PRODUCAO_CONSUMER_SECRET",
+            !j?.certificadoEscritorio && "SERPRO_CERT_PFX_BASE64 / SERPRO_CERT_PFX_SENHA",
+            !j?.cnpjContratante && "SERPRO_CONTRATANTE_CNPJ",
+          ].filter(Boolean);
+          alvo.detalhes = faltam.length
+            ? `Credenciais no Fisco IA: faltam ${faltam.join(", ")}. Mesmo completas, contrato, escopos e procuração não são confirmados por este teste.`
+            : "Credenciais SERPRO presentes no Fisco IA. Contrato, escopos e procuração ainda não são confirmados por este teste.";
+        } else {
+          alvo.detalhes = "Não foi possível ler o estado das credenciais no Fisco IA agora.";
+        }
+      }
+    } catch {
+      /* sem leitura: mantém o texto padrão */
+    }
 
     res.json({
       timestamp: new Date().toISOString(),

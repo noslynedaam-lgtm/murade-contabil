@@ -399,6 +399,7 @@ function AppWorkspace() {
                 statusCode: real.statusCode,
                 statusTexto: real.statusTexto,
                 tls: real.tls,
+                detalhes: real.detalhes ?? org.detalhes,
                 ultimaVerificacao: `Hoje às ${real.verificadoEm}`,
               };
             }
