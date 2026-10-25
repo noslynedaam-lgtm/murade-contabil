@@ -146,9 +146,9 @@ export function registrarGestaoEquipe(app: Express, cfg: ConfigGestaoEquipe, par
         res.json({ sucesso: true, login: login(req), excluido: true });
       } catch {
         await c.query('ROLLBACK').catch(() => undefined);
-        await db().query(`UPDATE ${T.usuarios} SET disabled=true, office_owner=$2 WHERE id=$1`, [id, s.userId]);
+        await db().query(`UPDATE ${T.usuarios} SET login=left(login,40)||'#removido-'||extract(epoch from now())::bigint::text, disabled=true, office_owner=$2 WHERE id=$1`, [id, s.userId]);
         await db().query(`DELETE FROM ${T.sessoes} WHERE user_id=$1`, [id]);
-        res.json({ sucesso: true, login: login(req), excluido: false, bloqueado: true, aviso: 'A conta tem histórico e não pode ser apagada; ficou bloqueada e sem acesso.' });
+        res.json({ sucesso: true, login: login(req), excluido: false, bloqueado: true, aviso: 'O histórico impediu apagar a conta por completo; ela ficou sem acesso e o e-mail está livre para um novo cadastro.' });
       } finally { c.release(); }
     } catch (e) { falha(res, e); }
   });
