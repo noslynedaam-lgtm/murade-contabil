@@ -24,7 +24,7 @@ export function PainelEscritorios() {
       const texto = c instanceof Error ? c.message : 'Falha.'; setMsg(texto);
       if (/já existe/i.test(texto)) {
         // Mostra o que é essa conta e oferece apagá-la, para o e-mail poder ser cadastrado de novo.
-        try { const r = await fetch(`/api/auth/usuarios/${encodeURIComponent(login.trim().toLowerCase())}/resumo`, { credentials: 'include', cache: 'no-store' }); const d = await r.json();
+        try { const r = await fetch(`/api/auth/usuarios/${encodeURIComponent(login.trim().toLowerCase())}/resumo`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}' }); const d = await r.json();
           if (d.sucesso === true && d.existe) setConta({ login: login.trim().toLowerCase(), escritorio: d.escritorio === true, ehVoce: d.ehVoce === true, empresas: Number(d.empresas || 0) }); } catch { /* sem detalhes: a mensagem acima basta */ }
       }
     }

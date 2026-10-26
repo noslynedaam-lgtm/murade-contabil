@@ -207,7 +207,7 @@ export function registrarGestaoEquipe(app: Express, cfg: ConfigGestaoEquipe, par
 
   // Dono do sistema: ver o que é uma conta (para confirmar antes de apagar) e apagar uma conta que não é de escritório.
   // Serve quando um e-mail já existe e impede um novo cadastro. Os dados das empresas continuam guardados.
-  app.get('/api/auth/usuarios/:login/resumo', ...o, ...mid, async (req, res) => {
+  app.post('/api/auth/usuarios/:login/resumo', ...o, ...mid, async (req, res) => {
     const s = cfg.sessao(req);
     if (!s?.donoSistema) { res.status(403).json({ sucesso: false, motivo: 'Somente o dono do sistema consulta contas.' }); return; }
     const col = cfg.colunaEscritorio === 'office_admin' ? 'office_admin' : 'global_admin';
