@@ -66,3 +66,43 @@ test('dono do sistema exclui escritório de verdade e libera e-mails e CNPJ', { 
     await pool.end();
   }
 });
+
+test('dono do sistema vê e exclui uma conta ativa com acesso a empresa, e o e-mail fica livre', { skip: !urlBanco }, async () => {
+  process.env.DATABASE_URL = urlBanco;
+  const { prepararAuthContabil } = await import('../../src/server/authContabil');
+  const { registrarGestaoEquipe } = await import('../../src/server/gestaoEquipe');
+  await prepararAuthContabil();
+  const pool = new Pool({ connectionString: urlBanco });
+  const q = (sql: string, p: unknown[] = []) => pool.query(sql, p);
+  const sufixo = crypto.randomBytes(4).toString('hex'); const cnpj = '11222333000181';
+  const dono = crypto.randomUUID(); const antiga = crypto.randomUUID(); const escritorio = crypto.randomUUID();
+  const lgAntiga = `antiga-${sufixo}@teste.com`; const lgEscritorio = `esc-${sufixo}@teste.com`;
+  const ins = (uid: string, lg: string, global: boolean, tenant: string | null) => q('INSERT INTO contabil_auth_users(id,login,password_salt,password_hash,global_admin,tenant_id) VALUES($1,$2,$3,$4,$5,$6)', [uid, lg, 's', 'h', global, tenant]);
+  await ins(dono, `dono2-${sufixo}@teste.com`, true, dono); await ins(escritorio, lgEscritorio, true, escritorio);
+  await ins(antiga, lgAntiga, false, null); // conta antiga: ativa, sem escritório, com acesso a uma empresa
+  await q("INSERT INTO contabil_auth_company_access(user_id,cnpj,role) VALUES($1,$2,'operator')", [antiga, cnpj]);
+  await q("INSERT INTO contabil_auth_sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')", [crypto.createHash('sha256').update(sufixo + 'z').digest('hex'), antiga]);
+  const app = express(); app.use(express.json()); let quem = dono;
+  registrarGestaoEquipe(app, { pool: () => pool, tabelas: { usuarios: 'contabil_auth_users', sessoes: 'contabil_auth_sessions', convites: 'contabil_auth_invites' }, preparar: prepararAuthContabil, colunaEscritorio: 'global_admin', sessao: () => ({ userId: quem, admin: true, donoSistema: quem === dono }) });
+  const servidor = http.createServer(app); await new Promise<void>((ok) => servidor.listen(0, ok));
+  const base = `http://127.0.0.1:${(servidor.address() as AddressInfo).port}`;
+  const resumo = async (lg: string) => (await fetch(`${base}/api/auth/usuarios/${encodeURIComponent(lg)}/resumo`)).json() as Promise<any>;
+  const excluir = (lg: string, corpo: object) => fetch(`${base}/api/auth/usuarios/${encodeURIComponent(lg)}/excluir`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+  try {
+    const r = await resumo(lgAntiga); assert.equal(r.existe, true); assert.equal(r.empresas, 1); assert.equal(r.escritorio, false);
+    assert.equal((await resumo(`nao-existe-${sufixo}@teste.com`)).existe, false);
+    assert.equal((await resumo(lgEscritorio)).escritorio, true);
+    quem = antiga; assert.equal((await excluir(lgAntiga, { confirmar: true })).status, 403, 'quem não é dono do sistema não exclui contas');
+    quem = dono; assert.equal((await excluir(lgAntiga, {})).status, 400, 'exige confirmação');
+    assert.equal((await excluir(lgEscritorio, { confirmar: true })).status, 409, 'dono de escritório só sai pela exclusão do escritório');
+    assert.equal((await excluir(`dono2-${sufixo}@teste.com`, { confirmar: true })).status, 400, 'não exclui a própria conta');
+    const ok = await excluir(lgAntiga, { confirmar: true }); assert.equal(ok.status, 200);
+    assert.equal((await q('SELECT 1 FROM contabil_auth_users WHERE login=$1', [lgAntiga])).rowCount, 0, 'e-mail livre para novo cadastro');
+    assert.equal((await q('SELECT 1 FROM contabil_auth_company_access WHERE cnpj=$1', [cnpj])).rowCount, 0);
+    assert.equal((await excluir(lgAntiga, { confirmar: true })).status, 404, 'já livre');
+  } finally {
+    await new Promise((ok) => servidor.close(ok));
+    await q('DELETE FROM contabil_auth_users WHERE id=ANY($1::uuid[])', [[dono, antiga, escritorio]]).catch(() => undefined);
+    await pool.end();
+  }
+});

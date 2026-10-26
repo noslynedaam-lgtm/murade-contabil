@@ -34,6 +34,27 @@ export function registrarGestaoEquipe(app: Express, cfg: ConfigGestaoEquipe, par
   const login = (req: Request) => String(req.params.login || '').trim().toLowerCase();
   const o = cfg.origem ? [cfg.origem] : [];
 
+  // Apaga a conta de verdade; se o histórico impedir, ela fica sem acesso, bloqueada e com o e-mail liberado. Roda dentro de uma transação aberta.
+  const apagarConta = async (c: { query: (sql: string, p?: unknown[]) => Promise<unknown> }, id: string): Promise<'apagada' | 'sem_acesso'> => {
+    const colunaEscritorio = cfg.colunaEscritorio === 'office_admin' ? 'office_admin' : 'global_admin';
+    const tabelaAcesso = T.usuarios.replace(/_users$/, '_company_access');
+    await c.query('SAVEPOINT conta');
+    try {
+      await c.query(`DELETE FROM ${T.sessoes} WHERE user_id=$1`, [id]);
+      await c.query(`DELETE FROM ${tabelaReset} WHERE user_id=$1`, [id]);
+      await c.query(`DELETE FROM ${tabelaAcesso} WHERE user_id=$1`, [id]);
+      await c.query(`DELETE FROM ${T.usuarios} WHERE id=$1`, [id]);
+      await c.query('RELEASE SAVEPOINT conta'); return 'apagada';
+    } catch {
+      await c.query('ROLLBACK TO SAVEPOINT conta');
+      await c.query(`DELETE FROM ${T.sessoes} WHERE user_id=$1`, [id]);
+      await c.query(`DELETE FROM ${tabelaReset} WHERE user_id=$1`, [id]);
+      await c.query(`DELETE FROM ${tabelaAcesso} WHERE user_id=$1`, [id]);
+      await c.query(`UPDATE ${T.usuarios} SET login=left(login,40)||'#removido-'||substr(id::text,1,8)||'-'||extract(epoch from now())::bigint::text, disabled=true, office_owner=NULL, tenant_id=NULL, ${colunaEscritorio}=false WHERE id=$1`, [id]);
+      await c.query('RELEASE SAVEPOINT conta'); return 'sem_acesso';
+    }
+  };
+
   if (parte !== 'rotas') // Redefinir senha: o mesmo link de convite (#convite=...) serve; este trecho atende antes do cadastro normal.
   app.post('/api/auth/redeem', ...o, async (req, res, next) => {
     try {
@@ -163,7 +184,6 @@ export function registrarGestaoEquipe(app: Express, cfg: ConfigGestaoEquipe, par
     if (!s?.donoSistema) { res.status(403).json({ sucesso: false, motivo: 'Somente o dono do sistema exclui escritórios.' }); return; }
     if (req.body?.confirmar !== true) { res.status(400).json({ sucesso: false, motivo: 'Confirme a exclusão do escritório.' }); return; }
     const colunaEscritorio = cfg.colunaEscritorio === 'office_admin' ? 'office_admin' : 'global_admin';
-    const tabelaAcesso = T.usuarios.replace(/_users$/, '_company_access');
     try {
       await garantir();
       const alvo = await db().query(`SELECT id FROM ${T.usuarios} WHERE login=$1 AND ${colunaEscritorio}=true AND tenant_id=id AND id<>$2`, [login(req), s.userId]);
@@ -176,28 +196,52 @@ export function registrarGestaoEquipe(app: Express, cfg: ConfigGestaoEquipe, par
         const contas = await c.query(`SELECT id FROM ${T.usuarios} WHERE (tenant_id=$1 OR office_owner=$1 OR id=$1) AND id<>$2 ORDER BY (id=$1) ASC`, [tenant, s.userId]);
         const ids: string[] = contas.rows.map((x) => String(x.id));
         await c.query(`DELETE FROM ${T.convites} WHERE office_owner=$1 OR created_by = ANY($2::uuid[])`, [tenant, ids]);
-        for (const id of ids) {
-          await c.query('SAVEPOINT conta');
-          try {
-            await c.query(`DELETE FROM ${T.sessoes} WHERE user_id=$1`, [id]);
-            await c.query(`DELETE FROM ${tabelaReset} WHERE user_id=$1`, [id]);
-            await c.query(`DELETE FROM ${tabelaAcesso} WHERE user_id=$1`, [id]);
-            await c.query(`DELETE FROM ${T.usuarios} WHERE id=$1`, [id]);
-            await c.query('RELEASE SAVEPOINT conta'); apagadas += 1;
-          } catch {
-            await c.query('ROLLBACK TO SAVEPOINT conta');
-            await c.query(`DELETE FROM ${T.sessoes} WHERE user_id=$1`, [id]);
-            await c.query(`DELETE FROM ${tabelaReset} WHERE user_id=$1`, [id]);
-            await c.query(`DELETE FROM ${tabelaAcesso} WHERE user_id=$1`, [id]);
-            await c.query(`UPDATE ${T.usuarios} SET login=left(login,40)||'#removido-'||substr(id::text,1,8)||'-'||extract(epoch from now())::bigint::text, disabled=true, office_owner=NULL, tenant_id=NULL, ${colunaEscritorio}=false WHERE id=$1`, [id]);
-            await c.query('RELEASE SAVEPOINT conta'); anonimizadas += 1;
-          }
-        }
+        for (const id of ids) { if (await apagarConta(c, id) === 'apagada') apagadas += 1; else anonimizadas += 1; }
         await c.query('COMMIT');
       } catch (e) { await c.query('ROLLBACK').catch(() => undefined); throw e; }
       finally { c.release(); }
       res.setHeader('Cache-Control', 'no-store');
       res.json({ sucesso: true, login: login(req), excluido: true, contasApagadas: apagadas, contasSemAcesso: anonimizadas, aviso: anonimizadas ? 'Algumas contas têm histórico de auditoria e ficaram sem acesso, com o e-mail liberado para novo cadastro.' : undefined });
+    } catch (e) { falha(res, e); }
+  });
+
+  // Dono do sistema: ver o que é uma conta (para confirmar antes de apagar) e apagar uma conta que não é de escritório.
+  // Serve quando um e-mail já existe e impede um novo cadastro. Os dados das empresas continuam guardados.
+  app.get('/api/auth/usuarios/:login/resumo', ...o, ...mid, async (req, res) => {
+    const s = cfg.sessao(req);
+    if (!s?.donoSistema) { res.status(403).json({ sucesso: false, motivo: 'Somente o dono do sistema consulta contas.' }); return; }
+    const col = cfg.colunaEscritorio === 'office_admin' ? 'office_admin' : 'global_admin';
+    try {
+      await garantir();
+      const r = await db().query(`SELECT u.id, u.disabled, u.${col} AS escritorio, (SELECT count(*)::int FROM ${T.usuarios.replace(/_users$/, '_company_access')} a WHERE a.user_id=u.id) AS empresas FROM ${T.usuarios} u WHERE u.login=$1`, [login(req)]);
+      res.setHeader('Cache-Control', 'no-store');
+      if (!r.rowCount) { res.json({ sucesso: true, existe: false }); return; }
+      const x = r.rows[0]; res.json({ sucesso: true, existe: true, bloqueada: x.disabled === true, escritorio: x.escritorio === true, ehVoce: String(x.id) === s.userId, empresas: Number(x.empresas) });
+    } catch (e) { falha(res, e); }
+  });
+
+  app.post('/api/auth/usuarios/:login/excluir', ...o, ...mid, async (req, res) => {
+    const s = cfg.sessao(req);
+    if (!s?.donoSistema) { res.status(403).json({ sucesso: false, motivo: 'Somente o dono do sistema exclui contas.' }); return; }
+    if (req.body?.confirmar !== true) { res.status(400).json({ sucesso: false, motivo: 'Confirme a exclusão da conta.' }); return; }
+    const col = cfg.colunaEscritorio === 'office_admin' ? 'office_admin' : 'global_admin';
+    try {
+      await garantir();
+      const alvo = await db().query(`SELECT id, ${col} AS escritorio FROM ${T.usuarios} WHERE login=$1`, [login(req)]);
+      if (!alvo.rowCount) { res.status(404).json({ sucesso: false, motivo: 'Conta não encontrada: o e-mail já está livre.' }); return; }
+      const id = String(alvo.rows[0].id);
+      if (id === s.userId) { res.status(400).json({ sucesso: false, motivo: 'Você não pode excluir a própria conta.' }); return; }
+      if (alvo.rows[0].escritorio === true) { res.status(409).json({ sucesso: false, motivo: 'Esta conta é dono de escritório: use o botão Excluir do escritório, que apaga também a equipe.' }); return; }
+      const c = await db().connect(); let resultado: 'apagada' | 'sem_acesso';
+      try {
+        await c.query('BEGIN');
+        await c.query(`DELETE FROM ${T.convites} WHERE created_by=$1`, [id]);
+        resultado = await apagarConta(c, id);
+        await c.query('COMMIT');
+      } catch (e) { await c.query('ROLLBACK').catch(() => undefined); throw e; }
+      finally { c.release(); }
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ sucesso: true, login: login(req), excluido: true, semAcesso: resultado === 'sem_acesso' });
     } catch (e) { falha(res, e); }
   });
 }
