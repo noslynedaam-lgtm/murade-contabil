@@ -12,6 +12,7 @@ import { InicioTab } from "./components/tabs/InicioTab";
 import { ConexoesTab } from "./components/tabs/ConexoesTab";
 import { EmpresaTab } from "./components/tabs/EmpresaTab";
 import { LancamentosTab } from "./components/tabs/LancamentosTab";
+import { AprovacoesTab } from "./components/tabs/AprovacoesTab";
 import { BalanceteTab } from "./components/tabs/BalanceteTab";
 import { LivrosTab } from "./components/tabs/LivrosTab";
 import { PlanoContasTab } from "./components/tabs/PlanoContasTab";
@@ -669,6 +670,7 @@ function AppWorkspace() {
         <Sidebar
           tabAtiva={tabAtiva}
           onSelectTab={(tab) => setTabAtiva(tab)}
+          pendentesAprovacao={lancamentos.filter((l) => l.statusManual === "pendente_aprovacao").length}
         />
       </div>
 
@@ -682,6 +684,7 @@ function AppWorkspace() {
           <div className="relative z-10 flex h-full">
             <Sidebar
               tabAtiva={tabAtiva}
+              pendentesAprovacao={lancamentos.filter((l) => l.statusManual === "pendente_aprovacao").length}
               onSelectTab={(tab) => {
                 setTabAtiva(tab);
                 setMobileSidebarOpen(false);
@@ -850,6 +853,15 @@ function AppWorkspace() {
                     setLancamentos((prev) => [novo, ...prev])
                   }
                   onEstornarLancamento={handleEstornarLancamento}
+                  workspacePersistido={workspacePersistido}
+                  onDecidirLancamentoManual={handleDecidirLancamentoManual}
+                />
+              )}
+
+              {tabAtiva === "aprovacoes" && (
+                <AprovacoesTab
+                  lancamentos={lancamentos}
+                  empresaNome={empresa.razaoSocial || empresa.nomeFantasia || empresa.cnpj}
                   workspacePersistido={workspacePersistido}
                   onDecidirLancamentoManual={handleDecidirLancamentoManual}
                 />

@@ -25,9 +25,10 @@ import {
 interface SidebarProps {
   tabAtiva: TabId;
   onSelectTab: (tab: TabId) => void;
+  pendentesAprovacao?: number;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendentesAprovacao = 0 }) => {
   const navItems = [
     {
       id: "inicio" as TabId,
@@ -76,6 +77,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab }) => {
       id: "lancamentos" as TabId,
       label: "Lançamentos",
       icon: FileText,
+    },
+    {
+      id: "aprovacoes" as TabId,
+      label: "Aprovar lançamentos",
+      icon: FileText,
+      ...(pendentesAprovacao > 0 ? { badge: String(pendentesAprovacao), badgeColor: "bg-amber-400 text-slate-950 font-bold" } : {}),
     },
     {
       id: "balancete" as TabId,

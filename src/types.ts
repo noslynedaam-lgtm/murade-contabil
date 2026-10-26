@@ -5,6 +5,7 @@ export type TabId =
   | "migracao"
   | "agenda"
   | "lancamentos"
+  | "aprovacoes"
   | "balancete"
   | "livros"
   | "plano-contas"
