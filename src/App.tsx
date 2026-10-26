@@ -444,6 +444,8 @@ function AppWorkspace() {
                     pingMs: item.pingMs,
                     statusCode: item.statusCode,
                     statusTexto: item.statusTexto,
+                    tls: item.tls ?? o.tls,
+                    detalhes: item.detalhes ?? o.detalhes,
                     ultimaVerificacao: `Hoje às ${item.verificadoEm}`,
                   }
                 : o
