@@ -27,6 +27,8 @@ interface RegistroRobo extends DefinicaoRoboDP {
   ultimaDuracaoMs: number | null;
   ultimoErro: string | null;
   ultimoErroEm: string | null;
+  /** Resumo, em uma frase, do que a última rodada encontrou ou corrigiu. */
+  ultimoResultado: string | null;
 }
 
 const iniciadoEm = new Date();
@@ -48,7 +50,14 @@ export function registrarRobo(definicao: DefinicaoRoboDP): void {
     ultimaDuracaoMs: null,
     ultimoErro: null,
     ultimoErroEm: null,
+    ultimoResultado: null,
   });
+}
+
+/** Guarda o resumo da última rodada para a tela e a Agente IA mostrarem o que o robô fez de verdade. */
+export function registrarResultadoRobo(id: string, resumo: string): void {
+  const robo = robos.get(id);
+  if (robo) robo.ultimoResultado = resumo.slice(0, 300);
 }
 
 /**
@@ -112,6 +121,7 @@ export function statusRobos(agora = Date.now()) {
       puladasPorSobreposicao: robo.puladasPorSobreposicao,
       ultimoErro: robo.ultimoErro,
       ultimoErroEm: robo.ultimoErroEm,
+      ultimoResultado: robo.ultimoResultado,
       motivoSemRotina: robo.intervaloMs ? null : (robo.motivoSemRotina || null),
     })),
   };

@@ -7,14 +7,15 @@ import { timingSafeEqual } from "node:crypto";
 import { ErroValidacaoDocumentoFiscal, fiscalStoreConfigurado, gravarDocumentosFiscais, lerDocumentosFiscais, lerVersoesDocumentoFiscal, verificarEstadoStoreFiscal } from "./src/server/documentosFiscaisStore";
 import { dpStoreConfigurado, ErroConflitoResumoDP, ErroValidacaoResumoDP, gravarResumoDP, lerResumosDP, verificarEstadoStoreDP } from "./src/server/dadosDpStore";
 import { registrarGestaoEquipe } from "./src/server/gestaoEquipe";
-import { configGestaoEquipeContabil, adicionarEmpresaAcessoContabil, adicionarEquipeContabil, bloquearEscritorioContabil, definirLimiteEscritorioContabil, convidarEquipeContabil, convidarEscritorioContabil, listarEquipeContabil, listarEscritoriosContabil, removerEquipeContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, sessaoDaRequisicaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil } from "./src/server/authContabil";
+import { prepararAuthContabil, configGestaoEquipeContabil, adicionarEmpresaAcessoContabil, adicionarEquipeContabil, bloquearEscritorioContabil, definirLimiteEscritorioContabil, convidarEquipeContabil, convidarEscritorioContabil, listarEquipeContabil, listarEscritoriosContabil, removerEquipeContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, sessaoDaRequisicaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil } from "./src/server/authContabil";
 import { ArmazemAcoesPendentes, confirmarAcao as confirmarAcaoAgenteIA, conversar as conversarAgenteIA, recusarAcao as recusarAcaoAgenteIA, type ChamarApi, type ContextoAgente, type ModeloIA } from "./src/server/agenteMotor";
 import { kitContabil } from "./src/server/agenteContabil";
 import { ArmazemPedidosMemoria, ArmazemPedidosPg, CentralDePedidos, tokenValido } from "./src/server/agentesEntreSistemas";
 import { criarAtividadeEscritorio } from './src/server/atividadeEscritorio';
 import type { SessaoContabil } from './src/server/authContabil';
 import { listarRegistroAgenteIAContabil, bancoContabilConfigurado, consultaBancoContabil, hashSessaoContabil, registrarAcaoAgenteIAContabil } from "./src/server/authContabil";
-import { executarRobo, registrarRobo, statusRobos } from "./src/server/robosStatus";
+import { executarRobo, registrarResultadoRobo, registrarRobo, statusRobos } from "./src/server/robosStatus";
+import { resumoRelatorioAcessos, rodarConferidorAcessos } from "./src/server/conferidorAcessos";
 import { rodarConferidorContabil } from "./src/server/conferidorContabil";
 import { gerarCandidatosRascunhosAutomaticos, mesclarRascunhosNoWorkspace, prepararRascunhosContabeisAutomaticos } from "./src/server/prepararRascunhosContabeis";
 import { omitirXmlOriginal, resumirCoberturaXmlFiscal } from "./src/server/coberturaXmlFiscal";
@@ -1000,6 +1001,14 @@ async function startServer() {
   const rodarConferidor = () => executarRobo("conferidor", () => rodarConferidorContabil((sql, params) => consultaBancoContabil(sql, params))).catch((e) => console.error("Falha no Robô Conferidor:", e?.message || e));
   setTimeout(() => void rodarConferidor(), 45_000).unref();
   setInterval(() => void rodarConferidor(), 30 * 60_000).unref();
+  registrarRobo({ id: "acessos", nome: "Robô Conferidor de Acessos", posto: "conferidor", missao: "Conferir se contas e escritórios excluídos ou bloqueados não deixaram acesso nem sessão aberta, mantendo os e-mails livres para novo cadastro.", intervaloMs: 60 * 60_000 });
+  const rodarConferidorDeAcessos = () => bancoContabilConfigurado() ? executarRobo("acessos", async () => {
+    await prepararAuthContabil();
+    const relatorio = await rodarConferidorAcessos((sql, params) => consultaBancoContabil(sql, params), { usuarios: "contabil_auth_users", acesso: "contabil_auth_company_access", sessoes: "contabil_auth_sessions", colunaEscritorio: "global_admin" });
+    registrarResultadoRobo("acessos", resumoRelatorioAcessos(relatorio));
+  }).catch((e) => console.error("Falha no Robô Conferidor de Acessos:", e?.message || e)) : undefined;
+  setTimeout(() => void rodarConferidorDeAcessos(), 90_000).unref();
+  setInterval(() => void rodarConferidorDeAcessos(), 60 * 60_000).unref();
   const timerMensageiro = setInterval(() => { executarRobo("mensageiro", () => centralDePedidos.reenviarPendentes()).catch((e) => console.error("Falha ao reenviar pedidos entre agentes:", e?.message || e)); }, 60_000);
   timerMensageiro.unref();
 
