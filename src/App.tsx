@@ -30,6 +30,7 @@ import { ModalConexaoMuradFiscal } from "./components/modals/ModalConexaoMuradFi
 import { conectarEPuxarEmpresaMuradFiscal, conectarMuradDP } from "./services/integracaoMuradService";
 import { CheckCircle2, X } from "lucide-react";
 import { ContabilAccessGate, useContabilAuth } from "./components/ContabilAccessGate";
+import { AlertaRobosParados } from "./components/AlertaRobosParados";
 
 export default function App() {
   return <ContabilAccessGate><AppWorkspace /></ContabilAccessGate>;
@@ -722,6 +723,7 @@ function AppWorkspace() {
 
         {/* CONTAINER DO CONTEÚDO CENTRAL COM ROLAGEM INDEPENDENTE (A BARRA LATERAL FICA FIXA) */}
         <div className="flex-1 overflow-y-auto overscroll-contain content-scroll">
+          <AlertaRobosParados />
           <main className="p-4 sm:p-6 max-w-[1600px] w-full mx-auto">
             {/* Banner Principal Murad */}
             <BannerHero
