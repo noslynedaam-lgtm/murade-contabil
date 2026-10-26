@@ -397,6 +397,7 @@ export async function criarConviteUsuarioContabil(req: Request, res: Response): 
     res.status(403).json({ sucesso: false, motivo: 'Você precisa ser administrador de cada empresa escolhida.' }); return;
   }
   try {
+    await liberarLoginSoltoContabil(login, sessao.tenantId ? String(sessao.tenantId) : null);
     const existe = await obterBanco().query('SELECT 1 FROM contabil_auth_users WHERE login=$1', [login]);
     if (existe.rowCount) { res.status(409).json({ sucesso: false, motivo: 'Este usuário já existe. Não alteramos a senha existente; peça que ele entre e vincule a empresa com um administrador.' }); return; }
     const token = crypto.randomBytes(32).toString('base64url');
@@ -1555,5 +1556,5 @@ export async function listarRegistroAgenteIAContabil(req: Request, limiteInforma
 }
 
 export function configGestaoEquipeContabil(exigirSessao: (req: Request, res: Response, next: NextFunction) => unknown, origem: (req: Request, res: Response, next: NextFunction) => unknown) {
-  return { pool: obterBanco, tabelas: { usuarios: 'contabil_auth_users', sessoes: 'contabil_auth_sessions', convites: 'contabil_auth_invites' }, preparar: prepararAuthContabil, sessao: (req: Request) => { const s = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil; return s ? { userId: s.userId, admin: s.administrador === true } : undefined; }, middlewares: [exigirSessao], origem };
+  return { pool: obterBanco, tabelas: { usuarios: 'contabil_auth_users', sessoes: 'contabil_auth_sessions', convites: 'contabil_auth_invites' }, preparar: prepararAuthContabil, sessao: (req: Request) => { const s = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil; return s ? { userId: s.userId, admin: s.administrador === true, donoSistema: s.donoSistema === true } : undefined; }, colunaEscritorio: 'global_admin' as const, middlewares: [exigirSessao], origem };
 }

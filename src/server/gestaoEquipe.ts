@@ -8,7 +8,9 @@ import { emailConfigurado, enviarEmail } from './emailMurade';
 export type ConfigGestaoEquipe = {
   pool: () => Pool;
   tabelas: { usuarios: string; sessoes: string; convites: string };
-  sessao: (req: Request) => { userId: string; admin: boolean } | undefined;
+  sessao: (req: Request) => { userId: string; admin: boolean; donoSistema?: boolean } | undefined;
+  /** Coluna que marca o dono de um escritório na tabela de usuários (Contábil e Fiscal: global_admin; DP: office_admin). */
+  colunaEscritorio?: 'global_admin' | 'office_admin';
   preparar: () => Promise<void>;
   middlewares?: Array<(req: Request, res: Response, next: NextFunction) => unknown>;
   origem?: (req: Request, res: Response, next: NextFunction) => unknown;
@@ -150,6 +152,52 @@ export function registrarGestaoEquipe(app: Express, cfg: ConfigGestaoEquipe, par
         await db().query(`DELETE FROM ${T.sessoes} WHERE user_id=$1`, [id]);
         res.json({ sucesso: true, login: login(req), excluido: false, bloqueado: true, aviso: 'O histórico impediu apagar a conta por completo; ela ficou sem acesso e o e-mail está livre para um novo cadastro.' });
       } finally { c.release(); }
+    } catch (e) { falha(res, e); }
+  });
+
+  // Excluir escritório de verdade (só o dono do sistema): apaga a conta do dono do escritório, a equipe, os acessos,
+  // os convites e as sessões. Os e-mails ficam livres para novo cadastro e nenhum CNPJ fica preso a escritório apagado.
+  // Se o histórico impedir apagar uma conta, ela vira uma conta sem acesso, com o e-mail liberado.
+  app.post('/api/auth/tenants/:login/excluir', ...o, ...mid, async (req, res) => {
+    const s = cfg.sessao(req);
+    if (!s?.donoSistema) { res.status(403).json({ sucesso: false, motivo: 'Somente o dono do sistema exclui escritórios.' }); return; }
+    if (req.body?.confirmar !== true) { res.status(400).json({ sucesso: false, motivo: 'Confirme a exclusão do escritório.' }); return; }
+    const colunaEscritorio = cfg.colunaEscritorio === 'office_admin' ? 'office_admin' : 'global_admin';
+    const tabelaAcesso = T.usuarios.replace(/_users$/, '_company_access');
+    try {
+      await garantir();
+      const alvo = await db().query(`SELECT id FROM ${T.usuarios} WHERE login=$1 AND ${colunaEscritorio}=true AND tenant_id=id AND id<>$2`, [login(req), s.userId]);
+      if (!alvo.rowCount) { res.status(404).json({ sucesso: false, motivo: 'Escritório não encontrado.' }); return; }
+      const tenant = String(alvo.rows[0].id); const c = await db().connect();
+      let apagadas = 0; let anonimizadas = 0;
+      try {
+        await c.query('BEGIN');
+        // Equipe e clientes primeiro, dono do escritório por último.
+        const contas = await c.query(`SELECT id FROM ${T.usuarios} WHERE (tenant_id=$1 OR office_owner=$1 OR id=$1) AND id<>$2 ORDER BY (id=$1) ASC`, [tenant, s.userId]);
+        const ids: string[] = contas.rows.map((x) => String(x.id));
+        await c.query(`DELETE FROM ${T.convites} WHERE office_owner=$1 OR created_by = ANY($2::uuid[])`, [tenant, ids]);
+        for (const id of ids) {
+          await c.query('SAVEPOINT conta');
+          try {
+            await c.query(`DELETE FROM ${T.sessoes} WHERE user_id=$1`, [id]);
+            await c.query(`DELETE FROM ${tabelaReset} WHERE user_id=$1`, [id]);
+            await c.query(`DELETE FROM ${tabelaAcesso} WHERE user_id=$1`, [id]);
+            await c.query(`DELETE FROM ${T.usuarios} WHERE id=$1`, [id]);
+            await c.query('RELEASE SAVEPOINT conta'); apagadas += 1;
+          } catch {
+            await c.query('ROLLBACK TO SAVEPOINT conta');
+            await c.query(`DELETE FROM ${T.sessoes} WHERE user_id=$1`, [id]);
+            await c.query(`DELETE FROM ${tabelaReset} WHERE user_id=$1`, [id]);
+            await c.query(`DELETE FROM ${tabelaAcesso} WHERE user_id=$1`, [id]);
+            await c.query(`UPDATE ${T.usuarios} SET login=left(login,40)||'#removido-'||substr(id::text,1,8)||'-'||extract(epoch from now())::bigint::text, disabled=true, office_owner=NULL, tenant_id=NULL, ${colunaEscritorio}=false WHERE id=$1`, [id]);
+            await c.query('RELEASE SAVEPOINT conta'); anonimizadas += 1;
+          }
+        }
+        await c.query('COMMIT');
+      } catch (e) { await c.query('ROLLBACK').catch(() => undefined); throw e; }
+      finally { c.release(); }
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ sucesso: true, login: login(req), excluido: true, contasApagadas: apagadas, contasSemAcesso: anonimizadas, aviso: anonimizadas ? 'Algumas contas têm histórico de auditoria e ficaram sem acesso, com o e-mail liberado para novo cadastro.' : undefined });
     } catch (e) { falha(res, e); }
   });
 }
