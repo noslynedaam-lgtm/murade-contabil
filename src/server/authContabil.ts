@@ -443,7 +443,7 @@ export async function resgatarConviteUsuarioContabil(req: Request, res: Response
       if (cv.office_owner) tenantId = String(cv.office_owner);
       else { const criador = await client.query('SELECT tenant_id FROM contabil_auth_users WHERE id=$1', [cv.created_by]); tenantId = String(criador.rows[0]?.tenant_id || cv.created_by); }
     }
-    await client.query('INSERT INTO contabil_auth_users(id,login,password_salt,password_hash,office_owner,global_admin,tenant_id) VALUES($1,$2,$3,$4,$5,$6,$7)', [id, login, salt, hash, cv.office_owner || null, donoDoEscritorio, tenantId]);
+    await client.query('INSERT INTO contabil_auth_users(id,login,password_salt,password_hash,office_owner,global_admin,tenant_id,max_usuarios) VALUES($1,$2,$3,$4,$5,$6,$7,$8)', [id, login, salt, hash, cv.office_owner || null, donoDoEscritorio, tenantId, donoDoEscritorio ? 3 : null]);
     for (const cnpj of convite.rows[0].cnpjs as string[]) await client.query('INSERT INTO contabil_auth_company_access(user_id,cnpj,role) VALUES($1,$2,$3)', [id, cnpj, convite.rows[0].role]);
     await client.query('DELETE FROM contabil_auth_invites WHERE token_hash=$1', [tokenHash]); await client.query('COMMIT');
     res.status(201).json({ sucesso: true, usuario: login, cnpjs: convite.rows[0].cnpjs });

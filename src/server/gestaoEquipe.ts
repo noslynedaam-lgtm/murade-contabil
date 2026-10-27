@@ -27,9 +27,20 @@ export function registrarGestaoEquipe(app: Express, cfg: ConfigGestaoEquipe, par
   const T = cfg.tabelas; const db = () => cfg.pool();
   const tabelaReset = `${T.usuarios.replace(/_users$/, '')}_senha_resets`;
   let pronto: Promise<void> | null = null;
-  const garantir = async () => { await cfg.preparar(); pronto ??= db().query(`CREATE TABLE IF NOT EXISTS ${tabelaReset} (token_hash char(64) PRIMARY KEY, user_id uuid NOT NULL, expires_at timestamptz NOT NULL, created_at timestamptz NOT NULL DEFAULT now())`).then(() => undefined).catch((e) => { pronto = null; throw e; }); await pronto; };
+  const garantir = async () => { await cfg.preparar(); pronto ??= (async () => {
+    await db().query(`CREATE TABLE IF NOT EXISTS ${tabelaReset} (token_hash char(64) PRIMARY KEY, user_id uuid NOT NULL, expires_at timestamptz NOT NULL, created_at timestamptz NOT NULL DEFAULT now())`);
+    // Uma única vez: escritórios que ainda estão "sem limite" passam a ter 3 usuários (dono + 2). O dono do sistema não entra. Depois disso o limite é só o que você definir.
+    const tabelaMarcador = `${T.usuarios.replace(/_users$/, '')}_marcadores`;
+    await db().query(`CREATE TABLE IF NOT EXISTS ${tabelaMarcador} (chave text PRIMARY KEY, criado_em timestamptz NOT NULL DEFAULT now())`);
+    const marcou = await db().query(`INSERT INTO ${tabelaMarcador}(chave) VALUES('limite-inicial-3') ON CONFLICT DO NOTHING RETURNING chave`);
+    if (marcou.rowCount) {
+      const col = cfg.colunaEscritorio === 'office_admin' ? 'office_admin' : 'global_admin';
+      const donos = (process.env.MURADE_DONO_SISTEMA || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+      await db().query(`UPDATE ${T.usuarios} SET max_usuarios=3 WHERE ${col}=true AND tenant_id=id AND max_usuarios IS NULL AND lower(login) <> ALL($1::text[]) AND id <> (SELECT id FROM ${T.usuarios} WHERE ${col}=true ORDER BY created_at, id LIMIT 1)`, [donos]);
+    }
+  })().catch((e) => { pronto = null; throw e; }); await pronto; };
   const mid = cfg.middlewares || [];
-  const admin = (req: Request, res: Response) => { const s = cfg.sessao(req); if (!s?.admin || !s.donoSistema) { res.status(403).json({ sucesso: false, motivo: 'Somente o dono do sistema gerencia usuários e convites.' }); return null; } return s; };
+  const admin = (req: Request, res: Response) => { const s = cfg.sessao(req); if (!s?.admin) { res.status(403).json({ sucesso: false, motivo: 'Somente o administrador do escritório gerencia a equipe.' }); return null; } return s; };
   const falha = (res: Response, e: unknown) => { console.error('Gestão de equipe:', e); res.status(503).json({ sucesso: false, motivo: 'Não foi possível concluir agora. Tente de novo.' }); };
   const login = (req: Request) => String(req.params.login || '').trim().toLowerCase();
   const o = cfg.origem ? [cfg.origem] : [];
