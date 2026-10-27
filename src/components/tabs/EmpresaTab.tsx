@@ -1393,13 +1393,18 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
             {formCertNome ? (
               <span className="text-[11px] font-bold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full flex items-center gap-1">
                 <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
-                <span>Selecionado; não enviado: {formCertNome}</span>
+                <span>Arquivo escolhido só para conferência: {formCertNome}</span>
               </span>
             ) : (
               <span className="text-[11px] text-slate-500">
                 Certificado ainda não conectado neste módulo
               </span>
             )}
+          </div>
+
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-[11px] text-blue-900 leading-relaxed">
+            <strong>Onde coloco o certificado e a senha?</strong> No <strong>Murade Fiscal</strong>, no botão <strong>Certificado A1</strong> do topo. O certificado é cadastrado uma única vez lá, com a senha, e o Fiscal o usa para as notas. Aqui no Contábil não é preciso enviar nada, por isso não há campo de senha.
+            <a href="https://murade-fiscal-1.onrender.com" target="_blank" rel="noopener noreferrer" className="ml-1 font-bold text-blue-800 underline">Abrir o Murade Fiscal</a>
           </div>
 
           {/* ÁREA DE SELEÇÃO / DRAG & DROP DO COMPUTADOR */}
@@ -1434,7 +1439,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
                     <span className="text-[10px] text-slate-500 font-mono">({formCertTamanho || "arquivo"})</span>
                   </div>
                   <p className="text-[11px] text-amber-700 font-semibold">
-                    Seleção local apenas. O certificado não foi enviado, validado nem armazenado pelo sistema.
+                    Arquivo escolhido só para conferência. O certificado e a senha são cadastrados no Murade Fiscal, não aqui.
                   </p>
                   <div className="flex items-center justify-center gap-2 pt-1">
                     <button
@@ -1465,7 +1470,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
                     Arraste o arquivo do Certificado Digital (.pfx / .p12) aqui
                   </p>
                   <p className="text-[11px] text-slate-500">
-                    A seleção não envia o certificado. Para usar A1, faça o vínculo no Murade Fiscal.
+                    Opcional: escolher o arquivo aqui só serve para conferência. O certificado com senha vai no Murade Fiscal.
                   </p>
                   <button
                     type="button"
