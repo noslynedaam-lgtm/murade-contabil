@@ -1129,6 +1129,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
             <div className="flex gap-2">
               <input
                 type="text"
+                name="cnpj-da-empresa-cliente" autoComplete="off" spellCheck={false} data-lpignore="true" data-form-type="other" 
                 value={cnpj}
                 onChange={(e) => setCnpj(e.target.value)}
                 placeholder="00.000.000/0000-00"
