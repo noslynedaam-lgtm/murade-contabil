@@ -12,6 +12,8 @@ export type ConfigGestaoEquipe = {
   /** Coluna que marca o dono de um escritório na tabela de usuários (Contábil e Fiscal: global_admin; DP: office_admin). */
   colunaEscritorio?: 'global_admin' | 'office_admin';
   preparar: () => Promise<void>;
+  /** Limpeza que roda uma única vez por banco (identificada pela chave), junto da preparação das tabelas. */
+  limpezaUnica?: { chave: string; sql: string };
   middlewares?: Array<(req: Request, res: Response, next: NextFunction) => unknown>;
   origem?: (req: Request, res: Response, next: NextFunction) => unknown;
 };
@@ -37,6 +39,10 @@ export function registrarGestaoEquipe(app: Express, cfg: ConfigGestaoEquipe, par
       const col = cfg.colunaEscritorio === 'office_admin' ? 'office_admin' : 'global_admin';
       const donos = (process.env.MURADE_DONO_SISTEMA || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
       await db().query(`UPDATE ${T.usuarios} SET max_usuarios=3 WHERE ${col}=true AND tenant_id=id AND max_usuarios IS NULL AND lower(login) <> ALL($1::text[]) AND id <> (SELECT id FROM ${T.usuarios} WHERE ${col}=true ORDER BY created_at, id LIMIT 1)`, [donos]);
+    }
+    if (cfg.limpezaUnica) {
+      const unica = await db().query(`INSERT INTO ${tabelaMarcador}(chave) VALUES($1) ON CONFLICT DO NOTHING RETURNING chave`, [cfg.limpezaUnica.chave]);
+      if (unica.rowCount) await db().query(cfg.limpezaUnica.sql);
     }
   })().catch((e) => { pronto = null; throw e; }); await pronto; };
   const mid = cfg.middlewares || [];
