@@ -86,7 +86,7 @@ test('dono do sistema vê e exclui uma conta ativa com acesso a empresa, e o e-m
   registrarGestaoEquipe(app, { pool: () => pool, tabelas: { usuarios: 'contabil_auth_users', sessoes: 'contabil_auth_sessions', convites: 'contabil_auth_invites' }, preparar: prepararAuthContabil, colunaEscritorio: 'global_admin', sessao: () => ({ userId: quem, admin: true, donoSistema: quem === dono }) });
   const servidor = http.createServer(app); await new Promise<void>((ok) => servidor.listen(0, ok));
   const base = `http://127.0.0.1:${(servidor.address() as AddressInfo).port}`;
-  const resumo = async (lg: string) => (await fetch(`${base}/api/auth/usuarios/${encodeURIComponent(lg)}/resumo`)).json() as Promise<any>;
+  const resumo = async (lg: string) => (await fetch(`${base}/api/auth/usuarios/${encodeURIComponent(lg)}/resumo`, { method: "POST" })).json() as Promise<any>;
   const excluir = (lg: string, corpo: object) => fetch(`${base}/api/auth/usuarios/${encodeURIComponent(lg)}/excluir`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
   try {
     const r = await resumo(lgAntiga); assert.equal(r.existe, true); assert.equal(r.empresas, 1); assert.equal(r.escritorio, false);

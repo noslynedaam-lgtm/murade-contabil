@@ -29,7 +29,7 @@ export function registrarGestaoEquipe(app: Express, cfg: ConfigGestaoEquipe, par
   let pronto: Promise<void> | null = null;
   const garantir = async () => { await cfg.preparar(); pronto ??= db().query(`CREATE TABLE IF NOT EXISTS ${tabelaReset} (token_hash char(64) PRIMARY KEY, user_id uuid NOT NULL, expires_at timestamptz NOT NULL, created_at timestamptz NOT NULL DEFAULT now())`).then(() => undefined).catch((e) => { pronto = null; throw e; }); await pronto; };
   const mid = cfg.middlewares || [];
-  const admin = (req: Request, res: Response) => { const s = cfg.sessao(req); if (!s?.admin) { res.status(403).json({ sucesso: false, motivo: 'Somente o administrador do escritório gerencia a equipe.' }); return null; } return s; };
+  const admin = (req: Request, res: Response) => { const s = cfg.sessao(req); if (!s?.admin || !s.donoSistema) { res.status(403).json({ sucesso: false, motivo: 'Somente o dono do sistema gerencia usuários e convites.' }); return null; } return s; };
   const falha = (res: Response, e: unknown) => { console.error('Gestão de equipe:', e); res.status(503).json({ sucesso: false, motivo: 'Não foi possível concluir agora. Tente de novo.' }); };
   const login = (req: Request) => String(req.params.login || '').trim().toLowerCase();
   const o = cfg.origem ? [cfg.origem] : [];
