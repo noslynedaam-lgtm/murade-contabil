@@ -10,7 +10,7 @@ import { ContaPlano } from "../types";
 export type RegimeReferencial = "real" | "presumido";
 export type GrupoReferencial = "patrimonial" | "resultado";
 
-export interface ContaReferencial { codigo: string; descricao: string; tipo: "S" | "A"; natureza: string }
+export interface ContaReferencial { codigo: string; descricao: string; tipo: "S" | "A"; natureza: string; superior: string }
 export interface SugestaoReferencial {
   contaCodigo: string;
   candidatos: Array<{ codigo: string; descricao: string; pontuacao: number }>;
@@ -32,7 +32,7 @@ export function regimeReferencial(regime: string): RegimeReferencial | null {
 export function codPlanRefECD(regime: RegimeReferencial): "1" | "2" { return regime === "real" ? "1" : "2"; }
 
 export function contasReferenciais(regime: RegimeReferencial, grupo: GrupoReferencial): ContaReferencial[] {
-  return (bruto[regime]?.[grupo] || []).map(([codigo, descricao, tipo, , natureza]) => ({ codigo, descricao, tipo: tipo === "A" ? "A" : "S", natureza }));
+  return (bruto[regime]?.[grupo] || []).map(([codigo, descricao, tipo, superior, natureza]) => ({ codigo, descricao, tipo: tipo === "A" ? "A" : "S", natureza, superior: superior || "" }));
 }
 
 export function existeContaReferencialAnalitica(regime: RegimeReferencial, codigo: string): boolean {

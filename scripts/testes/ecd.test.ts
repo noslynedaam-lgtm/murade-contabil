@@ -262,3 +262,24 @@ test("Balanço que não fecha (conta de compensação com saldo solto) bloqueia"
   assert.equal(r.ok, false);
   assert.ok(r.erros.some((e) => e.startsWith("Balanço não fecha")));
 });
+
+import { conferirBlocoL, registrosBlocoL } from "../../src/services/ecfBlocoLService";
+test("conferência do Bloco L: Balanço e DRE pelo plano referencial fecham e somam nas sintéticas", () => {
+  const pat = contasReferenciais("real", "patrimonial").filter((c) => c.tipo === "A");
+  const res = contasReferenciais("real", "resultado").filter((c) => c.tipo === "A");
+  const ativo = pat.filter((c) => c.natureza === "1"), pas = pat.filter((c) => c.natureza === "3");
+  const mapa = { "1.1.01": ativo[0].codigo, "1.1.02": ativo[1].codigo, "2.1.01": pas[0].codigo, "2.1.02": pas[1].codigo, "3.1.01": res[0].codigo };
+  const e = gerarArquivoECD({ parametros: param, contas, lancamentos: validos() });
+  assert.ok(e.saldosAnuais && e.saldosAnuais.length === 5);
+  const c = conferirBlocoL("real", e.saldosAnuais!, mapa);
+  assert.deepEqual(c.erros, []);
+  assert.equal(c.totais.ativoFin, 250050);
+  assert.equal(c.totais.passivoPlFin, -250050);
+  assert.equal(c.totais.resultadoAntesEncerramento, -150050);
+  // sintéticas somam as filhas: o topo (nível 1) do Ativo tem o total
+  const topo = c.l100.find((l) => l.nivel === 1 && l.natureza === "01")!;
+  assert.equal(topo.fin, 250050);
+  assert.ok(registrosBlocoL(c).every((l) => l.startsWith("|L") && l.endsWith("|")));
+  const sem = conferirBlocoL("real", e.saldosAnuais!, { "1.1.01": ativo[0].codigo });
+  assert.ok(sem.erros.some((x) => x.includes("sem vínculo")));
+});

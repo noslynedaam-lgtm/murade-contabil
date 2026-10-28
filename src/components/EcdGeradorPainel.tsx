@@ -3,6 +3,7 @@ import { Download, FileText } from "lucide-react";
 import { ContaPlano, EmpresaDados } from "../types";
 import { LancamentoValidado } from "../utils/livrosContabeis";
 import { codPlanRefECD, contasReferenciais, existeContaReferencialAnalitica, FONTE_PLANO_REFERENCIAL, regimeReferencial, sugerirMapeamento } from "../services/planoReferencialService";
+import { conferirBlocoL, registrosBlocoL } from "../services/ecfBlocoLService";
 import { analisarObrigatoriedadeECD, naturezasDasContas, CodigoNaturezaConta, ecdParaLatin1, gerarArquivoECD, montarParametrosECD, ParametrosECD, prazoEntregaECD } from "../services/ecdService";
 
 interface Props {
@@ -88,6 +89,13 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
     });
   }, [f, ano, empresa, naturezas, regimeRef, vinculadas, mapaRef]);
 
+  const blocoL = useMemo(() => (resultado.ok && resultado.saldosAnuais && regimeRef && vinculadas > 0 ? conferirBlocoL(regimeRef, resultado.saldosAnuais, mapaRef) : null), [resultado, regimeRef, vinculadas, mapaRef]);
+  const baixarBlocoL = () => {
+    if (!blocoL) return;
+    const url = URL.createObjectURL(new Blob([registrosBlocoL(blocoL).join("\r\n") + "\r\n"], { type: "text/plain;charset=utf-8" }));
+    const a = document.createElement("a"); a.href = url; a.download = `ECF-conferencia-bloco-L-${String(empresa.cnpj || "").replace(/\W/g, "")}-${ano}.txt`; a.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
   const analise = useMemo(() => analisarObrigatoriedadeECD({ regime: empresa.regime, presumidoLivroCaixa: empresa.presumidoLivroCaixa, presumidoDistribuiuLucroAcimaBase: empresa.presumidoDistribuiuLucroAcimaBase, simplesAporteCapital: empresa.simplesAporteCapital }), [empresa]);
   const prazo = prazoEntregaECD(Number(ano) || new Date().getFullYear());
   const resultado = useMemo(() => gerarArquivoECD({ parametros, contas, lancamentos }), [parametros, contas, lancamentos]);
@@ -174,6 +182,14 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
       )}
       {resultado.ok && <p role="status" className="mt-3 rounded bg-emerald-100 p-2 text-emerald-950">Pronto: {resultado.resumo.linhas} linhas, {resultado.resumo.contas} contas, {resultado.resumo.lancamentos} lançamentos (incluindo o encerramento do resultado), {resultado.resumo.meses} mês(es) com saldos. Balanço e DRE incluídos.</p>}
       {resultado.ok && resultado.avisos.map((a, i) => <p key={i} className="mt-1 text-[11px]">• {a}</p>)}
+      {blocoL && (
+        <div className="mt-3 rounded border border-amber-300 bg-white p-2">
+          <p className="font-bold">Conferência da ECF — Balanço e DRE pelo plano referencial (Bloco L)</p>
+          <p className="text-[11px]">Ativo {(blocoL.totais.ativoFin / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} × Passivo + PL {(-blocoL.totais.passivoPlFin / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} · resultado antes do encerramento {(-blocoL.totais.resultadoAntesEncerramento / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}. Na ECF, importe esta ECD com “Recuperar ECD”; o programa calcula o Bloco L sozinho a partir do vínculo referencial. Use este quadro só para comparar.</p>
+          {blocoL.erros.length > 0 ? <ul role="alert" className="mt-1 list-disc pl-5 text-red-900">{blocoL.erros.slice(0, 8).map((e, i) => <li key={i}>{e}</li>)}</ul> : <p className="mt-1 rounded bg-emerald-100 p-1 text-emerald-950">Balanço fecha e todas as contas estão vinculadas.</p>}
+          <button type="button" onClick={baixarBlocoL} className="mt-1 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-2 py-1 font-semibold"><Download className="h-3.5 w-3.5" /> Baixar conferência L100/L300 (.txt)</button>
+        </div>
+      )}
       <button type="button" onClick={baixar} disabled={!resultado.ok} className="mt-2 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-3.5 w-3.5" /> Baixar arquivo ECD (.txt, Latin-1)</button>
       {msg && <p role="status" className="mt-2 text-[11px]">{msg}</p>}
     </div>

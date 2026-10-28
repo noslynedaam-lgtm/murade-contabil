@@ -83,6 +83,20 @@ export interface ResultadoECD {
   contaResultadoUsada?: string;
   /** Demonstrações geradas: totais antes/depois do encerramento, em centavos. */
   demonstracoes?: { ativo: number; passivoPL: number; resultadoExercicio: number };
+  /** Saldos anuais (centavos, débito − crédito) por conta analítica de Ativo/Passivo/PL/Resultado, para a conferência da ECF. */
+  saldosAnuais?: SaldoAnualECD[];
+}
+
+export interface SaldoAnualECD {
+  codigo: string;
+  natureza: CodigoNaturezaConta;
+  ini: number;
+  deb: number;
+  cred: number;
+  /** Saldo final depois do encerramento do resultado. */
+  fin: number;
+  /** Só para contas de resultado: saldo final antes do encerramento. */
+  preEncerramento?: number;
 }
 
 const UF_NIRE: Record<string, string> = {
@@ -503,6 +517,12 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
   const dcDe = (v: number): "D" | "C" => (v < 0 ? "C" : "D");
   const ini0 = (c: ContaPlano) => saldoInicioMes(c, `${ano}-01`);
   const fin12 = (c: ContaPlano) => saldoFimMes(c, dezembro);
+  const saldosAnuais: SaldoAnualECD[] = analiticas.filter((c) => grupoDaConta(c)).map((c) => {
+    let deb = 0, cred = 0;
+    for (const mes of meses) { const m = movimentoMes(c, mes); deb += m.deb; cred += m.cred; }
+    const nat = natureza.get(c.codigo)!;
+    return { codigo: c.codigo, natureza: nat, ini: saldoInicioMes(c, `${ano}-01`), deb, cred, fin: saldoFimMes(c, dezembro), ...(nat === "04" ? { preEncerramento: preEncerramento.get(c.codigo) || 0 } : {}) };
+  });
   const demoAtivo = construirDemonstracao("A", ini0, fin12, 1, "A");
   const demoPassivo = construirDemonstracao("P", ini0, fin12, 1, "P");
   const demoResultado = construirDemonstracao("R", () => 0, (c) => preEncerramento.get(c.codigo) || 0, 1, "RES");
@@ -642,6 +662,7 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
     contasPL,
     contaResultadoUsada: contaDestino?.codigo,
     demonstracoes: { ativo: totalAtivo, passivoPL: totalPassivoPL, resultadoExercicio: resultadoLiquido },
+    saldosAnuais,
   };
 }
 

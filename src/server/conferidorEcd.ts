@@ -4,6 +4,7 @@
 import type { EmpresaDados } from '../types';
 import { analisarObrigatoriedadeECD, gerarArquivoECD, montarParametrosECD, naturezasDasContas, prazoEntregaECD, type ProntidaoECD } from '../services/ecdService';
 import { codPlanRefECD, regimeReferencial, sugerirMapeamento } from '../services/planoReferencialService';
+import { conferirBlocoL } from '../services/ecfBlocoLService';
 import { gerarRelatoriosContabeis } from '../utils/livrosContabeis';
 
 export type AchadoEcd = ProntidaoECD & { cnpj: string; verificadoEm: string; diasParaPrazo: number; atrasada: boolean };
@@ -37,5 +38,6 @@ export function conferirEcdWorkspace(cnpj: string, payload: Record<string, any>,
   const parametros = montarParametrosECD(empresa, ano, regimeRef ? { planoReferencial: { codPlanRef: codPlanRefECD(regimeRef), mapa } } : {});
   const r = gerarArquivoECD({ parametros, contas, lancamentos: validos, centrosCusto: Array.isArray(payload.centrosCusto) ? payload.centrosCusto.map((c: any) => ({ codigo: String(c.codigo), nome: String(c.nome || c.codigo) })) : [] });
   pendencias.push(...r.erros);
+  if (r.ok && regimeRef && r.saldosAnuais) pendencias.push(...conferirBlocoL(regimeRef, r.saldosAnuais, mapa).erros.map((e) => `ECF (Bloco L): ${e}`));
   return { ...base, pronta: r.ok && analise.situacao === 'obrigatoria', pendencias, avisos: r.ok ? r.avisos : [], atrasada: diasParaPrazo < 0 && pendencias.length > 0 };
 }
