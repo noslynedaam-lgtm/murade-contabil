@@ -1558,3 +1558,22 @@ export async function listarRegistroAgenteIAContabil(req: Request, limiteInforma
 export function configGestaoEquipeContabil(exigirSessao: (req: Request, res: Response, next: NextFunction) => unknown, origem: (req: Request, res: Response, next: NextFunction) => unknown) {
   return { pool: obterBanco, tabelas: { usuarios: 'contabil_auth_users', sessoes: 'contabil_auth_sessions', convites: 'contabil_auth_invites' }, preparar: prepararAuthContabil, sessao: (req: Request) => { const s = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil; return s ? { userId: s.userId, admin: s.administrador === true, donoSistema: s.donoSistema === true } : undefined; }, colunaEscritorio: 'global_admin' as const, middlewares: [exigirSessao], origem };
 }
+
+/** Dá ao escritório do dono do sistema o acesso aos CNPJs do Fiscal que ainda não estão no Contábil. Nunca toma CNPJ já vinculado. */
+export async function importarCnpjsCompartilhados(cnpjs: string[]): Promise<{ criadas: string[]; jaExistiam: number; semDono?: boolean }> {
+  await prepararAuthContabil();
+  const admins = await obterBanco().query("SELECT id, login FROM contabil_auth_users WHERE global_admin=true AND disabled=false ORDER BY created_at, id");
+  let dono: string | null = null;
+  for (const r of admins.rows) if (await ehDonoDoSistemaContabil(String(r.id), String(r.login))) { dono = String(r.id); break; }
+  if (!dono) return { criadas: [], jaExistiam: 0, semDono: true };
+  const criadas: string[] = []; let jaExistiam = 0;
+  for (const bruto of cnpjs) {
+    const cnpj = normalizarCnpjAcesso(bruto);
+    if (!cnpjContabilValido(cnpj)) continue;
+    const existe = await obterBanco().query("SELECT 1 FROM contabil_auth_company_access WHERE cnpj=$1 LIMIT 1", [cnpj]);
+    if (existe.rowCount) { jaExistiam++; continue; }
+    const r = await obterBanco().query("INSERT INTO contabil_auth_company_access(user_id,cnpj,role) VALUES($1,$2,'admin') ON CONFLICT(user_id,cnpj) DO NOTHING RETURNING cnpj", [dono, cnpj]);
+    if (r.rowCount) criadas.push(cnpj); else jaExistiam++;
+  }
+  return { criadas, jaExistiam };
+}

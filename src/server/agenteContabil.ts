@@ -145,6 +145,18 @@ const FERRAMENTAS: Ferramenta[] = [
   // ---------------------------------------------------------------- ações (exigem confirmação)
   {
     tipo: 'acao',
+    declaracao: { name: 'trazer_empresas_do_fiscal', description: 'Propõe TRAZER para o Contábil as empresas cadastradas no Murade Fiscal que ainda não existem aqui. Não altera empresas já cadastradas, não leva certificado nem senha. Só o dono do sistema.', parameters: { type: 'OBJECT', properties: {}, required: [] } },
+    async preparar() {
+      return { params: {}, cnpj: '', titulo: 'Trazer as empresas do Fiscal para o Contábil', descricao: ['Cadastra no Contábil os CNPJs do Murade Fiscal que ainda não estão aqui, para ninguém cadastrar duas vezes.', 'Empresas já cadastradas não mudam.'], resumo: 'Trazer empresas do Fiscal' };
+    },
+    async executar(ctx) {
+      const r = await ctx.chamarApi('POST', '/api/empresas/importar-do-fiscal', {});
+      if (!ok(r)) return { sucesso: false, mensagem: erroApi(r).erro };
+      return { sucesso: r.corpo?.sucesso === true, mensagem: String(r.corpo?.motivo || 'Concluído.'), criadas: r.corpo?.criadas || [] };
+    },
+  },
+  {
+    tipo: 'acao',
     declaracao: { name: 'contabilizar_prelancamentos', description: 'Propõe contabilizar (aprovar) os pré-lançamentos pendentes de conferência de UMA competência de UMA empresa. Vira cartão de confirmação mostrando quantidade e total; o servidor revalida cada um com os dados atuais do Fiscal e do DP e recusa o que não bater. Só proponha quando o usuário pedir.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, competencia: props.competencia }, required: ['cnpj', 'competencia'] } },
     async preparar(ctx, args) {
       const cnpj = cnpjDe(args.cnpj); const competencia = competenciaDe(args.competencia);
