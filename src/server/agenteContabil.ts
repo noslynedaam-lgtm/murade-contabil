@@ -8,6 +8,7 @@ import {
 import { achadosDoConferidor, achadosEcdDoConferidor } from './conferidorContabil';
 import { conferirEcdWorkspace } from './conferidorEcd';
 import { limiteLc224Workspace } from './limiteLc224';
+import { apuracaoPeriodosRealWorkspace } from './apuracaoLucroRealPeriodos';
 import { estimarLucroRealWorkspace } from './estimativaLucroReal';
 import { conferirFechamento } from '../utils/fechamentoContabil';
 import { compararPeriodos, explicarVariacoes } from '../utils/analiseContabil';
@@ -153,6 +154,19 @@ const FERRAMENTAS: Ferramenta[] = [
       const ws = await lerWorkspace(ctx, cnpj); if ('erro' in ws) return ws;
       const ano = /^\d{4}$/.test(String(args.ano || '')) ? Number(args.ano) : new Date().getFullYear();
       try { return { cnpj, ...limiteLc224Workspace(ws.dados, ano) }; } catch (e: any) { return { erro: String(e?.message || e) }; }
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'apuracao_lucro_real_periodos', description: 'Calcula na hora o IRPJ e a CSLL do Lucro Real por trimestre (apuração trimestral) ou mês a mês pela estimativa da receita bruta, a partir da contabilidade. Use quando perguntarem quanto dá de imposto por trimestre ou de estimativa mensal no Lucro Real.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, ano: { type: 'STRING', description: 'Ano-calendário com 4 dígitos. Se omitido, usa o ano atual.' }, tipo: { type: 'STRING', description: 'trimestral ou estimativa.' }, atividade: { type: 'STRING', description: 'Só para estimativa: comercio (8% / 12%) ou servicos (32% / 32%). Padrão: comercio.' } }, required: ['cnpj', 'tipo'] } },
+    async executar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj);
+      if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const ws = await lerWorkspace(ctx, cnpj); if ('erro' in ws) return ws;
+      const ano = /^\d{4}$/.test(String(args.ano || '')) ? Number(args.ano) : new Date().getFullYear();
+      const tipo = String(args.tipo || '').toLowerCase().startsWith('tri') ? 'trimestral' : 'estimativa';
+      const atividade = /serv/i.test(String(args.atividade || '')) ? 'servicos' : 'comercio';
+      try { return { cnpj, ...apuracaoPeriodosRealWorkspace(ws.dados, ano, tipo, atividade) }; } catch (e: any) { return { erro: String(e?.message || e) }; }
     },
   },
   {

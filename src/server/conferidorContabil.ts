@@ -4,6 +4,7 @@ import type { ContaPlano, LancamentoContabil, PreLancamentoContabil } from '../t
 import { conferirFechamento } from '../utils/fechamentoContabil';
 import type { BemImobilizado } from '../utils/imobilizado';
 import { conferirEcdWorkspace, type AchadoEcd } from './conferidorEcd';
+import { limiteLc224Workspace } from './limiteLc224';
 
 export type PendenciaConferidor = { id: string; titulo: string; detalhe: string };
 export type AchadoEmpresa = {
@@ -25,6 +26,15 @@ export function conferirWorkspace(cnpj: string, payload: Record<string, any>, co
   const bens: BemImobilizado[] = Array.isArray(payload?.bensImobilizado) ? payload.bensImobilizado : [];
   const r = conferirFechamento({ competencia, contas, lancamentos, preLancamentos: pre, bens, confirmacoes: {} });
   const pendencias = r.itens.filter((i) => i.tipo === 'automatico' && i.bloqueia && !i.ok && i.id !== 'movimento').map((i) => ({ id: i.id, titulo: i.titulo, detalhe: i.detalhe }));
+  // Lucro Presumido a partir de 2026 (LC 224/25): avisa quando a receita do trimestre passa de R$ 1.250.000 (adicional sobre a presunção).
+  const anoComp = Number(competencia.slice(0, 4));
+  if (anoComp >= 2026 && /presumido/i.test(String(payload?.empresa?.regime || ''))) {
+    try {
+      const lim: any = limiteLc224Workspace(payload, anoComp);
+      const estourou = (lim.trimestres || []).filter((t: any) => t.excedente > 0);
+      if (estourou.length) pendencias.push({ id: 'lc224', titulo: 'Receita acima do limite da LC 224/25', detalhe: `Trimestre(s) ${estourou.map((t: any) => t.periodo).join(', ')} acima de R$ 1.250.000: há adicional de IRPJ/CSLL no Lucro Presumido (ECF, tela Lucro Presumido).` });
+    } catch { /* conferência opcional */ }
+  }
   const porOrigem: Record<string, number> = {};
   for (const p of pre) if (p?.status === 'pendente_conferencia' && p.competencia === competencia) porOrigem[p.origem] = (porOrigem[p.origem] || 0) + 1;
   const aprov = lancamentos.filter((l) => l?.statusManual === 'pendente_aprovacao' && String(l.data || '').slice(0, 7) === competencia).length;

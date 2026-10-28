@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Calculator, Download, Plus, Trash2 } from "lucide-react";
+import { codigosIncentivo } from "../services/ecfIncentivosService";
 import { calcularLucroRealAnual, registrosLucroRealAnual, type LancamentoLalur } from "../services/ecfRealService";
 
 interface Props {
@@ -27,7 +28,7 @@ const vazioLinha = (): Linha => ({ codigo: "", descricao: "", valor: "", ambos: 
 
 export const EcfRealPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, resultadoContabilCentavos, irpjContabilizadoCentavos, csllContabilizadaCentavos }) => {
   const chave = `murade_ecf_real_${cnpj.replace(/\W/g, "")}_${ano}`;
-  const vazio = () => ({ aliq: "1", prejuizo: "", baseNeg: "", adicoes: [] as Linha[], exclusoes: [] as Linha[], irrf: "", estimativaIr: "", csllRetida: "", estimativaCsll: "" });
+  const vazio = () => ({ aliq: "1", prejuizo: "", baseNeg: "", adicoes: [] as Linha[], exclusoes: [] as Linha[], irrf: "", estimativaIr: "", csllRetida: "", estimativaCsll: "", incentivos: {} as Record<string, string> });
   const [f, setF] = useState(vazio);
   useEffect(() => {
     try { const s = localStorage.getItem(chave); setF(s ? { ...vazio(), ...JSON.parse(s) } : vazio()); } catch { setF(vazio()); }
@@ -44,6 +45,7 @@ export const EcfRealPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, resul
         anoCalendario: ano, resultadoContabil: resultadoContabilCentavos / 100, irpjContabilizado: irpjContabilizadoCentavos / 100, csllContabilizada: csllContabilizadaCentavos / 100,
         adicoesIrpj: toL(f.adicoes), exclusoesIrpj: toL(f.exclusoes), adicoesCsll: toL(f.adicoes, (l) => l.ambos), exclusoesCsll: toL(f.exclusoes, (l) => l.ambos),
         saldoPrejuizoFiscal: num(f.prejuizo), saldoBaseNegativaCsll: num(f.baseNeg), indAliquotaCsll: f.aliq,
+        incentivosIrpj: Object.fromEntries(Object.entries(f.incentivos || {}).filter(([, v]) => num(v) > 0).map(([k, v]) => [k, num(v)])),
         deducoesIrpj: { ...(num(f.irrf) ? { "20": num(f.irrf) } : {}), ...(num(f.estimativaIr) ? { "24": num(f.estimativaIr) } : {}) },
         deducoesCsll: { ...(num(f.csllRetida) ? { "17": num(f.csllRetida) } : {}), ...(num(f.estimativaCsll) ? { "19": num(f.estimativaCsll) } : {}) },
       });
@@ -79,7 +81,7 @@ export const EcfRealPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, resul
     <div className="mt-4 rounded-md border border-amber-300 bg-white/80 p-3 text-xs">
       <h4 className="flex items-center gap-2 font-bold"><Calculator className="h-4 w-4" /> ECF — Lucro Real anual: e-Lalur, e-Lacs, IRPJ e CSLL ({ano})</h4>
       {!ehReal && <p className="mt-1 rounded bg-amber-50 p-2">Esta empresa está cadastrada como “{empresaRegime || "regime não informado"}”. A apuração abaixo só vale para Lucro Real.</p>}
-      <p className="mt-1 text-[11px]">O resultado do exercício vem da contabilidade e o robô separa IRPJ e CSLL já lançados. Falta só você informar adições, exclusões e saldos de prejuízo (Parte B). Calcula M300, M350, N500, N630, N650 e N670 pelas tabelas da ECF Leiaute 12. Não calcula incentivos fiscais, lucro da exploração, apuração trimestral/estimativa, nem gera os blocos 0, C, L, X e Y: use o arquivo para conferir e importar no programa da ECF.</p>
+      <p className="mt-1 text-[11px]">O resultado do exercício vem da contabilidade e o robô separa IRPJ e CSLL já lançados. Falta só você informar adições, exclusões e saldos de prejuízo (Parte B). Calcula M300, M350, N500, N630, N650 e N670 pelas tabelas da ECF Leiaute 12. Calcula os incentivos fiscais do IRPJ (com a regra dos 90% da LC 224/25 a partir de 2026). A apuração trimestral e a estimativa mensal ficam no painel logo abaixo. Não calcula isenção/redução e reinvestimento (N610), lucro da exploração, nem gera os blocos 0, C, L, X e Y: use o arquivo para conferir e importar no programa da ECF.</p>
       <datalist id="ecf-real-codigos">{CODIGOS_COMUNS.map((c) => <option key={c.c} value={c.c}>{c.t}</option>)}</datalist>
       <div className="mt-2 grid gap-2 sm:grid-cols-3">
         <div className="rounded bg-amber-50 p-2">Resultado do exercício (contabilidade)<div className="font-bold">{brl(resultadoContabilCentavos / 100)}</div></div>
@@ -99,6 +101,16 @@ export const EcfRealPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, resul
         <label>CSLL retida (N670/17)<input className={campo} inputMode="decimal" value={f.csllRetida} onChange={(e) => setF((a) => ({ ...a, csllRetida: e.target.value }))} /></label>
         <label>CSLL paga por estimativa (N670/19)<input className={campo} inputMode="decimal" value={f.estimativaCsll} onChange={(e) => setF((a) => ({ ...a, estimativaCsll: e.target.value }))} /></label>
       </div>
+      <details className="mt-2 rounded border border-amber-200 bg-amber-50 p-2">
+        <summary className="cursor-pointer font-bold">Incentivos fiscais do IRPJ (N630 linhas 6 a 16.50){ano >= 2026 ? " — com a regra de 90% da LC 224/25" : ""}</summary>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          {codigosIncentivo("N630").map((c) => (
+            <label key={c.codigo}>{c.codigo} — {c.descricao.replace(/^\(-\)\s*/, "")}
+              <input className={campo} inputMode="decimal" value={f.incentivos?.[c.codigo] || ""} onChange={(e) => setF((a) => ({ ...a, incentivos: { ...(a.incentivos || {}), [c.codigo]: e.target.value } }))} />
+            </label>
+          ))}
+        </div>
+      </details>
       {calculo.erro && <p role="alert" className="mt-2 rounded bg-red-50 p-2 text-red-900">{calculo.erro}</p>}
       {calculo.r && (
         <div className="mt-2 overflow-x-auto"><table className="w-full min-w-[420px] text-left">

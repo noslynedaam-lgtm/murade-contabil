@@ -3,6 +3,7 @@ import { AlertTriangle, BookOpen, Download, ExternalLink, FileSpreadsheet, Print
 import { EcdGeradorPainel } from "../EcdGeradorPainel";
 import { EcfPresumidoPainel } from "../EcfPresumidoPainel";
 import { EcfRealPainel } from "../EcfRealPainel";
+import { EcfRealPeriodosPainel } from "../EcfRealPeriodosPainel";
 import { ContaPlano, EmpresaDados, LancamentoContabil, LivroContabil, PreLancamentoContabil } from "../../types";
 import {
   dataLegivelContabil,
@@ -130,6 +131,29 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
       const deb = grupoDemonstracao(item.debito, contas) === "receita" ? item.valorCentavos : 0;
       return soma + cred - deb;
     }, 0));
+  const receitaPorMesECF = Array.from({ length: 12 }, (_, mes) => lancamentosAnoECD
+    .filter((item) => Number(item.dataISO.slice(5, 7)) - 1 === mes)
+    .reduce((soma, item) => soma
+      + (grupoDemonstracao(item.credito, contas) === "receita" ? item.valorCentavos : 0)
+      - (grupoDemonstracao(item.debito, contas) === "receita" ? item.valorCentavos : 0), 0));
+  const resultadoPorTrimestreECF = [0, 1, 2, 3].map((tri) => {
+    let resultado = 0, irpj = 0, csll = 0;
+    for (const item of lancamentosAnoECD) {
+      if (Math.floor((Number(item.dataISO.slice(5, 7)) - 1) / 3) !== tri) continue;
+      for (const [conta, sinal] of [[item.credito, 1], [item.debito, -1]] as const) {
+        const g = grupoDemonstracao(conta, contas);
+        if (g !== "receita" && g !== "despesa") continue;
+        const v = sinal * item.valorCentavos;
+        resultado += v;
+        if (g === "despesa") {
+          const nome = conta.descricao.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+          if (/\birpj\b|imposto\s+de\s+renda/.test(nome)) irpj -= v;
+          else if (/\bcsll\b|contribuicao\s+social/.test(nome)) csll -= v;
+        }
+      }
+    }
+    return { resultado, irpj, csll };
+  });
   const resultadoAnualECF = (() => {
     let resultado = 0, irpj = 0, csll = 0;
     for (const item of lancamentosAnoECD) {
@@ -591,6 +615,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
         </div>
         {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcfPresumidoPainel empresaRegime={empresa.regime} cnpj={String(empresa.cnpj || "")} ano={Number(anoECD)} receitaContabilPorTrimestre={receitaPorTrimestreECF} />}
         {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcfRealPainel empresaRegime={empresa.regime} cnpj={String(empresa.cnpj || "")} ano={Number(anoECD)} resultadoContabilCentavos={resultadoAnualECF.resultado} irpjContabilizadoCentavos={resultadoAnualECF.irpj} csllContabilizadaCentavos={resultadoAnualECF.csll} />}
+        {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcfRealPeriodosPainel empresaRegime={empresa.regime} cnpj={String(empresa.cnpj || "")} ano={Number(anoECD)} receitaPorMesCentavos={receitaPorMesECF} resultadoPorTrimestre={resultadoPorTrimestreECF} />}
         {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcdGeradorPainel empresa={empresa} ano={anoECD} contas={contas} lancamentos={relatoriosECD.validos} onMapeamentoReferencial={onMapeamentoReferencial} />}
         <p className="mt-2 rounded-md border border-amber-200 bg-white/70 p-2"><strong>Limite atual do Murade:</strong> esta tela exporta relatório interno em PDF para impressão e planilha XLS. O arquivo estruturado TXT da ECD (com Balanço, DRE e encerramento do resultado) é gerado no painel acima. Portanto, estes relatórios em PDF/XLS não devem ser enviados como ECD nem são autenticados por esta exportação.</p>
         <a href="https://sped.rfb.gov.br/projeto/show/273" target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold text-amber-950 hover:bg-amber-100">

@@ -12,6 +12,7 @@
  * apuração trimestral e por estimativa (N620/N660), e a conciliação conta a conta da Parte B do e-Lalur.
  */
 import type { LinhaECF } from "./ecfPresumidoService";
+import { calcularIncentivosIrpj } from "./ecfIncentivosService";
 
 export interface LancamentoLalur {
   /** Código da tabela dinâmica M300A/M350A (ex.: "8.60" multas por infrações fiscais; "167.01" outras exclusões). */
@@ -42,6 +43,10 @@ export interface EntradaLucroRealAnual {
   deducoesCsll?: Partial<Record<"14" | "15" | "16" | "17" | "18" | "19" | "20", number>>;
   /** 0020.IND_ALIQ_CSLL: "1" = 9%, "4" = 15%, "3" = 20%. */
   indAliquotaCsll: string;
+  /** Meses do período de apuração (12 = anual, 3 = trimestre). Define o limite do adicional (R$ 20.000 por mês). */
+  meses?: number;
+  /** Incentivos fiscais dedutíveis do IRPJ, por código da N630 (ex.: "6" cultural, "8" PAT, "16.10" reciclagem). Valores positivos. */
+  incentivosIrpj?: Record<string, number>;
 }
 
 export interface ResultadoLucroRealAnual {
@@ -65,16 +70,22 @@ export interface ResultadoLucroRealAnual {
   n650: LinhaECF[];
   n670: LinhaECF[];
   avisos: string[];
+  /** Saldos que seguem para o período seguinte (prejuízo fiscal e base negativa): saldo − compensado + gerado no período. */
+  saldoPrejuizoFinal: number;
+  saldoBaseNegativaFinal: number;
+  /** Total deduzido do IRPJ pelos incentivos (já com a regra dos 90% da LC 224/25 a partir de 2026). */
+  incentivosDeduzidos: number;
 }
 
 const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
 const n = (v: number | undefined) => (Number.isFinite(v) ? (v as number) : 0);
 const soma = (l: LancamentoLalur[]) => r2(l.reduce((s, x) => s + n(x.valor), 0));
 const LIMITE_COMPENSACAO = 0.3;
-const IRPJ_LIMITE_ADICIONAL_ANUAL = 20000 * 12;
 
 export function calcularLucroRealAnual(e: EntradaLucroRealAnual): ResultadoLucroRealAnual {
   const avisos: string[] = [];
+  const meses = e.meses ?? 12;
+  if (!Number.isInteger(meses) || meses < 1 || meses > 12) throw new Error("Número de meses do período inválido.");
   if (!["1", "3", "4"].includes(e.indAliquotaCsll)) {
     throw new Error("Alíquota da CSLL não suportada neste cálculo (só 9%, 15% ou 20%). Alíquotas múltiplas no ano exigem o programa da ECF.");
   }
@@ -106,7 +117,7 @@ export function calcularLucroRealAnual(e: EntradaLucroRealAnual): ResultadoLucro
   // ---- N630 ----
   const di = e.deducoesIrpj || {};
   const imp15 = baseIrpj > 0 ? r2(baseIrpj * 0.15) : 0;
-  const adicional = baseIrpj <= IRPJ_LIMITE_ADICIONAL_ANUAL ? 0 : r2((baseIrpj - IRPJ_LIMITE_ADICIONAL_ANUAL) * 0.1);
+  const adicional = baseIrpj <= 20000 * meses ? 0 : r2((baseIrpj - 20000 * meses) * 0.1);
   const chavesIr = ["19", "20", "21", "22", "23", "24", "25"] as const;
   const descIr: Record<(typeof chavesIr)[number], string> = {
     "19": "(-) Imposto Pago no Exterior sobre Lucros, Rendimentos e Ganhos de Capital",
@@ -118,12 +129,15 @@ export function calcularLucroRealAnual(e: EntradaLucroRealAnual): ResultadoLucro
     "25": "(-) Imposto de Renda Efetivamente Parcelado Referente a Estimativas Mensais",
   };
   const somaDedIr = chavesIr.reduce((s, k) => s + n(di[k]), 0);
-  const irpj = r2(imp15 + adicional - somaDedIr);
+  const inc = calcularIncentivosIrpj("N630", e.anoCalendario, imp15, e.incentivosIrpj || {});
+  avisos.push(...inc.avisos);
+  const irpj = r2(imp15 + adicional - inc.totalDeduzido - somaDedIr);
   const n500: LinhaECF[] = [{ codigo: "1", descricao: "Valor da base de cálculo do IRPJ", valor: baseIrpj }];
   const n630: LinhaECF[] = [
     { codigo: "1", descricao: "BASE DE CÁLCULO DO IRPJ", valor: baseIrpj },
     { codigo: "3", descricao: "À Alíquota de 15%", valor: imp15 },
     { codigo: "4", descricao: "Adicional", valor: adicional },
+    ...inc.linhas,
     ...chavesIr.filter((k) => di[k] !== undefined).map((k) => ({ codigo: k, descricao: descIr[k], valor: n(di[k]) })),
     { codigo: "26", descricao: "IMPOSTO DE RENDA A PAGAR", valor: irpj },
   ];
@@ -170,7 +184,10 @@ export function calcularLucroRealAnual(e: EntradaLucroRealAnual): ResultadoLucro
   return {
     lucroAntesIrpj, lucroAntesCsll, lucroRealAntesCompensacao: lucroRealAntes, compensacaoPrejuizo: compPrejuizo, baseIrpj,
     baseNegativaCsllAntesCompensacao: baseNegAntes, compensacaoBaseNegativa: compBase, baseCsll,
-    irpjAPagar: irpj, csllAPagar: csll, prejuizoFiscalDoAno, baseNegativaCsllDoAno, m300, m350, n500, n630, n650, n670, avisos,
+    irpjAPagar: irpj, csllAPagar: csll, incentivosDeduzidos: inc.totalDeduzido,
+    saldoPrejuizoFinal: r2(Math.max(0, n(e.saldoPrejuizoFiscal)) - compPrejuizo + prejuizoFiscalDoAno),
+    saldoBaseNegativaFinal: r2(Math.max(0, n(e.saldoBaseNegativaCsll)) - compBase + baseNegativaCsllDoAno),
+    prejuizoFiscalDoAno, baseNegativaCsllDoAno, m300, m350, n500, n630, n650, n670, avisos,
   };
 }
 
