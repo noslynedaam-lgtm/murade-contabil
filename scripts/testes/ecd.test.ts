@@ -283,3 +283,33 @@ test("conferência do Bloco L: Balanço e DRE pelo plano referencial fecham e so
   const sem = conferirBlocoL("real", e.saldosAnuais!, { "1.1.01": ativo[0].codigo });
   assert.ok(sem.erros.some((x) => x.includes("sem vínculo")));
 });
+
+test("DLPA (padrão): J210 da conta de lucros acumulados, J215 começa no saldo inicial e soma = saldo final", () => {
+  const r = gerarArquivoECD({ parametros: param, contas, lancamentos: validos() });
+  assert.equal(r.ok, true, r.erros.join("; "));
+  const l = r.conteudo!.split("\r\n");
+  const j210 = l.filter((x) => x.startsWith("|J210|"));
+  assert.equal(j210.length, 1);
+  const f = j210[0].split("|");
+  assert.deepEqual([f[2], f[3]], ["0", "AG.2.1.02"]);
+  assert.deepEqual([f[5], f[6], f[7], f[8]], ["0,00", "C", "1500,50", "C"]);
+  const i = l.indexOf(j210[0]);
+  const j215 = [];
+  for (let k = i + 1; l[k].startsWith("|J215|"); k++) j215.push(l[k].split("|"));
+  assert.equal(j215[0][3], "SALDO INICIAL");
+  const soma = j215.reduce((a, x) => a + (x[5] === "D" ? -1 : 1) * Number(x[4].replace(",", ".")), 0);
+  assert.equal(Math.round(soma * 100), 150050);
+  assert.ok(l.indexOf(j210[0]) > l.findIndex((x) => x.startsWith("|J150|")));
+  assert.ok(l.indexOf(j210[0]) < l.findIndex((x) => x.startsWith("|J900|")));
+  assert.equal(l.find((x) => x.startsWith("|9900|J210|")), "|9900|J210|1|");
+  assert.ok(r.avisos.some((a) => a.includes("Inclui DLPA")));
+});
+
+test("DMPL inclui todas as contas do PL e 'nenhuma' não gera J210", () => {
+  const d = gerarArquivoECD({ parametros: { ...param, demonstracaoPL: "dmpl" }, contas, lancamentos: validos() });
+  assert.equal(d.ok, true, d.erros.join("; "));
+  const j = d.conteudo!.split("\r\n").filter((x) => x.startsWith("|J210|"));
+  assert.ok(j.length >= 1 && j.every((x) => x.startsWith("|J210|1|")));
+  const n = gerarArquivoECD({ parametros: { ...param, demonstracaoPL: "nenhuma" }, contas, lancamentos: validos() });
+  assert.ok(!n.conteudo!.includes("|J210|"));
+});

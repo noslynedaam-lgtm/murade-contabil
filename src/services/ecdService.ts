@@ -59,6 +59,8 @@ export interface ParametrosECD {
   planoReferencial?: { codPlanRef: "1" | "2"; mapa: Record<string, string> };
   /** Conta analítica do Patrimônio Líquido que recebe o resultado do exercício (Lucros/Prejuízos Acumulados). Se vazio, é detectada pelo nome. */
   contaResultadoCodigo?: string;
+  /** Demonstração do PL no Bloco J (J210/J215): "dlpa" = só a conta de lucros/prejuízos acumulados (padrão); "dmpl" = todas as contas do PL; "nenhuma" = não gera. */
+  demonstracaoPL?: "dlpa" | "dmpl" | "nenhuma";
 }
 
 export interface EntradaECD {
@@ -616,6 +618,31 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
     else { const prox = demoResultado.slice(i + 1).find((x) => x.analitica); grpDre = prox && prox.nat === "D" ? "D" : "R"; }
     bJ.push(reg("J150", i + 1, n.codAgl, n.analitica ? "D" : "T", n.nivel, n.sup, n.desc, "", "", valorBR(n.fin), dcDe(n.fin), grpDre, ""));
   });
+  // DLPA/DMPL (J210/J215): cada J210 é uma conta analítica do PL (código AG.<conta>, o mesmo do I052);
+  // o primeiro J215 é o saldo inicial e os demais são as mutações do ano, de modo que a soma dos fatos = saldo final.
+  const modoPL = p.demonstracaoPL ?? "dlpa";
+  let qtdJ210 = 0;
+  if (modoPL !== "nenhuma") {
+    const sinal = (v: number) => -v; // saldo devedor positivo → crédito positivo (natureza do PL)
+    const contasDem = analiticas.filter((c) => natureza.get(c.codigo) === "03" && grupoDaConta(c) === "P" && (modoPL === "dmpl" || (contaDestino && c.codigo === contaDestino.codigo)));
+    let seqFato = 0;
+    for (const c of contasDem.sort((a, b) => ordenarCodigos(a.codigo, b.codigo))) {
+      const sa = saldosAnuais.find((x) => x.codigo === c.codigo)!;
+      let encD = 0, encC = 0;
+      if (fechando) { const e = movEncerramento(c); encD = e.deb; encC = e.cred; }
+      const outrosD = sa.deb - encD, outrosC = sa.cred - encC;
+      const ini = sinal(sa.ini);
+      const fatos: Array<{ desc: string; v: number }> = [{ desc: "SALDO INICIAL", v: ini }];
+      if (encC - encD !== 0) fatos.push({ desc: encC - encD > 0 ? "LUCRO LIQUIDO DO EXERCICIO" : "PREJUIZO DO EXERCICIO", v: encC - encD });
+      if (outrosC !== 0) fatos.push({ desc: "AUMENTOS / CREDITOS DO PERIODO", v: outrosC });
+      if (outrosD !== 0) fatos.push({ desc: "REDUCOES / DEBITOS DO PERIODO (DISTRIBUICOES, ABSORCOES, AJUSTES)", v: -outrosD });
+      const soma = fatos.reduce((a, f) => a + f.v, 0);
+      if (soma !== sinal(sa.fin)) { avisos.push(`DLPA/DMPL: as mutações da conta ${c.codigo} não fecham com o saldo final; a conta foi omitida do J210.`); continue; }
+      bJ.push(reg("J210", modoPL === "dmpl" ? 1 : 0, `AG.${c.codigo}`, textoECD(c.descricao, 120), valorBR(Math.abs(ini)), ini > 0 ? "C" : ini < 0 ? "D" : "C", valorBR(Math.abs(soma)), soma > 0 ? "C" : soma < 0 ? "D" : "C", ""));
+      qtdJ210++;
+      for (const f of fatos) bJ.push(reg("J215", String(++seqFato), f.desc, valorBR(Math.abs(f.v)), f.v < 0 ? "D" : "C"));
+    }
+  }
   bJ.push(reg("J900", "TERMO DE ENCERRAMENTO", p.numeroLivro, textoECD(p.naturezaLivro, 80), nome, "@@QTD@@", dtIni, dtFin));
   for (const s of sig) {
     const doc = somenteAlfanumericos(s.documento);
@@ -649,7 +676,7 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
   // 0990/I990/J990 devem refletir as linhas do respectivo bloco
   const conteudo = finais.join("\r\n") + "\r\n";
 
-  avisos.push(`Inclui Balanço Patrimonial (J100), DRE (J150), aglutinação (I052) e o lançamento de encerramento do resultado${fechando ? "" : " (não houve saldo de resultado a encerrar)"}. NÃO inclui DLPA/DMPL (J210), notas explicativas nem plano referencial${p.planoReferencial ? "" : " (I051)"}; o PGE pode apontar o que for exigido para o seu caso.`);
+  avisos.push(`Inclui Balanço Patrimonial (J100), DRE (J150), aglutinação (I052) e o lançamento de encerramento do resultado${fechando ? "" : " (não houve saldo de resultado a encerrar)"}. ${qtdJ210 ? `Inclui ${modoPL === "dmpl" ? "DMPL" : "DLPA"} (J210/J215). ` : "NÃO inclui DLPA/DMPL (J210). "}NÃO inclui notas explicativas nem plano referencial${p.planoReferencial ? "" : " (I051)"}; o PGE pode apontar o que for exigido para o seu caso.`);
   avisos.push("O arquivo precisa ser importado, validado, assinado e transmitido pelo PGE do Sped Contábil; o Murade não transmite a ECD.");
 
   return {
