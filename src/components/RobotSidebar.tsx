@@ -12,8 +12,22 @@ export const RobotSidebar: React.FC<RobotSidebarProps> = ({
   isAuditing,
   onNavigateTab,
 }) => {
+  const [aberto, setAberto] = useState(false);
   return (
-    <div className="space-y-4">
+    <>
+      <button
+        type="button"
+        onClick={() => setAberto((v) => !v)}
+        aria-expanded={aberto}
+        aria-label={aberto ? "Minimizar Agente e Robô Murade" : "Abrir Agente e Robô Murade"}
+        className="fixed bottom-6 left-4 z-40 flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-3 py-2 text-xs font-bold text-slate-800 shadow-lg backdrop-blur hover:shadow-blue-500/20 lg:left-[17rem]"
+      >
+        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white"><Bot className="h-4 w-4" /></span>
+        <span className="hidden sm:inline">Robôs</span>
+        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+      </button>
+      {aberto && (
+    <div className="fixed bottom-20 left-4 z-40 max-h-[75vh] w-[min(22rem,calc(100vw-2rem))] space-y-4 overflow-y-auto rounded-xl shadow-2xl lg:left-[17rem]">
       {/* Card Principal do Robô — Tema Claro em Cinza Meio Azulado */}
       <div className="bg-gradient-to-b from-[#EEF4F9] via-[#E8EFF6] to-[#DEE8F3] text-slate-800 rounded-xl p-5 shadow-xs border border-[#CBD5E1]">
         <h3 className="text-sm font-extrabold text-slate-900 text-center uppercase tracking-wider mb-3 flex items-center justify-center gap-1.5">
@@ -22,7 +36,7 @@ export const RobotSidebar: React.FC<RobotSidebarProps> = ({
         </h3>
 
         {/* Avatar Animado que sobe e desce */}
-        <div className="relative w-20 h-20 mx-auto mb-3 animate-floating">
+        <div className="relative w-14 h-14 mx-auto mb-2">
           <div className="w-full h-full rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md border-2 border-white">
             <Bot className="w-10 h-10 text-white animate-pulse" />
           </div>
@@ -183,5 +197,7 @@ export const RobotSidebar: React.FC<RobotSidebarProps> = ({
         </button>
       </div>
     </div>
+      )}
+    </>
   );
 };

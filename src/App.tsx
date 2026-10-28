@@ -801,9 +801,9 @@ function AppWorkspace() {
             />
 
             {/* Grid Principal: 2 Colunas (Área de Trabalho + Sidebar do Robô) */}
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
+            <div className="grid grid-cols-1 gap-5 items-start">
             {/* Coluna Esquerda: Conteúdo da Aba Selecionada */}
-            <div className="xl:col-span-2 space-y-4">
+            <div className="space-y-4 min-w-0">
               {tabAtiva === "inicio" && (
                 <InicioTab
                   empresa={empresa}
@@ -1030,14 +1030,12 @@ function AppWorkspace() {
               )}
             </div>
 
-            {/* Coluna Direita: Robô Murade */}
-            <div className="xl:col-span-1">
-              <RobotSidebar
-                onRunAudit={handleRunAudit}
-                isAuditing={isAuditing}
-                onNavigateTab={(tab) => setTabAtiva(tab)}
-              />
-            </div>
+            {/* Robô Murade: minimizado e flutuante (abre ao clicar) */}
+            <RobotSidebar
+              onRunAudit={handleRunAudit}
+              isAuditing={isAuditing}
+              onNavigateTab={(tab) => setTabAtiva(tab)}
+            />
           </div>
         </main>
       </div>
