@@ -93,6 +93,8 @@ export interface EmpresaDados {
   presumidoDistribuiuLucroAcimaBase?: boolean;
   /** Simples Nacional: recebeu aporte de capital (arts. 61-A a 61-D da LC 123)? */
   simplesAporteCapital?: boolean;
+  /** Vínculo das contas analíticas com o plano referencial da RFB: código da conta → código referencial. */
+  mapeamentoReferencial?: Record<string, string>;
   fonteDados?: string;
   ultimaConsultaReceita?: string;
   certificadoAtivo?: boolean;

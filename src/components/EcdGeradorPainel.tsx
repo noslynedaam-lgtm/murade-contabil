@@ -2,13 +2,15 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Download, FileText } from "lucide-react";
 import { ContaPlano, EmpresaDados } from "../types";
 import { LancamentoValidado } from "../utils/livrosContabeis";
-import { analisarObrigatoriedadeECD, CodigoNaturezaConta, ecdParaLatin1, gerarArquivoECD, ParametrosECD, prazoEntregaECD, SignatarioECD } from "../services/ecdService";
+import { codPlanRefECD, contasReferenciais, existeContaReferencialAnalitica, FONTE_PLANO_REFERENCIAL, regimeReferencial, sugerirMapeamento } from "../services/planoReferencialService";
+import { analisarObrigatoriedadeECD, naturezasDasContas, CodigoNaturezaConta, ecdParaLatin1, gerarArquivoECD, ParametrosECD, prazoEntregaECD, SignatarioECD } from "../services/ecdService";
 
 interface Props {
   empresa: EmpresaDados;
   ano: string;
   contas: ContaPlano[];
   lancamentos: LancamentoValidado[];
+  onMapeamentoReferencial?: (mapa: Record<string, string>) => void;
 }
 
 const NATUREZAS: Array<{ v: CodigoNaturezaConta; t: string }> = [
@@ -29,7 +31,7 @@ function isoDeBR(v?: string): string {
   return m ? `${m[3]}-${m[2]}-${m[1]}` : /^\d{4}-\d{2}-\d{2}$/.test(v || "") ? (v as string) : "";
 }
 
-export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancamentos }) => {
+export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancamentos, onMapeamentoReferencial }) => {
   const chave = `murade_ecd_form_${String(empresa.cnpj || "").replace(/\W/g, "")}`;
   const inicial = (): Form => ({
     numeroLivro: String(empresa.ecdNumeroLivro || 1), naturezaLivro: empresa.ecdNaturezaLivro || "DIARIO GERAL", dataAtos: isoDeBR(empresa.dataAbertura), municipio: empresa.municipio || "", ibge: empresa.ecdCodigoMunicipioIbge || "",
@@ -48,6 +50,34 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
   }, [chave]);
   useEffect(() => { try { localStorage.setItem(chave, JSON.stringify(f)); } catch { /* opcional */ } }, [chave, f]);
 
+  const regimeRef = regimeReferencial(empresa.regime);
+  const mapaRef = useMemo(() => empresa.mapeamentoReferencial || {}, [empresa.mapeamentoReferencial]);
+  const naturezasContas = useMemo(() => naturezasDasContas(contas, naturezas), [contas, naturezas]);
+  const sugestoes = useMemo(
+    () => (regimeRef ? sugerirMapeamento(contas, regimeRef, naturezasContas as Map<string, string>, mapaRef) : []),
+    [contas, regimeRef, naturezasContas, mapaRef],
+  );
+  const [autoAplicados, setAutoAplicados] = useState(0);
+  // Automático: vínculos de alta confiança são aplicados sozinhos; o contador só revisa o restante.
+  useEffect(() => {
+    if (!regimeRef || !onMapeamentoReferencial) return;
+    const altas = sugestoes.filter((x) => x.confianca === "alta");
+    if (!altas.length) return;
+    const novo = { ...mapaRef };
+    for (const a of altas) novo[a.contaCodigo] = a.candidatos[0].codigo;
+    setAutoAplicados((n) => n + altas.length);
+    onMapeamentoReferencial(novo);
+  }, [sugestoes, regimeRef, onMapeamentoReferencial, mapaRef]);
+  const definirVinculo = (conta: string, ref: string) => {
+    if (!onMapeamentoReferencial) return;
+    const novo = { ...mapaRef };
+    if (ref) novo[conta] = ref; else delete novo[conta];
+    onMapeamentoReferencial(novo);
+  };
+  const analiticasRef = contas.filter((c) => c.tipo === "analitica");
+  const vinculadas = analiticasRef.filter((c) => mapaRef[c.codigo]).length;
+  const pendentesRef = analiticasRef.filter((c) => !mapaRef[c.codigo]);
+
   const parametros = useMemo((): ParametrosECD => {
     const nire = String(empresa.nire || "").replace(/\D/g, "");
     const signatarios: SignatarioECD[] = [
@@ -59,8 +89,9 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
       inscricaoEstadual: empresa.inscricaoEstadual, inscricaoMunicipal: empresa.inscricaoMunicipal, municipio: f.municipio,
       possuiNire: Boolean(nire), nire: nire || undefined, dataArquivamentoAtos: f.dataAtos || undefined,
       numeroLivro: Number(f.numeroLivro), naturezaLivro: f.naturezaLivro, signatarios, naturezaPorGrupo: naturezas,
+      planoReferencial: regimeRef && vinculadas > 0 ? { codPlanRef: codPlanRefECD(regimeRef), mapa: mapaRef } : undefined,
     };
-  }, [f, ano, empresa, naturezas]);
+  }, [f, ano, empresa, naturezas, regimeRef, vinculadas, mapaRef]);
 
   const analise = useMemo(() => analisarObrigatoriedadeECD({ regime: empresa.regime, presumidoLivroCaixa: empresa.presumidoLivroCaixa, presumidoDistribuiuLucroAcimaBase: empresa.presumidoDistribuiuLucroAcimaBase, simplesAporteCapital: empresa.simplesAporteCapital }), [empresa]);
   const prazo = prazoEntregaECD(Number(ano) || new Date().getFullYear());
@@ -95,6 +126,31 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
         <label>Arquivamento dos atos (ou abertura)<input className={campo} type="date" value={f.dataAtos} onChange={set("dataAtos")} /></label>
       </div>
       <p className="mt-2 text-[11px]">Assinatura e identificação vêm do cadastro da empresa (CRC, CPF, e-mail, certidão e NIRE). Preencha uma vez em Empresa → Contador e valerá para todas as ECDs.</p>
+      {regimeRef && (
+        <div className="mt-3 rounded border border-amber-300 bg-amber-50 p-2">
+          <p className="font-bold">Plano referencial da Receita ({regimeRef === "real" ? "Lucro Real – PJ em geral" : "Lucro Presumido – PJ em geral"}): {vinculadas} de {analiticasRef.length} contas vinculadas</p>
+          <p className="text-[11px]">{autoAplicados > 0 ? `${autoAplicados} vínculo(s) aplicado(s) automaticamente pela semelhança da descrição. ` : ""}Revise as contas abaixo. Fonte: {FONTE_PLANO_REFERENCIAL}.</p>
+          {pendentesRef.length > 0 && (
+            <div className="mt-2 max-h-64 overflow-auto">
+              {pendentesRef.slice(0, 60).map((c) => {
+                const sug = sugestoes.find((x) => x.contaCodigo === c.codigo);
+                const grupo = naturezasContas.get(c.codigo) === "04" ? "resultado" : "patrimonial";
+                return (
+                  <div key={c.codigo} className="mt-1 flex flex-wrap items-center gap-2">
+                    <span className="min-w-[10rem] font-semibold">{c.codigo} — {c.descricao}</span>
+                    <select className="max-w-full rounded border border-amber-300 bg-white px-2 py-1" value="" onChange={(e) => definirVinculo(c.codigo, e.target.value)}>
+                      <option value="">{sug?.candidatos.length ? "Escolher sugestão…" : "Sem sugestão automática — escolher…"}</option>
+                      {(sug?.candidatos.length ? sug.candidatos : contasReferenciais(regimeRef, grupo).filter((r) => r.tipo === "A").slice(0, 40)).map((r) => <option key={r.codigo} value={r.codigo}>{r.codigo} — {r.descricao}</option>)}
+                    </select>
+                    <input className="w-44 rounded border border-amber-300 px-2 py-1" placeholder="ou digite o código" onBlur={(e) => { const v = e.target.value.trim(); if (v && existeContaReferencialAnalitica(regimeRef, v)) definirVinculo(c.codigo, v); e.target.value = ""; }} />
+                  </div>
+                );
+              })}
+              {pendentesRef.length > 60 && <p className="mt-1 text-[11px]">E mais {pendentesRef.length - 60} conta(s); resolva estas primeiro.</p>}
+            </div>
+          )}
+        </div>
+      )}
       {resultado.pendenciasNatureza.length > 0 && (
         <div className="mt-3 rounded border border-amber-300 bg-amber-50 p-2">
           <p className="font-bold">Natureza das contas (exigida pelo leiaute) — escolha para os grupos abaixo:</p>

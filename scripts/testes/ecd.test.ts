@@ -142,3 +142,24 @@ test("mês sem movimento e sem saldo ganha I155 zerado (manual 1.3)", () => {
   assert.equal(l.filter((x) => x.startsWith("|I150|")).length, 12);
   assert.ok(l.includes("|I155|1.1.01||0,00|D|0,00|0,00|0,00|D|"));
 });
+
+import { contasReferenciais } from "../../src/services/planoReferencialService";
+
+test("com plano referencial: 0000.COD_PLAN_REF e I051 após cada conta analítica; bloqueia sem vínculo", () => {
+  const pat = contasReferenciais("real", "patrimonial").filter((c) => c.tipo === "A").map((c) => c.codigo);
+  const res = contasReferenciais("real", "resultado").filter((c) => c.tipo === "A").map((c) => c.codigo);
+  const mapa = { "1.1.01": pat[0], "1.1.02": pat[1], "2.1.01": pat[2], "3.1.01": res[0] };
+  const r = gerarArquivoECD({ parametros: { ...param, planoReferencial: { codPlanRef: "1", mapa } }, contas, lancamentos: validos() });
+  assert.equal(r.ok, true, r.erros.join("; "));
+  const l = r.conteudo!.split("\r\n");
+  assert.ok(l[0].endsWith("|0|0|1|"));
+  const i = l.indexOf("|I050|01012026|01|A|3|1.1.01|1.1|Caixa|");
+  assert.equal(l[i + 1], `|I051||${pat[0]}|`);
+  assert.equal(l.filter((x) => x.startsWith("|I051|")).length, 4);
+  assert.equal(l.find((x) => x.startsWith("|9900|I051|")), "|9900|I051|4|");
+  const sem = gerarArquivoECD({ parametros: { ...param, planoReferencial: { codPlanRef: "1", mapa: { "1.1.01": pat[0] } } }, contas, lancamentos: validos() });
+  assert.equal(sem.ok, false);
+  assert.ok(sem.erros.some((e) => e.includes("sem vínculo")));
+  const ruim = gerarArquivoECD({ parametros: { ...param, planoReferencial: { codPlanRef: "1", mapa: { ...mapa, "1.1.01": "1.01.01.01" } } }, contas, lancamentos: validos() });
+  assert.ok(ruim.erros.some((e) => e.includes("vínculo inválido")));
+});

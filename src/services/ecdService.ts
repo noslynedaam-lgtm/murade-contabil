@@ -11,6 +11,7 @@
  */
 import { ContaPlano } from "../types";
 import { LancamentoValidado } from "../utils/livrosContabeis";
+import { existeContaReferencialAnalitica } from "./planoReferencialService";
 
 export type CodigoNaturezaConta = "01" | "02" | "03" | "04" | "05" | "09";
 
@@ -56,6 +57,8 @@ export interface ParametrosECD {
   signatarios: SignatarioECD[];
   /** Natureza escolhida pelo usuário por código de conta/grupo (vale para a conta e seus descendentes). */
   naturezaPorGrupo?: Record<string, CodigoNaturezaConta>;
+  /** Vínculo com o plano referencial da RFB: 1 = PJ em geral – Lucro Real, 2 = PJ em geral – Lucro Presumido. */
+  planoReferencial?: { codPlanRef: "1" | "2"; mapa: Record<string, string> };
 }
 
 export interface EntradaECD {
@@ -363,6 +366,14 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
     }
   };
 
+  if (p.planoReferencial) {
+    const regimeRef = p.planoReferencial.codPlanRef === "1" ? "real" : "presumido";
+    const semVinculo = analiticas.filter((c) => !p.planoReferencial!.mapa[c.codigo]);
+    if (semVinculo.length) erros.push(`Plano referencial: ${semVinculo.length} conta(s) analítica(s) sem vínculo (ex.: ${semVinculo.slice(0, 5).map((c) => c.codigo).join(", ")}). Revise o mapeamento.`);
+    const invalidas = analiticas.filter((c) => p.planoReferencial!.mapa[c.codigo] && !existeContaReferencialAnalitica(regimeRef, p.planoReferencial!.mapa[c.codigo]));
+    if (invalidas.length) erros.push(`Plano referencial: vínculo inválido (conta referencial inexistente ou sintética) em ${invalidas.slice(0, 5).map((c) => c.codigo).join(", ")}.`);
+  }
+
   if (erros.length) return { ...vazio(), pendenciasNatureza };
 
   // ---------- Montagem das linhas ----------
@@ -373,7 +384,7 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
   const dtIni = `0101${ano}`;
   const dtFin = `3112${ano}`;
 
-  b0.push(reg("0000", "LECD", dtIni, dtFin, nome, cnpj, uf, textoECD(p.inscricaoEstadual), p.codigoMunicipioIbge || "", textoECD(p.inscricaoMunicipal), "", p.situacaoInicioPeriodo ?? 0, p.possuiNire ? 1 : 0, 0, "", p.grandePorte ? 1 : 0, 0, "", "N", "N", 0, p.houveMudancaPlano ? 1 : 0, ""));
+  b0.push(reg("0000", "LECD", dtIni, dtFin, nome, cnpj, uf, textoECD(p.inscricaoEstadual), p.codigoMunicipioIbge || "", textoECD(p.inscricaoMunicipal), "", p.situacaoInicioPeriodo ?? 0, p.possuiNire ? 1 : 0, 0, "", p.grandePorte ? 1 : 0, 0, "", "N", "N", 0, p.houveMudancaPlano ? 1 : 0, p.planoReferencial ? p.planoReferencial.codPlanRef : ""));
   b0.push(reg("0001", 0));
 
   bI.push(reg("I001", 0));
@@ -383,6 +394,7 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
   for (const c of contas) {
     const pai = pais.get(c.codigo);
     bI.push(reg("I050", dtIni, natureza.get(c.codigo)!, c.tipo === "analitica" ? "A" : "S", c.nivel, c.codigo, pai ? pai.codigo : "", textoECD(c.descricao)));
+    if (p.planoReferencial && c.tipo === "analitica") bI.push(reg("I051", "", p.planoReferencial.mapa[c.codigo]));
   }
   for (const cod of [...centrosUsados].sort(ordenarCodigos)) bI.push(reg("I100", dtIni, cod, textoECD(centros.get(cod))));
   let mesesComSaldo = 0;
@@ -442,7 +454,7 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
   // 0990/I990/J990 devem refletir as linhas do respectivo bloco
   const conteudo = finais.join("\r\n") + "\r\n";
 
-  avisos.push("Este arquivo NÃO inclui Balanço Patrimonial e DRE (registros J005/J100/J150), nem plano referencial (I051) e aglutinação (I052). O PGE do Sped Contábil pode apontar esses itens como pendentes.");
+  avisos.push(`Este arquivo NÃO inclui Balanço Patrimonial e DRE (registros J005/J100/J150) nem aglutinação (I052)${p.planoReferencial ? "" : " e o plano referencial (I051)"}. O PGE do Sped Contábil pode apontar esses itens como pendentes.`);
   avisos.push("O arquivo precisa ser importado, validado, assinado e transmitido pelo PGE do Sped Contábil; o Murade não transmite a ECD.");
 
   return {
@@ -514,4 +526,21 @@ export function prazoEntregaECD(ano: number): string {
   const d = new Date(Date.UTC(ano + 1, 5, 30));
   while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1);
   return d.toISOString().slice(0, 10);
+}
+
+/** Natureza (COD_NAT) de cada conta, com as mesmas regras do gerador. Contas sem natureza definida ficam fora do mapa. */
+export function naturezasDasContas(contas: ContaPlano[], naturezaPorGrupo: Record<string, CodigoNaturezaConta> = {}): Map<string, CodigoNaturezaConta> {
+  const sinteticas = contas.filter((c) => c.tipo === "sintetica");
+  const pais = new Map<string, ContaPlano | null>();
+  for (const c of contas) pais.set(c.codigo, c.nivel > 1 ? contaPai(c, sinteticas) : null);
+  const mapa = new Map<string, CodigoNaturezaConta>();
+  for (const c of contas) {
+    let atual: ContaPlano | null = c;
+    while (atual) {
+      const achada = naturezaPorGrupo[atual.codigo] || naturezaPorDescricao(atual.descricao || "");
+      if (achada) { mapa.set(c.codigo, achada); break; }
+      atual = pais.get(atual.codigo) || null;
+    }
+  }
+  return mapa;
 }

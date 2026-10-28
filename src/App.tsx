@@ -959,6 +959,7 @@ function AppWorkspace() {
                   preLancamentos={preLancamentos}
                   livros={livros}
                   onDefinirContasDisponibilidades={(codigos) => setEmpresa((prev) => ({ ...prev, contasDisponibilidadesCodigo: codigos }))}
+                  onMapeamentoReferencial={(mapa) => setEmpresa((prev) => ({ ...prev, mapeamentoReferencial: mapa }))}
                 />
               )}
 

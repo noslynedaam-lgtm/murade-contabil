@@ -21,6 +21,7 @@ interface LivrosTabProps {
   preLancamentos: PreLancamentoContabil[];
   livros: LivroContabil[];
   onDefinirContasDisponibilidades: (codigos: string[]) => void;
+  onMapeamentoReferencial?: (mapa: Record<string, string>) => void;
 }
 
 type LivroVisivel = "diario" | "razao" | "balancete" | "dre" | "balanco" | "fluxo-caixa";
@@ -75,6 +76,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
   preLancamentos,
   livros,
   onDefinirContasDisponibilidades,
+  onMapeamentoReferencial,
 }) => {
   const [periodo, setPeriodo] = useState<PeriodoContabil>(() => competenciaInicial(empresa.competencia));
   const [livroVisivel, setLivroVisivel] = useState<LivroVisivel>("diario");
@@ -570,7 +572,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
           <button type="button" onClick={exportarChecklistECD} disabled={!workspaceCarregado || !empresa.cnpj || !/^\d{4}$/.test(anoECD)} className="mt-2 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-3.5 w-3.5" /> Exportar checklist interno CSV</button>
         </div>
         {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcfPresumidoPainel empresaRegime={empresa.regime} cnpj={String(empresa.cnpj || "")} ano={Number(anoECD)} receitaContabilPorTrimestre={receitaPorTrimestreECF} />}
-        {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcdGeradorPainel empresa={empresa} ano={anoECD} contas={contas} lancamentos={relatoriosECD.validos} />}
+        {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcdGeradorPainel empresa={empresa} ano={anoECD} contas={contas} lancamentos={relatoriosECD.validos} onMapeamentoReferencial={onMapeamentoReferencial} />}
         <p className="mt-2 rounded-md border border-amber-200 bg-white/70 p-2"><strong>Limite atual do Murade:</strong> esta tela exporta relatório interno em PDF para impressão e planilha XLS. O arquivo estruturado TXT da ECD é gerado no painel acima (sem Balanço/DRE ainda). Portanto, estes relatórios em PDF/XLS não devem ser enviados como ECD nem são autenticados por esta exportação.</p>
         <a href="https://sped.rfb.gov.br/projeto/show/273" target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold text-amber-950 hover:bg-amber-100">
           <ExternalLink className="h-3.5 w-3.5" /> Abrir página oficial da ECD no SPED
