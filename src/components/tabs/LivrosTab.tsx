@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, BookOpen, Download, ExternalLink, FileSpreadsheet, Printer } from "lucide-react";
+import { EcdGeradorPainel } from "../EcdGeradorPainel";
 import { ContaPlano, EmpresaDados, LancamentoContabil, LivroContabil, PreLancamentoContabil } from "../../types";
 import {
   dataLegivelContabil,
@@ -132,7 +133,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
     { titulo: "Saldos iniciais", detalhe: relatoriosECD.saldosIniciaisPendentes.length ? `${relatoriosECD.saldosIniciaisPendentes.length} saldo(s) pendentes ou inconsistentes` : "Nenhum saldo inicial pendente identificado", ok: relatoriosECD.saldosIniciaisPendentes.length === 0 },
     { titulo: "Persistência confirmada", detalhe: workspaceCarregado && workspacePersistido ? "Workspace lido e gravado no banco" : "Aguardando confirmação de leitura e gravação no banco", ok: workspaceCarregado && workspacePersistido },
     { titulo: "Revisão de rascunhos", detalhe: pendentes ? `${pendentes} pré-lançamento(s) ainda aguardam conferência` : "Nenhum pré-lançamento pendente", ok: pendentes === 0 },
-    { titulo: "Arquivo ECD e validação oficial", detalhe: "Pendente: o Murade ainda não gera o arquivo estruturado nem recebe validação do PGE/SPED", ok: false },
+    { titulo: "Arquivo ECD e validação oficial", detalhe: "Pendente: gere o TXT no painel abaixo e valide no PGE/SPED; o Murade não recebe a validação oficial", ok: false },
   ];
   const checklistECDLiberado = checksECD.every((item) => item.ok);
 
@@ -560,7 +561,8 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
           </p>
           <button type="button" onClick={exportarChecklistECD} disabled={!workspaceCarregado || !empresa.cnpj || !/^\d{4}$/.test(anoECD)} className="mt-2 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-3.5 w-3.5" /> Exportar checklist interno CSV</button>
         </div>
-        <p className="mt-2 rounded-md border border-amber-200 bg-white/70 p-2"><strong>Limite atual do Murade:</strong> esta tela exporta relatório interno em PDF para impressão e planilha XLS. Ainda não gera o arquivo estruturado TXT da ECD para importar no PGE. Portanto, esses arquivos não devem ser enviados como ECD nem são autenticados por esta exportação.</p>
+        {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcdGeradorPainel empresa={empresa} ano={anoECD} contas={contas} lancamentos={relatoriosECD.validos} />}
+        <p className="mt-2 rounded-md border border-amber-200 bg-white/70 p-2"><strong>Limite atual do Murade:</strong> esta tela exporta relatório interno em PDF para impressão e planilha XLS. O arquivo estruturado TXT da ECD é gerado no painel acima (sem Balanço/DRE ainda). Portanto, estes relatórios em PDF/XLS não devem ser enviados como ECD nem são autenticados por esta exportação.</p>
         <a href="https://sped.rfb.gov.br/projeto/show/273" target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold text-amber-950 hover:bg-amber-100">
           <ExternalLink className="h-3.5 w-3.5" /> Abrir página oficial da ECD no SPED
         </a>
