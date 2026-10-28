@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, BookOpen, Download, ExternalLink, FileSpreadsheet, Printer } from "lucide-react";
 import { EcdGeradorPainel } from "../EcdGeradorPainel";
 import { EcfPresumidoPainel } from "../EcfPresumidoPainel";
+import { EcfRealPainel } from "../EcfRealPainel";
 import { ContaPlano, EmpresaDados, LancamentoContabil, LivroContabil, PreLancamentoContabil } from "../../types";
 import {
   dataLegivelContabil,
@@ -129,6 +130,23 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
       const deb = grupoDemonstracao(item.debito, contas) === "receita" ? item.valorCentavos : 0;
       return soma + cred - deb;
     }, 0));
+  const resultadoAnualECF = (() => {
+    let resultado = 0, irpj = 0, csll = 0;
+    for (const item of lancamentosAnoECD) {
+      for (const [conta, sinal] of [[item.credito, 1], [item.debito, -1]] as const) {
+        const g = grupoDemonstracao(conta, contas);
+        if (g !== "receita" && g !== "despesa") continue;
+        const v = sinal * item.valorCentavos; // crédito soma, débito subtrai
+        resultado += v; // crédito soma, débito subtrai (vale para receita e despesa)
+        if (g === "despesa") {
+          const nome = conta.descricao.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+          if (/\birpj\b|imposto\s+de\s+renda/.test(nome)) irpj -= v;
+          else if (/\bcsll\b|contribuicao\s+social/.test(nome)) csll -= v;
+        }
+      }
+    }
+    return { resultado, irpj, csll };
+  })();
   const cnpjInformadoECD = String(empresa.cnpj || "").replace(/[^A-Z0-9]/gi, "").length >= 14;
   const checksECD = [
     { titulo: "Empresa identificada", detalhe: "Razão social e CNPJ cadastrados", ok: Boolean(String(empresa.razaoSocial || "").trim()) && cnpjInformadoECD },
@@ -572,8 +590,9 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
           <button type="button" onClick={exportarChecklistECD} disabled={!workspaceCarregado || !empresa.cnpj || !/^\d{4}$/.test(anoECD)} className="mt-2 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-3.5 w-3.5" /> Exportar checklist interno CSV</button>
         </div>
         {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcfPresumidoPainel empresaRegime={empresa.regime} cnpj={String(empresa.cnpj || "")} ano={Number(anoECD)} receitaContabilPorTrimestre={receitaPorTrimestreECF} />}
+        {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcfRealPainel empresaRegime={empresa.regime} cnpj={String(empresa.cnpj || "")} ano={Number(anoECD)} resultadoContabilCentavos={resultadoAnualECF.resultado} irpjContabilizadoCentavos={resultadoAnualECF.irpj} csllContabilizadaCentavos={resultadoAnualECF.csll} />}
         {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcdGeradorPainel empresa={empresa} ano={anoECD} contas={contas} lancamentos={relatoriosECD.validos} onMapeamentoReferencial={onMapeamentoReferencial} />}
-        <p className="mt-2 rounded-md border border-amber-200 bg-white/70 p-2"><strong>Limite atual do Murade:</strong> esta tela exporta relatório interno em PDF para impressão e planilha XLS. O arquivo estruturado TXT da ECD é gerado no painel acima (sem Balanço/DRE ainda). Portanto, estes relatórios em PDF/XLS não devem ser enviados como ECD nem são autenticados por esta exportação.</p>
+        <p className="mt-2 rounded-md border border-amber-200 bg-white/70 p-2"><strong>Limite atual do Murade:</strong> esta tela exporta relatório interno em PDF para impressão e planilha XLS. O arquivo estruturado TXT da ECD (com Balanço, DRE e encerramento do resultado) é gerado no painel acima. Portanto, estes relatórios em PDF/XLS não devem ser enviados como ECD nem são autenticados por esta exportação.</p>
         <a href="https://sped.rfb.gov.br/projeto/show/273" target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold text-amber-950 hover:bg-amber-100">
           <ExternalLink className="h-3.5 w-3.5" /> Abrir página oficial da ECD no SPED
         </a>

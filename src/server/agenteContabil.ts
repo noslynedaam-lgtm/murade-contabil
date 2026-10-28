@@ -7,6 +7,7 @@ import {
 } from './agenteMotor';
 import { achadosDoConferidor, achadosEcdDoConferidor } from './conferidorContabil';
 import { conferirEcdWorkspace } from './conferidorEcd';
+import { estimarLucroRealWorkspace } from './estimativaLucroReal';
 import { conferirFechamento } from '../utils/fechamentoContabil';
 import { compararPeriodos, explicarVariacoes } from '../utils/analiseContabil';
 import { FERRAMENTAS_ENTRE_SISTEMAS, INSTRUCAO_ENTRE_SISTEMAS } from './ferramentasEntreSistemas';
@@ -129,6 +130,17 @@ const FERRAMENTAS: Ferramenta[] = [
       const e = conferirEcdWorkspace(cnpj, ws.dados, new Date());
       if (!e) return { erro: 'A empresa ainda não tem cadastro salvo no Contábil.' };
       return { cnpj, ano: e.ano, situacao: e.situacao, titulo: e.titulo, prazo: e.prazo, diasParaPrazo: e.diasParaPrazo, pronta: e.pronta, atrasada: e.atrasada, pendencias: e.pendencias.slice(0, 12), totalPendencias: e.pendencias.length, avisos: e.avisos.slice(0, 4), observacao: 'O Murade monta o arquivo; a validação, a assinatura e a transmissão são feitas pelo contador no PGE do Sped Contábil.' };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'estimativa_lucro_real', description: 'Estima, na hora, o IRPJ e a CSLL do ano pelo Lucro Real a partir do resultado da contabilidade (sem adições, exclusões, compensação de prejuízo, incentivos e retenções, que o contador informa na tela da ECF). Use quando perguntarem quanto dá de imposto no Lucro Real no ano.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, ano: { type: 'STRING', description: 'Ano-calendário com 4 dígitos. Se omitido, usa o ano anterior.' } }, required: ['cnpj'] } },
+    async executar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj);
+      if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const ws = await lerWorkspace(ctx, cnpj); if ('erro' in ws) return ws;
+      const ano = /^\d{4}$/.test(String(args.ano || '')) ? Number(args.ano) : new Date().getFullYear() - 1;
+      try { return { cnpj, ...estimarLucroRealWorkspace(ws.dados, ano) }; } catch (e: any) { return { erro: String(e?.message || e) }; }
     },
   },
   {
