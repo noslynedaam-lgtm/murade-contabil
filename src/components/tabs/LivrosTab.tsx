@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, BookOpen, Download, ExternalLink, FileSpreadsheet, Printer } from "lucide-react";
 import { EcdGeradorPainel } from "../EcdGeradorPainel";
+import { EcfPresumidoPainel } from "../EcfPresumidoPainel";
 import { ContaPlano, EmpresaDados, LancamentoContabil, LivroContabil, PreLancamentoContabil } from "../../types";
 import {
   dataLegivelContabil,
@@ -119,6 +120,13 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
     }
     return [...porCodigo.values()].sort((a, b) => a.conta.codigo.localeCompare(b.conta.codigo, "pt-BR", { numeric: true }));
   })();
+  const receitaPorTrimestreECF = [0, 1, 2, 3].map((tri) => lancamentosAnoECD
+    .filter((item) => Math.floor((Number(item.dataISO.slice(5, 7)) - 1) / 3) === tri)
+    .reduce((soma, item) => {
+      const cred = grupoDemonstracao(item.credito, contas) === "receita" ? item.valorCentavos : 0;
+      const deb = grupoDemonstracao(item.debito, contas) === "receita" ? item.valorCentavos : 0;
+      return soma + cred - deb;
+    }, 0));
   const cnpjInformadoECD = String(empresa.cnpj || "").replace(/[^A-Z0-9]/gi, "").length >= 14;
   const checksECD = [
     { titulo: "Empresa identificada", detalhe: "Razão social e CNPJ cadastrados", ok: Boolean(String(empresa.razaoSocial || "").trim()) && cnpjInformadoECD },
@@ -561,6 +569,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
           </p>
           <button type="button" onClick={exportarChecklistECD} disabled={!workspaceCarregado || !empresa.cnpj || !/^\d{4}$/.test(anoECD)} className="mt-2 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-3.5 w-3.5" /> Exportar checklist interno CSV</button>
         </div>
+        {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcfPresumidoPainel empresaRegime={empresa.regime} cnpj={String(empresa.cnpj || "")} ano={Number(anoECD)} receitaContabilPorTrimestre={receitaPorTrimestreECF} />}
         {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcdGeradorPainel empresa={empresa} ano={anoECD} contas={contas} lancamentos={relatoriosECD.validos} />}
         <p className="mt-2 rounded-md border border-amber-200 bg-white/70 p-2"><strong>Limite atual do Murade:</strong> esta tela exporta relatório interno em PDF para impressão e planilha XLS. O arquivo estruturado TXT da ECD é gerado no painel acima (sem Balanço/DRE ainda). Portanto, estes relatórios em PDF/XLS não devem ser enviados como ECD nem são autenticados por esta exportação.</p>
         <a href="https://sped.rfb.gov.br/projeto/show/273" target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold text-amber-950 hover:bg-amber-100">
