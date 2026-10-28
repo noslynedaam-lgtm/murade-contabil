@@ -89,7 +89,6 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
     });
   }, [f, ano, empresa, naturezas, regimeRef, vinculadas, mapaRef]);
 
-  const blocoL = useMemo(() => (resultado.ok && resultado.saldosAnuais && regimeRef && vinculadas > 0 ? conferirBlocoL(regimeRef, resultado.saldosAnuais, mapaRef) : null), [resultado, regimeRef, vinculadas, mapaRef]);
   const baixarBlocoL = () => {
     if (!blocoL) return;
     const url = URL.createObjectURL(new Blob([registrosBlocoL(blocoL).join("\r\n") + "\r\n"], { type: "text/plain;charset=utf-8" }));
@@ -99,6 +98,7 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
   const analise = useMemo(() => analisarObrigatoriedadeECD({ regime: empresa.regime, presumidoLivroCaixa: empresa.presumidoLivroCaixa, presumidoDistribuiuLucroAcimaBase: empresa.presumidoDistribuiuLucroAcimaBase, simplesAporteCapital: empresa.simplesAporteCapital }), [empresa]);
   const prazo = prazoEntregaECD(Number(ano) || new Date().getFullYear());
   const resultado = useMemo(() => gerarArquivoECD({ parametros, contas, lancamentos }), [parametros, contas, lancamentos]);
+  const blocoL = useMemo(() => (resultado.ok && resultado.saldosAnuais && regimeRef && vinculadas > 0 ? conferirBlocoL(regimeRef, resultado.saldosAnuais, mapaRef) : null), [resultado, regimeRef, vinculadas, mapaRef]);
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF((a) => ({ ...a, [k]: e.target.type === "checkbox" ? (e.target as HTMLInputElement).checked : e.target.value }));
   const campo = "mt-1 w-full rounded border border-amber-300 bg-white px-2 py-1";
 

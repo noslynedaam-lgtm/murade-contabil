@@ -97,10 +97,10 @@ export const EcfArquivoPainel: React.FC<Props> = ({ empresa, ano, presumido, rea
       {resultado && !resultado.ok && (
         <div role="alert" className="mt-2 rounded border border-red-300 bg-red-50 p-2 text-red-900">
           <p className="font-bold">Falta para a ECF ficar pronta: {resultado.erros.length} pendência(s)</p>
-          <ul className="mt-1 list-disc pl-4">{resultado.erros.map((e) => <li key={e}>{e}</li>)}</ul>
+          <ul className="mt-1 list-disc pl-4">{resultado.erros.map((e, i) => <li key={i}>{e}</li>)}</ul>
         </div>
       )}
-      {resultado?.avisos.map((a) => <p key={a} className="mt-1 text-[11px]">• {a}</p>)}
+      {resultado?.avisos.map((a, i) => <p key={i} className="mt-1 text-[11px]">• {a}</p>)}
       <button type="button" onClick={baixar} disabled={!resultado?.ok} className="mt-2 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-3.5 w-3.5" /> Baixar arquivo da ECF (.txt, Latin-1)</button>
     </div>
   );
