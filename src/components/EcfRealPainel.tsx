@@ -47,7 +47,7 @@ export const EcfRealPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, resul
         anoCalendario: ano, resultadoContabil: resultadoContabilCentavos / 100, irpjContabilizado: irpjContabilizadoCentavos / 100, csllContabilizada: csllContabilizadaCentavos / 100,
         adicoesIrpj: toL(f.adicoes), exclusoesIrpj: toL(f.exclusoes), adicoesCsll: toL(f.adicoes, (l) => l.ambos), exclusoesCsll: toL(f.exclusoes, (l) => l.ambos),
         saldoPrejuizoFiscal: num(f.prejuizo), saldoBaseNegativaCsll: num(f.baseNeg), indAliquotaCsll: f.aliq,
-        incentivosIrpj: Object.fromEntries(Object.entries(f.incentivos || {}).filter(([, v]) => num(v) > 0).map(([k, v]) => [k, num(v)])),
+        incentivosIrpj: Object.fromEntries(Object.entries(f.incentivos || {}).filter(([, v]) => num(v as string) > 0).map(([k, v]) => [k, num(v as string)])),
         deducoesIrpj: { ...(num(f.irrf) ? { "20": num(f.irrf) } : {}), ...(num(f.estimativaIr) ? { "24": num(f.estimativaIr) } : {}) },
         deducoesCsll: { ...(num(f.csllRetida) ? { "17": num(f.csllRetida) } : {}), ...(num(f.estimativaCsll) ? { "19": num(f.estimativaCsll) } : {}) },
       });

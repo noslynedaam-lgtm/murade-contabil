@@ -50,6 +50,8 @@ O pipeline atual confere campos básicos dos registros locais. A recepção fisc
 
 ## Próximos passos para produção
 
+> Atualização (28/10/2026): ECD (Leiaute 9) e ECF (Presumido e Real) já geram arquivo no sistema; a IA Murade responde dúvidas da Reforma (IBS/CBS) na hora. Pendentes que dependem da contadora: teste Fiscal → Contábil → DP com empresa real, regras de mapeamento das partidas automáticas e ensaio de isolamento entre empresas. Pendente do dono: backup externo diário do banco e cota do Gemini.
+
 1. Configurar e confirmar no Render `DATABASE_URL`, `PGSSLMODE` e o mesmo `MURADE_INTEGRATION_TOKEN` no Contábil e nos serviços de origem.
 2. Concluir o primeiro acesso do Contábil e confirmar a persistência dos workspaces por CNPJ no Render.
 3. Construir a fila de revisão de documentos fiscais e resumos DP; nenhuma origem deve virar lançamento contábil sem mapeamento revisado.
