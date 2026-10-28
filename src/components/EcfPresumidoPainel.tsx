@@ -4,6 +4,8 @@ import { calcularAnoPresumido, calcularTrimestrePresumido, EntradaTrimestrePresu
 import { analisarObrigatoriedadeECD } from "../services/ecdService";
 
 interface Props {
+  /** Entrega os registros calculados (Bloco P) para o arquivo completo da ECF. */
+  onRegistros?: (linhas: string[]) => void;
   empresaRegime: string;
   cnpj: string;
   ano: number;
@@ -19,7 +21,7 @@ const ATIVIDADES: Array<{ id: string; t: string; irpj: keyof EntradaTrimestrePre
 ];
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-export const EcfPresumidoPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, receitaContabilPorTrimestre }) => {
+export const EcfPresumidoPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, receitaContabilPorTrimestre, onRegistros }) => {
   const chave = `murade_ecf_presumido_${cnpj.replace(/\W/g, "")}_${ano}`;
   const vazio = () => ({ ativ: "a", aliq: "1", trimestres: PERIODOS.map(() => ({ irrf: "", outras: "" })) });
   const [f, setF] = useState(vazio);
@@ -52,6 +54,8 @@ export const EcfPresumidoPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, 
     catch (e) { return { erro: (e as Error).message, linhas: [] as string[], itens }; }
     return { erro: null as string | null, linhas: itens.flatMap((r) => registrosBlocoPTrimestre(ano, r)), itens };
   }, [ano, f, receitaContabilPorTrimestre, atividade]);
+
+  useEffect(() => { onRegistros?.(calculo.erro ? [] : calculo.linhas); }, [calculo, onRegistros]);
 
   const baixar = () => {
     const url = URL.createObjectURL(new Blob([calculo.linhas.join("\r\n") + "\r\n"], { type: "text/plain;charset=utf-8" }));

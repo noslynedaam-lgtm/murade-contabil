@@ -44,3 +44,10 @@ test('robô guarda o achado da ECD por empresa e limpa quando some', async () =>
   await rodarConferidorContabil((async (sql: string) => ({ rows: [] })) as any, agora);
   assert.equal(achadosEcdDoConferidor().length, 0);
 });
+
+import { conferirEcdWorkspace as _conferirEcf } from "../../src/server/conferidorEcd";
+test("robô da ECD também aponta cadastro faltando para o arquivo da ECF", () => {
+  const a = _conferirEcf("11222333000181", { empresa: { cnpj: "11222333000181", razaoSocial: "X LTDA", regime: "Lucro Real" }, contas: [{ codigo: "1", descricao: "Caixa", natureza: "devedora", tipo: "analitica", grupo: "ativo" }], lancamentos: [] }, new Date("2026-10-28T12:00:00Z"));
+  assert.ok(a);
+  assert.ok(a!.avisos.some((p) => /ECF \(arquivo\): 0030: CNAE/.test(p)), a!.avisos.join(" | "));
+});

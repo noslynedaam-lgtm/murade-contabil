@@ -4,6 +4,8 @@ import { codigosIncentivo } from "../services/ecfIncentivosService";
 import { calcularLucroRealAnual, registrosLucroRealAnual, type LancamentoLalur } from "../services/ecfRealService";
 
 interface Props {
+  /** Entrega os registros M e N do ano para o arquivo completo da ECF. */
+  onRegistros?: (linhas: string[]) => void;
   empresaRegime: string;
   cnpj: string;
   ano: number;
@@ -26,7 +28,7 @@ const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", curren
 const num = (s: string) => { const v = Number(String(s).replace(/\./g, "").replace(",", ".")); return Number.isFinite(v) ? v : 0; };
 const vazioLinha = (): Linha => ({ codigo: "", descricao: "", valor: "", ambos: true });
 
-export const EcfRealPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, resultadoContabilCentavos, irpjContabilizadoCentavos, csllContabilizadaCentavos }) => {
+export const EcfRealPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, resultadoContabilCentavos, irpjContabilizadoCentavos, csllContabilizadaCentavos, onRegistros }) => {
   const chave = `murade_ecf_real_${cnpj.replace(/\W/g, "")}_${ano}`;
   const vazio = () => ({ aliq: "1", prejuizo: "", baseNeg: "", adicoes: [] as Linha[], exclusoes: [] as Linha[], irrf: "", estimativaIr: "", csllRetida: "", estimativaCsll: "", incentivos: {} as Record<string, string> });
   const [f, setF] = useState(vazio);
@@ -53,6 +55,8 @@ export const EcfRealPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, resul
     } catch (e: any) { return { erro: String(e?.message || e), r: null, linhas: [] as string[] }; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ano, f, resultadoContabilCentavos, irpjContabilizadoCentavos, csllContabilizadaCentavos]);
+
+  useEffect(() => { onRegistros?.(calculo.erro ? [] : calculo.linhas); }, [calculo, onRegistros]);
 
   const baixar = () => {
     const url = URL.createObjectURL(new Blob([calculo.linhas.join("\r\n") + "\r\n"], { type: "text/plain;charset=utf-8" }));

@@ -6,6 +6,8 @@ import {
 } from "../services/ecfRealPeriodosService";
 
 interface Props {
+  /** Entrega os registros da estimativa mensal e da apuração trimestral para o arquivo completo da ECF. */
+  onRegistros?: (r: { estimativa: string[]; trimestral: string[] }) => void;
   empresaRegime: string;
   cnpj: string;
   ano: number;
@@ -21,7 +23,7 @@ const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "O
 const PER = ["T01", "T02", "T03", "T04"] as const;
 type Aba = "estimativa" | "trimestral";
 
-export const EcfRealPeriodosPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, receitaPorMesCentavos, resultadoPorTrimestre }) => {
+export const EcfRealPeriodosPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, receitaPorMesCentavos, resultadoPorTrimestre, onRegistros }) => {
   const chave = `murade_ecf_real_periodos_${cnpj.replace(/\W/g, "")}_${ano}`;
   const vazio = () => ({
     aba: "estimativa" as Aba, aliq: "1", ativ: "a", saldoPrejuizo: "", saldoBaseNeg: "",
@@ -73,6 +75,8 @@ export const EcfRealPeriodosPainel: React.FC<Props> = ({ empresaRegime, cnpj, an
     } catch (e: any) { return { erro: String(e?.message || e), r: [], linhas: [] as string[] }; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ano, f, resultadoPorTrimestre]);
+
+  useEffect(() => { onRegistros?.({ estimativa: estimativa.erro ? [] : estimativa.linhas, trimestral: trimestral.erro ? [] : trimestral.linhas }); }, [estimativa, trimestral, onRegistros]);
 
   const atual = f.aba === "estimativa" ? estimativa : trimestral;
   const baixar = () => {

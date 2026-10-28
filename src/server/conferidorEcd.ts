@@ -5,6 +5,7 @@ import type { EmpresaDados } from '../types';
 import { analisarObrigatoriedadeECD, gerarArquivoECD, montarParametrosECD, naturezasDasContas, prazoEntregaECD, type ProntidaoECD } from '../services/ecdService';
 import { codPlanRefECD, regimeReferencial, sugerirMapeamento } from '../services/planoReferencialService';
 import { conferirBlocoL } from '../services/ecfBlocoLService';
+import { gerarArquivoEcf } from '../services/ecfArquivoService';
 import { gerarRelatoriosContabeis } from '../utils/livrosContabeis';
 
 export type AchadoEcd = ProntidaoECD & { cnpj: string; verificadoEm: string; diasParaPrazo: number; atrasada: boolean };
@@ -39,5 +40,19 @@ export function conferirEcdWorkspace(cnpj: string, payload: Record<string, any>,
   const r = gerarArquivoECD({ parametros, contas, lancamentos: validos, centrosCusto: Array.isArray(payload.centrosCusto) ? payload.centrosCusto.map((c: any) => ({ codigo: String(c.codigo), nome: String(c.nome || c.codigo) })) : [] });
   pendencias.push(...r.erros);
   if (r.ok && regimeRef && r.saldosAnuais) pendencias.push(...conferirBlocoL(regimeRef, r.saldosAnuais, mapa).erros.map((e) => `ECF (Bloco L): ${e}`));
-  return { ...base, pronta: r.ok && analise.situacao === 'obrigatoria', pendencias, avisos: r.ok ? r.avisos : [], atrasada: diasParaPrazo < 0 && pendencias.length > 0 };
+  const avisosEcf: string[] = [];
+  // ECF: cadastro (0030) e signatários (0930) exigidos pelo arquivo da ECF; as declarações S/N do 0020 o contador confirma na tela.
+  if (/real|presumido/i.test(String(empresa.regime || ''))) {
+    const ecf = gerarArquivoEcf({
+      ano, cnpj: String(empresa.cnpj || cnpj), nome: String(empresa.razaoSocial || ''), formaTrib: /real/i.test(String(empresa.regime)) ? '1' : '5', formaApur: /real/i.test(String(empresa.regime)) ? 'A' : 'T',
+      tipEscPre: 'C', mesBalRed: 'EEEEEEEEEEEE', aliqCsll: '1', flags: {}, flagsConfirmados: true,
+      cadastro: { naturezaJuridica: empresa.naturezaJuridica || '', cnae: empresa.cnae || '', endereco: empresa.logradouro || empresa.endereco || '', numero: empresa.numero || '', complemento: empresa.complemento, bairro: empresa.bairro || '', uf: empresa.uf || '', codigoMunicipio: empresa.ecdCodigoMunicipioIbge || '', cep: empresa.cep || '', telefone: empresa.telefone, email: empresa.email || '' },
+      signatarios: [
+        { nome: empresa.responsavelNome || '', documento: empresa.responsavelCpf || '', qualificacao: empresa.responsavelQualificacao || '205', email: empresa.email || '', fone: String(empresa.telefone || empresa.whatsapp || '').replace(/\D/g, '') },
+        { nome: empresa.contadorNome || '', documento: empresa.contadorCpf || '', qualificacao: '900', crc: empresa.contadorCrc, email: empresa.contadorEmail || '', fone: String(empresa.contadorFone || '').replace(/\D/g, '') },
+      ],
+    });
+    for (const e of ecf.erros.filter((x) => /^(0030|0930|CNPJ|Razão)/.test(x))) if (!pendencias.some((p) => p.includes(e))) avisosEcf.push(`ECF (arquivo): ${e}`);
+  }
+  return { ...base, pronta: r.ok && analise.situacao === 'obrigatoria', pendencias, avisos: [...(r.ok ? r.avisos : []), ...avisosEcf], atrasada: diasParaPrazo < 0 && pendencias.length > 0 };
 }

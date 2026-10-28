@@ -4,6 +4,7 @@ import { EcdGeradorPainel } from "../EcdGeradorPainel";
 import { EcfPresumidoPainel } from "../EcfPresumidoPainel";
 import { EcfRealPainel } from "../EcfRealPainel";
 import { EcfRealPeriodosPainel } from "../EcfRealPeriodosPainel";
+import { EcfArquivoPainel } from "../EcfArquivoPainel";
 import { ContaPlano, EmpresaDados, LancamentoContabil, LivroContabil, PreLancamentoContabil } from "../../types";
 import {
   dataLegivelContabil,
@@ -131,6 +132,11 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
       const deb = grupoDemonstracao(item.debito, contas) === "receita" ? item.valorCentavos : 0;
       return soma + cred - deb;
     }, 0));
+  const [ecfPresumido, setEcfPresumido] = useState<string[]>([]);
+  const [ecfRealAnual, setEcfRealAnual] = useState<string[]>([]);
+  const [ecfPeriodos, setEcfPeriodos] = useState<{ estimativa: string[]; trimestral: string[] }>({ estimativa: [], trimestral: [] });
+  // Só atualiza quando o conteúdo muda de verdade (evita laço de renderização com os painéis filhos).
+  const guardar = <T,>(setter: React.Dispatch<React.SetStateAction<T>>) => (novo: T) => setter((anterior) => (JSON.stringify(anterior) === JSON.stringify(novo) ? anterior : novo));
   const receitaPorMesECF = Array.from({ length: 12 }, (_, mes) => lancamentosAnoECD
     .filter((item) => Number(item.dataISO.slice(5, 7)) - 1 === mes)
     .reduce((soma, item) => soma
@@ -613,9 +619,10 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
           </p>
           <button type="button" onClick={exportarChecklistECD} disabled={!workspaceCarregado || !empresa.cnpj || !/^\d{4}$/.test(anoECD)} className="mt-2 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-3.5 w-3.5" /> Exportar checklist interno CSV</button>
         </div>
-        {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcfPresumidoPainel empresaRegime={empresa.regime} cnpj={String(empresa.cnpj || "")} ano={Number(anoECD)} receitaContabilPorTrimestre={receitaPorTrimestreECF} />}
-        {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcfRealPainel empresaRegime={empresa.regime} cnpj={String(empresa.cnpj || "")} ano={Number(anoECD)} resultadoContabilCentavos={resultadoAnualECF.resultado} irpjContabilizadoCentavos={resultadoAnualECF.irpj} csllContabilizadaCentavos={resultadoAnualECF.csll} />}
-        {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcfRealPeriodosPainel empresaRegime={empresa.regime} cnpj={String(empresa.cnpj || "")} ano={Number(anoECD)} receitaPorMesCentavos={receitaPorMesECF} resultadoPorTrimestre={resultadoPorTrimestreECF} />}
+        {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcfPresumidoPainel empresaRegime={empresa.regime} cnpj={String(empresa.cnpj || "")} ano={Number(anoECD)} receitaContabilPorTrimestre={receitaPorTrimestreECF} onRegistros={guardar(setEcfPresumido)} />}
+        {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcfRealPainel empresaRegime={empresa.regime} cnpj={String(empresa.cnpj || "")} ano={Number(anoECD)} resultadoContabilCentavos={resultadoAnualECF.resultado} irpjContabilizadoCentavos={resultadoAnualECF.irpj} csllContabilizadaCentavos={resultadoAnualECF.csll} onRegistros={guardar(setEcfRealAnual)} />}
+        {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcfRealPeriodosPainel empresaRegime={empresa.regime} cnpj={String(empresa.cnpj || "")} ano={Number(anoECD)} receitaPorMesCentavos={receitaPorMesECF} resultadoPorTrimestre={resultadoPorTrimestreECF} onRegistros={guardar(setEcfPeriodos)} />}
+        {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcfArquivoPainel empresa={empresa} ano={Number(anoECD)} presumido={ecfPresumido} realAnual={ecfRealAnual} estimativaMensal={ecfPeriodos.estimativa} realTrimestral={ecfPeriodos.trimestral} />}
         {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcdGeradorPainel empresa={empresa} ano={anoECD} contas={contas} lancamentos={relatoriosECD.validos} onMapeamentoReferencial={onMapeamentoReferencial} />}
         <p className="mt-2 rounded-md border border-amber-200 bg-white/70 p-2"><strong>Limite atual do Murade:</strong> esta tela exporta relatório interno em PDF para impressão e planilha XLS. O arquivo estruturado TXT da ECD (com Balanço, DRE e encerramento do resultado) é gerado no painel acima. Portanto, estes relatórios em PDF/XLS não devem ser enviados como ECD nem são autenticados por esta exportação.</p>
         <a href="https://sped.rfb.gov.br/projeto/show/273" target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold text-amber-950 hover:bg-amber-100">
