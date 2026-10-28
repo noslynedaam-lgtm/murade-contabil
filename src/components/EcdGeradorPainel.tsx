@@ -24,7 +24,7 @@ const QUALIFICACOES: Array<{ c: string; t: string }> = [
 ];
 
 interface Form {
-  numeroLivro: string; naturezaLivro: string; dataAtos: string; municipio: string; ibge: string; contaResultado: string;
+  numeroLivro: string; naturezaLivro: string; dataAtos: string; municipio: string; ibge: string; contaResultado: string; demonstracaoPL: "dlpa" | "dmpl" | "nenhuma";
 }
 
 function isoDeBR(v?: string): string {
@@ -35,7 +35,7 @@ function isoDeBR(v?: string): string {
 export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancamentos, onMapeamentoReferencial }) => {
   const chave = `murade_ecd_form_${String(empresa.cnpj || "").replace(/\W/g, "")}`;
   const inicial = (): Form => ({
-    numeroLivro: String(empresa.ecdNumeroLivro || 1), naturezaLivro: empresa.ecdNaturezaLivro || "DIARIO GERAL", dataAtos: isoDeBR(empresa.dataAbertura), municipio: empresa.municipio || "", ibge: empresa.ecdCodigoMunicipioIbge || "", contaResultado: "",
+    numeroLivro: String(empresa.ecdNumeroLivro || 1), naturezaLivro: empresa.ecdNaturezaLivro || "DIARIO GERAL", dataAtos: isoDeBR(empresa.dataAbertura), municipio: empresa.municipio || "", ibge: empresa.ecdCodigoMunicipioIbge || "", contaResultado: "", demonstracaoPL: "dlpa",
   });
   const [f, setF] = useState<Form>(inicial);
   const [naturezas, setNaturezas] = useState<Record<string, CodigoNaturezaConta>>({});
@@ -84,7 +84,7 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
     return montarParametrosECD(empresa, Number(ano), {
       codigoMunicipioIbge: f.ibge || undefined, municipio: f.municipio,
       possuiNire: Boolean(nire), nire: nire || undefined, dataArquivamentoAtos: f.dataAtos || undefined,
-      numeroLivro: Number(f.numeroLivro), naturezaLivro: f.naturezaLivro, naturezaPorGrupo: naturezas, contaResultadoCodigo: f.contaResultado || undefined,
+      numeroLivro: Number(f.numeroLivro), naturezaLivro: f.naturezaLivro, naturezaPorGrupo: naturezas, contaResultadoCodigo: f.contaResultado || undefined, demonstracaoPL: f.demonstracaoPL || "dlpa",
       planoReferencial: regimeRef && vinculadas > 0 ? { codPlanRef: codPlanRefECD(regimeRef), mapa: mapaRef } : undefined,
     });
   }, [f, ano, empresa, naturezas, regimeRef, vinculadas, mapaRef]);
@@ -174,6 +174,15 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
           </select>
         </div>
       )}
+      <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-2">
+        <label className="font-bold">Demonstração do Patrimônio Líquido no arquivo (J210/J215):{" "}
+          <select className="mt-1 rounded border border-slate-300 bg-white px-2 py-1 font-normal" value={f.demonstracaoPL || "dlpa"} onChange={(e) => setF((a) => ({ ...a, demonstracaoPL: e.target.value as Form["demonstracaoPL"] }))}>
+            <option value="dlpa">DLPA – Lucros ou Prejuízos Acumulados (padrão)</option>
+            <option value="dmpl">DMPL – Mutações de todas as contas do Patrimônio Líquido</option>
+            <option value="nenhuma">Não gerar</option>
+          </select>
+        </label>
+      </div>
       {resultado.erros.length > 0 && (
         <div role="alert" className="mt-3 rounded border border-red-300 bg-red-50 p-2 text-red-900">
           <p className="font-bold">Falta para a ECD ficar pronta: {resultado.erros.length} pendência(s) para o contador</p>
