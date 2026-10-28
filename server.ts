@@ -19,6 +19,7 @@ import { buscarEmpresasDoFiscal, cnpjsValidosDoFiscal } from "./src/server/empre
 import { resumoRelatorioAcessos, rodarConferidorAcessos } from "./src/server/conferidorAcessos";
 import { achadosEcdDoConferidor, rodarConferidorContabil } from "./src/server/conferidorContabil";
 import { gerarCandidatosRascunhosAutomaticos, mesclarRascunhosNoWorkspace, prepararRascunhosContabeisAutomaticos } from "./src/server/prepararRascunhosContabeis";
+import { respostaRapida } from "./src/server/respostasRapidas";
 import { omitirXmlOriginal, resumirCoberturaXmlFiscal } from "./src/server/coberturaXmlFiscal";
 
 dotenv.config();
@@ -33,6 +34,31 @@ function getAI(): GoogleGenAI | null {
     }
   }
   return aiClient;
+}
+
+// Chamada ao Gemini com tempo limite e modelos reserva (rápido primeiro), para não deixar o usuário esperando.
+const MODELOS_RAPIDOS = () => [process.env.GEMINI_MODEL_RAPIDO || "gemini-3.1-flash-lite", process.env.GEMINI_MODEL || "gemini-3.8-flash"];
+async function gerarComReserva(ai: GoogleGenAI, base: { contents: any; systemInstruction: string; tools?: any[]; temperature?: number }, limiteMs = 12_000): Promise<any> {
+  let ultimoErro: unknown;
+  const tentativas: { model: string; tools?: any[] }[] = [];
+  for (const model of MODELOS_RAPIDOS()) {
+    if (base.tools?.length) tentativas.push({ model, tools: base.tools });
+    tentativas.push({ model });
+  }
+  for (const t of tentativas) {
+    try {
+      const chamada = ai.models.generateContent({
+        model: t.model,
+        contents: base.contents,
+        config: { systemInstruction: base.systemInstruction, temperature: base.temperature ?? 0.2, ...(t.tools ? { tools: t.tools } : {}), thinkingConfig: { thinkingLevel: "LOW" as any } },
+      });
+      return await Promise.race([chamada, new Promise((_, rej) => setTimeout(() => rej(new Error("tempo esgotado")), limiteMs).unref())]);
+    } catch (e) {
+      ultimoErro = e;
+      console.error(`Gemini (${t.model}${t.tools ? " + busca" : ""}):`, e instanceof Error ? e.message.slice(0, 200) : e);
+    }
+  }
+  throw ultimoErro;
 }
 
 async function startServer() {
@@ -933,11 +959,7 @@ async function startServer() {
   const modeloGeminiAgente = (): ModeloIA => async ({ instrucao, conteudos, declaracoes }) => {
     const ai = getAI();
     if (!ai) throw new Error("GEMINI_API_KEY não configurada.");
-    const response = await ai.models.generateContent({
-      model: process.env.GEMINI_MODEL || "gemini-3.8-flash",
-      contents: conteudos as any,
-      config: { systemInstruction: instrucao, tools: [{ functionDeclarations: declaracoes as any }], temperature: 0.2 },
-    });
+    const response: any = await gerarComReserva(ai, { contents: conteudos as any, systemInstruction: instrucao, tools: [{ functionDeclarations: declaracoes as any }], temperature: 0.2 }, 15_000);
     const turno: any = response.candidates?.[0]?.content;
     const partes: any[] = Array.isArray(turno?.parts) ? turno.parts : [];
     return {
@@ -1050,21 +1072,15 @@ async function startServer() {
     // Contexto base de especialista contábil brasileiro
     const systemInstruction = `Você é a Assistente Murade, trabalhando no módulo ${moduleName === "dp" ? "Departamento Pessoal" : moduleName === "fiscal" ? "Fiscal" : "Contábil"}, para profissionais brasileiros. Responda em português do Brasil, com tom calmo, direto e prático. Para legislação, prazos, alíquotas, obrigações, tabelas e procedimentos sujeitos a mudança, pesquise informações atuais pela ferramenta de busca. Baseie conclusões legais apenas em fontes oficiais brasileiras: Receita Federal, Portal SPED, eSocial, SEFAZ, Planalto e prefeituras/portais oficiais. Não use páginas comerciais como autoridade legal. Explique a causa provável e a solução em etapas. Não invente dados de empresas, trabalhadores, folha, saldos, transmissões, integrações, alíquotas ou prazos; peça UF, município, regime e competência quando necessário. Não afirme que uma ação foi executada ou que uma conexão existe sem confirmação. Se não localizar fonte oficial atual ou não puder confirmar, diga claramente que ainda vai verificar e identifique o órgão que deve ser consultado. Respostas são orientação informativa, não substituem conferência do contador responsável.`;
 
+    const rapida = respostaRapida(message);
+    if (rapida) return res.json({ reply: rapida.reply, sources: rapida.sources, searched: false, rapida: true });
+
     if (!ai) return res.status(503).json({ error: "Assistente IA indisponível. Configure uma GEMINI_API_KEY válida." });
     try {
-        const response = await ai.models.generateContent({
-          model: process.env.GEMINI_MODEL || "gemini-3.8-flash",
-          config: { systemInstruction, tools: [{ googleSearch: {} }] },
-          contents: [
-            {
-              role: "user",
-              parts: [
-                {
-                  text: `Contexto contábil atual do sistema:\n${JSON.stringify(context || {}).slice(0, 4000)}\n\nPergunta do usuário: ${message}`,
-                },
-              ],
-            },
-          ],
+        const response = await gerarComReserva(ai, {
+          systemInstruction,
+          tools: [{ googleSearch: {} }],
+          contents: [{ role: "user", parts: [{ text: `Contexto contábil atual do sistema:\n${JSON.stringify(context || {}).slice(0, 4000)}\n\nPergunta do usuário: ${message}` }] }],
         });
 
         if (!response.text) return res.status(502).json({ error: "O provedor de IA não retornou uma resposta." });
@@ -1083,7 +1099,7 @@ async function startServer() {
         return res.json({ reply, sources, searched: Boolean(response.candidates?.[0]?.groundingMetadata) });
     } catch (err: any) {
       console.error("Erro na chamada Gemini:", err);
-      return res.status(502).json({ error: "Não foi possível obter resposta do provedor de IA." });
+      return res.status(502).json({ error: "A IA está com muita procura agora e não respondeu a tempo. Tente de novo em alguns segundos." });
     }
   });
 

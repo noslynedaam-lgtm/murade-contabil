@@ -122,16 +122,23 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
         .filter((m) => m.id !== "msg-0")
         .slice(-10)
         .map((m) => ({ papel: m.sender === "user" ? "usuario" : "ia", texto: m.text }));
-      let res = await fetch("/api/ai/agente", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ message: texto, historico }),
-      });
-      let data = await res.json().catch(() => ({}));
+      // Dúvidas (perguntas) vão direto para a resposta rápida; pedidos de ação passam pela agente.
+      const ehDuvida = /^(como|o que|oque|qual|quais|quando|por que|porque|explique|me explique|me fale|fale sobre)\b/i.test(texto) && !/\b(lance|lancar|emita|gere|gerar|cadastre|exclua|apague|crie|importe|feche|transmita|envie)\b/i.test(texto);
+      let res: Response = new Response(null, { status: 204 });
+      let data: any = {};
+      if (!ehDuvida) {
+        res = await fetch("/api/ai/agente", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ message: texto, historico }),
+          signal: AbortSignal.timeout(25_000),
+        });
+        data = await res.json().catch(() => ({}));
+      }
       let respostaTexto: string = data.resposta;
       let acoes: AcaoAgenteCartao[] = [];
-      if (res.ok && typeof respostaTexto === "string" && respostaTexto.trim()) {
+      if (res.ok && !ehDuvida && typeof respostaTexto === "string" && respostaTexto.trim()) {
         acoes = Array.isArray(data.acoes)
           ? data.acoes
               .filter((a: any) => a && typeof a.id === "string" && typeof a.titulo === "string")
@@ -144,7 +151,9 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
         res = await fetch("/api/ai/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
           body: JSON.stringify({ message: texto, context: { regime: empresa.regime, totalLancamentos: lancamentos.length }, module: "contabil" }),
+          signal: AbortSignal.timeout(30_000),
         });
         data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || "Serviço de IA indisponível.");
