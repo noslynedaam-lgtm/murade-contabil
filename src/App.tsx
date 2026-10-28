@@ -55,6 +55,8 @@ function AppWorkspace() {
     }
   }, [tabAtiva]);
   const [empresa, setEmpresa] = useState<EmpresaDados>(initialEmpresa);
+  // Empresas do escritório, para o seletor da barra do topo
+  const [listaEmpresas, setListaEmpresas] = useState<{ cnpj: string; nome: string; dados: EmpresaDados }[]>([]);
   const [orgaos, setOrgaos] = useState<OrgaoConectado[]>(() => orgaosIniciais.map((org) => ({
     ...org,
     status: "offline",
@@ -377,6 +379,38 @@ function AppWorkspace() {
       console.warn("Erro ao restaurar do localStorage:", e);
     }
   }, [auth.cnpjs.join(",")]);
+
+  // Lista de empresas para o seletor do topo (as autorizadas na sessão, com nome do cadastro quando houver)
+  React.useEffect(() => {
+    let ativo = true;
+    void (async () => {
+      const limpar = (v: unknown) => String(v || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
+      let cadastradas: EmpresaDados[] = [];
+      try {
+        const r = await fetch("/api/workspaces", { credentials: "include", cache: "no-store" });
+        const j = await r.json().catch(() => ({}));
+        if (r.ok && j.sucesso === true && Array.isArray(j.empresas)) cadastradas = j.empresas as EmpresaDados[];
+      } catch { /* sem rede: o seletor mostra só os CNPJs autorizados */ }
+      if (!ativo) return;
+      const porCnpj = new Map<string, EmpresaDados>(cadastradas.map((e) => [limpar(e.cnpj), e]));
+      setListaEmpresas(auth.cnpjs.map((c) => {
+        const d = porCnpj.get(c);
+        return { cnpj: c, nome: d?.razaoSocial || d?.nomeFantasia || c, dados: d ? { ...initialEmpresa, ...d } : { ...initialEmpresa, cnpj: c } };
+      }));
+    })();
+    return () => { ativo = false; };
+  }, [auth.cnpjs.join(",")]);
+
+  // Troca a empresa ativa do sistema inteiro: substitui os dados (não mistura com os da empresa anterior)
+  const trocarEmpresaAtiva = (nova: EmpresaDados) => {
+    const dados: EmpresaDados = { ...initialEmpresa, ...nova, certificadoAtivo: false };
+    setEmpresa(dados);
+    try { localStorage.setItem("murad_empresa_salva", JSON.stringify(dados)); } catch { /* troca vale só nesta sessão */ }
+  };
+  const escolherEmpresaPeloCnpj = (cnpj: string) => {
+    const alvo = listaEmpresas.find((e) => e.cnpj === cnpj);
+    if (alvo) trocarEmpresaAtiva(alvo.dados);
+  };
 
   // 1. Testar conexões com todos os órgãos em TEMPO REAL (Chamada ao Gateway Oficial)
   const handleTestarConexoes = async () => {
@@ -712,6 +746,8 @@ function AppWorkspace() {
           empresaNome={empresa.razaoSocial || null}
           empresaCnpj={String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase() || null}
           onTrocarEmpresa={() => setTabAtiva("empresa")}
+          empresas={listaEmpresas.map(({ cnpj, nome }) => ({ cnpj, nome }))}
+          onEscolherEmpresa={escolherEmpresaPeloCnpj}
           onLogout={auth.sair}
         />
 
@@ -788,6 +824,7 @@ function AppWorkspace() {
                   onUpdateEmpresa={(novosDados) =>
                     setEmpresa((prev) => ({ ...prev, ...novosDados }))
                   }
+                  onTrocarEmpresaAtiva={trocarEmpresaAtiva}
                   onConectarFiscal={handleConectarMuradFiscal}
                   onConectarDP={handleConectarMuradDP}
                 />

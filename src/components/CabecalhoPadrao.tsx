@@ -14,6 +14,9 @@ interface Props {
   buscarLicenca: (cnpj: string) => Promise<LicencaEmpresa | null>;
   onSair: () => void;
   onClicarEmpresa?: () => void;
+  /** Lista de empresas do escritório: com ela e onEscolherEmpresa, o nome da empresa vira um seletor para trocar de empresa. */
+  empresas?: { cnpj: string; nome: string }[];
+  onEscolherEmpresa?: (cnpj: string) => void;
   /** Fora do DP: abre o DP, onde a licença é cadastrada e gerenciada. */
   urlGerenciarLicenca?: string;
   /** Só no DP: permite cadastrar/alterar a licença da empresa. */
@@ -27,7 +30,7 @@ function formatarData(iso: string): string {
   return `${d}/${m}/${a}`;
 }
 
-export const CabecalhoPadrao: React.FC<Props> = ({ usuario, empresaNome, empresaCnpj, buscarLicenca, onSair, salvarLicenca, onClicarEmpresa, urlGerenciarLicenca }) => {
+export const CabecalhoPadrao: React.FC<Props> = ({ usuario, empresaNome, empresaCnpj, buscarLicenca, onSair, salvarLicenca, onClicarEmpresa, urlGerenciarLicenca, empresas, onEscolherEmpresa }) => {
   const [licenca, setLicenca] = useState<LicencaEmpresa | null | undefined>(undefined);
   const [aberto, setAberto] = useState(false);
   const [plano, setPlano] = useState('P50');
@@ -81,10 +84,25 @@ export const CabecalhoPadrao: React.FC<Props> = ({ usuario, empresaNome, empresa
         <UserCircle size={13} className="shrink-0" />
         <span className="truncate">{usuario || '—'}</span>
       </span>
+      {empresas && empresas.length > 0 && onEscolherEmpresa ? (
+        <label className="flex items-center gap-1 px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 max-w-[220px]" title="Trocar de empresa">
+          <Building2 size={13} className="shrink-0" />
+          <select
+            value={empresaCnpj || ''}
+            onChange={(e) => { if (e.target.value) onEscolherEmpresa(e.target.value); }}
+            aria-label="Trocar de empresa"
+            className="bg-transparent text-white text-[11px] font-semibold max-w-[170px] truncate outline-none cursor-pointer"
+          >
+            {!empresas.some((e) => e.cnpj === empresaCnpj) && <option className="text-slate-900" value={empresaCnpj || ''}>{empresaNome || 'Nenhuma empresa'}</option>}
+            {empresas.map((e) => <option className="text-slate-900" key={e.cnpj} value={e.cnpj}>{e.nome}</option>)}
+          </select>
+        </label>
+      ) : (
       <span onClick={onClicarEmpresa} className={`hidden md:flex items-center gap-1 px-2 py-0.5 rounded bg-white/10 max-w-[200px] ${onClicarEmpresa ? 'cursor-pointer hover:bg-white/20' : ''}`} title={onClicarEmpresa ? 'Clique para ver e trocar de empresa' : (empresaCnpj ? `CNPJ ${empresaCnpj}` : 'Empresa')}>
         <Building2 size={13} className="shrink-0" />
         <span className="truncate">{empresaNome || 'Nenhuma empresa'}</span>
       </span>
+      )}
       <div className="relative hidden" aria-hidden="true">
         <button
           type="button"

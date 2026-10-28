@@ -26,6 +26,8 @@ interface HeaderProps {
   empresaNome?: string | null;
   empresaCnpj?: string | null;
   onTrocarEmpresa?: () => void;
+  empresas?: { cnpj: string; nome: string }[];
+  onEscolherEmpresa?: (cnpj: string) => void;
   onLogout?: () => void;
 }
 
@@ -52,6 +54,8 @@ export const Header: React.FC<HeaderProps> = ({
   empresaNome,
   empresaCnpj,
   onTrocarEmpresa,
+  empresas,
+  onEscolherEmpresa,
   onLogout,
 }) => {
   return (
@@ -103,6 +107,8 @@ export const Header: React.FC<HeaderProps> = ({
               }}
               onSair={onLogout}
               onClicarEmpresa={onTrocarEmpresa}
+              empresas={empresas}
+              onEscolherEmpresa={onEscolherEmpresa}
             />
           )}
           {onConectarFiscal && (

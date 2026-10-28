@@ -49,6 +49,8 @@ interface EmpresaTabProps {
   cnpjsAutorizados?: string[];
   onAutorizarCnpj?: (cnpj: string) => Promise<boolean>;
   onRemoverEmpresa?: (cnpj: string) => Promise<boolean>;
+  /** Troca a empresa ativa do sistema inteiro (substitui os dados da anterior em vez de misturar). */
+  onTrocarEmpresaAtiva?: (emp: EmpresaDados) => void;
 }
 
 export const EmpresaTab: React.FC<EmpresaTabProps> = ({
@@ -61,6 +63,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
   cnpjsAutorizados = [],
   onAutorizarCnpj,
   onRemoverEmpresa,
+  onTrocarEmpresaAtiva,
 }) => {
   // Lista de empresas cadastradas no sistema (persistência real em localStorage)
   const [empresasCadastradas, setEmpresasCadastradas] = useState<EmpresaDados[]>(() => {
@@ -424,7 +427,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
 
   // Definir como empresa ativa
   const handleDefinirAtiva = (emp: EmpresaDados) => {
-    onUpdateEmpresa(emp);
+    if (onTrocarEmpresaAtiva) onTrocarEmpresaAtiva(emp); else onUpdateEmpresa(emp);
     try {
       localStorage.setItem("murad_empresa_salva", JSON.stringify(emp));
     } catch (e) {
@@ -885,15 +888,18 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
         {empresasCadastradas.length > 0 && (
           <div className="space-y-3.5">
             {empresasCadastradas.map((emp, idx) => {
-              const isAtiva =
-                (empresa.cnpj && emp.cnpj && empresa.cnpj === emp.cnpj) ||
-                (empresa.id && emp.id && empresa.id === emp.id) ||
-                idx === 0;
+              const limpo = (v?: string) => String(v || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
+              const existeAtiva = empresasCadastradas.some((x) => (limpo(empresa.cnpj) && limpo(x.cnpj) === limpo(empresa.cnpj)) || (empresa.id && x.id && empresa.id === x.id));
+              // Só uma empresa fica marcada: a que combina com a ativa. A primeira só vale se nenhuma combinar.
+              const isAtiva = existeAtiva
+                ? Boolean((limpo(empresa.cnpj) && limpo(emp.cnpj) === limpo(empresa.cnpj)) || (empresa.id && emp.id && empresa.id === emp.id))
+                : idx === 0;
 
               return (
                 <div
                   key={emp.id || emp.cnpj || idx}
-                  className={`p-4 sm:p-5 rounded-xl border transition-all ${
+                  onClick={(ev) => { if (!isAtiva && !(ev.target as HTMLElement).closest("button, a, input, select, textarea")) handleDefinirAtiva(emp); }}
+                  className={`p-4 sm:p-5 rounded-xl border transition-all ${!isAtiva ? "cursor-pointer " : ""}${
                     isAtiva
                       ? "bg-blue-50/40 border-blue-300 shadow-xs ring-1 ring-blue-200"
                       : "bg-white border-slate-200 hover:border-slate-300"
