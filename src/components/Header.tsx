@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { TabId } from "../types";
 import { CabecalhoPadrao } from "./CabecalhoPadrao";
+import { BuscaGlobal, ItemBusca } from "./BuscaGlobal";
 
 interface HeaderProps {
   tabAtiva: TabId;
@@ -28,6 +29,7 @@ interface HeaderProps {
   onTrocarEmpresa?: () => void;
   empresas?: { cnpj: string; nome: string }[];
   onEscolherEmpresa?: (cnpj: string) => void;
+  itensBusca?: ItemBusca[];
   onLogout?: () => void;
 }
 
@@ -56,12 +58,13 @@ export const Header: React.FC<HeaderProps> = ({
   onTrocarEmpresa,
   empresas,
   onEscolherEmpresa,
+  itensBusca,
   onLogout,
 }) => {
   return (
     <header className="bg-[#082B66] border-b border-[#0A357D] sticky top-0 z-30 text-white shadow-md shrink-0">
       {/* Linha Superior: Logo/Status Compacto */}
-      <div className="px-3 sm:px-5 py-2 flex items-center justify-between gap-2 border-b border-[#0A357D] text-xs bg-[#082B66]">
+      <div className="px-3 sm:px-5 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-[#0A357D] text-xs bg-[#082B66]">
         <div className="flex items-center gap-2.5">
           {onToggleMobileSidebar && (
             <button
@@ -93,6 +96,11 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
 
+        {itensBusca && itensBusca.length > 0 && (
+          <div className="order-last sm:order-none w-full sm:w-auto sm:flex-1 sm:max-w-md min-w-[200px]">
+            <BuscaGlobal itens={itensBusca} />
+          </div>
+        )}
         <div className="flex items-center gap-2 font-medium text-[11px]">
           {onLogout && (
             <CabecalhoPadrao

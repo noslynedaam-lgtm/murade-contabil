@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import type { BemImobilizado } from "./utils/imobilizado";
 import { conferirFechamento } from "./utils/fechamentoContabil";
 import { GestaoContabilTab } from "./components/tabs/GestaoContabilTab";
+import type { ItemBusca } from "./components/BuscaGlobal";
 import { TabId, OrgaoConectado, EmpresaDados, LancamentoContabil, ContaPlano, LivroContabil, LembreteItem, CentroCustoContabil, MapeamentoOrigemContabil, PreLancamentoContabil } from "./types";
 import { initialEmpresa, orgaosIniciais, planoContasPadrao } from "./data/mockData";
 import { Sidebar } from "./components/Sidebar";
@@ -412,6 +413,34 @@ function AppWorkspace() {
     if (alvo) trocarEmpresaAtiva(alvo.dados);
   };
 
+  // Itens da barra de pesquisa do topo: módulos, empresas do escritório e contas do plano
+  const itensBusca = React.useMemo<ItemBusca[]>(() => {
+    const modulos: [TabId, string, string][] = [
+      ["inicio", "Tela Inicial", "home painel resumo"],
+      ["empresa", "Cadastro de Empresa", "empresas cnpj cadastrar certificado"],
+      ["agenda", "Agenda & Lembretes", "prazos vencimentos calendario"],
+      ["fluxo-previtico", "Fluxo Prevítico", "fluxo de caixa"],
+      ["modulos-finais", "Obrigações & Gestão", "obrigacoes acessorias declaracoes ecd ecf sped"],
+      ["gestao-contabil", "Gestão contábil", "fechamento conciliacao"],
+      ["conexoes", "Conexão Órgãos", "receita sefaz serpro ecac conexao"],
+      ["lancamentos", "Lançamentos", "lancamento contabil debito credito partida"],
+      ["aprovacoes", "Aprovar lançamentos", "aprovacao pre-lancamentos pendentes"],
+      ["balancete", "Balancete", "balanco dre demonstracoes razao"],
+      ["livros", "Livros Fiscais & ECD", "livro diario razao ecd"],
+      ["plano-contas", "Plano de Contas", "contas contabeis"],
+      ["migracao", "Migração Contábil", "importar migrar saldos"],
+      ["integracao", "Integrações", "fiscal dp integracao"],
+      ["revisao-origens", "Revisar dados recebidos", "origens fiscal dp revisao"],
+      ["calculadora", "Calculadora 3D", "calculadora tributos"],
+      ["agente", "Agentes & Robô", "robos agente conferidor"],
+      ["ia-premium", "IA Murade Premium", "inteligencia artificial assistente pergunta"],
+    ];
+    const itens: ItemBusca[] = modulos.map(([id, rotulo, palavras]) => ({ id: `m-${id}`, rotulo, tipo: "Módulo", palavras, acao: () => setTabAtiva(id) }));
+    for (const e of listaEmpresas) itens.push({ id: `e-${e.cnpj}`, rotulo: e.nome, tipo: "Empresa", palavras: e.cnpj, acao: () => escolherEmpresaPeloCnpj(e.cnpj) });
+    for (const c of contas.slice(0, 2000)) itens.push({ id: `c-${c.codigo}`, rotulo: `${c.codigo} · ${c.descricao}`, tipo: "Conta", acao: () => setTabAtiva("plano-contas") });
+    return itens;
+  }, [listaEmpresas, contas]);
+
   // 1. Testar conexões com todos os órgãos em TEMPO REAL (Chamada ao Gateway Oficial)
   const handleTestarConexoes = async () => {
     setIsTestingOrgaos(true);
@@ -748,6 +777,7 @@ function AppWorkspace() {
           onTrocarEmpresa={() => setTabAtiva("empresa")}
           empresas={listaEmpresas.map(({ cnpj, nome }) => ({ cnpj, nome }))}
           onEscolherEmpresa={escolherEmpresaPeloCnpj}
+          itensBusca={itensBusca}
           onLogout={auth.sair}
         />
 
