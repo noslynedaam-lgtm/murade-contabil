@@ -3,7 +3,7 @@ import { Download, FileText } from "lucide-react";
 import { ContaPlano, EmpresaDados } from "../types";
 import { LancamentoValidado } from "../utils/livrosContabeis";
 import { codPlanRefECD, contasReferenciais, existeContaReferencialAnalitica, FONTE_PLANO_REFERENCIAL, regimeReferencial, sugerirMapeamento } from "../services/planoReferencialService";
-import { analisarObrigatoriedadeECD, naturezasDasContas, CodigoNaturezaConta, ecdParaLatin1, gerarArquivoECD, ParametrosECD, prazoEntregaECD, SignatarioECD } from "../services/ecdService";
+import { analisarObrigatoriedadeECD, naturezasDasContas, CodigoNaturezaConta, ecdParaLatin1, gerarArquivoECD, montarParametrosECD, ParametrosECD, prazoEntregaECD } from "../services/ecdService";
 
 interface Props {
   empresa: EmpresaDados;
@@ -80,17 +80,12 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
 
   const parametros = useMemo((): ParametrosECD => {
     const nire = String(empresa.nire || "").replace(/\D/g, "");
-    const signatarios: SignatarioECD[] = [
-      { nome: empresa.responsavelNome || "", documento: empresa.responsavelCpf || "", qualificacao: QUALIFICACOES.find((q) => q.c === (empresa.responsavelQualificacao || "205"))?.t || "Administrador", codigo: empresa.responsavelQualificacao || "205", responsavelLegal: true },
-      { nome: empresa.contadorNome || "", documento: empresa.contadorCpf || "", qualificacao: "Contador/Contabilista", codigo: "900", crc: empresa.contadorCrc, email: empresa.contadorEmail, fone: String(empresa.contadorFone || "").replace(/\D/g, ""), ufCrc: empresa.contadorUfCrc, certidaoCrc: empresa.contadorCertidao, dataCrc: isoDeBR(empresa.contadorCertidaoData), responsavelLegal: false },
-    ];
-    return {
-      ano: Number(ano), nomeEmpresarial: empresa.razaoSocial, cnpj: empresa.cnpj, uf: empresa.uf, codigoMunicipioIbge: f.ibge || undefined,
-      inscricaoEstadual: empresa.inscricaoEstadual, inscricaoMunicipal: empresa.inscricaoMunicipal, municipio: f.municipio,
+    return montarParametrosECD(empresa, Number(ano), {
+      codigoMunicipioIbge: f.ibge || undefined, municipio: f.municipio,
       possuiNire: Boolean(nire), nire: nire || undefined, dataArquivamentoAtos: f.dataAtos || undefined,
-      numeroLivro: Number(f.numeroLivro), naturezaLivro: f.naturezaLivro, signatarios, naturezaPorGrupo: naturezas, contaResultadoCodigo: f.contaResultado || undefined,
+      numeroLivro: Number(f.numeroLivro), naturezaLivro: f.naturezaLivro, naturezaPorGrupo: naturezas, contaResultadoCodigo: f.contaResultado || undefined,
       planoReferencial: regimeRef && vinculadas > 0 ? { codPlanRef: codPlanRefECD(regimeRef), mapa: mapaRef } : undefined,
-    };
+    });
   }, [f, ano, empresa, naturezas, regimeRef, vinculadas, mapaRef]);
 
   const analise = useMemo(() => analisarObrigatoriedadeECD({ regime: empresa.regime, presumidoLivroCaixa: empresa.presumidoLivroCaixa, presumidoDistribuiuLucroAcimaBase: empresa.presumidoDistribuiuLucroAcimaBase, simplesAporteCapital: empresa.simplesAporteCapital }), [empresa]);

@@ -5,7 +5,8 @@ import {
   erroApi, ok, q, reais,
   type Ferramenta, type KitAgente,
 } from './agenteMotor';
-import { achadosDoConferidor } from './conferidorContabil';
+import { achadosDoConferidor, achadosEcdDoConferidor } from './conferidorContabil';
+import { conferirEcdWorkspace } from './conferidorEcd';
 import { conferirFechamento } from '../utils/fechamentoContabil';
 import { compararPeriodos, explicarVariacoes } from '../utils/analiseContabil';
 import { FERRAMENTAS_ENTRE_SISTEMAS, INSTRUCAO_ENTRE_SISTEMAS } from './ferramentasEntreSistemas';
@@ -104,7 +105,7 @@ const FERRAMENTAS: Ferramenta[] = [
       if (!ok(lista)) return erroApi(lista);
       const cnpjs = (lista.corpo?.empresas || []).map((e: any) => String(e.cnpj || '').replace(/[^0-9A-Za-z]/g, '').toUpperCase());
       const itens = achadosDoConferidor(cnpjs);
-      return { empresasConferidas: itens.length, achados: itens.map((a) => ({ cnpj: a.cnpj, competencia: a.competencia, verificadoEm: a.verificadoEm, pendencias: a.pendencias, rascunhosPendentesPorOrigem: a.preLancamentosPendentesPorOrigem, lancamentosAguardandoAprovacao: a.lancamentosAguardandoAprovacao })), observacao: itens.length ? undefined : 'O robô ainda não rodou ou nenhuma empresa tem movimento a conferir.' };
+      return { empresasConferidas: itens.length, achados: itens.map((a) => ({ cnpj: a.cnpj, competencia: a.competencia, verificadoEm: a.verificadoEm, pendencias: a.pendencias, rascunhosPendentesPorOrigem: a.preLancamentosPendentesPorOrigem, lancamentosAguardandoAprovacao: a.lancamentosAguardandoAprovacao })), ecd: achadosEcdDoConferidor(cnpjs).map((e) => ({ cnpj: e.cnpj, ano: e.ano, situacao: e.situacao, prazo: e.prazo, diasParaPrazo: e.diasParaPrazo, pronta: e.pronta, atrasada: e.atrasada, pendencias: e.pendencias.slice(0, 8), totalPendencias: e.pendencias.length })), observacao: itens.length ? undefined : 'O robô ainda não rodou ou nenhuma empresa tem movimento a conferir.' };
     },
   },
   {
@@ -116,6 +117,18 @@ const FERRAMENTAS: Ferramenta[] = [
       const ws = await lerWorkspace(ctx, cnpj); if ('erro' in ws) return ws;
       const r = conferirFechamento({ competencia, contas: ws.dados.contas || [], lancamentos: ws.dados.lancamentos || [], preLancamentos: ws.dados.preLancamentos || [], bens: ws.dados.bensImobilizado || [], confirmacoes: {} });
       return { cnpj, competencia, itensAutomaticos: r.itens.filter((i) => i.tipo === 'automatico').map((i) => ({ item: i.titulo, ok: i.ok, bloqueia: i.bloqueia, detalhe: i.detalhe })), confirmacoesDoUsuario: r.itens.filter((i) => i.tipo === 'manual').map((i) => i.titulo) };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'situacao_ecd', description: 'Diz, na hora, se a ECD (Escrituração Contábil Digital) da empresa está pronta: se é obrigatória para o regime, o prazo, e o que ainda falta para o contador (Balanço, DRE, encerramento do resultado, assinaturas, plano referencial). Considera o ano anterior.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj }, required: ['cnpj'] } },
+    async executar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj);
+      if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const ws = await lerWorkspace(ctx, cnpj); if ('erro' in ws) return ws;
+      const e = conferirEcdWorkspace(cnpj, ws.dados, new Date());
+      if (!e) return { erro: 'A empresa ainda não tem cadastro salvo no Contábil.' };
+      return { cnpj, ano: e.ano, situacao: e.situacao, titulo: e.titulo, prazo: e.prazo, diasParaPrazo: e.diasParaPrazo, pronta: e.pronta, atrasada: e.atrasada, pendencias: e.pendencias.slice(0, 12), totalPendencias: e.pendencias.length, avisos: e.avisos.slice(0, 4), observacao: 'O Murade monta o arquivo; a validação, a assinatura e a transmissão são feitas pelo contador no PGE do Sped Contábil.' };
     },
   },
   {

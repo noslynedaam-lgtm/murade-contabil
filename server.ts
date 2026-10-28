@@ -17,7 +17,7 @@ import { listarRegistroAgenteIAContabil, bancoContabilConfigurado, consultaBanco
 import { executarRobo, registrarResultadoRobo, registrarRobo, statusRobos } from "./src/server/robosStatus";
 import { buscarEmpresasDoFiscal, cnpjsValidosDoFiscal } from "./src/server/empresasDoFiscal";
 import { resumoRelatorioAcessos, rodarConferidorAcessos } from "./src/server/conferidorAcessos";
-import { rodarConferidorContabil } from "./src/server/conferidorContabil";
+import { achadosEcdDoConferidor, rodarConferidorContabil } from "./src/server/conferidorContabil";
 import { gerarCandidatosRascunhosAutomaticos, mesclarRascunhosNoWorkspace, prepararRascunhosContabeisAutomaticos } from "./src/server/prepararRascunhosContabeis";
 import { omitirXmlOriginal, resumirCoberturaXmlFiscal } from "./src/server/coberturaXmlFiscal";
 
@@ -984,6 +984,13 @@ async function startServer() {
     try { return res.json({ sucesso: true, registros: await listarRegistroAgenteIAContabil(req, req.query.limite) }); }
     catch (error) { console.error("Falha ao ler o registro da Agente IA:", error instanceof Error ? error.message : error); return res.status(503).json({ sucesso: false, motivo: "Não foi possível consultar o registro." }); }
   });
+  app.get("/api/conferidor/ecd", exigirSessaoContabil, (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const cnpj = String(req.query.cnpj ?? "").replace(/[^0-9A-Za-z]/g, "").toUpperCase();
+    const sessao = sessaoDaRequisicaoContabil(req);
+    if (cnpj.length !== 14 || !sessao || !sessao.cnpjs.includes(cnpj)) return res.status(403).json({ sucesso: false, motivo: "Este CNPJ não está vinculado ao seu acesso." });
+    return res.json({ sucesso: true, ecd: achadosEcdDoConferidor([cnpj])[0] || null });
+  });
   app.get("/api/robos/status", exigirSessaoContabil, (_req, res) => {
     res.setHeader("Cache-Control", "no-store");
     return res.json({ sucesso: true, ...statusRobos() });
@@ -998,7 +1005,7 @@ async function startServer() {
   registrarRobo({ id: "reconciliador", nome: "Robô Reconciliador", posto: "integrador", missao: "Trazer do Fiscal e do DP os dados novos e preparar pré-lançamentos para conferência.", intervaloMs: 60_000 });
   registrarRobo({ id: "contabilizador", nome: "Robô Contabilizador", posto: "calculador", missao: "Transformar pré-lançamentos em lançamentos definitivos.", motivoSemRotina: "Sem rotina automática por regra: lançamento definitivo só nasce depois da aprovação de uma pessoa." });
   registrarRobo({ id: "mensageiro", nome: "Robô Mensageiro", posto: "integrador", missao: "Reenviar pedidos entre as Agentes dos sistemas Murade que não chegaram ao destino.", intervaloMs: 60_000 });
-  registrarRobo({ id: "conferidor", nome: "Robô Conferidor", posto: "conferidor", missao: "Conferir todas as empresas: o que falta para fechar o mês (aprovações, rascunhos do Fiscal e do DP, depreciação, partidas) e deixar o resultado para a tela e para a Agente.", intervaloMs: 30 * 60_000 });
+  registrarRobo({ id: "conferidor", nome: "Robô Conferidor", posto: "conferidor", missao: "Conferir todas as empresas: o que falta para fechar o mês (aprovações, rascunhos do Fiscal e do DP, depreciação, partidas) e se a ECD do ano anterior já está pronta para o contador (Balanço, DRE, assinaturas, plano referencial), deixando o resultado para a tela e para a Agente.", intervaloMs: 30 * 60_000 });
   const rodarConferidor = () => executarRobo("conferidor", () => rodarConferidorContabil((sql, params) => consultaBancoContabil(sql, params))).catch((e) => console.error("Falha no Robô Conferidor:", e?.message || e));
   setTimeout(() => void rodarConferidor(), 45_000).unref();
   setInterval(() => void rodarConferidor(), 30 * 60_000).unref();

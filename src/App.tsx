@@ -8,6 +8,7 @@ import { initialEmpresa, orgaosIniciais, planoContasPadrao } from "./data/mockDa
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import { RobotSidebar } from "./components/RobotSidebar";
+import { FaixaEcd } from "./components/FaixaEcd";
 import { InicioTab } from "./components/tabs/InicioTab";
 import { ConexoesTab } from "./components/tabs/ConexoesTab";
 import { EmpresaTab } from "./components/tabs/EmpresaTab";
@@ -793,6 +794,7 @@ function AppWorkspace() {
         {/* CONTAINER DO CONTEÚDO CENTRAL COM ROLAGEM INDEPENDENTE (A BARRA LATERAL FICA FIXA) */}
         <div className="flex-1 overflow-y-auto overscroll-contain content-scroll">
           <AlertaRobosParados />
+          <FaixaEcd cnpj={empresa.cnpj} onAbrir={() => setTabAtiva("livros" as TabId)} />
           <main className="p-2 sm:p-3 w-full mx-auto">
             {/* Grid Principal: 2 Colunas (Área de Trabalho + Sidebar do Robô) */}
             <div className="grid grid-cols-1 gap-5 items-start">

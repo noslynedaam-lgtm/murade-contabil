@@ -2,14 +2,12 @@
  * Gerador do arquivo da ECD (Escrituração Contábil Digital) — Leiaute 9 (ADE Cofis 01/2026).
  *
  * Fonte dos campos e regras: "Manual de Orientação do Leiaute 9 da ECD" (RFB, jan/2026).
- * Escopo desta versão: livro Diário completo (IND_ESC = "G") com
- *   Bloco 0 (0000, 0001, 0990), Bloco I (I001, I010, I030, I050, I100, I150, I155, I200, I250, I990),
- *   Bloco J (J001, J900, J930, J990) e Bloco 9 (9001, 9900, 9990, 9999).
- * NÃO gera: J005/J100/J150 (balanço e DRE), I051/I052 (plano referencial/aglutinação), I012/I015,
- * I350/I355 (encerramento de resultado). O arquivo gerado deve ser validado no PGE do Sped Contábil
- * antes de assinar e transmitir.
+ * Escopo: livro Diário completo (IND_ESC = "G") com Bloco 0 (0000, 0001, 0990), Bloco I (I001, I010, I030, I050,
+ * I051, I052, I100, I150, I155, I200, I250, I350, I355, I990), Bloco J (J001, J005, J100, J150, J900, J930, J990)
+ * e Bloco 9. NÃO gera: DLPA/DMPL (J210), notas explicativas (J800), I012/I015. O arquivo gerado deve ser validado
+ * no PGE do Sped Contábil antes de assinar e transmitir.
  */
-import { ContaPlano } from "../types";
+import { ContaPlano, EmpresaDados } from "../types";
 import { LancamentoValidado } from "../utils/livrosContabeis";
 import { existeContaReferencialAnalitica } from "./planoReferencialService";
 
@@ -723,4 +721,41 @@ export function naturezasDasContas(contas: ContaPlano[], naturezaPorGrupo: Recor
     }
   }
   return mapa;
+}
+
+
+const QUALIFICACAO_TEXTO: Record<string, string> = { "203": "Diretor", "205": "Administrador", "401": "Empresário", "309": "Procurador", "940": "Outros" };
+
+export function isoDeDataBR(v?: string): string {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(v || "");
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : /^\d{4}-\d{2}-\d{2}$/.test(v || "") ? (v as string) : "";
+}
+
+/** Monta os parâmetros da ECD a partir do cadastro da empresa (usado pela tela e pelo robô conferidor). */
+export function montarParametrosECD(empresa: EmpresaDados, ano: number, extras: Partial<ParametrosECD> = {}): ParametrosECD {
+  const nire = String(empresa.nire || "").replace(/\D/g, "");
+  const qual = empresa.responsavelQualificacao || "205";
+  const signatarios: SignatarioECD[] = [
+    { nome: empresa.responsavelNome || "", documento: empresa.responsavelCpf || "", qualificacao: QUALIFICACAO_TEXTO[qual] || "Administrador", codigo: qual, responsavelLegal: true },
+    { nome: empresa.contadorNome || "", documento: empresa.contadorCpf || "", qualificacao: "Contador/Contabilista", codigo: "900", crc: empresa.contadorCrc, email: empresa.contadorEmail, fone: String(empresa.contadorFone || "").replace(/\D/g, ""), ufCrc: empresa.contadorUfCrc, certidaoCrc: empresa.contadorCertidao, dataCrc: isoDeDataBR(empresa.contadorCertidaoData), responsavelLegal: false },
+  ];
+  return {
+    ano, nomeEmpresarial: empresa.razaoSocial, cnpj: empresa.cnpj, uf: empresa.uf,
+    codigoMunicipioIbge: empresa.ecdCodigoMunicipioIbge || undefined,
+    inscricaoEstadual: empresa.inscricaoEstadual, inscricaoMunicipal: empresa.inscricaoMunicipal, municipio: empresa.municipio,
+    possuiNire: Boolean(nire), nire: nire || undefined, dataArquivamentoAtos: isoDeDataBR(empresa.dataAbertura) || undefined,
+    numeroLivro: Number(empresa.ecdNumeroLivro || 1), naturezaLivro: empresa.ecdNaturezaLivro || "DIARIO GERAL", signatarios,
+    ...extras,
+  };
+}
+
+export interface ProntidaoECD {
+  ano: number;
+  situacao: AnaliseObrigatoriedadeECD["situacao"];
+  titulo: string;
+  prazo: string;
+  /** Verdadeiro quando o arquivo é gerado sem nenhuma pendência. Só faz sentido se a ECD é obrigatória ou o contador quer entregar. */
+  pronta: boolean;
+  pendencias: string[];
+  avisos: string[];
 }

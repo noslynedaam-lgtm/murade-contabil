@@ -3,6 +3,7 @@
 import type { ContaPlano, LancamentoContabil, PreLancamentoContabil } from '../types';
 import { conferirFechamento } from '../utils/fechamentoContabil';
 import type { BemImobilizado } from '../utils/imobilizado';
+import { conferirEcdWorkspace, type AchadoEcd } from './conferidorEcd';
 
 export type PendenciaConferidor = { id: string; titulo: string; detalhe: string };
 export type AchadoEmpresa = {
@@ -32,7 +33,9 @@ export function conferirWorkspace(cnpj: string, payload: Record<string, any>, co
 
 const achados = new Map<string, AchadoEmpresa>();
 export const achadosDoConferidor = (cnpjs?: string[]): AchadoEmpresa[] => [...achados.values()].filter((a) => !cnpjs || cnpjs.includes(a.cnpj)).sort((a, b) => a.cnpj.localeCompare(b.cnpj));
-export const limparAchadosParaTeste = () => achados.clear();
+const achadosEcd = new Map<string, AchadoEcd>();
+export const achadosEcdDoConferidor = (cnpjs?: string[]): AchadoEcd[] => [...achadosEcd.values()].filter((a) => !cnpjs || cnpjs.includes(a.cnpj)).sort((a, b) => a.cnpj.localeCompare(b.cnpj));
+export const limparAchadosParaTeste = () => { achados.clear(); achadosEcd.clear(); };
 
 type Consultar = (sql: string, params?: unknown[]) => Promise<{ rows: any[] }>;
 
@@ -47,6 +50,7 @@ export async function rodarConferidorContabil(consultar: Consultar, agora = new 
     if (!lote.rows.length) break;
     for (const row of lote.rows) {
       const cnpj = String(row.cnpj); vistos.add(cnpj);
+      try { const e = conferirEcdWorkspace(cnpj, row.payload || {}, agora); if (e) achadosEcd.set(cnpj, e); else achadosEcd.delete(cnpj); } catch (erro: any) { console.error(`Conferidor da ECD falhou para ${cnpj}:`, erro?.message || erro); }
       if (fechadasSet.has(cnpj)) { achados.delete(cnpj); continue; }
       const a = conferirWorkspace(cnpj, row.payload || {}, competencia, agora);
       if (!a) { achados.delete(cnpj); continue; }
@@ -57,5 +61,6 @@ export async function rodarConferidorContabil(consultar: Consultar, agora = new 
     if (lote.rows.length < 25) break;
   }
   for (const cnpj of [...achados.keys()]) if (!vistos.has(cnpj)) achados.delete(cnpj);
+  for (const cnpj of [...achadosEcd.keys()]) if (!vistos.has(cnpj)) achadosEcd.delete(cnpj);
   return { empresas, comPendencia };
 }
