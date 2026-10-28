@@ -152,22 +152,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
   };
 
   return (
-    <aside className="w-64 bg-[#082B66] text-white flex flex-col shrink-0 border-r border-[#0A357D] select-none h-full max-h-screen shadow-md overflow-hidden">
+    <aside className="w-52 bg-[#082B66] text-white flex flex-col shrink-0 border-r border-[#0A357D] select-none h-full max-h-screen shadow-md overflow-hidden">
       {/* Topo da Barra Lateral: Marca Murade */}
-      <div className="p-4 border-b border-[#0A357D] bg-[#082B66] shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-white text-[#082B66] flex items-center justify-center font-black text-sm shadow-md border border-blue-200 relative group">
+      <div className="px-3 py-2 border-b border-[#0A357D] bg-[#082B66] shrink-0">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-white text-[#082B66] flex items-center justify-center font-black text-sm shadow-md border border-blue-200 relative group">
             <span>MC</span>
             <Scale className="w-3.5 h-3.5 text-amber-600 ml-0.5" title="Símbolo Oficial da Contabilidade" />
           </div>
           <div>
-            <h1 className="text-sm font-black text-white tracking-tight flex items-center gap-1.5">
+            <h1 className="text-xs font-black text-white tracking-tight flex items-center gap-1">
               <span>MURADE CONTÁBIL</span>
-              <Scale className="w-4 h-4 text-amber-300" title="Símbolo da Balança da Contabilidade" />
             </h1>
-            <p className="text-[11px] text-blue-200 font-medium">
-              Contabilidade Autônoma 2026
-            </p>
+
           </div>
         </div>
 
@@ -175,7 +172,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
         <div
           onClick={copiarCodigo}
           title="Clique para copiar código de ligação dos sistemas"
-          className="mt-3.5 bg-[#06214E] hover:bg-[#0A357D] border border-blue-400/30 rounded-lg p-2.5 flex items-center justify-between cursor-pointer transition group shadow-2xs"
+          className="mt-2 bg-[#06214E] hover:bg-[#0A357D] border border-blue-400/30 rounded-md px-2 py-1.5 flex items-center justify-between cursor-pointer transition group shadow-2xs"
         >
           <div className="flex items-center gap-2 text-xs">
             <span className="text-amber-300">🔑</span>
@@ -188,7 +185,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
       </div>
 
       {/* Navegação Principal Lateral com Rolagem Independente */}
-      <div className="flex-1 py-3 px-2.5 space-y-1 overflow-y-auto overscroll-contain bg-[#082B66] sidebar-scroll">
+      <div className="flex-1 py-2 px-1.5 space-y-0.5 overflow-y-auto overscroll-contain bg-[#082B66] sidebar-scroll">
         <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-200/90">
           Navegação Geral
         </div>
@@ -202,7 +199,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
             <button
               key={item.id}
               onClick={() => onSelectTab(item.id)}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-semibold transition cursor-pointer text-left ${
+              className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer text-left ${
                 isActive
                   ? "bg-white text-[#082B66] shadow-md font-bold"
                   : isRobo
@@ -246,7 +243,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
       </div>
 
       {/* Rodapé da Barra Lateral */}
-      <div className="p-3 border-t border-[#0A357D] bg-[#082B66] shrink-0">
+      <div className="p-2 border-t border-[#0A357D] bg-[#082B66] shrink-0">
         <div className="bg-[#06214E] border border-blue-400/30 rounded-lg p-2 text-[11px] text-white flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <ShieldCheck className="w-4 h-4 text-emerald-300 shrink-0" />

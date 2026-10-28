@@ -7,7 +7,6 @@ import { TabId, OrgaoConectado, EmpresaDados, LancamentoContabil, ContaPlano, Li
 import { initialEmpresa, orgaosIniciais, planoContasPadrao } from "./data/mockData";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
-import { BannerHero } from "./components/BannerHero";
 import { RobotSidebar } from "./components/RobotSidebar";
 import { InicioTab } from "./components/tabs/InicioTab";
 import { ConexoesTab } from "./components/tabs/ConexoesTab";
@@ -794,12 +793,7 @@ function AppWorkspace() {
         {/* CONTAINER DO CONTEÚDO CENTRAL COM ROLAGEM INDEPENDENTE (A BARRA LATERAL FICA FIXA) */}
         <div className="flex-1 overflow-y-auto overscroll-contain content-scroll">
           <AlertaRobosParados />
-          <main className="p-4 sm:p-6 max-w-[1600px] w-full mx-auto">
-            {/* Banner Principal Murad */}
-            <BannerHero
-              onAbaClick={(aba) => setTabAtiva(aba as TabId)}
-            />
-
+          <main className="p-2 sm:p-3 w-full mx-auto">
             {/* Grid Principal: 2 Colunas (Área de Trabalho + Sidebar do Robô) */}
             <div className="grid grid-cols-1 gap-5 items-start">
             {/* Coluna Esquerda: Conteúdo da Aba Selecionada */}

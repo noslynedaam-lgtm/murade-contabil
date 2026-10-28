@@ -64,7 +64,7 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header className="bg-[#082B66] border-b border-[#0A357D] sticky top-0 z-30 text-white shadow-md shrink-0">
       {/* Linha Superior: Logo/Status Compacto */}
-      <div className="px-3 sm:px-5 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-[#0A357D] text-xs bg-[#082B66]">
+      <div className="px-3 sm:px-4 py-1 flex flex-wrap items-center justify-between gap-2 border-b border-[#0A357D] text-xs bg-[#082B66]">
         <div className="flex items-center gap-2.5">
           {onToggleMobileSidebar && (
             <button
@@ -141,7 +141,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Linha de Botões na Barra de Cima — Mesma Cor Azul #082B66 Conforme Solicitado */}
-      <div className="px-2 sm:px-4 py-1.5 overflow-x-auto scrollbar-none flex items-center gap-1.5 bg-[#082B66]">
+      <div className="px-2 sm:px-3 py-1 overflow-x-auto scrollbar-none flex items-center gap-1.5 bg-[#082B66]">
         {navBotoes.map((item) => {
           const Icon = item.icon;
           const isActive = tabAtiva === item.id;

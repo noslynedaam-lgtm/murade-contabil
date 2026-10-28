@@ -20,14 +20,14 @@ export const RobotSidebar: React.FC<RobotSidebarProps> = ({
         onClick={() => setAberto((v) => !v)}
         aria-expanded={aberto}
         aria-label={aberto ? "Minimizar Agente e Robô Murade" : "Abrir Agente e Robô Murade"}
-        className="fixed bottom-6 left-4 z-40 flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-3 py-2 text-xs font-bold text-slate-800 shadow-lg backdrop-blur hover:shadow-blue-500/20 lg:left-[17rem]"
+        className="fixed bottom-6 left-4 z-40 flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-3 py-2 text-xs font-bold text-slate-800 shadow-lg backdrop-blur hover:shadow-blue-500/20 lg:left-[13.5rem]"
       >
         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white"><Bot className="h-4 w-4" /></span>
         <span className="hidden sm:inline">Robôs</span>
         <span className="h-2 w-2 rounded-full bg-emerald-500" />
       </button>
       {aberto && (
-    <div className="fixed bottom-20 left-4 z-40 max-h-[75vh] w-[min(22rem,calc(100vw-2rem))] space-y-4 overflow-y-auto rounded-xl shadow-2xl lg:left-[17rem]">
+    <div className="fixed bottom-20 left-4 z-40 max-h-[75vh] w-[min(22rem,calc(100vw-2rem))] space-y-4 overflow-y-auto rounded-xl shadow-2xl lg:left-[13.5rem]">
       {/* Card Principal do Robô — Tema Claro em Cinza Meio Azulado */}
       <div className="bg-gradient-to-b from-[#EEF4F9] via-[#E8EFF6] to-[#DEE8F3] text-slate-800 rounded-xl p-5 shadow-xs border border-[#CBD5E1]">
         <h3 className="text-sm font-extrabold text-slate-900 text-center uppercase tracking-wider mb-3 flex items-center justify-center gap-1.5">
