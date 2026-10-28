@@ -23,7 +23,7 @@ const QUALIFICACOES: Array<{ c: string; t: string }> = [
 ];
 
 interface Form {
-  numeroLivro: string; naturezaLivro: string; dataAtos: string; municipio: string; ibge: string;
+  numeroLivro: string; naturezaLivro: string; dataAtos: string; municipio: string; ibge: string; contaResultado: string;
 }
 
 function isoDeBR(v?: string): string {
@@ -34,7 +34,7 @@ function isoDeBR(v?: string): string {
 export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancamentos, onMapeamentoReferencial }) => {
   const chave = `murade_ecd_form_${String(empresa.cnpj || "").replace(/\W/g, "")}`;
   const inicial = (): Form => ({
-    numeroLivro: String(empresa.ecdNumeroLivro || 1), naturezaLivro: empresa.ecdNaturezaLivro || "DIARIO GERAL", dataAtos: isoDeBR(empresa.dataAbertura), municipio: empresa.municipio || "", ibge: empresa.ecdCodigoMunicipioIbge || "",
+    numeroLivro: String(empresa.ecdNumeroLivro || 1), naturezaLivro: empresa.ecdNaturezaLivro || "DIARIO GERAL", dataAtos: isoDeBR(empresa.dataAbertura), municipio: empresa.municipio || "", ibge: empresa.ecdCodigoMunicipioIbge || "", contaResultado: "",
   });
   const [f, setF] = useState<Form>(inicial);
   const [naturezas, setNaturezas] = useState<Record<string, CodigoNaturezaConta>>({});
@@ -88,7 +88,7 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
       ano: Number(ano), nomeEmpresarial: empresa.razaoSocial, cnpj: empresa.cnpj, uf: empresa.uf, codigoMunicipioIbge: f.ibge || undefined,
       inscricaoEstadual: empresa.inscricaoEstadual, inscricaoMunicipal: empresa.inscricaoMunicipal, municipio: f.municipio,
       possuiNire: Boolean(nire), nire: nire || undefined, dataArquivamentoAtos: f.dataAtos || undefined,
-      numeroLivro: Number(f.numeroLivro), naturezaLivro: f.naturezaLivro, signatarios, naturezaPorGrupo: naturezas,
+      numeroLivro: Number(f.numeroLivro), naturezaLivro: f.naturezaLivro, signatarios, naturezaPorGrupo: naturezas, contaResultadoCodigo: f.contaResultado || undefined,
       planoReferencial: regimeRef && vinculadas > 0 ? { codPlanRef: codPlanRefECD(regimeRef), mapa: mapaRef } : undefined,
     };
   }, [f, ano, empresa, naturezas, regimeRef, vinculadas, mapaRef]);
@@ -163,8 +163,21 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
           ))}
         </div>
       )}
-      {resultado.erros.length > 0 && <ul role="alert" className="mt-3 list-disc space-y-1 rounded border border-red-200 bg-red-50 p-2 pl-6 text-red-900">{resultado.erros.slice(0, 40).map((e, i) => <li key={i}>{e}</li>)}</ul>}
-      {resultado.ok && <p role="status" className="mt-3 rounded bg-emerald-100 p-2 text-emerald-950">Pronto: {resultado.resumo.linhas} linhas, {resultado.resumo.contas} contas, {resultado.resumo.lancamentos} lançamentos, {resultado.resumo.meses} mês(es) com saldos.</p>}
+      {resultado.erros.some((e) => e.startsWith("Escolha a conta do Patrimônio Líquido")) && resultado.contasPL && (
+        <div className="mt-3 rounded border border-amber-300 bg-amber-50 p-2">
+          <p className="font-bold">Conta do Patrimônio Líquido que recebe o resultado do exercício (encerramento automático):</p>
+          <select className="mt-1 rounded border border-amber-300 bg-white px-2 py-1" value={f.contaResultado} onChange={(e) => setF((a) => ({ ...a, contaResultado: e.target.value }))}>
+            <option value="">Escolher…</option>{resultado.contasPL.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} — {c.descricao}</option>)}
+          </select>
+        </div>
+      )}
+      {resultado.erros.length > 0 && (
+        <div role="alert" className="mt-3 rounded border border-red-300 bg-red-50 p-2 text-red-900">
+          <p className="font-bold">Falta para a ECD ficar pronta: {resultado.erros.length} pendência(s) para o contador</p>
+          <ul className="mt-1 list-disc space-y-1 pl-6">{resultado.erros.slice(0, 40).map((e, i) => <li key={i}>{e}</li>)}</ul>
+        </div>
+      )}
+      {resultado.ok && <p role="status" className="mt-3 rounded bg-emerald-100 p-2 text-emerald-950">Pronto: {resultado.resumo.linhas} linhas, {resultado.resumo.contas} contas, {resultado.resumo.lancamentos} lançamentos (incluindo o encerramento do resultado), {resultado.resumo.meses} mês(es) com saldos. Balanço e DRE incluídos.</p>}
       {resultado.ok && resultado.avisos.map((a, i) => <p key={i} className="mt-1 text-[11px]">• {a}</p>)}
       <button type="button" onClick={baixar} disabled={!resultado.ok} className="mt-2 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-3.5 w-3.5" /> Baixar arquivo ECD (.txt, Latin-1)</button>
       {msg && <p role="status" className="mt-2 text-[11px]">{msg}</p>}

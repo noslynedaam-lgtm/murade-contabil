@@ -59,6 +59,8 @@ export interface ParametrosECD {
   naturezaPorGrupo?: Record<string, CodigoNaturezaConta>;
   /** Vínculo com o plano referencial da RFB: 1 = PJ em geral – Lucro Real, 2 = PJ em geral – Lucro Presumido. */
   planoReferencial?: { codPlanRef: "1" | "2"; mapa: Record<string, string> };
+  /** Conta analítica do Patrimônio Líquido que recebe o resultado do exercício (Lucros/Prejuízos Acumulados). Se vazio, é detectada pelo nome. */
+  contaResultadoCodigo?: string;
 }
 
 export interface EntradaECD {
@@ -77,6 +79,12 @@ export interface ResultadoECD {
   pendenciasNatureza: Array<{ codigo: string; descricao: string }>;
   conteudo: string | null;
   resumo: { linhas: number; contas: number; lancamentos: number; partidas: number; meses: number };
+  /** Contas analíticas do Patrimônio Líquido (candidatas a receber o resultado do exercício). */
+  contasPL?: Array<{ codigo: string; descricao: string }>;
+  /** Conta que recebeu o encerramento do resultado (detectada ou informada). */
+  contaResultadoUsada?: string;
+  /** Demonstrações geradas: totais antes/depois do encerramento, em centavos. */
+  demonstracoes?: { ativo: number; passivoPL: number; resultadoExercicio: number };
 }
 
 const UF_NIRE: Record<string, string> = {
@@ -302,6 +310,46 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
   }
   if (!doAno.length) avisos.push(`Não há lançamentos definitivos em ${ano}. O arquivo conterá apenas saldos, se existirem.`);
 
+  // ---------- Grupos do Balanço / DRE e conta que recebe o resultado ----------
+  const grupoDaConta = (c: ContaPlano): "A" | "P" | "R" | null => {
+    const n = natureza.get(c.codigo);
+    return n === "01" ? "A" : n === "02" || n === "03" ? "P" : n === "04" ? "R" : null;
+  };
+  const filhosDe = new Map<string, ContaPlano[]>();
+  for (const c of contas) {
+    const pai = pais.get(c.codigo);
+    if (pai) { if (!filhosDe.has(pai.codigo)) filhosDe.set(pai.codigo, []); filhosDe.get(pai.codigo)!.push(c); }
+  }
+  const gruposSub = new Map<string, Set<string>>();
+  for (const c of contas) {
+    if (c.tipo !== "analitica") continue;
+    const g = grupoDaConta(c);
+    if (!g) continue;
+    let atual: ContaPlano | null = pais.get(c.codigo) || null;
+    while (atual) {
+      if (!gruposSub.has(atual.codigo)) gruposSub.set(atual.codigo, new Set());
+      gruposSub.get(atual.codigo)!.add(g);
+      atual = pais.get(atual.codigo) || null;
+    }
+  }
+  const analiticasPL = contas.filter((c) => c.tipo === "analitica" && natureza.get(c.codigo) === "03");
+  const contasPL = analiticasPL.map((c) => ({ codigo: c.codigo, descricao: c.descricao }));
+  const analiticasResultado = contas.filter((c) => c.tipo === "analitica" && natureza.get(c.codigo) === "04");
+  let contaDestino: ContaPlano | null = null;
+  if (p.contaResultadoCodigo) {
+    const escolhida = porCodigo.get(p.contaResultadoCodigo);
+    if (!escolhida || escolhida.tipo !== "analitica" || natureza.get(escolhida.codigo) !== "03") erros.push(`Conta do resultado do exercício (${p.contaResultadoCodigo}) deve ser uma conta analítica do Patrimônio Líquido.`);
+    else contaDestino = escolhida;
+  } else {
+    const alvo = analiticasPL.filter((c) => /(lucros?|prejuizos?)\s*(\/|ou|e)?\s*(lucros?|prejuizos?)?\s*acumulad|resultado\s+(do\s+)?exercicio|apuracao\s+(do\s+)?resultado/.test(semAcento(c.descricao)));
+    const preferida = alvo.find((c) => /acumulad/.test(semAcento(c.descricao))) || alvo[0];
+    if (preferida) contaDestino = preferida;
+  }
+  if (!contaDestino && analiticasResultado.length) {
+    erros.push("Escolha a conta do Patrimônio Líquido (ex.: Lucros ou Prejuízos Acumulados) que receberá o resultado do exercício no encerramento; não foi possível identificá-la pelo nome.");
+  }
+  if (!analiticasResultado.length) avisos.push("O plano de contas não tem contas analíticas de resultado (natureza 04): a DRE ficará vazia.");
+
   // ---------- Saldos mensais ----------
   // Mesma regra do Murade (utils/livrosContabeis): o saldo inicial cadastrado vale a partir da competência-base;
   // movimentos anteriores à competência-base já estão contidos nesse saldo.
@@ -339,17 +387,67 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
   const aberturas = new Map(analiticas.map((c) => [c.codigo, saldoAbertura(c)]));
   const mesAnterior = (mes: string) => (mes.endsWith("-01") ? `${Number(mes.slice(0, 4)) - 1}-12` : `${mes.slice(0, 5)}${String(Number(mes.slice(5)) - 1).padStart(2, "0")}`);
 
+  // Encerramento do resultado: contas de resultado começam o ano zeradas; o que veio de exercícios anteriores
+  // sem encerramento é reclassificado na abertura para a conta do Patrimônio Líquido (e avisado).
+  const dezembro = `${ano}-12`;
+  const anterior = new Map<string, number>();
+  let offsetDestino = 0;
+  for (const c of analiticasResultado) {
+    const a = saldoAteFim(c, mesAnterior(`${ano}-01`), aberturas.get(c.codigo)!);
+    anterior.set(c.codigo, a);
+    offsetDestino += a;
+  }
+  if (offsetDestino !== 0 && contaDestino) avisos.push(`Havia resultado de exercícios anteriores não encerrado nas contas de resultado (${valorBR(offsetDestino)} ${offsetDestino > 0 ? "devedor" : "credor"}); foi levado à abertura de ${contaDestino.codigo} – ${textoECD(contaDestino.descricao, 60)}. Confira se o saldo inicial dessa conta bate com a ECD do ano anterior.`);
+  const preEncerramento = new Map<string, number>();
+  let resultadoLiquido = 0; // débito − crédito: positivo = prejuízo
+  for (const c of analiticasResultado) {
+    const pre = saldoAteFim(c, dezembro, aberturas.get(c.codigo)!) - (anterior.get(c.codigo) || 0);
+    preEncerramento.set(c.codigo, pre);
+    resultadoLiquido += pre;
+  }
+  const encerramento: Array<{ cod: string; valor: number; dc: "D" | "C" }> = [];
+  for (const c of analiticasResultado) {
+    const pre = preEncerramento.get(c.codigo)!;
+    if (pre > 0) encerramento.push({ cod: c.codigo, valor: pre, dc: "C" });
+    else if (pre < 0) encerramento.push({ cod: c.codigo, valor: -pre, dc: "D" });
+  }
+  if (encerramento.length && contaDestino) {
+    if (resultadoLiquido > 0) encerramento.push({ cod: contaDestino.codigo, valor: resultadoLiquido, dc: "D" });
+    else if (resultadoLiquido < 0) encerramento.push({ cod: contaDestino.codigo, valor: -resultadoLiquido, dc: "C" });
+  }
+  const fechando = encerramento.length > 0 && !!contaDestino;
+  const ajuste = (c: ContaPlano) => (natureza.get(c.codigo) === "04" ? -(anterior.get(c.codigo) || 0) : 0) + (contaDestino && c.codigo === contaDestino.codigo ? offsetDestino : 0);
+  /** Débito e crédito do encerramento que incidem na conta em dezembro. */
+  const movEncerramento = (c: ContaPlano) => {
+    const m = { deb: 0, cred: 0 };
+    if (!fechando) return m;
+    for (const e of encerramento) if (e.cod === c.codigo) { if (e.dc === "D") m.deb += e.valor; else m.cred += e.valor; }
+    return m;
+  };
+  const movimentoMes = (c: ContaPlano, mes: string) => {
+    const base = movPorMes.get(c.codigo)?.get(mes) || { deb: 0, cred: 0 };
+    if (mes !== dezembro) return base;
+    const e = movEncerramento(c);
+    return { deb: base.deb + e.deb, cred: base.cred + e.cred };
+  };
+  const saldoInicioMes = (c: ContaPlano, mes: string) => {
+    const ab = aberturas.get(c.codigo)!;
+    return (ab.base && mes === ab.base ? ab.valor : saldoAteFim(c, mesAnterior(mes), ab)) + ajuste(c);
+  };
+  const saldoFimMes = (c: ContaPlano, mes: string) => {
+    const e = mes === dezembro ? movEncerramento(c) : { deb: 0, cred: 0 };
+    return saldoAteFim(c, mes, aberturas.get(c.codigo)!) + ajuste(c) + (e.deb - e.cred);
+  };
+
   type LinhaSaldo = { cod: string; ini: number; deb: number; cred: number; fin: number };
   const saldosPorMes = new Map<string, LinhaSaldo[]>();
   for (const mes of meses) {
     const linhas: LinhaSaldo[] = [];
     let somaIni = 0, somaFin = 0, somaDeb = 0, somaCred = 0;
     for (const c of analiticas) {
-      const ab = aberturas.get(c.codigo)!;
-      const ini = ab.base && mes === ab.base ? ab.valor : saldoAteFim(c, mesAnterior(mes), ab);
-      const mv = movPorMes.get(c.codigo)?.get(mes) || { deb: 0, cred: 0 };
-      const contaMov = mv;
-      const fin = saldoAteFim(c, mes, ab);
+      const ini = saldoInicioMes(c, mes);
+      const contaMov = movimentoMes(c, mes);
+      const fin = saldoFimMes(c, mes);
       if (ini === 0 && contaMov.deb === 0 && contaMov.cred === 0 && fin === 0) continue;
       linhas.push({ cod: c.codigo, ini, deb: contaMov.deb, cred: contaMov.cred, fin });
       somaIni += ini; somaFin += fin; somaDeb += contaMov.deb; somaCred += contaMov.cred;
@@ -364,7 +462,63 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
       if (somaDeb !== somaCred) erros.push(`Mês ${mes.slice(5)}/${ano}: total de débitos difere do total de créditos.`);
       saldosPorMes.set(mes, linhas);
     }
+  }
+
+  // ---------- Balanço (J100) e DRE (J150) ----------
+  type NoDem = { cod: string; codAgl: string; desc: string; analitica: boolean; nivel: number; sup: string; ini: number; fin: number; grupo: "A" | "P" | "R"; nat: "D" | "C" };
+  const construirDemonstracao = (grupo: "A" | "P" | "R", valorIni: (c: ContaPlano) => number, valorFin: (c: ContaPlano) => number, nivelRaiz: number, codRaiz: string): NoDem[] => {
+    const incluida = (c: ContaPlano) => (c.tipo === "analitica" ? grupoDaConta(c) === grupo : (() => { const g = gruposSub.get(c.codigo); return !!g && g.size === 1 && g.has(grupo); })());
+    const pais_ = (c: ContaPlano): ContaPlano | null => {
+      let a = pais.get(c.codigo) || null;
+      while (a && !incluida(a)) a = pais.get(a.codigo) || null;
+      return a;
+    };
+    const incluidas = contas.filter(incluida);
+    const filhos = new Map<string, ContaPlano[]>();
+    const raizes: ContaPlano[] = [];
+    for (const c of incluidas) {
+      const pp = pais_(c);
+      if (pp) { if (!filhos.has(pp.codigo)) filhos.set(pp.codigo, []); filhos.get(pp.codigo)!.push(c); } else raizes.push(c);
+    }
+    const saida: NoDem[] = [];
+    const visitar = (c: ContaPlano, nivel: number, sup: string): { ini: number; fin: number } => {
+      const no: NoDem = { cod: c.codigo, codAgl: `AG.${c.codigo}`, desc: textoECD(c.descricao, 120), analitica: c.tipo === "analitica", nivel, sup, ini: 0, fin: 0, grupo, nat: c.natureza };
+      saida.push(no);
+      if (c.tipo === "analitica") { no.ini = valorIni(c); no.fin = valorFin(c); return { ini: no.ini, fin: no.fin }; }
+      let ini = 0, fin = 0;
+      for (const f of (filhos.get(c.codigo) || []).sort((a, b) => ordenarCodigos(a.codigo, b.codigo))) { const v = visitar(f, nivel + 1, no.codAgl); ini += v.ini; fin += v.fin; }
+      no.ini = ini; no.fin = fin;
+      return { ini, fin };
+    };
+    let iniRaiz = 0, finRaiz = 0;
+    const corpo: NoDem[] = [];
+    const raizNo: NoDem = { cod: codRaiz, codAgl: codRaiz, desc: "", analitica: false, nivel: nivelRaiz, sup: "", ini: 0, fin: 0, grupo, nat: "D" };
+    for (const r of raizes.sort((a, b) => ordenarCodigos(a.codigo, b.codigo))) {
+      const antes = saida.length;
+      const v = visitar(r, nivelRaiz + 1, codRaiz);
+      iniRaiz += v.ini; finRaiz += v.fin;
+      corpo.push(...saida.slice(antes));
+    }
+    raizNo.ini = iniRaiz; raizNo.fin = finRaiz;
+    return [raizNo, ...corpo];
   };
+  const dcDe = (v: number): "D" | "C" => (v < 0 ? "C" : "D");
+  const ini0 = (c: ContaPlano) => saldoInicioMes(c, `${ano}-01`);
+  const fin12 = (c: ContaPlano) => saldoFimMes(c, dezembro);
+  const demoAtivo = construirDemonstracao("A", ini0, fin12, 1, "A");
+  const demoPassivo = construirDemonstracao("P", ini0, fin12, 1, "P");
+  const demoResultado = construirDemonstracao("R", () => 0, (c) => preEncerramento.get(c.codigo) || 0, 1, "RES");
+  demoAtivo[0].desc = "ATIVO";
+  demoPassivo[0].desc = "PASSIVO E PATRIMONIO LIQUIDO";
+  demoResultado[0].desc = "RESULTADO DO EXERCICIO";
+  if (!demoAtivo.some((n) => n.analitica)) erros.push("Balanço: não há contas analíticas de Ativo (natureza 01) no plano.");
+  if (!demoPassivo.some((n) => n.analitica)) erros.push("Balanço: não há contas analíticas de Passivo/Patrimônio Líquido (naturezas 02/03) no plano.");
+  const totalAtivo = demoAtivo[0].fin;
+  const totalPassivoPL = demoPassivo[0].fin;
+  if (totalAtivo + totalPassivoPL !== 0) erros.push(`Balanço não fecha: Ativo ${valorBR(totalAtivo)} ${dcDe(totalAtivo)} × Passivo + PL ${valorBR(totalPassivoPL)} ${dcDe(totalPassivoPL)} (diferença ${valorBR(totalAtivo + totalPassivoPL)}). Verifique contas de compensação/“outras” com saldo ou contas sem natureza correta.`);
+  if (demoAtivo[0].ini + demoPassivo[0].ini !== 0) erros.push(`Balanço de abertura não fecha (diferença ${valorBR(demoAtivo[0].ini + demoPassivo[0].ini)}).`);
+  const analiticasCompensacao = analiticas.filter((c) => { const n = natureza.get(c.codigo); return n === "05" || n === "09"; });
+  if (analiticasCompensacao.some((c) => saldoFimMes(c, dezembro) !== 0)) avisos.push("Contas de compensação/outras (naturezas 05/09) têm saldo final; elas não entram no Balanço, e o saldo delas precisa se anular entre si para os saldos mensais fecharem.");
 
   if (p.planoReferencial) {
     const regimeRef = p.planoReferencial.codPlanRef === "1" ? "real" : "presumido";
@@ -374,7 +528,7 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
     if (invalidas.length) erros.push(`Plano referencial: vínculo inválido (conta referencial inexistente ou sintética) em ${invalidas.slice(0, 5).map((c) => c.codigo).join(", ")}.`);
   }
 
-  if (erros.length) return { ...vazio(), pendenciasNatureza };
+  if (erros.length) return { ...vazio(), pendenciasNatureza, contasPL };
 
   // ---------- Montagem das linhas ----------
   const reg = (...campos: Array<string | number>) => `|${campos.map((x) => String(x)).join("|")}|`;
@@ -395,6 +549,7 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
     const pai = pais.get(c.codigo);
     bI.push(reg("I050", dtIni, natureza.get(c.codigo)!, c.tipo === "analitica" ? "A" : "S", c.nivel, c.codigo, pai ? pai.codigo : "", textoECD(c.descricao)));
     if (p.planoReferencial && c.tipo === "analitica") bI.push(reg("I051", "", p.planoReferencial.mapa[c.codigo]));
+    if (c.tipo === "analitica" && grupoDaConta(c)) bI.push(reg("I052", "", `AG.${c.codigo}`));
   }
   for (const cod of [...centrosUsados].sort(ordenarCodigos)) bI.push(reg("I100", dtIni, cod, textoECD(centros.get(cod))));
   let mesesComSaldo = 0;
@@ -419,8 +574,30 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
     bI.push(reg("I250", l.credito.codigo, cc, valorBR(l.valorCentavos), "C", textoECD(l.original.documentoRef, 255), "", hist, ""));
     partidas += 2;
   });
+  if (fechando) {
+    const totalD = encerramento.filter((e) => e.dc === "D").reduce((a, e) => a + e.valor, 0);
+    const histEnc = "ENCERRAMENTO DAS CONTAS DE RESULTADO DO EXERCICIO";
+    bI.push(reg("I200", String(doAno.length + 1), `3112${ano}`, valorBR(totalD), "E", ""));
+    for (const e of encerramento) { bI.push(reg("I250", e.cod, "", valorBR(e.valor), e.dc, "", "", histEnc, "")); partidas++; }
+    bI.push(reg("I350", `3112${ano}`));
+    for (const c of analiticasResultado) {
+      const pre = preEncerramento.get(c.codigo)!;
+      if (pre !== 0) bI.push(reg("I355", c.codigo, "", valorBR(pre), dcDe(pre)));
+    }
+  }
 
   bJ.push(reg("J001", 0));
+  bJ.push(reg("J005", dtIni, dtFin, "1", ""));
+  for (const n of [...demoAtivo, ...demoPassivo]) {
+    bJ.push(reg("J100", n.codAgl, n.analitica ? "D" : "T", n.nivel, n.sup, n.grupo, n.desc, valorBR(n.ini), dcDe(n.ini), valorBR(n.fin), dcDe(n.fin), ""));
+  }
+  demoResultado.forEach((n, i) => {
+    let grpDre: "D" | "R";
+    if (n.analitica) grpDre = n.nat === "C" ? "R" : "D";
+    else if (n.fin !== 0) grpDre = n.fin < 0 ? "R" : "D";
+    else { const prox = demoResultado.slice(i + 1).find((x) => x.analitica); grpDre = prox && prox.nat === "D" ? "D" : "R"; }
+    bJ.push(reg("J150", i + 1, n.codAgl, n.analitica ? "D" : "T", n.nivel, n.sup, n.desc, "", "", valorBR(n.fin), dcDe(n.fin), grpDre, ""));
+  });
   bJ.push(reg("J900", "TERMO DE ENCERRAMENTO", p.numeroLivro, textoECD(p.naturezaLivro, 80), nome, "@@QTD@@", dtIni, dtFin));
   for (const s of sig) {
     const doc = somenteAlfanumericos(s.documento);
@@ -454,7 +631,7 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
   // 0990/I990/J990 devem refletir as linhas do respectivo bloco
   const conteudo = finais.join("\r\n") + "\r\n";
 
-  avisos.push(`Este arquivo NÃO inclui Balanço Patrimonial e DRE (registros J005/J100/J150) nem aglutinação (I052)${p.planoReferencial ? "" : " e o plano referencial (I051)"}. O PGE do Sped Contábil pode apontar esses itens como pendentes.`);
+  avisos.push(`Inclui Balanço Patrimonial (J100), DRE (J150), aglutinação (I052) e o lançamento de encerramento do resultado${fechando ? "" : " (não houve saldo de resultado a encerrar)"}. NÃO inclui DLPA/DMPL (J210), notas explicativas nem plano referencial${p.planoReferencial ? "" : " (I051)"}; o PGE pode apontar o que for exigido para o seu caso.`);
   avisos.push("O arquivo precisa ser importado, validado, assinado e transmitido pelo PGE do Sped Contábil; o Murade não transmite a ECD.");
 
   return {
@@ -463,7 +640,10 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
     avisos,
     pendenciasNatureza,
     conteudo,
-    resumo: { linhas: total, contas: contas.length, lancamentos: doAno.length, partidas, meses: mesesComSaldo },
+    resumo: { linhas: total, contas: contas.length, lancamentos: doAno.length + (fechando ? 1 : 0), partidas, meses: mesesComSaldo },
+    contasPL,
+    contaResultadoUsada: contaDestino?.codigo,
+    demonstracoes: { ativo: totalAtivo, passivoPL: totalPassivoPL, resultadoExercicio: resultadoLiquido },
   };
 }
 
