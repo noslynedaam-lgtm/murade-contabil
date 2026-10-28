@@ -74,6 +74,25 @@ export interface EmpresaDados {
   responsavelCpf?: string;
   contadorNome?: string;
   contadorCrc?: string;
+  contadorCpf?: string;
+  contadorUfCrc?: string;
+  contadorEmail?: string;
+  contadorFone?: string;
+  /** Certidão de regularidade profissional, formato UF/ano/número. */
+  contadorCertidao?: string;
+  contadorCertidaoData?: string;
+  /** Dados da escrituração (ECD) guardados uma vez por empresa. */
+  nire?: string;
+  responsavelQualificacao?: string;
+  ecdNaturezaLivro?: string;
+  ecdNumeroLivro?: number;
+  ecdCodigoMunicipioIbge?: string;
+  /** Lucro presumido: optou pelo livro caixa (art. 45 da Lei 8.981/1995)? */
+  presumidoLivroCaixa?: boolean;
+  /** Lucro presumido: distribuiu lucros acima da base de cálculo sem IRRF? */
+  presumidoDistribuiuLucroAcimaBase?: boolean;
+  /** Simples Nacional: recebeu aporte de capital (arts. 61-A a 61-D da LC 123)? */
+  simplesAporteCapital?: boolean;
   fonteDados?: string;
   ultimaConsultaReceita?: string;
   certificadoAtivo?: boolean;

@@ -114,3 +114,31 @@ test("lançamento sem histórico e centro de custo inexistente bloqueiam", () =>
   assert.ok(r.erros.some((e) => e.includes("histórico")));
   assert.ok(r.erros.some((e) => e.includes("centro de custo 99")));
 });
+
+import { analisarObrigatoriedadeECD, prazoEntregaECD } from "../../src/services/ecdService";
+
+test("obrigatoriedade por regime segue o item 1.3 do manual", () => {
+  assert.equal(analisarObrigatoriedadeECD({ regime: "Lucro Real" }).situacao, "obrigatoria");
+  assert.equal(analisarObrigatoriedadeECD({ regime: "Lucro Real" }).planoReferencial, "1");
+  assert.equal(analisarObrigatoriedadeECD({ regime: "Lucro Presumido" }).situacao, "depende");
+  assert.equal(analisarObrigatoriedadeECD({ regime: "Lucro Presumido", presumidoLivroCaixa: false, presumidoDistribuiuLucroAcimaBase: false }).situacao, "obrigatoria");
+  assert.equal(analisarObrigatoriedadeECD({ regime: "Lucro Presumido", presumidoLivroCaixa: true, presumidoDistribuiuLucroAcimaBase: false }).situacao, "facultativa");
+  assert.equal(analisarObrigatoriedadeECD({ regime: "Lucro Presumido", presumidoLivroCaixa: true, presumidoDistribuiuLucroAcimaBase: true }).situacao, "obrigatoria");
+  assert.equal(analisarObrigatoriedadeECD({ regime: "Simples Nacional" }).situacao, "dispensada");
+  assert.equal(analisarObrigatoriedadeECD({ regime: "Simples Nacional", simplesAporteCapital: true }).situacao, "obrigatoria");
+});
+
+test("prazo é o último dia útil de junho do ano seguinte", () => {
+  assert.equal(prazoEntregaECD(2025), "2026-06-30"); // terça
+  assert.equal(prazoEntregaECD(2026), "2027-06-30"); // quarta
+  assert.equal(prazoEntregaECD(2027), "2028-06-30"); // sexta
+  assert.equal(prazoEntregaECD(2028), "2029-06-29"); // 30/06/2029 é sábado
+});
+
+test("mês sem movimento e sem saldo ganha I155 zerado (manual 1.3)", () => {
+  const r = gerarArquivoECD({ parametros: { ...param, ano: 2027 }, contas: contas.map((c) => ({ ...c, saldoInicial: undefined, saldoInicialCompetencia: undefined })), lancamentos: [] });
+  assert.equal(r.ok, true, r.erros.join("; "));
+  const l = r.conteudo!.split("\r\n");
+  assert.equal(l.filter((x) => x.startsWith("|I150|")).length, 12);
+  assert.ok(l.includes("|I155|1.1.01||0,00|D|0,00|0,00|0,00|D|"));
+});

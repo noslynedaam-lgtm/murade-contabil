@@ -150,6 +150,8 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
   const [responsavelNome, setResponsavelNome] = useState("");
   const [contadorNome, setContadorNome] = useState("");
   const [contadorCrc, setContadorCrc] = useState("");
+  const [ecdFlags, setEcdFlags] = useState({ presumidoLivroCaixa: "", presumidoDistribuiuLucroAcimaBase: "", simplesAporteCapital: "" });
+  const [ecdExtra, setEcdExtra] = useState({ responsavelCpf: "", contadorCpf: "", contadorUfCrc: "", contadorEmail: "", contadorFone: "", contadorCertidao: "", contadorCertidaoData: "", nire: "" });
   const [ibsAliquota, setIbsAliquota] = useState(0);
   const [cbsAliquota, setCbsAliquota] = useState(0);
   const [situacaoCadastral, setSituacaoCadastral] = useState("ATIVA");
@@ -298,6 +300,8 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     setResponsavelNome("");
     setContadorNome("");
     setContadorCrc("");
+    setEcdFlags({ presumidoLivroCaixa: "", presumidoDistribuiuLucroAcimaBase: "", simplesAporteCapital: "" });
+    setEcdExtra({ responsavelCpf: "", contadorCpf: "", contadorUfCrc: "", contadorEmail: "", contadorFone: "", contadorCertidao: "", contadorCertidaoData: "", nire: "" });
     setIbsAliquota(0);
     setCbsAliquota(0);
     setSituacaoCadastral("ATIVA");
@@ -335,6 +339,8 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     setResponsavelNome(emp.responsavelNome || "");
     setContadorNome(emp.contadorNome || "");
     setContadorCrc(emp.contadorCrc || "");
+    setEcdFlags({ presumidoLivroCaixa: emp.presumidoLivroCaixa === undefined ? "" : emp.presumidoLivroCaixa ? "sim" : "nao", presumidoDistribuiuLucroAcimaBase: emp.presumidoDistribuiuLucroAcimaBase === undefined ? "" : emp.presumidoDistribuiuLucroAcimaBase ? "sim" : "nao", simplesAporteCapital: emp.simplesAporteCapital === undefined ? "" : emp.simplesAporteCapital ? "sim" : "nao" });
+    setEcdExtra({ responsavelCpf: emp.responsavelCpf || "", contadorCpf: emp.contadorCpf || "", contadorUfCrc: emp.contadorUfCrc || "", contadorEmail: emp.contadorEmail || "", contadorFone: emp.contadorFone || "", contadorCertidao: emp.contadorCertidao || "", contadorCertidaoData: emp.contadorCertidaoData || "", nire: emp.nire || "" });
     setIbsAliquota(emp.ibsAliquota ?? 0);
     setCbsAliquota(emp.cbsAliquota ?? 0);
     setSituacaoCadastral(emp.situacaoCadastral || "ATIVA");
@@ -640,6 +646,17 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
       responsavelNome: responsavelNome.trim(),
       contadorNome: contadorNome.trim(),
       contadorCrc: contadorCrc.trim(),
+      responsavelCpf: ecdExtra.responsavelCpf.trim(),
+      contadorCpf: ecdExtra.contadorCpf.trim(),
+      contadorUfCrc: ecdExtra.contadorUfCrc.trim().toUpperCase(),
+      contadorEmail: ecdExtra.contadorEmail.trim(),
+      contadorFone: ecdExtra.contadorFone.trim(),
+      contadorCertidao: ecdExtra.contadorCertidao.trim(),
+      contadorCertidaoData: ecdExtra.contadorCertidaoData.trim(),
+      nire: ecdExtra.nire.trim(),
+      presumidoLivroCaixa: ecdFlags.presumidoLivroCaixa === "" ? undefined : ecdFlags.presumidoLivroCaixa === "sim",
+      presumidoDistribuiuLucroAcimaBase: ecdFlags.presumidoDistribuiuLucroAcimaBase === "" ? undefined : ecdFlags.presumidoDistribuiuLucroAcimaBase === "sim",
+      simplesAporteCapital: ecdFlags.simplesAporteCapital === "" ? undefined : ecdFlags.simplesAporteCapital === "sim",
       ibsAliquota: Number(ibsAliquota),
       cbsAliquota: Number(cbsAliquota),
       situacaoCadastral: situacaoCadastral || "ATIVA",
@@ -1382,6 +1399,41 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
                 placeholder="CRC (Ex: GO-024589)"
                 className="w-full px-3 py-2.5 border-2 border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-600 transition font-mono"
               />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {([
+                ["presumidoLivroCaixa", "Lucro presumido optou pelo livro caixa?"],
+                ["presumidoDistribuiuLucroAcimaBase", "Distribuiu lucros acima da base sem IRRF?"],
+                ["simplesAporteCapital", "Simples: recebeu aporte de capital (LC 123, 61-A a 61-D)?"],
+              ] as Array<[keyof typeof ecdFlags, string]>).map(([chave, rotulo]) => (
+                <label key={chave} className="text-[11px] text-slate-600">{rotulo}
+                  <select value={ecdFlags[chave]} onChange={(e) => setEcdFlags((atual) => ({ ...atual, [chave]: e.target.value }))} className="mt-1 w-full px-2 py-2 border-2 border-slate-200 rounded-lg text-slate-800">
+                    <option value="">Não informado</option><option value="sim">Sim</option><option value="nao">Não</option>
+                  </select>
+                </label>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-500">Dados usados para preencher automaticamente a assinatura da ECD (Livro Diário digital).</p>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                ["responsavelCpf", "CPF do responsável legal"],
+                ["contadorCpf", "CPF do contador"],
+                ["contadorUfCrc", "UF do CRC (ex.: GO)"],
+                ["contadorEmail", "E-mail do contador"],
+                ["contadorFone", "Telefone do contador"],
+                ["contadorCertidao", "Certidão de regularidade (UF/ano/nº)"],
+                ["contadorCertidaoData", "Data da certidão (AAAA-MM-DD)"],
+                ["nire", "NIRE da Junta Comercial (se houver)"],
+              ] as Array<[keyof typeof ecdExtra, string]>).map(([chave, rotulo]) => (
+                <input
+                  key={chave}
+                  type="text"
+                  value={ecdExtra[chave]}
+                  onChange={(e) => setEcdExtra((atual) => ({ ...atual, [chave]: e.target.value }))}
+                  placeholder={rotulo}
+                  className="w-full px-3 py-2.5 border-2 border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-600 transition"
+                />
+              ))}
             </div>
           </div>
         </div>

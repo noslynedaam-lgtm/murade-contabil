@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Download, FileText } from "lucide-react";
 import { ContaPlano, EmpresaDados } from "../types";
 import { LancamentoValidado } from "../utils/livrosContabeis";
-import { CodigoNaturezaConta, ecdParaLatin1, gerarArquivoECD, ParametrosECD, SignatarioECD } from "../services/ecdService";
+import { analisarObrigatoriedadeECD, CodigoNaturezaConta, ecdParaLatin1, gerarArquivoECD, ParametrosECD, prazoEntregaECD, SignatarioECD } from "../services/ecdService";
 
 interface Props {
   empresa: EmpresaDados;
@@ -21,9 +21,7 @@ const QUALIFICACOES: Array<{ c: string; t: string }> = [
 ];
 
 interface Form {
-  numeroLivro: string; naturezaLivro: string; possuiNire: boolean; nire: string; dataAtos: string; municipio: string; ibge: string;
-  respNome: string; respCpf: string; respCod: string;
-  contNome: string; contCpf: string; contCrc: string; contUf: string; contEmail: string; contFone: string; contCert: string; contDataCrc: string;
+  numeroLivro: string; naturezaLivro: string; dataAtos: string; municipio: string; ibge: string;
 }
 
 function isoDeBR(v?: string): string {
@@ -34,9 +32,7 @@ function isoDeBR(v?: string): string {
 export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancamentos }) => {
   const chave = `murade_ecd_form_${String(empresa.cnpj || "").replace(/\W/g, "")}`;
   const inicial = (): Form => ({
-    numeroLivro: "1", naturezaLivro: "DIARIO GERAL", possuiNire: false, nire: "", dataAtos: isoDeBR(empresa.dataAbertura), municipio: empresa.municipio || "", ibge: "",
-    respNome: empresa.responsavelNome || "", respCpf: empresa.responsavelCpf || "", respCod: "205",
-    contNome: empresa.contadorNome || "", contCpf: "", contCrc: empresa.contadorCrc || "", contUf: empresa.uf || "", contEmail: "", contFone: "", contCert: "", contDataCrc: "",
+    numeroLivro: String(empresa.ecdNumeroLivro || 1), naturezaLivro: empresa.ecdNaturezaLivro || "DIARIO GERAL", dataAtos: isoDeBR(empresa.dataAbertura), municipio: empresa.municipio || "", ibge: empresa.ecdCodigoMunicipioIbge || "",
   });
   const [f, setF] = useState<Form>(inicial);
   const [naturezas, setNaturezas] = useState<Record<string, CodigoNaturezaConta>>({});
@@ -53,18 +49,21 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
   useEffect(() => { try { localStorage.setItem(chave, JSON.stringify(f)); } catch { /* opcional */ } }, [chave, f]);
 
   const parametros = useMemo((): ParametrosECD => {
+    const nire = String(empresa.nire || "").replace(/\D/g, "");
     const signatarios: SignatarioECD[] = [
-      { nome: f.respNome, documento: f.respCpf, qualificacao: QUALIFICACOES.find((q) => q.c === f.respCod)?.t || "Outros", codigo: f.respCod, responsavelLegal: true },
-      { nome: f.contNome, documento: f.contCpf, qualificacao: "Contador/Contabilista", codigo: "900", crc: f.contCrc, email: f.contEmail, fone: f.contFone.replace(/\D/g, ""), ufCrc: f.contUf, certidaoCrc: f.contCert, dataCrc: f.contDataCrc, responsavelLegal: false },
+      { nome: empresa.responsavelNome || "", documento: empresa.responsavelCpf || "", qualificacao: QUALIFICACOES.find((q) => q.c === (empresa.responsavelQualificacao || "205"))?.t || "Administrador", codigo: empresa.responsavelQualificacao || "205", responsavelLegal: true },
+      { nome: empresa.contadorNome || "", documento: empresa.contadorCpf || "", qualificacao: "Contador/Contabilista", codigo: "900", crc: empresa.contadorCrc, email: empresa.contadorEmail, fone: String(empresa.contadorFone || "").replace(/\D/g, ""), ufCrc: empresa.contadorUfCrc, certidaoCrc: empresa.contadorCertidao, dataCrc: isoDeBR(empresa.contadorCertidaoData), responsavelLegal: false },
     ];
     return {
       ano: Number(ano), nomeEmpresarial: empresa.razaoSocial, cnpj: empresa.cnpj, uf: empresa.uf, codigoMunicipioIbge: f.ibge || undefined,
       inscricaoEstadual: empresa.inscricaoEstadual, inscricaoMunicipal: empresa.inscricaoMunicipal, municipio: f.municipio,
-      possuiNire: f.possuiNire, nire: f.possuiNire ? f.nire : undefined, dataArquivamentoAtos: f.dataAtos || undefined,
+      possuiNire: Boolean(nire), nire: nire || undefined, dataArquivamentoAtos: f.dataAtos || undefined,
       numeroLivro: Number(f.numeroLivro), naturezaLivro: f.naturezaLivro, signatarios, naturezaPorGrupo: naturezas,
     };
   }, [f, ano, empresa, naturezas]);
 
+  const analise = useMemo(() => analisarObrigatoriedadeECD({ regime: empresa.regime, presumidoLivroCaixa: empresa.presumidoLivroCaixa, presumidoDistribuiuLucroAcimaBase: empresa.presumidoDistribuiuLucroAcimaBase, simplesAporteCapital: empresa.simplesAporteCapital }), [empresa]);
+  const prazo = prazoEntregaECD(Number(ano) || new Date().getFullYear());
   const resultado = useMemo(() => gerarArquivoECD({ parametros, contas, lancamentos }), [parametros, contas, lancamentos]);
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF((a) => ({ ...a, [k]: e.target.type === "checkbox" ? (e.target as HTMLInputElement).checked : e.target.value }));
   const campo = "mt-1 w-full rounded border border-amber-300 bg-white px-2 py-1";
@@ -84,32 +83,18 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
     <div className="mt-4 rounded-md border border-amber-300 bg-white/80 p-3">
       <h4 className="flex items-center gap-2 font-bold"><FileText className="h-4 w-4" /> Gerar arquivo ECD (Leiaute 9) — {ano}</h4>
       <p className="mt-1 text-[11px]">Gera o TXT do Livro Diário (forma G) com plano de contas, saldos mensais, lançamentos, termos e signatários. Ainda não inclui Balanço/DRE (J100/J150) nem plano referencial (I051/I052). Valide sempre no PGE do Sped Contábil antes de assinar.</p>
+      <div role="status" className={`mt-2 rounded border p-2 ${analise.situacao === "obrigatoria" ? "border-red-200 bg-red-50 text-red-900" : analise.situacao === "depende" ? "border-amber-300 bg-amber-50" : "border-emerald-200 bg-emerald-50 text-emerald-950"}`}>
+        <strong>{analise.titulo} — {empresa.regime || "regime não informado"}.</strong> {analise.motivo}
+        <div className="mt-1">Prazo de entrega do ano-calendário {ano}: {prazo.split("-").reverse().join("/")} (último dia útil de junho; confira feriados).{analise.planoReferencial ? ` Plano referencial do regime: ${analise.planoReferencial} – ${analise.descricaoPlanoReferencial} (mapeamento I051 ainda não incluído).` : ""}</div>
+      </div>
       <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         <label>Nº de ordem do livro<input className={campo} type="number" min="1" value={f.numeroLivro} onChange={set("numeroLivro")} /></label>
         <label>Natureza do livro<input className={campo} value={f.naturezaLivro} onChange={set("naturezaLivro")} /></label>
         <label>Município<input className={campo} value={f.municipio} onChange={set("municipio")} /></label>
         <label>Código IBGE do município (opcional)<input className={campo} inputMode="numeric" value={f.ibge} onChange={set("ibge")} /></label>
         <label>Arquivamento dos atos (ou abertura)<input className={campo} type="date" value={f.dataAtos} onChange={set("dataAtos")} /></label>
-        <label className="flex items-end gap-2"><input type="checkbox" checked={f.possuiNire} onChange={set("possuiNire")} /> Empresa possui NIRE</label>
-        {f.possuiNire && <label>NIRE (11 dígitos)<input className={campo} inputMode="numeric" value={f.nire} onChange={set("nire")} /></label>}
       </div>
-      <h5 className="mt-3 font-bold">Responsável legal (assina pela empresa)</h5>
-      <div className="grid gap-2 sm:grid-cols-3">
-        <label>Nome<input className={campo} value={f.respNome} onChange={set("respNome")} /></label>
-        <label>CPF<input className={campo} value={f.respCpf} onChange={set("respCpf")} /></label>
-        <label>Qualificação<select className={campo} value={f.respCod} onChange={set("respCod")}>{QUALIFICACOES.map((q) => <option key={q.c} value={q.c}>{q.c} — {q.t}</option>)}</select></label>
-      </div>
-      <h5 className="mt-3 font-bold">Contador</h5>
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        <label>Nome<input className={campo} value={f.contNome} onChange={set("contNome")} /></label>
-        <label>CPF<input className={campo} value={f.contCpf} onChange={set("contCpf")} /></label>
-        <label>CRC<input className={campo} value={f.contCrc} onChange={set("contCrc")} /></label>
-        <label>UF do CRC<input className={campo} maxLength={2} value={f.contUf} onChange={set("contUf")} /></label>
-        <label>E-mail<input className={campo} type="email" value={f.contEmail} onChange={set("contEmail")} /></label>
-        <label>Telefone<input className={campo} value={f.contFone} onChange={set("contFone")} /></label>
-        <label>Certidão de regularidade (UF/ano/nº)<input className={campo} value={f.contCert} onChange={set("contCert")} /></label>
-        <label>Data da certidão<input className={campo} type="date" value={f.contDataCrc} onChange={set("contDataCrc")} /></label>
-      </div>
+      <p className="mt-2 text-[11px]">Assinatura e identificação vêm do cadastro da empresa (CRC, CPF, e-mail, certidão e NIRE). Preencha uma vez em Empresa → Contador e valerá para todas as ECDs.</p>
       {resultado.pendenciasNatureza.length > 0 && (
         <div className="mt-3 rounded border border-amber-300 bg-amber-50 p-2">
           <p className="font-bold">Natureza das contas (exigida pelo leiaute) — escolha para os grupos abaixo:</p>

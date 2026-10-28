@@ -351,6 +351,10 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
       linhas.push({ cod: c.codigo, ini, deb: contaMov.deb, cred: contaMov.cred, fin });
       somaIni += ini; somaFin += fin; somaDeb += contaMov.deb; somaCred += contaMov.cred;
     }
+    if (!linhas.length && analiticas.length) {
+      // Manual, item 1.3: mês sem movimento e sem saldo → ao menos uma conta com zeros.
+      linhas.push({ cod: analiticas[0].codigo, ini: 0, deb: 0, cred: 0, fin: 0 });
+    }
     if (linhas.length) {
       if (somaIni !== 0) erros.push(`Mês ${mes.slice(5)}/${ano}: soma dos saldos iniciais das contas não é zero (diferença ${valorBR(somaIni)}). Revise saldos de abertura/lançamentos.`);
       if (somaFin !== 0) erros.push(`Mês ${mes.slice(5)}/${ano}: soma dos saldos finais das contas não é zero (diferença ${valorBR(somaFin)}).`);
@@ -459,4 +463,55 @@ export function ecdParaLatin1(conteudo: string): Uint8Array {
     bytes[i] = c <= 255 ? c : 63;
   }
   return bytes;
+}
+
+// ---------------- Obrigatoriedade e prazo (Manual ECD, item 1.3 e 1.5; IN RFB 2.003/2021) ----------------
+
+export interface PerfilObrigatoriedadeECD {
+  regime: string;
+  presumidoLivroCaixa?: boolean;
+  presumidoDistribuiuLucroAcimaBase?: boolean;
+  simplesAporteCapital?: boolean;
+}
+
+export interface AnaliseObrigatoriedadeECD {
+  situacao: "obrigatoria" | "dispensada" | "depende" | "facultativa";
+  titulo: string;
+  motivo: string;
+  /** Código do campo COD_PLAN_REF do registro 0000 sugerido para o regime (ou "" se não aplicável). */
+  planoReferencial: string;
+  descricaoPlanoReferencial: string;
+}
+
+export function analisarObrigatoriedadeECD(perfil: PerfilObrigatoriedadeECD): AnaliseObrigatoriedadeECD {
+  const regime = semAcento(perfil.regime || "");
+  if (/lucro\s+real/.test(regime)) {
+    return { situacao: "obrigatoria", titulo: "ECD obrigatória", motivo: "Lucro Real: todas as pessoas jurídicas entregam a ECD (manual, item 1.3).", planoReferencial: "1", descricaoPlanoReferencial: "PJ em geral – Lucro Real" };
+  }
+  if (/lucro\s+presumido/.test(regime)) {
+    if (perfil.presumidoLivroCaixa === undefined || perfil.presumidoDistribuiuLucroAcimaBase === undefined) {
+      return { situacao: "depende", titulo: "ECD depende de confirmação", motivo: "Lucro Presumido: está dispensada se optou pelo livro caixa (art. 45, Lei 8.981/1995) e não distribuiu lucros acima da base de cálculo sem IRRF. Confirme as duas informações no cadastro da empresa.", planoReferencial: "2", descricaoPlanoReferencial: "PJ em geral – Lucro Presumido" };
+    }
+    if (perfil.presumidoDistribuiuLucroAcimaBase) {
+      return { situacao: "obrigatoria", titulo: "ECD obrigatória", motivo: "Lucro Presumido que distribuiu lucros acima da base de cálculo sem IRRF entrega a ECD, mesmo com livro caixa (manual, item 1.3).", planoReferencial: "2", descricaoPlanoReferencial: "PJ em geral – Lucro Presumido" };
+    }
+    if (perfil.presumidoLivroCaixa) {
+      return { situacao: "facultativa", titulo: "ECD dispensada (entrega facultativa)", motivo: "Lucro Presumido com livro caixa e sem distribuição acima da base: dispensada; a entrega é facultativa e sem multa.", planoReferencial: "2", descricaoPlanoReferencial: "PJ em geral – Lucro Presumido" };
+    }
+    return { situacao: "obrigatoria", titulo: "ECD obrigatória", motivo: "Lucro Presumido que não optou pelo livro caixa entrega a ECD (manual, item 1.3).", planoReferencial: "2", descricaoPlanoReferencial: "PJ em geral – Lucro Presumido" };
+  }
+  if (/simples|mei/.test(regime)) {
+    if (perfil.simplesAporteCapital) {
+      return { situacao: "obrigatoria", titulo: "ECD obrigatória", motivo: "Simples Nacional com aporte de capital (arts. 61-A a 61-D da LC 123/2006) não tem a dispensa (manual, item 1.3).", planoReferencial: "", descricaoPlanoReferencial: "" };
+    }
+    return { situacao: "dispensada", titulo: "ECD dispensada", motivo: "Optante pelo Simples Nacional está dispensada, salvo aporte de capital (manual, item 1.3). A entrega é facultativa e sem multa.", planoReferencial: "", descricaoPlanoReferencial: "" };
+  }
+  return { situacao: "depende", titulo: "Regime não identificado", motivo: "Cadastre o regime tributário da empresa (Lucro Real, Lucro Presumido ou Simples Nacional) para o sistema definir a obrigatoriedade. Imunes/isentas: obrigatória se a receita somar R$ 4,8 milhões ou mais.", planoReferencial: "", descricaoPlanoReferencial: "" };
+}
+
+/** Prazo: último dia útil de junho do ano seguinte (IN RFB 2.003/2021, art. 5º). Considera só sábado/domingo; confira feriados. */
+export function prazoEntregaECD(ano: number): string {
+  const d = new Date(Date.UTC(ano + 1, 5, 30));
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
 }
