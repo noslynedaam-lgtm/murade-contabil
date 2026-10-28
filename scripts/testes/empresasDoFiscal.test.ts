@@ -4,7 +4,7 @@ import { buscarEmpresasDoFiscal, cnpjsValidosDoFiscal } from "../../src/server/e
 
 test("filtra CNPJs do Fiscal: formato, validade e repetidos", () => {
   const r = cnpjsValidosDoFiscal([{ cnpj: "11.222.333/0001-81", escritorio: "Ana@X.com", escritorioDonoSistema: true }, { cnpj: "11222333000181" }, { cnpj: "123" }, { cnpj: "99999999999999" }, null], (c) => c !== "99999999999999");
-  assert.deepEqual(r, [{ cnpj: "11222333000181", escritorio: "ana@x.com", donoSistema: true }]);
+  assert.deepEqual(r, [{ cnpj: "11222333000181", escritorio: "ana@x.com", donoSistema: true, dados: { cnpj: "11222333000181", razaoSocial: "", nomeFantasia: "", regime: "", municipio: "", uf: "" } }]);
   assert.deepEqual(cnpjsValidosDoFiscal(undefined, () => true), []);
 });
 

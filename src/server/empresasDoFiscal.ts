@@ -5,15 +5,20 @@ import { urlDoSistema } from "./agentesEntreSistemas";
 
 type Buscar = typeof fetch;
 
-export interface CnpjDoEscritorio { cnpj: string; escritorio: string; donoSistema: boolean }
+export interface CnpjDoEscritorio { cnpj: string; escritorio: string; donoSistema: boolean; dados: Record<string, string> }
 
-/** Mantém só CNPJs válidos e sem repetição, junto com o escritório (login do dono no Fiscal) a que pertencem. */
+/** Mantém só CNPJs válidos e sem repetição, com o escritório (login do dono no Fiscal) e o cadastro básico no formato do Contábil. */
 export function cnpjsValidosDoFiscal(lista: unknown, validar: (cnpj: string) => boolean): CnpjDoEscritorio[] {
   if (!Array.isArray(lista)) return [];
   const vistos = new Map<string, CnpjDoEscritorio>();
+  const txt = (v: unknown) => String(v ?? "").trim();
   for (const e of lista as any[]) {
-    const cnpj = String(e?.cnpj ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    if (cnpj.length === 14 && validar(cnpj) && !vistos.has(cnpj)) vistos.set(cnpj, { cnpj, escritorio: String(e?.escritorio ?? "").trim().toLowerCase(), donoSistema: e?.escritorioDonoSistema === true });
+    const cnpj = txt(e?.cnpj).toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (cnpj.length === 14 && validar(cnpj) && !vistos.has(cnpj)) {
+      const regime = ["Simples Nacional", "Lucro Presumido", "Lucro Real"].includes(e?.regime) ? txt(e.regime) : "";
+      vistos.set(cnpj, { cnpj, escritorio: txt(e?.escritorio).toLowerCase(), donoSistema: e?.escritorioDonoSistema === true,
+        dados: { cnpj, razaoSocial: txt(e?.razaoSocial), nomeFantasia: txt(e?.nomeFantasia), regime, municipio: txt(e?.cidade), uf: txt(e?.uf).toUpperCase().slice(0, 2) } });
+    }
   }
   return [...vistos.values()];
 }

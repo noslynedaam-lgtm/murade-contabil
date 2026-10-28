@@ -55,6 +55,11 @@ export async function prepararAuthContabil(): Promise<void> {
       role text NOT NULL DEFAULT 'operator' CHECK (role IN ('admin','operator','viewer')),
       PRIMARY KEY (user_id, cnpj)
     );
+    CREATE TABLE IF NOT EXISTS contabil_empresas_compartilhadas (
+      cnpj text PRIMARY KEY,
+      dados jsonb NOT NULL,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
     CREATE TABLE IF NOT EXISTS contabil_auth_sessions (
       token_hash char(64) PRIMARY KEY,
       user_id uuid NOT NULL REFERENCES contabil_auth_users(id) ON DELETE CASCADE,
@@ -1335,8 +1340,15 @@ export async function listarWorkspacesContabil(req: Request, res: Response): Pro
   if (!sessao?.cnpjs.length) { res.status(403).json({ sucesso: false, motivo: "Nenhuma empresa está autorizada nesta sessão." }); return; }
   try {
     const result = await obterBanco().query("SELECT cnpj,payload->'empresa' AS empresa,updated_at FROM contabil_company_workspaces WHERE cnpj=ANY($1::text[]) ORDER BY cnpj", [sessao.cnpjs]);
+    const comWorkspace = new Set<string>(result.rows.map((row) => String(row.cnpj)));
+    const faltando = sessao.cnpjs.filter((c) => !comWorkspace.has(c));
+    const compartilhadas = faltando.length ? await obterBanco().query("SELECT cnpj,dados FROM contabil_empresas_compartilhadas WHERE cnpj=ANY($1::text[]) ORDER BY cnpj", [faltando]) : { rows: [] as any[] };
+    const itens = [
+      ...result.rows.map((row) => ({ ...row.empresa, cnpj: row.cnpj, certificadoAtivo: false, certificadoNomeArquivo: undefined, workspaceAtualizadoEm: new Date(row.updated_at).toISOString() })),
+      ...compartilhadas.rows.map((row) => ({ ...(row.dados as Record<string, unknown>), cnpj: row.cnpj, certificadoAtivo: false })),
+    ].sort((a: any, b: any) => String(a.razaoSocial || a.cnpj).localeCompare(String(b.razaoSocial || b.cnpj), "pt-BR"));
     res.setHeader("Cache-Control", "no-store");
-    res.json({ sucesso: true, empresas: result.rows.map((row) => ({ ...row.empresa, cnpj: row.cnpj, certificadoAtivo: false, certificadoNomeArquivo: undefined, workspaceAtualizadoEm: new Date(row.updated_at).toISOString() })) });
+    res.json({ sucesso: true, empresas: itens });
   } catch (error) {
     console.error("Falha ao listar empresas autorizadas do Contábil:", error);
     res.status(503).json({ sucesso: false, motivo: "Não foi possível carregar a lista de empresas persistida." });
@@ -1561,7 +1573,7 @@ export function configGestaoEquipeContabil(exigirSessao: (req: Request, res: Res
 
 /** Dá a cada escritório o acesso aos CNPJs dele que vêm do Fiscal e ainda não estão no Contábil: o dono do sistema recebe os dele e os
  *  demais vão para o administrador do Contábil com o MESMO login do dono do escritório no Fiscal. Nunca toma CNPJ já vinculado. */
-export async function importarCnpjsCompartilhados(itens: Array<{ cnpj: string; escritorio: string; donoSistema: boolean }>): Promise<{ criadas: string[]; jaExistiam: number; semEscritorio: string[]; semDono?: boolean }> {
+export async function importarCnpjsCompartilhados(itens: Array<{ cnpj: string; escritorio: string; donoSistema: boolean; dados?: Record<string, unknown> }>): Promise<{ criadas: string[]; jaExistiam: number; semEscritorio: string[]; semDono?: boolean }> {
   await prepararAuthContabil();
   const admins = await obterBanco().query("SELECT id, login FROM contabil_auth_users WHERE global_admin=true AND disabled=false ORDER BY created_at, id");
   let dono: string | null = null;
@@ -1576,10 +1588,15 @@ export async function importarCnpjsCompartilhados(itens: Array<{ cnpj: string; e
     if (!cnpjContabilValido(cnpj)) continue;
     const alvo = item.donoSistema ? dono : (porLogin.get(String(item.escritorio).toLowerCase()) ?? null);
     if (!alvo) { semEscritorio.push(cnpj); continue; }
-    const existe = await obterBanco().query("SELECT 1 FROM contabil_auth_company_access WHERE cnpj=$1 LIMIT 1", [cnpj]);
-    if (existe.rowCount) { jaExistiam++; continue; }
-    const r = await obterBanco().query("INSERT INTO contabil_auth_company_access(user_id,cnpj,role) VALUES($1,$2,'admin') ON CONFLICT(user_id,cnpj) DO NOTHING RETURNING cnpj", [alvo, cnpj]);
-    if (r.rowCount) criadas.push(cnpj); else jaExistiam++;
+    const existe = await obterBanco().query("SELECT user_id FROM contabil_auth_company_access WHERE cnpj=$1 LIMIT 1", [cnpj]);
+    let meu = false;
+    if (existe.rowCount) { jaExistiam++; meu = String(existe.rows[0].user_id) === alvo; }
+    else {
+      const r = await obterBanco().query("INSERT INTO contabil_auth_company_access(user_id,cnpj,role) VALUES($1,$2,'admin') ON CONFLICT(user_id,cnpj) DO NOTHING RETURNING cnpj", [alvo, cnpj]);
+      if (r.rowCount) { criadas.push(cnpj); meu = true; } else jaExistiam++;
+    }
+    // Guarda o cadastro básico para a empresa aparecer na lista (nome, regime, UF) mesmo antes do primeiro salvamento da escrituração.
+    if (meu && item.dados) await obterBanco().query("INSERT INTO contabil_empresas_compartilhadas(cnpj,dados) VALUES($1,$2::jsonb) ON CONFLICT(cnpj) DO NOTHING", [cnpj, JSON.stringify(item.dados)]);
   }
   return { criadas, jaExistiam, semEscritorio, semDono: !dono && itens.some((i) => i.donoSistema) ? true : undefined };
 }

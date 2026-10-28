@@ -81,7 +81,7 @@ export const CabecalhoPadrao: React.FC<Props> = ({ usuario, empresaNome, empresa
         <UserCircle size={13} className="shrink-0" />
         <span className="truncate">{usuario || '—'}</span>
       </span>
-      <span onClick={onClicarEmpresa} className={`hidden md:flex items-center gap-1 px-2 py-0.5 rounded bg-white/10 max-w-[200px] ${onClicarEmpresa ? 'cursor-pointer hover:bg-white/20' : ''}`} title={empresaCnpj ? `CNPJ ${empresaCnpj} — dados e certificado da empresa` : 'Empresa'}>
+      <span onClick={onClicarEmpresa} className={`hidden md:flex items-center gap-1 px-2 py-0.5 rounded bg-white/10 max-w-[200px] ${onClicarEmpresa ? 'cursor-pointer hover:bg-white/20' : ''}`} title={onClicarEmpresa ? 'Clique para ver e trocar de empresa' : (empresaCnpj ? `CNPJ ${empresaCnpj}` : 'Empresa')}>
         <Building2 size={13} className="shrink-0" />
         <span className="truncate">{empresaNome || 'Nenhuma empresa'}</span>
       </span>
