@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Calculator, Download } from "lucide-react";
-import { calcularTrimestrePresumido, EntradaTrimestrePresumido, PeriodoPresumido, registrosBlocoPTrimestre } from "../services/ecfPresumidoService";
+import { calcularAnoPresumido, calcularTrimestrePresumido, EntradaTrimestrePresumido, PeriodoPresumido, registrosBlocoPTrimestre } from "../services/ecfPresumidoService";
 import { analisarObrigatoriedadeECD } from "../services/ecdService";
 
 interface Props {
@@ -34,8 +34,7 @@ export const EcfPresumidoPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, 
   const num = (s: string) => { const v = Number(String(s).replace(/\./g, "").replace(",", ".")); return Number.isFinite(v) ? v : 0; };
 
   const calculo = useMemo(() => {
-    if (ano >= 2026) return { erro: "A partir de 2026 vale a Lei Complementar 224/25 (linhas novas na tabela da ECF). Esse cálculo ainda não foi implementado; para 2026 use o programa oficial.", linhas: [] as string[], itens: [] as ReturnType<typeof calcularTrimestrePresumido>[] };
-    const itens = PERIODOS.map((p, i) => {
+    const entradas = PERIODOS.map((p, i) => {
       const receita = (receitaContabilPorTrimestre[i] || 0) / 100;
       const entrada: EntradaTrimestrePresumido = {
         periodo: p,
@@ -44,8 +43,13 @@ export const EcfPresumidoPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, 
         outrasReceitas: num(f.trimestres[i].outras) ? { "11": num(f.trimestres[i].outras) } : undefined,
         deducoesImposto: num(f.trimestres[i].irrf) ? { "10": num(f.trimestres[i].irrf) } : undefined,
       };
-      return calcularTrimestrePresumido({ anoCalendario: ano, indAliquotaCsll: f.aliq }, entrada);
+      return { entrada, usado: receita > 0 || num(f.trimestres[i].outras) > 0 || num(f.trimestres[i].irrf) > 0 };
     });
+    // Em 2026 em diante, só entram os trimestres com movimento (o limite anual da LC 224/25 conta trimestres apurados).
+    const lista = ano >= 2026 ? entradas.filter((x) => x.usado).map((x) => x.entrada) : entradas.map((x) => x.entrada);
+    let itens: ReturnType<typeof calcularTrimestrePresumido>[] = [];
+    try { itens = calcularAnoPresumido({ anoCalendario: ano, indAliquotaCsll: f.aliq }, lista); }
+    catch (e) { return { erro: (e as Error).message, linhas: [] as string[], itens }; }
     return { erro: null as string | null, linhas: itens.flatMap((r) => registrosBlocoPTrimestre(ano, r)), itens };
   }, [ano, f, receitaContabilPorTrimestre, atividade]);
 
@@ -61,7 +65,7 @@ export const EcfPresumidoPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, 
     <div className="mt-4 rounded-md border border-amber-300 bg-white/80 p-3 text-xs">
       <h4 className="flex items-center gap-2 font-bold"><Calculator className="h-4 w-4" /> ECF — Lucro Presumido: apuração de IRPJ e CSLL ({ano})</h4>
       {!ehPresumido && <p className="mt-1 rounded bg-amber-50 p-2">Esta empresa está cadastrada como “{empresaRegime || "regime não informado"}”. A apuração abaixo só vale para Lucro Presumido.</p>}
-      <p className="mt-1 text-[11px]">Calcula o Bloco P (P200 a P500) pelas fórmulas da tabela dinâmica da ECF Leiaute 12 (até o ano-calendário 2025). A receita vem da contabilidade (contas de receita, por trimestre). Não inclui ainda P100/P150, blocos 0, C, X e Y do arquivo completo; use como conferência e para importar no programa da ECF.</p>
+      <p className="mt-1 text-[11px]">Calcula o Bloco P (P200 a P500) pelas fórmulas da tabela dinâmica da ECF Leiaute 12 (inclui, de 2026 em diante, o adicional da Lei Complementar 224/25 sobre a receita que passa de R$ 1.250.000 por trimestre). A receita vem da contabilidade (contas de receita, por trimestre). Não inclui ainda P100/P150, blocos 0, C, X e Y do arquivo completo; use como conferência e para importar no programa da ECF.</p>
       {calculo.erro ? <p role="alert" className="mt-2 rounded bg-red-50 p-2 text-red-900">{calculo.erro}</p> : (
         <>
           <div className="mt-2 grid gap-2 sm:grid-cols-2">

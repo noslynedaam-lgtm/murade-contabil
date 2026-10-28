@@ -7,6 +7,7 @@ import {
 } from './agenteMotor';
 import { achadosDoConferidor, achadosEcdDoConferidor } from './conferidorContabil';
 import { conferirEcdWorkspace } from './conferidorEcd';
+import { limiteLc224Workspace } from './limiteLc224';
 import { estimarLucroRealWorkspace } from './estimativaLucroReal';
 import { conferirFechamento } from '../utils/fechamentoContabil';
 import { compararPeriodos, explicarVariacoes } from '../utils/analiseContabil';
@@ -141,6 +142,17 @@ const FERRAMENTAS: Ferramenta[] = [
       const ws = await lerWorkspace(ctx, cnpj); if ('erro' in ws) return ws;
       const ano = /^\d{4}$/.test(String(args.ano || '')) ? Number(args.ano) : new Date().getFullYear() - 1;
       try { return { cnpj, ...estimarLucroRealWorkspace(ws.dados, ano) }; } catch (e: any) { return { erro: String(e?.message || e) }; }
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'limite_lc224', description: 'Mostra, por trimestre, a receita bruta contra o limite de R$ 1.250.000 da Lei Complementar 224/25 (Lucro Presumido, a partir de 2026) e o excedente que paga adicional. Use quando perguntarem se a empresa estourou o limite do presumido.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, ano: { type: 'STRING', description: 'Ano-calendário com 4 dígitos. Se omitido, usa o ano atual.' } }, required: ['cnpj'] } },
+    async executar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj);
+      if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const ws = await lerWorkspace(ctx, cnpj); if ('erro' in ws) return ws;
+      const ano = /^\d{4}$/.test(String(args.ano || '')) ? Number(args.ano) : new Date().getFullYear();
+      try { return { cnpj, ...limiteLc224Workspace(ws.dados, ano) }; } catch (e: any) { return { erro: String(e?.message || e) }; }
     },
   },
   {
