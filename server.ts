@@ -1007,8 +1007,8 @@ async function startServer() {
     const f = await buscarEmpresasDoFiscal();
     if (!f.ok) return { ok: false, motivo: f.motivo || "Fiscal indisponível.", criadas: [] as string[] };
     const r = await importarCnpjsCompartilhados(cnpjsValidosDoFiscal(f.empresas, cnpjContabilValido));
-    const motivo = r.semDono ? "Não há administrador dono do sistema no Contábil para receber as empresas." : `${r.criadas.length} empresa(s) nova(s) vinda(s) do Fiscal; ${r.jaExistiam} já existiam.`;
-    return { ok: !r.semDono, motivo, criadas: r.criadas };
+    const motivo = `${r.criadas.length} empresa(s) nova(s) vinda(s) do Fiscal; ${r.jaExistiam} já existiam${r.semEscritorio.length ? `; ${r.semEscritorio.length} aguardam o escritório ter no Contábil um administrador com o mesmo login do Fiscal` : ""}${r.semDono ? "; sem administrador dono do sistema no Contábil" : ""}.`;
+    return { ok: true, motivo, criadas: r.criadas };
   };
   const rodarEmpresasFiscal = () => bancoContabilConfigurado() ? executarRobo("empresas_fiscal", async () => { const r = await sincronizarEmpresasDoFiscal(); registrarResultadoRobo("empresas_fiscal", r.motivo); }).catch((e) => console.error("Falha no Robô de Empresas do Fiscal:", e?.message || e)) : undefined;
   setTimeout(() => void rodarEmpresasFiscal(), 120_000).unref();

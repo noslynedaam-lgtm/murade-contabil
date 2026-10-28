@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { buscarEmpresasDoFiscal, cnpjsValidosDoFiscal } from "../../src/server/empresasDoFiscal";
 
 test("filtra CNPJs do Fiscal: formato, validade e repetidos", () => {
-  const r = cnpjsValidosDoFiscal([{ cnpj: "11.222.333/0001-81" }, { cnpj: "11222333000181" }, { cnpj: "123" }, { cnpj: "99999999999999" }, null], (c) => c !== "99999999999999");
-  assert.deepEqual(r, ["11222333000181"]);
+  const r = cnpjsValidosDoFiscal([{ cnpj: "11.222.333/0001-81", escritorio: "Ana@X.com", escritorioDonoSistema: true }, { cnpj: "11222333000181" }, { cnpj: "123" }, { cnpj: "99999999999999" }, null], (c) => c !== "99999999999999");
+  assert.deepEqual(r, [{ cnpj: "11222333000181", escritorio: "ana@x.com", donoSistema: true }]);
   assert.deepEqual(cnpjsValidosDoFiscal(undefined, () => true), []);
 });
 

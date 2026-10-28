@@ -5,14 +5,17 @@ import { urlDoSistema } from "./agentesEntreSistemas";
 
 type Buscar = typeof fetch;
 
-export function cnpjsValidosDoFiscal(lista: unknown, validar: (cnpj: string) => boolean): string[] {
+export interface CnpjDoEscritorio { cnpj: string; escritorio: string; donoSistema: boolean }
+
+/** Mantém só CNPJs válidos e sem repetição, junto com o escritório (login do dono no Fiscal) a que pertencem. */
+export function cnpjsValidosDoFiscal(lista: unknown, validar: (cnpj: string) => boolean): CnpjDoEscritorio[] {
   if (!Array.isArray(lista)) return [];
-  const vistos = new Set<string>();
+  const vistos = new Map<string, CnpjDoEscritorio>();
   for (const e of lista as any[]) {
     const cnpj = String(e?.cnpj ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    if (cnpj.length === 14 && validar(cnpj)) vistos.add(cnpj);
+    if (cnpj.length === 14 && validar(cnpj) && !vistos.has(cnpj)) vistos.set(cnpj, { cnpj, escritorio: String(e?.escritorio ?? "").trim().toLowerCase(), donoSistema: e?.escritorioDonoSistema === true });
   }
-  return [...vistos];
+  return [...vistos.values()];
 }
 
 export async function buscarEmpresasDoFiscal(env: Record<string, string | undefined> = process.env, buscar: Buscar = fetch): Promise<{ ok: boolean; motivo?: string; empresas: any[] }> {
