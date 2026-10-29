@@ -5,6 +5,11 @@ import { gerarRelatoriosContabeis, normalizarDataContabil } from "../utils/livro
 
 const COOKIE = "murade_contabil_session";
 const SESSION_SECONDS = 8 * 60 * 60;
+const SESSION_LONGA_SECONDS = 90 * 24 * 60 * 60;
+/** Celular/tablet: a senha é pedida só no primeiro acesso (sessão de 90 dias), a menos que a pessoa ligue "pedir senha ao abrir". */
+export function ehCelularUA(ua: string): boolean { return /Android|iPhone|iPad|iPod|Mobile/i.test(ua || ""); }
+function exigeSenhaAoAbrir(req: Request): boolean { return /(?:^|;\s*)murade_exigir_senha=1(?:;|$)/.test(req.header("cookie") || ""); }
+export function duracaoSessaoContabil(req: Request): number { return ehCelularUA(req.header("user-agent") || "") && !exigeSenhaAoAbrir(req) ? SESSION_LONGA_SECONDS : SESSION_SECONDS; }
 let pool: Pool | null = null;
 let schemaPromise: Promise<void> | null = null;
 let ultimaLimpezaSessao = 0;
@@ -194,9 +199,9 @@ function cookieDaRequisicao(req: Request): string {
   try { return decodeURIComponent(item.slice(COOKIE.length + 1)); } catch { return ""; }
 }
 
-function gravarCookie(res: Response, token: string): void {
+function gravarCookie(res: Response, token: string, segundos: number = SESSION_SECONDS): void {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  res.setHeader("Set-Cookie", `${COOKIE}=${encodeURIComponent(token)}; Path=/; Max-Age=${SESSION_SECONDS}; HttpOnly; SameSite=Strict${secure}`);
+  res.setHeader("Set-Cookie", `${COOKIE}=${encodeURIComponent(token)}; Path=/; Max-Age=${segundos}; HttpOnly; SameSite=Strict${secure}`);
 }
 
 function apagarCookie(res: Response): void {
@@ -348,8 +353,9 @@ export async function loginAuthContabil(req: Request, res: Response): Promise<vo
     falhasLogin.delete(ip);
     const token = crypto.randomBytes(32).toString("base64url");
     const hash = crypto.createHash("sha256").update(token).digest("hex");
-    await obterBanco().query("INSERT INTO contabil_auth_sessions(token_hash,user_id,expires_at) VALUES($1,$2,now() + ($3 * interval '1 second'))", [hash, row.id, SESSION_SECONDS]);
-    gravarCookie(res, token);
+    const duracao = duracaoSessaoContabil(req);
+    await obterBanco().query("INSERT INTO contabil_auth_sessions(token_hash,user_id,expires_at) VALUES($1,$2,now() + ($3 * interval '1 second'))", [hash, row.id, duracao]);
+    gravarCookie(res, token, duracao);
     res.setHeader("Cache-Control", "no-store");
     const completa = await montarSessaoContabil(row);
     res.json({ sucesso: true, usuario: row.login, cnpjs: completa.cnpjs, memberships: completa.memberships, administrador: row.global_admin === true, escritorio: Boolean(completa.escritorioDe), donoSistema: completa.donoSistema === true });
@@ -1511,6 +1517,23 @@ export async function salvarWorkspaceContabil(req: Request, res: Response, opcoe
     console.error("Falha ao salvar dados persistidos da empresa no Contábil:", error);
     res.status(503).json({ sucesso: false, motivo: "Não foi possível persistir os dados contábeis desta empresa." });
   } finally { client?.release(); }
+}
+
+/** Liga/desliga "manter conectado" na sessão atual (celular). Desligado = volta a pedir senha em 8 horas. */
+export async function manterConectadoContabil(req: Request, res: Response): Promise<void> {
+  res.setHeader("Cache-Control", "no-store");
+  try {
+    const token = cookieDaRequisicao(req);
+    const sessao = token ? await obterSessaoContabil(req) : null;
+    if (!token || !sessao) { res.status(401).json({ sucesso: false, motivo: "Entre no sistema primeiro." }); return; }
+    const ativo = req.body?.ativo === true;
+    if (ativo && !ehCelularUA(req.header("user-agent") || "")) { res.status(400).json({ sucesso: false, motivo: "Esta opção vale só para celular e tablet." }); return; }
+    const segundos = ativo ? SESSION_LONGA_SECONDS : SESSION_SECONDS;
+    const hash = crypto.createHash("sha256").update(token).digest("hex");
+    await obterBanco().query("UPDATE contabil_auth_sessions SET expires_at=now() + ($2 * interval '1 second') WHERE token_hash=$1", [hash, segundos]);
+    gravarCookie(res, token, segundos);
+    res.json({ sucesso: true, manterConectado: ativo });
+  } catch (error) { console.error("Falha ao ajustar sessão Contábil:", error); res.status(503).json({ sucesso: false, motivo: "Não foi possível salvar agora." }); }
 }
 
 export async function logoutAuthContabil(req: Request, res: Response): Promise<void> {
