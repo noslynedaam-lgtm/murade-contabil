@@ -64,6 +64,7 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
   const ultimaFalaRef = useRef(0);
   const textoFaladoRef = useRef("");
   const geracaoRef = useRef(0);
+  const janelaConversaRef = useRef(0);
   const pararRef = useRef<() => void>(() => {});
   const falandoRef = useRef(false);
   const enviarRef = useRef<(t: string) => void>(() => {});
@@ -98,7 +99,7 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
     }
 
     utterance.onstart = () => { falandoRef.current = true; setFalando(true); };
-    utterance.onend = () => { falandoRef.current = false; ultimaFalaRef.current = Date.now(); setFalando(false); };
+    utterance.onend = () => { falandoRef.current = false; ultimaFalaRef.current = Date.now(); janelaConversaRef.current = Date.now() + 20000; setFalando(false); };
     utterance.onerror = () => { falandoRef.current = false; setFalando(false); };
 
     window.speechSynthesis.speak(utterance);
@@ -271,7 +272,7 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
     // Não compete com o botão de microfone da janela.
     if (!chamadaPorVoz || !SR || gravandoVoz) return;
     const limpar = limparTextoVoz;
-    const chamada = /\b(contabil|contabilidade)\b/;
+    const chamada = /\b(contabil|contabilidade|contabi)\b/;
     let ativo = true;
     let tempoComando: number | undefined;
     const iniciar = () => {
@@ -289,12 +290,15 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
           // "Para" / "espera": interrompe a fala e cancela o pedido em andamento.
           if (COMANDO_PARAR.test(texto)) { pararRef.current(); continue; }
           // Ignora o que o próprio sistema está falando (e o eco dele), para não se chamar sozinho.
-          if (falandoRef.current || window.speechSynthesis?.speaking || Date.now() - ultimaFalaRef.current < 3000) continue;
+          if (falandoRef.current || window.speechSynthesis?.speaking || Date.now() - ultimaFalaRef.current < 1500) continue;
           const faladas = new Set(textoFaladoRef.current.split(" "));
           const palavrasDita = texto.split(" ");
           if (Date.now() - ultimaFalaRef.current < 15000 && textoFaladoRef.current && (texto === "pois nao" || (palavrasDita.length >= 2 && palavrasDita.filter((w) => faladas.has(w)).length / palavrasDita.length >= 0.75))) continue;
-          if (aguardandoComandoRef.current) {
+          if (aguardandoComandoRef.current || Date.now() < janelaConversaRef.current) {
+            // Logo depois de uma resposta (20 s) a conversa continua sem precisar chamar de novo.
+            if (/^(obrigad[oa]|valeu|ok|certo|beleza|tchau|tudo bem|ta bom)$/.test(texto) || (chamada.test(texto) && texto.split(" ").length <= 2)) continue;
             aguardandoComandoRef.current = false;
+            janelaConversaRef.current = 0;
             window.clearTimeout(tempoComando);
             enviarRef.current(bruto.trim());
           } else if (chamada.test(texto)) {
@@ -309,7 +313,7 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
         }
       };
       rec.onerror = (e: any) => { if (e?.error === "not-allowed" || e?.error === "service-not-allowed") { ativo = false; setChamadaPorVoz(false); } };
-      rec.onend = () => { if (ativo) window.setTimeout(iniciar, 700); };
+      rec.onend = () => { if (ativo) window.setTimeout(iniciar, 150); };
       chamadaRef.current = rec;
       try { rec.start(); } catch { /* já iniciado */ }
     };
@@ -323,16 +327,27 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
         {avisoVoz && (
           <div role="status" onClick={() => setAvisoVoz("")} className="fixed bottom-14 right-3 z-40 max-w-[min(86vw,360px)] cursor-pointer rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 shadow-xl" title="Toque para fechar">{avisoVoz}</div>
         )}
-        <button
-          type="button"
-          id="btn-ia-flutuante"
-          onClick={() => onOpen?.()}
-          className={`fixed bottom-3 right-3 z-40 flex h-9 w-9 items-center justify-center rounded-full border-2 text-base shadow-lg transition active:scale-95 ${chamadaPorVoz ? "border-emerald-400 bg-[#0a2342] text-white" : "border-slate-300 bg-white/90 text-slate-600"}`}
-          title={chamadaPorVoz ? 'Escutando: diga "Contábil" e peça. Toque para abrir a conversa.' : "Chamada por voz desligada. Toque para abrir a conversa e ligar."}
-          aria-label="Assistente Murade Contábil por voz"
-        >
-          {chamadaPorVoz ? "👂" : "🎙️"}
-        </button>
+        <div className="fixed bottom-3 right-3 z-40 flex items-center gap-1.5" id="btn-ia-flutuante">
+          <button
+            type="button"
+            onClick={() => onOpen?.()}
+            className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-slate-300 bg-white/90 text-base text-slate-700 shadow-lg transition active:scale-95"
+            title="Abrir a conversa escrita"
+            aria-label="Abrir a conversa com a assistente"
+          >
+            💬
+          </button>
+          <button
+            type="button"
+            onClick={() => { if (chamadaPorVoz) pararRef.current(); setChamadaPorVoz((v) => !v); }}
+            aria-pressed={chamadaPorVoz}
+            className={`flex h-9 min-w-[3.6rem] items-center justify-center gap-1 rounded-full border-2 px-2 text-xs font-bold shadow-lg transition active:scale-95 ${chamadaPorVoz ? "border-emerald-400 bg-[#0a2342] text-white" : "border-rose-300 bg-white/95 text-rose-700"}`}
+            title={chamadaPorVoz ? "Escutando. Toque para DESLIGAR a voz." : "Voz desligada. Toque para LIGAR."}
+            aria-label={chamadaPorVoz ? "Desligar a voz da assistente" : "Ligar a voz da assistente"}
+          >
+            {chamadaPorVoz ? "👂 ligada" : "🔇 desligada"}
+          </button>
+        </div>
       </>
     );
   }
