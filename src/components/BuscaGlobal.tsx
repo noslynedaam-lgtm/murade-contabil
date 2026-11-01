@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState } from "react";
 import { Search } from "lucide-react";
+import { filtrarItensBusca } from "../utils/filtrarBusca";
 
 export interface ItemBusca {
   id: string;
@@ -20,11 +21,7 @@ export const BuscaGlobal: React.FC<{ itens: ItemBusca[]; placeholder?: string }>
   const entrada = useRef<HTMLInputElement>(null);
 
   const resultados = useMemo(() => {
-    const termos = normalizar(texto).split(/\s+/).filter(Boolean);
-    if (termos.length === 0) return itens.filter((i) => i.tipo === "Módulo").slice(0, 6);
-    return itens
-      .filter((i) => { const alvo = normalizar(`${i.rotulo} ${i.palavras || ""}`); return termos.every((t) => alvo.includes(t)); })
-      .slice(0, 8);
+    return filtrarItensBusca(itens, texto);
   }, [texto, itens]);
 
   const escolher = (item: ItemBusca) => {

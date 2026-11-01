@@ -3,6 +3,7 @@ import type { BemImobilizado } from "./utils/imobilizado";
 import { conferirFechamento } from "./utils/fechamentoContabil";
 import { GestaoContabilTab } from "./components/tabs/GestaoContabilTab";
 import type { ItemBusca } from "./components/BuscaGlobal";
+import { destacarCampo } from "./utils/destacarCampo";
 import { TabId, OrgaoConectado, EmpresaDados, LancamentoContabil, ContaPlano, LivroContabil, LembreteItem, CentroCustoContabil, MapeamentoOrigemContabil, PreLancamentoContabil } from "./types";
 import { initialEmpresa, orgaosIniciais, planoContasPadrao } from "./data/mockData";
 import { Sidebar } from "./components/Sidebar";
@@ -415,26 +416,48 @@ function AppWorkspace() {
   // Itens da barra de pesquisa do topo: módulos, empresas do escritório e contas do plano
   const itensBusca = React.useMemo<ItemBusca[]>(() => {
     const modulos: [TabId, string, string][] = [
-      ["inicio", "Tela Inicial", "home painel resumo"],
-      ["empresa", "Cadastro de Empresa", "empresas cnpj cadastrar certificado"],
-      ["agenda", "Agenda & Lembretes", "prazos vencimentos calendario"],
-      ["fluxo-previtico", "Fluxo Prevítico", "fluxo de caixa"],
-      ["modulos-finais", "Obrigações & Gestão", "obrigacoes acessorias declaracoes ecd ecf sped"],
-      ["gestao-contabil", "Gestão contábil", "fechamento conciliacao"],
-      ["conexoes", "Conexão Órgãos", "receita sefaz serpro ecac conexao"],
-      ["lancamentos", "Lançamentos", "lancamento contabil debito credito partida"],
-      ["aprovacoes", "Aprovar lançamentos", "aprovacao pre-lancamentos pendentes"],
-      ["balancete", "Balancete", "balanco dre demonstracoes razao"],
-      ["livros", "Livros Fiscais & ECD", "livro diario razao ecd"],
-      ["plano-contas", "Plano de Contas", "contas contabeis"],
-      ["migracao", "Migração Contábil", "importar migrar saldos"],
-      ["integracao", "Integrações", "fiscal dp integracao"],
-      ["revisao-origens", "Revisar dados recebidos", "origens fiscal dp revisao"],
-      ["calculadora", "Calculadora 3D", "calculadora tributos"],
-      ["agente", "Agentes & Robô", "robos agente conferidor"],
-      ["ia-premium", "IA Murade Premium", "inteligencia artificial assistente pergunta"],
+      ["inicio", "Tela Inicial", "home painel resumo inicio pendencias lembretes"],
+      ["empresa", "Cadastro de Empresa", "empresas cnpj cadastrar cliente razao social certificado digital excluir apagar regime"],
+      ["agenda", "Agenda & Lembretes", "prazos vencimentos calendario lembrete compromisso data"],
+      ["fluxo-previtico", "Fluxo Prevítico", "fluxo de caixa projecao entradas saidas saldo zerar"],
+      ["modulos-finais", "Obrigações & Gestão", "obrigacoes acessorias declaracoes ecd ecf sped dctf defis"],
+      ["gestao-contabil", "Gestão contábil", "fechamento fechar competencia conciliacao bancaria extrato ofx imobilizado depreciacao"],
+      ["conexoes", "Conexão Órgãos", "receita sefaz serpro ecac conexao orgaos status"],
+      ["lancamentos", "Lançamentos", "lancamento contabil debito credito partida dobrada estorno historico manual"],
+      ["aprovacoes", "Aprovar lançamentos", "aprovacao aprovar rejeitar pre-lancamentos pendentes"],
+      ["balancete", "Balancete", "balancete verificacao saldo contas debito credito"],
+      ["livros", "Livros Fiscais & ECD", "livro diario razao ecd balanco patrimonial dre demonstracao resultado"],
+      ["plano-contas", "Plano de Contas", "contas contabeis plano saldo inicial codigo natureza sintetica analitica"],
+      ["migracao", "Migração Contábil", "importar migrar migracao alterdata dominio atron saldos plano de contas centro de custo exportar txt csv"],
+      ["integracao", "Integrações", "fiscal dp integracao enviar receber"],
+      ["revisao-origens", "Revisar dados recebidos", "origens fiscal dp revisao notas folha conciliacao mapeamento"],
+      ["calculadora", "Calculadora 3D", "calculadora tributos imposto calcular zerar historico"],
+      ["agente", "Agentes & Robô", "robos agente conferidor automatico"],
+      ["ia-premium", "IA Murade Premium", "inteligencia artificial assistente pergunta voz"],
+    ];
+    // Assuntos dentro das telas: abrem a tela e piscam o título da parte procurada.
+    const assuntos: [TabId, string, string, string][] = [
+      ["livros", "Livro Diário", "diario livro numeracao", "Livro Diário"],
+      ["livros", "Livro Razão", "razao livro contas", "Livro Razão"],
+      ["livros", "Balanço Patrimonial", "balanco patrimonial ativo passivo patrimonio liquido", "Balanço Patrimonial"],
+      ["livros", "DRE (Demonstração do Resultado)", "dre resultado exercicio lucro prejuizo receitas despesas", "DRE gerencial"],
+      ["livros", "Fluxo de Caixa interno", "fluxo caixa demonstracao", "Fluxo de Caixa"],
+      ["livros", "Autenticação da ECD", "ecd autenticacao junta comercial termo", "Autenticação oficial da ECD"],
+      ["livros", "Conferência prévia da ECD", "ecd conferencia previa sped contabil", "Conferência prévia"],
+      ["balancete", "Balancete de verificação", "balancete verificacao", "Balancete local"],
+      ["plano-contas", "Saldos iniciais (partidas dobradas)", "saldo inicial abertura partida dobrada", "Partidas dobradas dos saldos iniciais"],
+      ["revisao-origens", "Conciliação Fiscal/DP → Contábil", "conciliacao fiscal dp contabil", "Conciliação Fiscal/DP"],
+      ["revisao-origens", "Mapeamento de contas por empresa", "mapeamento contas origem conta contabil", "Mapeamento de contas"],
+      ["revisao-origens", "Prévia contábil da folha", "previa folha pagamento provisao salarios encargos", "Prévia contábil da folha"],
+      ["revisao-origens", "Prévia contábil das notas fiscais", "previa notas fiscais compra venda lancamento nota", "Prévia contábil das notas"],
+      ["revisao-origens", "Conferência de tributos por regime", "conferencia tributos regime simples presumido real", "Conferência de tributos"],
+      ["revisao-origens", "Lançamentos manuais e estornos", "manual estorno estornar lancamento", "Lançamentos manuais e estornos"],
+      ["revisao-origens", "Histórico e trilha de auditoria", "historico auditoria trilha log", "trilha de auditoria"],
+      ["migracao", "Importar plano de contas do Alterdata", "importar plano contas alterdata exportacao txt exppcontas", "Arquivos e Leitura"],
+      ["migracao", "Importar lançamentos / diário do Alterdata", "importar lancamentos diario alterdata txt modelo", "Arquivos e Leitura"],
     ];
     const itens: ItemBusca[] = modulos.map(([id, rotulo, palavras]) => ({ id: `m-${id}`, rotulo, tipo: "Módulo", palavras, acao: () => setTabAtiva(id) }));
+    for (const [tab, rotulo, palavras, campo] of assuntos) itens.push({ id: `a-${tab}-${rotulo}`, rotulo, tipo: "Assunto", palavras, acao: () => { setTabAtiva(tab); destacarCampo(campo); } });
     for (const e of listaEmpresas) itens.push({ id: `e-${e.cnpj}`, rotulo: e.nome, tipo: "Empresa", palavras: e.cnpj, acao: () => escolherEmpresaPeloCnpj(e.cnpj) });
     for (const c of contas.slice(0, 2000)) itens.push({ id: `c-${c.codigo}`, rotulo: `${c.codigo} · ${c.descricao}`, tipo: "Conta", acao: () => setTabAtiva("plano-contas") });
     return itens;
