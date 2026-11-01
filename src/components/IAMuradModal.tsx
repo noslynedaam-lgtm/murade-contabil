@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { escolherVozPtBr } from "../utils/vozNatural";
-import { falarHumana, pararHumana, humanaFalando } from "../utils/vozHumana";
+import { falarHumana, pararHumana, humanaFalando, ajustarVoz } from "../utils/vozHumana";
 import { Mic, MicOff, Volume2, VolumeX, Send, Bot, Sparkles, X, RotateCcw } from "lucide-react";
 import { AcaoAgenteCartao, ChatMessage, EmpresaDados, LancamentoContabil } from "../types";
 
@@ -281,6 +281,8 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
           const texto = limpar(bruto);
           if (!texto) continue;
           // "Para" / "espera": interrompe a fala e cancela o pedido em andamento.
+          // Pedidos de volume e velocidade: "aumenta a voz", "fala mais rápido"...
+          if (ehFinal) { const confirmacao = ajustarVoz(texto); if (confirmacao) { falarRef.current(confirmacao); continue; } }
           if (COMANDO_PARAR.test(texto)) { pararRef.current(); continue; }
           const faladas = new Set(textoFaladoRef.current.split(" "));
           const palavrasDita = texto.split(" ");
