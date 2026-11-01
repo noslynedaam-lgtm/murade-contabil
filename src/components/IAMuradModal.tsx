@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { escolherVozPtBr } from "../utils/vozNatural";
-import { falarHumana, pararHumana, humanaFalando, ajustarVoz } from "../utils/vozHumana";
+import { falarHumana, pararHumana, humanaFalando, ajustarVoz, bipRapido, prepararVoz } from "../utils/vozHumana";
 import { Mic, MicOff, Volume2, VolumeX, Send, Bot, Sparkles, X, RotateCcw } from "lucide-react";
 import { AcaoAgenteCartao, ChatMessage, EmpresaDados, LancamentoContabil } from "../types";
 
@@ -268,6 +268,7 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
     const chamada = /\b(contabil|contabilidade|contabi)\b/;
     let ativo = true;
     let tempoComando: number | undefined;
+    const tempoPreparo = window.setTimeout(() => { void prepararVoz(); }, 2500);
     const iniciar = () => {
       if (!ativo) return;
       const rec = new SR();
@@ -311,7 +312,7 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
             const resto = bruto.replace(/^[\s,.!?]*(contábil|contabil|contabilidade)[\s,.!?:-]*/i, "").trim();
             if (resto.split(" ").length >= 3) enviarRef.current(resto);
             else {
-              falarRef.current("Pois não?");
+              bipRapido(); falarRef.current("Pois não?");
               aguardandoComandoRef.current = true;
               tempoComando = window.setTimeout(() => { aguardandoComandoRef.current = false; }, 12000);
             }
@@ -324,7 +325,7 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
       try { rec.start(); } catch { /* já iniciado */ }
     };
     iniciar();
-    return () => { ativo = false; window.clearTimeout(tempoComando); try { chamadaRef.current?.stop(); } catch { /* ignora */ } };
+    return () => { ativo = false; window.clearTimeout(tempoPreparo); window.clearTimeout(tempoComando); try { chamadaRef.current?.stop(); } catch { /* ignora */ } };
   }, [chamadaPorVoz, gravandoVoz]);
 
   if (!isOpen) {
