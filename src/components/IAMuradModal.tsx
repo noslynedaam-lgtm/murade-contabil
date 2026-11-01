@@ -6,6 +6,7 @@ import { AcaoAgenteCartao, ChatMessage, EmpresaDados, LancamentoContabil } from 
 interface IAMuradModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onOpen?: () => void;
   empresa: EmpresaDados;
   lancamentos: LancamentoContabil[];
 }
@@ -13,6 +14,7 @@ interface IAMuradModalProps {
 export const IAMuradModal: React.FC<IAMuradModalProps> = ({
   isOpen,
   onClose,
+  onOpen,
   empresa,
   lancamentos,
 }) => {
@@ -32,6 +34,23 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
+  // Chamada por voz: basta falar "Contábil" e pedir. A janela só abre quando há algo para confirmar.
+  const [chamadaPorVoz, setChamadaPorVoz] = useState<boolean>(() => {
+    try { return localStorage.getItem("murade_chamada_voz") !== "0"; } catch { return false; }
+  });
+  const [avisoVoz, setAvisoVoz] = useState("");
+  const tempoAvisoRef = useRef<number | undefined>(undefined);
+  const chamadaRef = useRef<any>(null);
+  const aguardandoComandoRef = useRef(false);
+  const ultimaFalaRef = useRef(0);
+  const falandoRef = useRef(false);
+  const enviarRef = useRef<(t: string) => void>(() => {});
+  const falarRef = useRef<(t: string) => void>(() => {});
+  const mostrarAviso = (texto: string) => {
+    setAvisoVoz(texto.length > 420 ? `${texto.slice(0, 417)}…` : texto);
+    window.clearTimeout(tempoAvisoRef.current);
+    tempoAvisoRef.current = window.setTimeout(() => setAvisoVoz(""), 14000);
+  };
 
   // Scroll to bottom
   useEffect(() => {
@@ -54,9 +73,9 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
       utterance.voice = ptVoice;
     }
 
-    utterance.onstart = () => setFalando(true);
-    utterance.onend = () => setFalando(false);
-    utterance.onerror = () => setFalando(false);
+    utterance.onstart = () => { falandoRef.current = true; setFalando(true); };
+    utterance.onend = () => { falandoRef.current = false; ultimaFalaRef.current = Date.now(); setFalando(false); };
+    utterance.onerror = () => { falandoRef.current = false; setFalando(false); };
 
     window.speechSynthesis.speak(utterance);
   };
@@ -171,6 +190,8 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
 
       setMessages((prev) => [...prev, iaMsg]);
       falarTexto(respostaTexto);
+      mostrarAviso(respostaTexto);
+      if (acoes.length) onOpen?.();
     } catch (err) {
       const erroMsg: ChatMessage = {
         id: `msg-${Date.now() + 1}`,
@@ -179,6 +200,8 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
       setMessages((prev) => [...prev, erroMsg]);
+      falarTexto(erroMsg.text);
+      mostrarAviso(erroMsg.text);
     } finally {
       setLoading(false);
     }
@@ -212,7 +235,74 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
     } catch { /* a ação expira sozinha em 15 minutos */ }
   };
 
-  if (!isOpen) return null;
+  enviarRef.current = (t: string) => { void enviarMensagem(t); };
+  falarRef.current = (t: string) => falarTexto(t);
+
+  useEffect(() => {
+    try { localStorage.setItem("murade_chamada_voz", chamadaPorVoz ? "1" : "0"); } catch { /* ignora */ }
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    // Não compete com o botão de microfone da janela.
+    if (!chamadaPorVoz || !SR || gravandoVoz) return;
+    const limpar = (t: string) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+    const chamada = /\b(contabil|contabilidade)\b/;
+    let ativo = true;
+    let tempoComando: number | undefined;
+    const iniciar = () => {
+      if (!ativo) return;
+      const rec = new SR();
+      rec.lang = "pt-BR";
+      rec.continuous = true;
+      rec.interimResults = false;
+      rec.onresult = (ev: any) => {
+        for (let i = ev.resultIndex; i < ev.results.length; i += 1) {
+          if (!ev.results[i].isFinal) continue;
+          if (falandoRef.current || window.speechSynthesis?.speaking || Date.now() - ultimaFalaRef.current < 1800) continue;
+          const bruto = String(ev.results[i][0].transcript || "");
+          const texto = limpar(bruto);
+          if (!texto) continue;
+          if (aguardandoComandoRef.current) {
+            aguardandoComandoRef.current = false;
+            window.clearTimeout(tempoComando);
+            enviarRef.current(bruto.trim());
+          } else if (chamada.test(texto)) {
+            const resto = bruto.replace(/^[\s,.!?]*(contábil|contabil|contabilidade)[\s,.!?:-]*/i, "").trim();
+            if (resto.split(" ").length >= 3) enviarRef.current(resto);
+            else {
+              falarRef.current("Pois não?");
+              aguardandoComandoRef.current = true;
+              tempoComando = window.setTimeout(() => { aguardandoComandoRef.current = false; }, 12000);
+            }
+          }
+        }
+      };
+      rec.onerror = (e: any) => { if (e?.error === "not-allowed" || e?.error === "service-not-allowed") { ativo = false; setChamadaPorVoz(false); } };
+      rec.onend = () => { if (ativo) window.setTimeout(iniciar, 700); };
+      chamadaRef.current = rec;
+      try { rec.start(); } catch { /* já iniciado */ }
+    };
+    iniciar();
+    return () => { ativo = false; window.clearTimeout(tempoComando); try { chamadaRef.current?.stop(); } catch { /* ignora */ } };
+  }, [chamadaPorVoz, gravandoVoz]);
+
+  if (!isOpen) {
+    return (
+      <>
+        {avisoVoz && (
+          <div role="status" onClick={() => setAvisoVoz("")} className="fixed bottom-14 right-3 z-40 max-w-[min(86vw,360px)] cursor-pointer rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 shadow-xl" title="Toque para fechar">{avisoVoz}</div>
+        )}
+        <button
+          type="button"
+          id="btn-ia-flutuante"
+          onClick={() => onOpen?.()}
+          className={`fixed bottom-3 right-3 z-40 flex h-9 w-9 items-center justify-center rounded-full border-2 text-base shadow-lg transition active:scale-95 ${chamadaPorVoz ? "border-emerald-400 bg-[#0a2342] text-white" : "border-slate-300 bg-white/90 text-slate-600"}`}
+          title={chamadaPorVoz ? 'Escutando: diga "Contábil" e peça. Toque para abrir a conversa.' : "Chamada por voz desligada. Toque para abrir a conversa e ligar."}
+          aria-label="Assistente Murade Contábil por voz"
+        >
+          {chamadaPorVoz ? "👂" : "🎙️"}
+        </button>
+      </>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-4 animate-fade-in">
@@ -256,6 +346,16 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
               title={vozAtiva ? "Desativar voz automática" : "Ativar voz automática"}
             >
               {vozAtiva ? <Volume2 className="w-4 h-4 text-amber-300" /> : <VolumeX className="w-4 h-4" />}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setChamadaPorVoz((v) => !v)}
+              aria-pressed={chamadaPorVoz}
+              className={`p-2 rounded-lg text-xs font-semibold cursor-pointer transition ${chamadaPorVoz ? "bg-emerald-500/30 text-white" : "bg-white/10 text-white/60"}`}
+              title={chamadaPorVoz ? 'Chamada por voz LIGADA: diga "Contábil". Toque para desligar.' : 'Ligar chamada por voz: diga "Contábil" para chamar.'}
+            >
+              {chamadaPorVoz ? "👂 ligada" : "👂 desligada"}
             </button>
 
             <button
