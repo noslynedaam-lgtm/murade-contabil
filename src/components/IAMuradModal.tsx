@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { escolherVozPtBr } from "../utils/vozNatural";
+import { falarHumana, pararHumana, humanaFalando } from "../utils/vozHumana";
 import { Mic, MicOff, Volume2, VolumeX, Send, Bot, Sparkles, X, RotateCcw } from "lucide-react";
 import { AcaoAgenteCartao, ChatMessage, EmpresaDados, LancamentoContabil } from "../types";
 
@@ -83,26 +84,18 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
 
   // Sintetizador de voz natural em português
   const falarTexto = (texto: string) => {
-    if (!vozAtiva || typeof window === "undefined" || !("speechSynthesis" in window)) return;
-
-    window.speechSynthesis.cancel(); // Para falas anteriores
-    textoFaladoRef.current = limparTextoVoz(textoParaFala(texto));
-    const utterance = new SpeechSynthesisUtterance(textoParaFala(texto));
-    utterance.lang = "pt-BR";
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-
-    // Tentar selecionar voz brasileira natural
-    const ptVoice = escolherVozPtBr(window.speechSynthesis.getVoices());
-    if (ptVoice) {
-      utterance.voice = ptVoice;
-    }
-
-    utterance.onstart = () => { falandoRef.current = true; setFalando(true); };
-    utterance.onend = () => { falandoRef.current = false; ultimaFalaRef.current = Date.now(); janelaConversaRef.current = Date.now() + 20000; setFalando(false); };
-    utterance.onerror = () => { falandoRef.current = false; setFalando(false); };
-
-    window.speechSynthesis.speak(utterance);
+    if (!vozAtiva || typeof window === "undefined") return;
+    const falado = textoParaFala(texto);
+    textoFaladoRef.current = limparTextoVoz(falado);
+    falandoRef.current = true;
+    setFalando(true);
+    // Voz humana (feminina, calma). Se a cota acabar, usa a voz do navegador.
+    void falarHumana(falado, () => {
+      falandoRef.current = false;
+      ultimaFalaRef.current = Date.now();
+      janelaConversaRef.current = Date.now() + 20000;
+      setFalando(false);
+    });
   };
 
   // Reconhecimento de voz por microfone
@@ -264,7 +257,7 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
 
   enviarRef.current = (t: string) => { void enviarMensagem(t); };
   falarRef.current = (t: string) => falarTexto(t);
-  pararRef.current = () => { geracaoRef.current += 1; window.speechSynthesis?.cancel(); falandoRef.current = false; setFalando(false); aguardandoComandoRef.current = false; setAvisoVoz(""); };
+  pararRef.current = () => { geracaoRef.current += 1; window.speechSynthesis?.cancel(); pararHumana(); falandoRef.current = false; setFalando(false); aguardandoComandoRef.current = false; setAvisoVoz(""); };
 
   useEffect(() => {
     try { localStorage.setItem("murade_chamada_voz", chamadaPorVoz ? "1" : "0"); } catch { /* ignora */ }
@@ -292,11 +285,11 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
           const faladas = new Set(textoFaladoRef.current.split(" "));
           const palavrasDita = texto.split(" ");
           const parecidoComFala = Boolean(textoFaladoRef.current) && palavrasDita.filter((w) => faladas.has(w)).length / palavrasDita.length >= 0.5;
-          const falandoAgora = Boolean(falandoRef.current || window.speechSynthesis?.speaking);
+          const falandoAgora = Boolean(falandoRef.current || humanaFalando());
           if (falandoAgora) {
             // Você falou por cima da resposta: ela para na hora e passa a te ouvir.
             if (palavrasDita.length >= 2 && !parecidoComFala) {
-              window.speechSynthesis?.cancel(); falandoRef.current = false; setFalando(false); ultimaFalaRef.current = 0; textoFaladoRef.current = ""; janelaConversaRef.current = Date.now() + 20000;
+              window.speechSynthesis?.cancel(); pararHumana(); falandoRef.current = false; setFalando(false); ultimaFalaRef.current = 0; textoFaladoRef.current = ""; janelaConversaRef.current = Date.now() + 20000;
             }
             if (!ehFinal || parecidoComFala || palavrasDita.length < 2) continue;
           } else {
@@ -396,7 +389,7 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
-                if (falando) window.speechSynthesis?.cancel();
+                if (falando) window.speechSynthesis?.cancel(); pararHumana();
                 setVozAtiva(!vozAtiva);
               }}
               className={`p-2 rounded-lg text-xs font-semibold cursor-pointer transition ${
@@ -419,7 +412,7 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
 
             <button
               onClick={() => {
-                window.speechSynthesis?.cancel();
+                window.speechSynthesis?.cancel(); pararHumana();
                 onClose();
               }}
               className="p-2 rounded-lg hover:bg-white/20 text-white transition cursor-pointer"

@@ -1,3 +1,4 @@
+import { registrarRotaVozGemini } from './src/server/vozGeminiTTS';
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
@@ -1059,6 +1060,7 @@ async function startServer() {
   const timerMensageiro = setInterval(() => { executarRobo("mensageiro", () => centralDePedidos.reenviarPendentes()).catch((e) => console.error("Falha ao reenviar pedidos entre agentes:", e?.message || e)); }, 60_000);
   timerMensageiro.unref();
 
+  registrarRotaVozGemini(app, { obterIA: () => getAI(), autorizar: () => true, antes: [exigirSessaoContabil] });
   app.post("/api/ai/chat", exigirSessaoContabil, async (req, res) => {
     const { message, context, module: requestedModule } = req.body;
     const moduleName = requestedModule === "fiscal" || requestedModule === "dp" ? requestedModule : "contabil";
