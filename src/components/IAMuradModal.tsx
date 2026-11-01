@@ -280,20 +280,31 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
       const rec = new SR();
       rec.lang = "pt-BR";
       rec.continuous = true;
-      rec.interimResults = false;
+      rec.interimResults = true;
       rec.onresult = (ev: any) => {
         for (let i = ev.resultIndex; i < ev.results.length; i += 1) {
-          if (!ev.results[i].isFinal) continue;
+          const ehFinal = ev.results[i].isFinal;
           const bruto = String(ev.results[i][0].transcript || "");
           const texto = limpar(bruto);
           if (!texto) continue;
           // "Para" / "espera": interrompe a fala e cancela o pedido em andamento.
           if (COMANDO_PARAR.test(texto)) { pararRef.current(); continue; }
-          // Ignora o que o próprio sistema está falando (e o eco dele), para não se chamar sozinho.
-          if (falandoRef.current || window.speechSynthesis?.speaking || Date.now() - ultimaFalaRef.current < 1500) continue;
           const faladas = new Set(textoFaladoRef.current.split(" "));
           const palavrasDita = texto.split(" ");
-          if (Date.now() - ultimaFalaRef.current < 15000 && textoFaladoRef.current && (texto === "pois nao" || (palavrasDita.length >= 2 && palavrasDita.filter((w) => faladas.has(w)).length / palavrasDita.length >= 0.75))) continue;
+          const parecidoComFala = Boolean(textoFaladoRef.current) && palavrasDita.filter((w) => faladas.has(w)).length / palavrasDita.length >= 0.5;
+          const falandoAgora = Boolean(falandoRef.current || window.speechSynthesis?.speaking);
+          if (falandoAgora) {
+            // Você falou por cima da resposta: ela para na hora e passa a te ouvir.
+            if (palavrasDita.length >= 2 && !parecidoComFala) {
+              window.speechSynthesis?.cancel(); falandoRef.current = false; setFalando(false); ultimaFalaRef.current = 0; textoFaladoRef.current = ""; janelaConversaRef.current = Date.now() + 20000;
+            }
+            if (!ehFinal || parecidoComFala || palavrasDita.length < 2) continue;
+          } else {
+            if (!ehFinal) continue;
+            // Ignora o eco da própria voz logo depois de falar.
+            if (Date.now() - ultimaFalaRef.current < 1500) continue;
+            if (Date.now() - ultimaFalaRef.current < 15000 && textoFaladoRef.current && ("pois nao" === texto || (palavrasDita.length >= 2 && palavrasDita.filter((w) => faladas.has(w)).length / palavrasDita.length >= 0.75))) continue;
+          }
           if (aguardandoComandoRef.current || Date.now() < janelaConversaRef.current) {
             // Logo depois de uma resposta (20 s) a conversa continua sem precisar chamar de novo.
             if (/^(obrigad[oa]|valeu|ok|certo|beleza|tchau|tudo bem|ta bom)$/.test(texto) || (chamada.test(texto) && texto.split(" ").length <= 2)) continue;
