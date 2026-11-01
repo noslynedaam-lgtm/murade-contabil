@@ -44,3 +44,17 @@ test("formato desconhecido é recusado, não aceito em silêncio", async () => {
   assert.equal(r.lancamentos.length, 0);
   assert.match(r.erros[0].motivo, /Formato não suportado/);
 });
+
+test("Exportação delimitada do Alterdata Pack (separador '.,' e cabeçalho CdClassInterna/NmConta/IdOrigem)", async () => {
+  const cab = "CdClassInterna.,CdClassExterna.,CdChamada.,TpConta.,NmConta.,IdOrigem.,IdPeriodicidade.,TaxaDeprec.,Fim4";
+  const l1 = "1.,.,5.,S.,Ativo.,D.,I.,0,00.,4";
+  const l2 = "1-1.,.,10.,S.,Circulante.,D.,I.,0,00.,4";
+  const l3 = "1-1-01.,.,15.,A.,Caixa.,D.,I.,0,00.,4";
+  const r = await lerArquivosContabeis([arquivo("ExpPContas.txt", [cab, l1, l2, l3].join("\r\n"), true)], "ALTERDATA");
+  assert.equal(r.erros.length, 0, JSON.stringify(r.erros));
+  assert.deepEqual(r.contas.map((c) => [c.codigo, c.descricao, c.natureza, c.tipo]), [
+    ["1", "Ativo", "D", "sintetica"],
+    ["1-1", "Circulante", "D", "sintetica"],
+    ["1-1-01", "Caixa", "D", "analitica"],
+  ]);
+});

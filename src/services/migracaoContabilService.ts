@@ -164,11 +164,11 @@ const normalizarChave = (valor: unknown) => String(valor ?? "")
   .normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
 const aliases = {
-  codigoConta: ["codigo", "codigoconta", "codconta", "conta", "codigoreduzido", "codreduzido", "classificacao", "accountcode", "account"],
-  descricaoConta: ["descricao", "descricaoconta", "nomeconta", "contacontabil", "accountname", "name"],
+  codigoConta: ["cdclassinterna", "codigo", "codigoconta", "codconta", "conta", "codigoreduzido", "codreduzido", "classificacao", "accountcode", "account"],
+  descricaoConta: ["nmconta", "descricao", "descricaoconta", "nomeconta", "contacontabil", "accountname", "name"],
   nivel: ["nivel", "grau", "level", "grauconta"],
-  tipoConta: ["tipoconta", "tipo", "sinteticaouanalitica", "naturezaconta"],
-  natureza: ["natureza", "naturezasaldo", "saldonatureza", "debitooucredito", "dc", "naturezanormal"],
+  tipoConta: ["tpconta", "tipoconta", "tipo", "sinteticaouanalitica", "naturezaconta"],
+  natureza: ["idorigem", "natureza", "naturezasaldo", "saldonatureza", "debitooucredito", "dc", "naturezanormal"],
   saldo: ["saldoinicial", "saldoanterior", "saldoabertura", "saldo"],
   codigoCentro: ["codigocentrodecusto", "codcentrocusto", "codigocentrocusto", "codcentro", "codigo"],
   nomeCentro: ["centrodecusto", "nomecentrodecusto", "centrocusto", "nomecentro", "departamento", "unidade", "nome", "descricao"],
@@ -197,7 +197,24 @@ function buscar(row: Record<string, string>, keys: string[]): string {
   return "";
 }
 
-function parseDelimited(text: string): string[][] {
+// Exportação "Delimitada" do Alterdata Pack: campos separados por ".," (cada campo termina com "."),
+// o último campo da linha traz um "4" sobrando e vazios aparecem como ".". Converte para ponto e vírgula.
+function desfazerDelimitacaoAlterdata(text: string): string {
+  const linhas = text.replace(/^\uFEFF/, "").split(/\r?\n/);
+  const primeira = linhas.find((linha) => linha.trim()) || "";
+  const partes = primeira.split(".,");
+  if (partes.length < 5 || !/^[A-Za-z]+$/.test(partes[0]) || primeira.includes(";")) return text;
+  return linhas.map((linha) => {
+    if (!linha.trim()) return linha;
+    const campos = linha.split(".,");
+    if (campos.length < 5) return linha;
+    campos[campos.length - 1] = "";
+    return campos.map((campo) => campo.replace(/"/g, "'").replace(/;/g, ",")).join(";");
+  }).join("\n");
+}
+
+function parseDelimited(textoOriginal: string): string[][] {
+  const text = desfazerDelimitacaoAlterdata(textoOriginal);
   const firstLine = text.replace(/^\uFEFF/, "").split(/\r?\n/).find((line) => line.trim()) || "";
   const delimiters = [";", "\t", ",", "|"];
   const delimiter = delimiters.sort((a, b) => firstLine.split(b).length - firstLine.split(a).length)[0];
