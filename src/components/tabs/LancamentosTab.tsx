@@ -1,3 +1,4 @@
+import { confirmarNaTela } from "../../utils/dialogoNaTela";
 import React, { useState, useMemo } from "react";
 import { LancamentoContabil, ContaPlano } from "../../types";
 import {
@@ -271,11 +272,11 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                 </td>
                 <td className="py-2.5 px-2 text-center">
                   {manualPendente ? <div className="flex justify-center gap-1">
-                    <button type="button" disabled={!workspacePersistido} onClick={async () => { if (window.confirm("Aprovar este lançamento pendente e incluí-lo nos livros e relatórios? Confira os valores, as contas e a origem antes de continuar.")) await onDecidirLancamentoManual(l.id, "aprovar"); }} className="rounded bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800 disabled:opacity-40" title="Aprovar após conferir os dados">Aprovar</button>
-                    <button type="button" disabled={!workspacePersistido} onClick={async () => { if (!window.confirm("Rejeitar este lançamento? Ele ficará no histórico, mas não entrará nos livros.")) return; const motivo = window.prompt("Informe o motivo da rejeição:")?.trim(); if (motivo) await onDecidirLancamentoManual(l.id, "rejeitar", motivo); }} className="rounded bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-800 disabled:opacity-40">Rejeitar</button>
+                    <button type="button" disabled={!workspacePersistido} onClick={async () => { if (await confirmarNaTela("Aprovar este lançamento pendente e incluí-lo nos livros e relatórios? Confira os valores, as contas e a origem antes de continuar.")) await onDecidirLancamentoManual(l.id, "aprovar"); }} className="rounded bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800 disabled:opacity-40" title="Aprovar após conferir os dados">Aprovar</button>
+                    <button type="button" disabled={!workspacePersistido} onClick={async () => { if (!await confirmarNaTela("Rejeitar este lançamento? Ele ficará no histórico, mas não entrará nos livros.")) return; const motivo = window.prompt("Informe o motivo da rejeição:")?.trim(); if (motivo) await onDecidirLancamentoManual(l.id, "rejeitar", motivo); }} className="rounded bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-800 disabled:opacity-40">Rejeitar</button>
                   </div> : <button
-                    onClick={() => {
-                      if (!estornado && !manualRejeitado && window.confirm("O lançamento original será preservado e uma partida de estorno será registrada para aprovação, com débito e crédito invertidos. Continuar?")) {
+                    onClick={async () => {
+                      if (!estornado && !manualRejeitado && await confirmarNaTela("O lançamento original será preservado e uma partida de estorno será registrada para aprovação, com débito e crédito invertidos. Continuar?")) {
                         onEstornarLancamento(l.id);
                       }
                     }}

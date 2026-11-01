@@ -1,3 +1,4 @@
+import { confirmarNaTela } from "../utils/dialogoNaTela";
 import React, { useEffect, useState } from 'react';
 import { PainelAtividade } from './PainelAtividade';
 
@@ -27,11 +28,11 @@ export function PainelEquipe() {
     try { await chamar('/api/auth/team', 'POST', { login }); setLogin(''); await carregar(); } catch (c) { setMsg(c instanceof Error ? c.message : 'Falha.'); }
   };
   const remover = async (u: string) => {
-    if (!window.confirm(`Tirar ${u} da equipe? Ele perde o acesso às empresas do escritório; nada é apagado.`)) return;
+    if (!await confirmarNaTela(`Tirar ${u} da equipe? Ele perde o acesso às empresas do escritório; nada é apagado.`)) return;
     try { await chamar(`/api/auth/team/${encodeURIComponent(u)}`, 'DELETE'); await carregar(); } catch (c) { setMsg(c instanceof Error ? c.message : 'Falha.'); }
   };
   const acao = async (url: string, metodo: string, corpo?: object, confirmar?: string) => {
-    if (confirmar && !window.confirm(confirmar)) return; setMsg(''); setLink('');
+    if (confirmar && !await confirmarNaTela(confirmar)) return; setMsg(''); setLink('');
     try { const d = await chamar(url, metodo, corpo); if (d.conviteUrl) setLink(d.conviteUrl); if (d.aviso) setMsg(d.aviso); await carregar(); } catch (c) { setMsg(c instanceof Error ? c.message : 'Falha.'); }
   };
   const base = (u: string) => `/api/auth/team/${encodeURIComponent(u)}`;

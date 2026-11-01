@@ -1,3 +1,4 @@
+import { confirmarNaTela } from "../../utils/dialogoNaTela";
 import React, { useState, useEffect, useRef } from "react";
 import {
   Zap,
@@ -124,8 +125,8 @@ export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
   };
 
   // Limpar / Zerar tudo
-  const limparValores = () => {
-    if (window.confirm("Tem certeza que deseja ZERAR todos os valores do Fluxo Prevítico?")) {
+  const limparValores = async () => {
+    if (await confirmarNaTela("ZERAR todos os valores do Fluxo Prevítico?\n\nOs valores digitados serão apagados. Esta ação não pode ser desfeita.")) {
       const zSaldo = "";
       const zEntradas = "";
       const zSaidas = "";

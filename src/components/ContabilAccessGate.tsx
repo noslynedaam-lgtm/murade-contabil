@@ -1,3 +1,4 @@
+import { confirmarNaTela } from "../utils/dialogoNaTela";
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { UserPlus, X, LogOut, KeyRound } from "lucide-react";
 import { PainelEquipe } from "./PainelEquipe";
@@ -137,7 +138,7 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
     } catch (error) { setErroConvite(error instanceof Error ? error.message : "Falha ao criar convite."); }
   };
   const revogar = async (usuario: string) => {
-    if (!window.confirm(`Revogar o acesso de ${usuario} a ${cnpjUsuarios}? Os dados contábeis da empresa serão preservados.`)) return;
+    if (!await confirmarNaTela(`Revogar o acesso de ${usuario} a ${cnpjUsuarios}? Os dados contábeis da empresa serão preservados.`)) return;
     const response = await fetch(`/api/auth/users/${encodeURIComponent(usuario)}?cnpj=${encodeURIComponent(cnpjUsuarios)}`, { method: "DELETE", credentials: "include" });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.sucesso !== true) { setErroConvite(data.motivo || "Não foi possível revogar o acesso."); return; }

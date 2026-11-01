@@ -1,3 +1,4 @@
+import { confirmarNaTela } from "../utils/dialogoNaTela";
 import React, { useEffect, useState } from 'react';
 
 // Só o dono do sistema vê este painel: contrata (convida), bloqueia e exclui escritórios.
@@ -30,7 +31,7 @@ export function PainelEscritorios() {
     }
   };
   const excluirConta = async (c: { login: string; empresas: number }) => {
-    if (!window.confirm(`EXCLUIR a conta ${c.login}? Ela tem acesso a ${c.empresas} empresa(s) e perde esse acesso. Não tem volta. Os dados das empresas não são apagados. Depois o e-mail fica livre para cadastrar de novo.`)) return;
+    if (!await confirmarNaTela(`EXCLUIR a conta ${c.login}? Ela tem acesso a ${c.empresas} empresa(s) e perde esse acesso. Não tem volta. Os dados das empresas não são apagados. Depois o e-mail fica livre para cadastrar de novo.`)) return;
     try { await chamar(`/api/auth/usuarios/${encodeURIComponent(c.login)}/excluir`, { confirmar: true }); setConta(null); setMsg(''); await convidar(); } catch (x) { setMsg(x instanceof Error ? x.message : 'Não foi possível excluir a conta.'); }
   };
   const definirLimite = async (e: Escritorio) => {
@@ -42,11 +43,11 @@ export function PainelEscritorios() {
   };
   const alternar = async (e: Escritorio) => {
     const bloquear = !e.disabled;
-    if (!window.confirm(bloquear ? `Bloquear o escritório ${e.login} e toda a equipe e clientes dele? Os dados ficam guardados.` : `Liberar o escritório ${e.login}?`)) return;
+    if (!await confirmarNaTela(bloquear ? `Bloquear o escritório ${e.login} e toda a equipe e clientes dele? Os dados ficam guardados.` : `Liberar o escritório ${e.login}?`)) return;
     try { await chamar(`/api/auth/tenants/${encodeURIComponent(e.login)}/bloqueio`, { bloqueado: bloquear }); await carregar(); } catch (c) { setMsg(c instanceof Error ? c.message : 'Falha.'); }
   };
   const excluir = async (e: Escritorio) => {
-    if (!window.confirm(`EXCLUIR de vez o escritório ${e.login}? A conta do dono e de toda a equipe é apagada e não tem volta. O e-mail e os CNPJs ficam livres para cadastrar de novo.`)) return;
+    if (!await confirmarNaTela(`EXCLUIR de vez o escritório ${e.login}? A conta do dono e de toda a equipe é apagada e não tem volta. O e-mail e os CNPJs ficam livres para cadastrar de novo.`)) return;
     if (window.prompt(`Para confirmar, digite o usuário do escritório: ${e.login}`)?.trim().toLowerCase() !== e.login.toLowerCase()) { setMsg('Exclusão cancelada: o usuário digitado não confere.'); return; }
     setMsg('');
     try { const d = await chamar(`/api/auth/tenants/${encodeURIComponent(e.login)}/excluir`, { confirmar: true }); setMsg(d.aviso || `Escritório ${e.login} excluído. O e-mail já pode ser cadastrado de novo.`); await carregar(); } catch (c) { setMsg(c instanceof Error ? c.message : 'Não foi possível excluir.'); }

@@ -1,3 +1,4 @@
+import { confirmarNaTela } from "../../utils/dialogoNaTela";
 import React, { useMemo, useState } from "react";
 import { AlertTriangle, ArrowUpDown, CheckCircle2, Download, Lock, RefreshCw } from "lucide-react";
 import { ContaPlano, LancamentoContabil } from "../../types";
@@ -80,7 +81,7 @@ export const BalanceteTab: React.FC<BalanceteTabProps> = ({ cnpj, competencia, l
   const pendenciasGuiadas = /^\d{4}-(0[1-9]|1[0-2])$/.test(competenciaSelecionada) && !competenciaFechada ? (pendenciasFechamento?.(competenciaSelecionada) ?? []) : [];
   const fecharMes = async () => {
     if (!competenciaSelecionada || competenciaFechada) return;
-    const confirmado = window.confirm(`Fechar a competência ${competenciaSelecionada} da empresa ${cnpj}? O servidor vai validar o PostgreSQL, bloquear alterações nos lançamentos e rascunhos desse mês e registrar quem confirmou. Essa ação não envia nada a órgãos oficiais.`);
+    const confirmado = await confirmarNaTela(`Fechar a competência ${competenciaSelecionada} da empresa ${cnpj}? O servidor vai validar o PostgreSQL, bloquear alterações nos lançamentos e rascunhos desse mês e registrar quem confirmou. Essa ação não envia nada a órgãos oficiais.`);
     if (confirmado) await onFecharMes(competenciaSelecionada);
   };
 

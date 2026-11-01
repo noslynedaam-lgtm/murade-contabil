@@ -1,3 +1,4 @@
+import { confirmarNaTela } from "../../utils/dialogoNaTela";
 import React, { useMemo, useState } from "react";
 import { CentroCustoContabil, ContaPlano, EmpresaDados, LancamentoContabil, PreLancamentoContabil } from "../../types";
 import { compararPeriodos, explicarVariacoes, resultadoPorCentroCusto } from "../../utils/analiseContabil";
@@ -268,7 +269,7 @@ const Fechamento: React.FC<Props & { periodo: string }> = ({ contas, lancamentos
           </li>
         ))}
       </ul>
-      <button type="button" disabled={!r.podeFechar || fechada || !workspacePersistido} onClick={async () => { if (window.confirm(`Fechar a competência ${periodo}? O servidor vai bloquear alterações nesse mês.`)) await onFecharMes(periodo); }} className="mt-3 rounded-md bg-blue-700 px-4 py-2 font-bold text-white disabled:opacity-50">{fechada ? "Competência já fechada" : r.podeFechar ? "Fechar competência" : "Resolva os itens para fechar"}</button>
+      <button type="button" disabled={!r.podeFechar || fechada || !workspacePersistido} onClick={async () => { if (await confirmarNaTela(`Fechar a competência ${periodo}? O servidor vai bloquear alterações nesse mês.`)) await onFecharMes(periodo); }} className="mt-3 rounded-md bg-blue-700 px-4 py-2 font-bold text-white disabled:opacity-50">{fechada ? "Competência já fechada" : r.podeFechar ? "Fechar competência" : "Resolva os itens para fechar"}</button>
       <p className="mt-2 text-slate-600">Os itens automáticos vêm dos dados deste Contábil. Os itens "confirmação sua" o sistema não consegue verificar sozinho (banco, contas a pagar/receber, folha e impostos): você confirma depois de conferir. O servidor ainda aplica suas próprias validações no fechamento.</p>
     </Cartao>
   );

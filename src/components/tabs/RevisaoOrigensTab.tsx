@@ -1,3 +1,4 @@
+import { confirmarNaTela } from "../../utils/dialogoNaTela";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowDownToLine, CheckCircle2, ClipboardCheck, Download, RefreshCw, Save } from "lucide-react";
 import type { ContaPlano, LancamentoContabil, MapeamentoOrigemContabil, OrigemMapeadaContabil, PreLancamentoContabil } from "../../types";
@@ -653,7 +654,7 @@ export const RevisaoOrigensTab: React.FC<{
     const pendentes = todosPendentes.filter((item) => referenciasElegiveis.has(item.referenciaOrigem));
     if (!pendentes.length) return;
     const bloqueados = todosPendentes.length - pendentes.length;
-    const confirmado = window.confirm(`Conferiu os ${pendentes.length} pré-lançamento(s) elegíveis desta empresa e período? ${bloqueados ? `${bloqueados} rascunho(s) não atende(m) mais à prévia carregada e ficará(ão) bloqueado(s). ` : ""}A confirmação contabiliza apenas os elegíveis e atualiza o balancete após salvar no banco.`);
+    const confirmado = await confirmarNaTela(`Conferiu os ${pendentes.length} pré-lançamento(s) elegíveis desta empresa e período? ${bloqueados ? `${bloqueados} rascunho(s) não atende(m) mais à prévia carregada e ficará(ão) bloqueado(s). ` : ""}A confirmação contabiliza apenas os elegíveis e atualiza o balancete após salvar no banco.`);
     if (!confirmado) return;
     setMensagemPrevia("Salvando os lançamentos aprovados no banco permanente…");
     const persistido = await onContabilizar(pendentes.map((item) => item.referenciaOrigem));

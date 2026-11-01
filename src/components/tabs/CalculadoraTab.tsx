@@ -1,3 +1,4 @@
+import { confirmarNaTela } from "../../utils/dialogoNaTela";
 import React, { useState, useEffect } from "react";
 import {
   Calculator,
@@ -131,8 +132,9 @@ export const CalculadoraTab: React.FC<CalculadoraTabProps> = ({ empresaPadrao })
   };
 
   // Zerar histórico da empresa atual
-  const zerarEmpresaAtual = () => {
+  const zerarEmpresaAtual = async () => {
     if (!empresaAtual) return;
+    if (!await confirmarNaTela("ZERAR o histórico de cálculos desta empresa?\n\nOs cálculos salvos serão apagados. Esta ação não pode ser desfeita.")) return;
     setHistoricoPorEmpresa((prev) => {
       const novo = { ...prev };
       delete novo[empresaAtual];
