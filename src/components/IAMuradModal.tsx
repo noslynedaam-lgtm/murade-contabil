@@ -11,6 +11,9 @@ interface IAMuradModalProps {
   lancamentos: LancamentoContabil[];
 }
 
+const limparTextoVoz = (t: string) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+const COMANDO_PARAR = /^(para|pare|parar|espera|espere|calma|silencio|cancela|cancelar|chega)( ja| agora| ai| por favor)?$/;
+
 export const IAMuradModal: React.FC<IAMuradModalProps> = ({
   isOpen,
   onClose,
@@ -43,6 +46,9 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
   const chamadaRef = useRef<any>(null);
   const aguardandoComandoRef = useRef(false);
   const ultimaFalaRef = useRef(0);
+  const textoFaladoRef = useRef("");
+  const geracaoRef = useRef(0);
+  const pararRef = useRef<() => void>(() => {});
   const falandoRef = useRef(false);
   const enviarRef = useRef<(t: string) => void>(() => {});
   const falarRef = useRef<(t: string) => void>(() => {});
@@ -62,6 +68,7 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
     if (!vozAtiva || typeof window === "undefined" || !("speechSynthesis" in window)) return;
 
     window.speechSynthesis.cancel(); // Para falas anteriores
+    textoFaladoRef.current = limparTextoVoz(texto);
     const utterance = new SpeechSynthesisUtterance(texto.replace(/[#*`_]/g, ""));
     utterance.lang = "pt-BR";
     utterance.rate = 1.0;
@@ -124,6 +131,7 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
   const enviarMensagem = async (textoEnviar?: string) => {
     const texto = (textoEnviar || input).trim();
     if (!texto || loading) return;
+    const minhaGeracao = geracaoRef.current;
 
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
@@ -189,6 +197,7 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
       };
 
       setMessages((prev) => [...prev, iaMsg]);
+      if (minhaGeracao !== geracaoRef.current) return;
       falarTexto(respostaTexto);
       mostrarAviso(respostaTexto);
       if (acoes.length) onOpen?.();
@@ -237,13 +246,14 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
 
   enviarRef.current = (t: string) => { void enviarMensagem(t); };
   falarRef.current = (t: string) => falarTexto(t);
+  pararRef.current = () => { geracaoRef.current += 1; window.speechSynthesis?.cancel(); falandoRef.current = false; setFalando(false); aguardandoComandoRef.current = false; setAvisoVoz(""); };
 
   useEffect(() => {
     try { localStorage.setItem("murade_chamada_voz", chamadaPorVoz ? "1" : "0"); } catch { /* ignora */ }
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     // Não compete com o botão de microfone da janela.
     if (!chamadaPorVoz || !SR || gravandoVoz) return;
-    const limpar = (t: string) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+    const limpar = limparTextoVoz;
     const chamada = /\b(contabil|contabilidade)\b/;
     let ativo = true;
     let tempoComando: number | undefined;
@@ -256,10 +266,16 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
       rec.onresult = (ev: any) => {
         for (let i = ev.resultIndex; i < ev.results.length; i += 1) {
           if (!ev.results[i].isFinal) continue;
-          if (falandoRef.current || window.speechSynthesis?.speaking || Date.now() - ultimaFalaRef.current < 1800) continue;
           const bruto = String(ev.results[i][0].transcript || "");
           const texto = limpar(bruto);
           if (!texto) continue;
+          // "Para" / "espera": interrompe a fala e cancela o pedido em andamento.
+          if (COMANDO_PARAR.test(texto)) { pararRef.current(); continue; }
+          // Ignora o que o próprio sistema está falando (e o eco dele), para não se chamar sozinho.
+          if (falandoRef.current || window.speechSynthesis?.speaking || Date.now() - ultimaFalaRef.current < 3000) continue;
+          const faladas = new Set(textoFaladoRef.current.split(" "));
+          const palavrasDita = texto.split(" ");
+          if (Date.now() - ultimaFalaRef.current < 15000 && textoFaladoRef.current && (texto === "pois nao" || (palavrasDita.length >= 2 && palavrasDita.filter((w) => faladas.has(w)).length / palavrasDita.length >= 0.75))) continue;
           if (aguardandoComandoRef.current) {
             aguardandoComandoRef.current = false;
             window.clearTimeout(tempoComando);
