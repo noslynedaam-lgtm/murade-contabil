@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { escolherVozPtBr } from "../utils/vozNatural";
-import { falarHumana, pararHumana, humanaFalando, ajustarVoz, bipRapido, prepararVoz } from "../utils/vozHumana";
+import { falarHumana, pararHumana, humanaFalando, ajustarVoz, bipRapido, prepararVoz, respostaRapida } from "../utils/vozHumana";
 import { Mic, MicOff, Volume2, VolumeX, Send, Bot, Sparkles, X, RotateCcw } from "lucide-react";
 import { AcaoAgenteCartao, ChatMessage, EmpresaDados, LancamentoContabil } from "../types";
 
@@ -303,7 +303,8 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
           }
           if (aguardandoComandoRef.current || Date.now() < janelaConversaRef.current) {
             // Logo depois de uma resposta (20 s) a conversa continua sem precisar chamar de novo.
-            if (/^(obrigad[oa]|valeu|ok|certo|beleza|tchau|tudo bem|ta bom)$/.test(texto) || (chamada.test(texto) && texto.split(" ").length <= 2)) continue;
+            const rapida = respostaRapida(texto); if (rapida) { janelaConversaRef.current = Date.now() + 20000; falarRef.current(rapida); continue; }
+            if (chamada.test(texto) && texto.split(" ").length <= 2) continue;
             aguardandoComandoRef.current = false;
             janelaConversaRef.current = 0;
             window.clearTimeout(tempoComando);
