@@ -603,6 +603,31 @@ export async function convidarEscritorioContabil(req: Request, res: Response): P
   } catch (error) { console.error('Falha ao convidar escritório Contábil:', error); res.status(503).json({ sucesso: false, motivo: 'Não foi possível criar o convite do escritório.' }); }
 }
 
+/** Mandar de novo o acesso de um escritório: se ele ainda não aceitou o convite, gera um link novo (o antigo deixa de valer);
+ *  se já tem conta, gera um link de nova senha. Nunca apaga nada; é o botão "Reenviar" da lista de escritórios. */
+export async function reenviarAcessoEscritorioContabil(req: Request, res: Response): Promise<void> {
+  const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil; const login = String(req.params.login || '').trim().toLowerCase();
+  if (!sessao?.donoSistema) { res.status(403).json({ sucesso: false, motivo: 'Somente o dono do sistema reenvia o acesso de um escritório.' }); return; }
+  try {
+    const base = process.env.PUBLIC_APP_URL?.trim() || process.env.RENDER_EXTERNAL_URL?.trim() || `${req.protocol}://${req.get('host')}`;
+    const linkCom = (token: string) => { const u = new URL('/', base); u.hash = new URLSearchParams({ convite: token, login }).toString(); return u.toString(); };
+    const conta = await obterBanco().query('SELECT id, disabled FROM contabil_auth_users WHERE login=$1 AND global_admin=true AND tenant_id=id AND id<>$2', [login, sessao.userId]);
+    if (conta.rowCount) {
+      if (conta.rows[0].disabled) { res.status(409).json({ sucesso: false, motivo: 'Este escritório está bloqueado. Libere antes de reenviar o acesso.' }); return; }
+      await obterBanco().query(`CREATE TABLE IF NOT EXISTS contabil_auth_senha_resets (token_hash char(64) PRIMARY KEY, user_id uuid NOT NULL, expires_at timestamptz NOT NULL, created_at timestamptz NOT NULL DEFAULT now())`);
+      const token = crypto.randomBytes(32).toString('base64url');
+      await obterBanco().query('DELETE FROM contabil_auth_senha_resets WHERE user_id=$1', [conta.rows[0].id]);
+      await obterBanco().query(`INSERT INTO contabil_auth_senha_resets(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '24 hours')`, [hashTokenContabil(token), conta.rows[0].id]);
+      res.setHeader('Cache-Control', 'no-store'); res.status(201).json({ sucesso: true, conviteUrl: linkCom(token), login, expiraEmHoras: 24, tipo: 'nova_senha' }); return;
+    }
+    const pendente = await obterBanco().query("SELECT token_hash FROM contabil_auth_invites WHERE login=$1 AND novo_escritorio=true ORDER BY created_at DESC LIMIT 1", [login]);
+    if (!pendente.rowCount) { res.status(404).json({ sucesso: false, motivo: 'Não há escritório nem convite pendente para este usuário. Use "Gerar convite do escritório" para começar um novo.' }); return; }
+    const token = crypto.randomBytes(32).toString('base64url');
+    await obterBanco().query('UPDATE contabil_auth_invites SET token_hash=$1, expires_at=now()+interval \'30 days\' WHERE token_hash=$2', [hashTokenContabil(token), pendente.rows[0].token_hash]);
+    res.setHeader('Cache-Control', 'no-store'); res.status(201).json({ sucesso: true, conviteUrl: linkCom(token), login, expiraEmHoras: 720, tipo: 'convite' });
+  } catch (error) { console.error('Falha ao reenviar acesso do escritório Contábil:', error); res.status(503).json({ sucesso: false, motivo: 'Não foi possível reenviar o acesso agora.' }); }
+}
+
 export async function listarEscritoriosContabil(req: Request, res: Response): Promise<void> {
   const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
   if (!sessao?.donoSistema) { res.status(403).json({ sucesso: false, motivo: 'Somente o dono do sistema consulta os escritórios.' }); return; }
