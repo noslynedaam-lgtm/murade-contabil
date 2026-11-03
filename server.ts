@@ -66,7 +66,8 @@ async function gerarComReserva(ai: GoogleGenAI, base: { contents: any; systemIns
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
-  const reconciliacaoRascunhosStatus: {
+  let ultimoMapeamentoAutomatico: { aplicados: number; semMapeamentoAinda?: number } = { aplicados: 0 };
+const reconciliacaoRascunhosStatus: {
     iniciouEm: string | null;
     concluiuEm: string | null;
     empresas: number;
@@ -1181,6 +1182,8 @@ async function startServer() {
           catch (error) { console.error(`[Murad Contábil] Falha ao aplicar mapeamentos padrão do CNPJ ${cnpjSem}:`, error); }
         }
         if (mapeamentosAplicados) console.log(`[Murad Contábil] Mapeamentos padrão aplicados automaticamente: ${mapeamentosAplicados}.`);
+        const semMapeamentoAinda = (await listarCnpjsComOrigensSemMapeamentoContabil().catch(() => null))?.length;
+        ultimoMapeamentoAutomatico = { aplicados: mapeamentosAplicados, semMapeamentoAinda };
         const cnpjs = await listarCnpjsComMapeamentoContabil();
         let criados = 0;
         let atualizados = 0;
@@ -1200,6 +1203,7 @@ async function startServer() {
         reconciliacaoRascunhosStatus.criados = criados;
         reconciliacaoRascunhosStatus.atualizados = atualizados;
         reconciliacaoRascunhosStatus.falhas = falhas;
+        registrarResultadoRobo("reconciliador", `${cnpjs.length} empresa(s) com mapeamento reconciliada(s); ${criados} pré-lançamento(s) criado(s), ${atualizados} atualizado(s), ${falhas} falha(s). Mapeamentos padrão aplicados sozinhos neste ciclo: ${mapeamentosAplicados}${ultimoMapeamentoAutomatico.semMapeamentoAinda ? `; ${ultimoMapeamentoAutomatico.semMapeamentoAinda} empresa(s) ainda precisam de mapeamento manual (o plano de contas delas não bate com o padrão)` : ""}.`);
         if (cnpjs.length || falhas) console.log(`[Murad Contábil] Reconciliação automática: ${cnpjs.length} empresa(s), ${criados} rascunho(s) criado(s), ${atualizados} atualizado(s), ${falhas} falha(s); nenhum lançamento definitivo foi confirmado.`);
       } catch (error) {
         reconciliacaoRascunhosStatus.falhas += 1;
