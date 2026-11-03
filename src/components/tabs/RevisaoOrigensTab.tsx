@@ -1,3 +1,4 @@
+import { sugerirMapeamentosPadrao } from "../../utils/sugestoesContas";
 import { confirmarNaTela } from "../../utils/dialogoNaTela";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowDownToLine, CheckCircle2, ClipboardCheck, Download, RefreshCw, Save } from "lucide-react";
@@ -38,16 +39,6 @@ const regimeBase = (valor: string): string => {
   return r;
 };
 
-/** Contas do plano padrão de comércio sugeridas por origem; só valem se código e descrição baterem com o plano da empresa. */
-const SUGESTOES_CONTAS: Record<OrigemMapeadaContabil, { debito: [string, RegExp]; credito: [string, RegExp] }> = {
-  fiscal_entrada: { debito: ["1.2.1", /estoque/i], credito: ["2.1.1", /fornecedor/i] },
-  fiscal_saida: { debito: ["1.1.5", /cliente/i], credito: ["4.1.1", /receita.*venda/i] },
-  dp_folha_bruta: { debito: ["5.2.1", /pessoal/i], credito: ["2.1.2", /sal[áa]rio/i] },
-  dp_descontos_inss: { debito: ["2.1.2", /sal[áa]rio/i], credito: ["2.2.1", /inss/i] },
-  dp_inss_patronal: { debito: ["5.2.1", /pessoal/i], credito: ["2.2.1", /inss/i] },
-  dp_descontos_irrf: { debito: ["2.1.2", /sal[áa]rio/i], credito: ["2.1.3", /obriga[çc][õo]es fiscais|tribut/i] },
-  dp_fgts: { debito: ["5.2.1", /pessoal/i], credito: ["2.2.2", /fgts/i] },
-};
 
 const competenciaAtual = () => new Date().toISOString().slice(0, 7);
 const dinheiro = (value: unknown) => typeof value === "number" && Number.isFinite(value)
@@ -476,15 +467,7 @@ export const RevisaoOrigensTab: React.FC<{
 
   /** Preenche só as origens ainda sem mapeamento, e só quando código E descrição do plano da empresa conferem. A pessoa revisa nos seletores. */
   const sugerirContasPadrao = () => {
-    const novos: MapeamentoOrigemContabil[] = [];
-    for (const origem of origensMapeaveis) {
-      if (mapeamentos.some((item) => item.origem === origem.id)) continue;
-      const sugestao = SUGESTOES_CONTAS[origem.id];
-      const debito = contasAnaliticas.find((conta) => conta.codigo === sugestao.debito[0] && sugestao.debito[1].test(String(conta.descricao || "")));
-      const credito = contasAnaliticas.find((conta) => conta.codigo === sugestao.credito[0] && sugestao.credito[1].test(String(conta.descricao || "")));
-      if (!debito || !credito) continue;
-      novos.push({ origem: origem.id, contaDebitoCodigo: debito.codigo, contaCreditoCodigo: credito.codigo, revisadoEm: new Date().toISOString() });
-    }
+    const novos = sugerirMapeamentosPadrao(contasAnaliticas, mapeamentos, new Date().toISOString());
     if (novos.length) onSalvarMapeamentos([...mapeamentos, ...novos]);
     setMensagemSugestao(novos.length
       ? `${novos.length} origem(ns) preenchida(s) com contas do plano padrão. Revise cada débito/crédito abaixo; nada foi contabilizado.`

@@ -1,3 +1,4 @@
+import { sugerirMapeamentosPadrao } from "../utils/sugestoesContas";
 import crypto from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { Pool, type PoolClient } from "pg";
@@ -1229,6 +1230,50 @@ export async function lerWorkspaceInternoContabil(cnpj: string): Promise<Record<
   await prepararAuthContabil();
   const row = await obterBanco().query("SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1", [normalizado]);
   return row.rowCount ? row.rows[0].payload as Record<string, unknown> : null;
+}
+
+/** Empresas que ainda têm origem sem mapeamento (candidatas à sugestão automática do plano padrão). */
+export async function listarCnpjsComOrigensSemMapeamentoContabil(): Promise<string[]> {
+  await prepararAuthContabil();
+  const result = await obterBanco().query(`
+    SELECT cnpj
+    FROM contabil_company_workspaces
+    WHERE CASE WHEN jsonb_typeof(payload->'mapeamentosOrigem')='array'
+      THEN jsonb_array_length(payload->'mapeamentosOrigem') < 7 ELSE true END
+    ORDER BY updated_at DESC
+  `);
+  return result.rows.map((row) => String(row.cnpj));
+}
+
+/**
+ * Automático: preenche, com as contas do plano padrão, SÓ as origens ainda sem mapeamento, e SÓ quando código e descrição da conta batem com o plano da empresa.
+ * Nunca altera mapeamento existente. Os lançamentos continuam como pré-lançamento "pendente de conferência" até a contadora contabilizar.
+ */
+export async function aplicarMapeamentosPadraoContabil(cnpj: string, agoraIso = new Date().toISOString()): Promise<number> {
+  const normalizado = normalizarCnpjAcesso(cnpj);
+  if (!cnpjContabilValido(normalizado)) return 0;
+  await prepararAuthContabil();
+  const client = await obterBanco().connect();
+  try {
+    await client.query("BEGIN");
+    const result = await client.query("SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1 FOR UPDATE", [normalizado]);
+    if (!result.rowCount) { await client.query("COMMIT"); return 0; }
+    const payload = result.rows[0].payload as Record<string, unknown>;
+    const contas = Array.isArray(payload.contas) ? payload.contas as Array<Record<string, unknown>> : [];
+    const mapeamentos = Array.isArray(payload.mapeamentosOrigem) ? payload.mapeamentosOrigem as Array<Record<string, unknown>> : [];
+    const novos = sugerirMapeamentosPadrao(contas, mapeamentos, agoraIso);
+    if (!novos.length) { await client.query("COMMIT"); return 0; }
+    const novoPayload = { ...payload, mapeamentosOrigem: [...mapeamentos, ...novos] };
+    if (!workspaceValido(novoPayload)) { await client.query("ROLLBACK"); return 0; }
+    await client.query("UPDATE contabil_company_workspaces SET payload=$2::jsonb,version=version+1,updated_at=now() WHERE cnpj=$1", [normalizado, JSON.stringify(novoPayload)]);
+    await client.query("COMMIT");
+    return novos.length;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function listarCnpjsComMapeamentoContabil(): Promise<string[]> {
