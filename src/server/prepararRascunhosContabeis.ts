@@ -48,6 +48,20 @@ export function regimeSimplesNacional(regime: unknown): boolean {
   return /^\s*simples\s+nacional/i.test(String(regime || ""));
 }
 
+/** CFOPs (sufixo de 3 dígitos, qualquer prefixo 1/2/5/6) que representam compra de mercadoria/insumo para estoque. */
+const SUFIXOS_COMPRA_ESTOQUE = new Set(["101", "102", "111", "113", "116", "118", "120", "122", "401", "403", "405"]);
+
+/** Entrada sem CFOP reconhecível como compra (devolução, remessa, uso/consumo, vazio) não vira pré-lançamento automático: fica para o contador. */
+export function entradaEhCompraParaEstoque(cfop: unknown): boolean {
+  const digitos = String(cfop ?? "").replace(/\D/g, "");
+  return digitos.length === 4 && "1256".includes(digitos[0]) && SUFIXOS_COMPRA_ESTOQUE.has(digitos.slice(1));
+}
+
+/** NFC-e (modelo 65 na chave) é venda de balcão: recebida na hora, não gera conta a receber de Clientes. */
+export function ehNfce(referencia: string): boolean {
+  return /^\d{44}$/.test(referencia) && referencia.slice(20, 22) === "65";
+}
+
 export function gerarRascunhosFiscal(cnpj: string, documentos: Registro[], contas: Registro[], mapeamentos: Registro[], agora: string, simplesNacional = false): RascunhoAutomaticoContabil[] {
   const candidatos: RascunhoAutomaticoContabil[] = [];
   const contasAnaliticas = new Set(contas.filter((conta) => conta?.tipo === "analitica").map((conta) => conta.codigo));
@@ -66,6 +80,12 @@ export function gerarRascunhosFiscal(cnpj: string, documentos: Registro[], conta
     const mapping = mapeamentos.find((item) => item.origem === mapeamentosOrigem[origem]);
     if (!mapping || !contasAnaliticas.has(mapping.contaDebitoCodigo) || !contasAnaliticas.has(mapping.contaCreditoCodigo)
       || mapping.contaDebitoCodigo === mapping.contaCreditoCodigo) continue;
+    if (documento.tipo === "Entrada" && !entradaEhCompraParaEstoque(documento.cfop)) continue;
+    let debito = String(mapping.contaDebitoCodigo);
+    if (documento.tipo === "Saída" && ehNfce(referenciaDocumento)) {
+      const caixa = contas.find((c) => c?.tipo === "analitica" && /^1\.1\.[1-3]/.test(String(c.codigo)) && /caixa|banco|cart[ãa]o/i.test(String(c.nome || c.descricao || "")));
+      if (caixa && caixa.codigo !== mapping.contaCreditoCodigo) debito = String(caixa.codigo);
+    }
 
     const tipoReferencia = documento.tipo === "Entrada" ? "Entrada" : "Saida";
     const referencia = `FISCAL:${cnpj}:${periodo.competencia}:${tipoReferencia}:${referenciaDocumento}`;
@@ -75,7 +95,7 @@ export function gerarRascunhosFiscal(cnpj: string, documentos: Registro[], conta
       competencia: periodo.competencia,
       data: periodo.data,
       origem,
-      contaDebitoCodigo: String(mapping.contaDebitoCodigo),
+      contaDebitoCodigo: debito,
       contaCreditoCodigo: String(mapping.contaCreditoCodigo),
       valor: Math.round((valor + Number.EPSILON) * 100) / 100,
       historico: `${origem} NF-e ${referenciaDocumento} — valor bruto, pré-lançamento para conferência`,

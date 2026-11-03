@@ -12,7 +12,7 @@ const mapeamentos = [
   { origem: "fiscal_saida", contaDebitoCodigo: "1.1.5", contaCreditoCodigo: "4.1.1" },
 ];
 const nota = (extra: Record<string, unknown> = {}) => ({
-  cnpjEmpresa: cnpj, tipo: "Entrada", chaveAcesso: "52261061064838002420550010003081441050382396",
+  cnpjEmpresa: cnpj, tipo: "Entrada", cfop: "1102", chaveAcesso: "52261061064838002420550010003081441050382396",
   dataEmissao: "16/10/2026", valorTotal: 2658.37, statusSefaz: "Autorizada", statusVerificadoSefaz: true,
   dadosTributariosDisponiveis: true, valorIcms: 0, valorIpi: 0, valorPis: 0, valorCofins: 0, valorIss: 0, ...extra,
 });
@@ -48,4 +48,14 @@ test("nota não verificada ou cancelada nunca vira rascunho, nem no Simples Naci
 
 test("sem mapeamento de contas não há rascunho", () => {
   assert.equal(gerarRascunhosFiscal(cnpj, [nota()], contas, [], agora, true).length, 0);
+});
+
+import { entradaEhCompraParaEstoque, ehNfce } from "../../src/server/prepararRascunhosContabeis";
+test("CFOP: compra vira estoque; devolução, remessa e vazio não", () => {
+  for (const c of ["1102", "1.102", "5102", "6405", "2403", "5101"]) assert.equal(entradaEhCompraParaEstoque(c), true, c);
+  for (const c of ["1202", "5949", "1949", "5411", "", undefined, "5551"]) assert.equal(entradaEhCompraParaEstoque(c), false, String(c));
+});
+test("NFC-e é identificada pelo modelo 65 na chave", () => {
+  assert.equal(ehNfce("52261061064838002420650010003081441050382396"), true);
+  assert.equal(ehNfce("52261061064838002420550010003081441050382396"), false);
 });
