@@ -28,6 +28,48 @@ test("Não adivinha: plano diferente (outros códigos) não recebe sugestão; ma
   assert.equal(sugerirMapeamentosPadrao(planoModelo.map((c) => c.codigo === "1.1.5" ? { ...c, tipo: "sintetica" } : c), [], "x").some((x) => x.origem === "fiscal_saida"), false);
 });
 
+const planoPadraoComercio572 = [
+  { codigo: "1.1.08.01.07", descricao: "Produtos para Mercadorias e Venda", natureza: "D", tipo: "analitica" },
+  { codigo: "2.1.03.01.01", descricao: "Fornecedores de Bens", natureza: "C", tipo: "analitica" },
+  { codigo: "1.1.04.01.01", descricao: "Duplicatas a receber", natureza: "D", tipo: "analitica" },
+  { codigo: "3.1.01.01.02", descricao: "Revenda de Mercadorias", natureza: "C", tipo: "analitica" },
+  { codigo: "4.3.01.02.01", descricao: "Salários e Ordenados", natureza: "D", tipo: "analitica" },
+  { codigo: "2.1.06.01.01", descricao: "Salários a Pagar", natureza: "C", tipo: "analitica" },
+  { codigo: "2.1.05.01.05", descricao: "Contribuições Previdenciárias", natureza: "C", tipo: "analitica" },
+  { codigo: "4.3.01.04.01", descricao: "Previdência Social", natureza: "D", tipo: "analitica" },
+  { codigo: "2.1.05.02.01", descricao: "Imposto de Renda Retido na Fonte - de Funcionários", natureza: "C", tipo: "analitica" },
+  { codigo: "4.3.01.04.02", descricao: "FGTS", natureza: "D", tipo: "analitica" },
+  { codigo: "2.1.05.01.06", descricao: "FGTS a Recolher", natureza: "C", tipo: "analitica" },
+  // Contas "parecidas" que não devem ser confundidas com as corretas acima.
+  { codigo: "1.1.07.01.01", descricao: "Imposto de Renda Retido na Fonte - IRRF", natureza: "D", tipo: "analitica" },
+  { codigo: "2.1.05.02.02", descricao: "Imposto de Renda Retido na Fonte - de Terceiros", natureza: "C", tipo: "analitica" },
+];
+
+test("Plano padrão de comércio (572 contas, 5 níveis): sugere as 7 origens a partir das contas reais do escritório", () => {
+  const s = sugerirMapeamentosPadrao(planoPadraoComercio572, [], "2026-11-03T00:00:00.000Z");
+  assert.equal(s.length, 7);
+  const esperado: Record<string, [string, string]> = {
+    fiscal_entrada: ["1.1.08.01.07", "2.1.03.01.01"],
+    fiscal_saida: ["1.1.04.01.01", "3.1.01.01.02"],
+    dp_folha_bruta: ["4.3.01.02.01", "2.1.06.01.01"],
+    dp_descontos_inss: ["2.1.06.01.01", "2.1.05.01.05"],
+    dp_inss_patronal: ["4.3.01.04.01", "2.1.05.01.05"],
+    dp_descontos_irrf: ["2.1.06.01.01", "2.1.05.02.01"],
+    dp_fgts: ["4.3.01.04.02", "2.1.05.01.06"],
+  };
+  for (const origem of Object.keys(esperado)) {
+    const item = s.find((x) => x.origem === origem);
+    assert.ok(item, `esperava sugestão para ${origem}`);
+    assert.deepEqual([item!.contaDebitoCodigo, item!.contaCreditoCodigo], esperado[origem], `origem ${origem}`);
+  }
+});
+
+test("Plano padrão de comércio: empresa sem o plano padrão carregado (plano simples) continua usando as regras do plano simples", () => {
+  const s = sugerirMapeamentosPadrao(planoModelo, [], "x");
+  assert.equal(s.length, 7);
+  assert.deepEqual([s.find((x) => x.origem === "dp_fgts")!.contaDebitoCodigo, s.find((x) => x.origem === "dp_fgts")!.contaCreditoCodigo], ["5.2.1", "2.2.2"]);
+});
+
 test("Ponta a ponta: nota de saída confirmada na SEFAZ vira pré-lançamento; pendente continua de fora", () => {
   const map = sugerirMapeamentosPadrao(planoModelo, [], "2026-11-03T00:00:00.000Z");
   const doc = (chave: string, verificado: boolean) => ({ cnpjEmpresa: "11497078000180", tipo: "Saída", chaveAcesso: chave, dataEmissao: "28/10/2026", valorTotal: 150.5, statusSefaz: verificado ? "Autorizada" : "Pendente", statusVerificadoSefaz: verificado, dadosTributariosDisponiveis: true, valorIcms: 0, valorIpi: 0, valorPis: 0, valorCofins: 0, valorIss: 0 });
