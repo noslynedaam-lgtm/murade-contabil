@@ -250,3 +250,4 @@ export async function lerResumosDP(cnpj: string, desde: string, ate: string, lim
     atualizadoEm: new Date(row.atualizado_em).toISOString(),
   }));
 }
+export const obterPoolDP = obterPool;

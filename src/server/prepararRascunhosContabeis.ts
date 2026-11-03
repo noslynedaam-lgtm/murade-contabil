@@ -1,6 +1,7 @@
 import type { OrigemMapeadaContabil } from "../types";
 import { lerDocumentosFiscais, fiscalStoreConfigurado } from "./documentosFiscaisStore";
 import { lerResumosDP, dpStoreConfigurado } from "./dadosDpStore";
+import { lerResumosProLaboreDP } from "./dadosProLaboreStore";
 import { lerWorkspaceInternoContabil, mesclarRascunhosAutomaticosContabil, type RascunhoAutomaticoContabil } from "./authContabil";
 
 type Registro = Record<string, any>;
@@ -167,6 +168,40 @@ function gerarRascunhosFolha(cnpj: string, folhas: ResumoFolha[], contas: Regist
   return candidatos;
 }
 
+/** Pró-labore dos sócios: mesmas contas da folha (despesa com pessoal / salários a pagar; INSS e IRRF retidos a recolher). Tudo ou nada por competência. */
+export function gerarRascunhosProLabore(cnpj: string, resumos: Array<{ competencia: string; resumo: Record<string, number> }>, contas: Registro[], mapeamentos: Registro[], agora: string): RascunhoAutomaticoContabil[] {
+  const contasAnaliticas = new Set(contas.filter((conta) => conta?.tipo === "analitica").map((conta) => conta.codigo));
+  const itens = [
+    { campo: "proLabore", origem: "DP — Folha", titulo: "Pró-labore dos sócios", obrigatorio: true },
+    { campo: "inssSocio", origem: "DP — INSS", titulo: "INSS retido do pró-labore (11%)", obrigatorio: true },
+    { campo: "irrfSocio", origem: "DP — IRRF", titulo: "IRRF retido do pró-labore", obrigatorio: false },
+  ] as const;
+  const candidatos: RascunhoAutomaticoContabil[] = [];
+  for (const r of resumos) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(r.competencia) || !r.resumo) continue;
+    const bruto = valorNumerico(r.resumo.proLabore); const inss = valorNumerico(r.resumo.inssSocio); const irrf = valorNumerico(r.resumo.irrfSocio); const liquido = valorNumerico(r.resumo.liquido);
+    if (bruto === null || inss === null || irrf === null || liquido === null || bruto <= 0) continue;
+    if (Math.abs(Math.round((bruto - inss - irrf + Number.EPSILON) * 100) / 100 - liquido) > 0.01) continue;
+    const lote: RascunhoAutomaticoContabil[] = []; let completo = true;
+    for (const item of itens) {
+      const valor = valorNumerico(r.resumo[item.campo]);
+      if (valor === null || valor < 0) { completo = false; break; }
+      if (valor === 0) continue;
+      const mapping = mapeamentos.find((m) => m.origem === mapeamentosOrigem[item.origem]);
+      if (!mapping || !contasAnaliticas.has(mapping.contaDebitoCodigo) || !contasAnaliticas.has(mapping.contaCreditoCodigo) || mapping.contaDebitoCodigo === mapping.contaCreditoCodigo) {
+        if (!item.obrigatorio) continue;
+        completo = false; break;
+      }
+      const referencia = `DP:${cnpj}:${r.competencia}:${item.campo}`;
+      lote.push({ id: referencia, referenciaOrigem: referencia, competencia: r.competencia, data: `${r.competencia}-01`, origem: item.origem,
+        contaDebitoCodigo: String(mapping.contaDebitoCodigo), contaCreditoCodigo: String(mapping.contaCreditoCodigo),
+        valor: Math.round((valor + Number.EPSILON) * 100) / 100, historico: `${item.titulo} — pré-lançamento para conferência`, criadoEm: agora });
+    }
+    if (completo) candidatos.push(...lote);
+  }
+  return candidatos;
+}
+
 /** Prepares and saves drafts after an authenticated source update; never posts definitive entries. */
 export async function gerarCandidatosRascunhosAutomaticos(cnpj: string, workspaceOverride?: Record<string, unknown>): Promise<RascunhoAutomaticoContabil[]> {
   if (!fiscalStoreConfigurado() || !dpStoreConfigurado()) return [];
@@ -176,14 +211,16 @@ export async function gerarCandidatosRascunhosAutomaticos(cnpj: string, workspac
   const mapeamentos = Array.isArray(workspace.mapeamentosOrigem) ? workspace.mapeamentosOrigem as Registro[] : [];
   if (!mapeamentos.length) return [];
 
-  const [documentos, folhas] = await Promise.all([
+  const [documentos, folhas, proLabores] = await Promise.all([
     lerDocumentosFiscais(cnpj, "", "", 500),
     lerResumosDP(cnpj, "", "", 200) as Promise<ResumoFolha[]>,
+    lerResumosProLaboreDP(cnpj, 200).catch(() => []),
   ]);
   const agora = new Date().toISOString();
   const candidatos = [
     ...gerarRascunhosFiscal(cnpj, documentos as Registro[], contas, mapeamentos, agora, regimeSimplesNacional((workspace.empresa as Registro | undefined)?.regime)),
     ...gerarRascunhosFolha(cnpj, folhas, contas, mapeamentos, agora),
+    ...gerarRascunhosProLabore(cnpj, proLabores, contas, mapeamentos, agora),
   ];
   return candidatos;
 }

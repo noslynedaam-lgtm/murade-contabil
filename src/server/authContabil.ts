@@ -1361,9 +1361,9 @@ export async function mesclarRascunhosAutomaticosContabil(
 
 function referenceDpOrigem(referencia: string): string {
   const campo = referencia.split(":").at(-1);
-  return campo === "folhaBruta" ? "dp_folha_bruta" : campo === "descontosINSS" ? "dp_descontos_inss"
+  return campo === "folhaBruta" || campo === "proLabore" ? "dp_folha_bruta" : campo === "descontosINSS" || campo === "inssSocio" ? "dp_descontos_inss"
     : campo === "inssPatronal" ? "dp_inss_patronal"
-    : campo === "descontosIRRF" ? "dp_descontos_irrf" : campo === "fgts" ? "dp_fgts" : "";
+    : campo === "descontosIRRF" || campo === "irrfSocio" ? "dp_descontos_irrf" : campo === "fgts" ? "dp_fgts" : "";
 }
 
 function referenceFiscalOrigem(referencia: string): string {

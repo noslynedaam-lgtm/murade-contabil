@@ -7,6 +7,7 @@ import dotenv from "dotenv";
 import { timingSafeEqual } from "node:crypto";
 import { ErroValidacaoDocumentoFiscal, fiscalStoreConfigurado, gravarDocumentosFiscais, lerDocumentosFiscais, lerVersoesDocumentoFiscal, verificarEstadoStoreFiscal } from "./src/server/documentosFiscaisStore";
 import { dpStoreConfigurado, ErroConflitoResumoDP, ErroValidacaoResumoDP, gravarResumoDP, lerResumosDP, verificarEstadoStoreDP } from "./src/server/dadosDpStore";
+import { gravarResumoProLaboreDP } from "./src/server/dadosProLaboreStore";
 import { registrarGestaoEquipe } from "./src/server/gestaoEquipe";
 import { prepararAuthContabil, configGestaoEquipeContabil, adicionarEmpresaAcessoContabil, adicionarEquipeContabil, bloquearEscritorioContabil, definirLimiteEscritorioContabil, convidarEquipeContabil, convidarEscritorioContabil, listarEquipeContabil, listarEscritoriosContabil, removerEquipeContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, sessaoDaRequisicaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarCnpjsComOrigensSemMapeamentoContabil, aplicarMapeamentosPadraoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, manterConectadoContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil, importarCnpjsCompartilhados } from "./src/server/authContabil";
 import { ArmazemAcoesPendentes, confirmarAcao as confirmarAcaoAgenteIA, conversar as conversarAgenteIA, recusarAcao as recusarAcaoAgenteIA, type ChamarApi, type ContextoAgente, type ModeloIA } from "./src/server/agenteMotor";
@@ -545,6 +546,27 @@ async function startServer() {
     } catch (error: any) {
       const status = error instanceof ErroConflitoResumoDP ? 409 : error instanceof ErroValidacaoResumoDP ? 422 : 503;
       return res.status(status).json({ sucesso: false, motivo: error?.message || "Não foi possível persistir o resumo agregado do DP." });
+    }
+  });
+
+  // Pró-labore dos sócios (só totais do mês). Vira pré-lançamento pelas mesmas contas da folha.
+  app.post("/api/integracao/dp/prolabore", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Vary", "Authorization");
+    if (negarIntegracao(req, res)) return;
+    if (!dpStoreConfigurado()) return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil." });
+    const cnpj = normalizarCnpjAcesso(req.body?.cnpj);
+    if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
+    try {
+      if (!await verificarCnpjAutorizadoContabil(cnpj)) return res.status(403).json({ sucesso: false, motivo: "CNPJ não autorizado no cadastro seguro do Contábil." });
+      const resultado = await gravarResumoProLaboreDP(cnpj, req.body);
+      let rascunhos = { criados: 0, atualizados: 0, disponivel: true };
+      try { rascunhos = { ...(await prepararRascunhosContabeisAutomaticos(cnpj)), disponivel: true }; }
+      catch (error) { rascunhos = { criados: 0, atualizados: 0, disponivel: false }; console.error("Pró-labore salvo; a preparação automática de rascunhos ficou pendente:", error); }
+      return res.json({ sucesso: true, persistencia: "postgresql", cnpj, novo: resultado.novo, rascunhosContabeis: rascunhos });
+    } catch (error: any) {
+      const status = error instanceof ErroConflitoResumoDP ? 409 : error instanceof ErroValidacaoResumoDP ? 422 : 503;
+      return res.status(status).json({ sucesso: false, motivo: error?.message || "Não foi possível persistir o pró-labore." });
     }
   });
 
