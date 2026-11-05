@@ -16,7 +16,8 @@ export type TabId =
   | "integracao"
   | "revisao-origens"
   | "agente"
-  | "ia-premium";
+  | "ia-premium"
+  | "backups";
 
 export interface OrgaoConectado {
   id: string;

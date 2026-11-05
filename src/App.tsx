@@ -26,6 +26,7 @@ import { FluxoPreviticoTab } from "./components/tabs/FluxoPreviticoTab";
 import { ModulosFinaisTab } from "./components/tabs/ModulosFinaisTab";
 import { MigracaoContabilTab } from "./components/tabs/MigracaoContabilTab";
 import { RevisaoOrigensTab } from "./components/tabs/RevisaoOrigensTab";
+import { BackupsTab } from "./components/tabs/BackupsTab";
 import { IAMuradModal } from "./components/IAMuradModal";
 import { ordenarContasPorSequenciaNumerica } from "./utils/planoContasUtils";
 import { ModalConexaoMuradFiscal } from "./components/modals/ModalConexaoMuradFiscal";
@@ -1046,6 +1047,8 @@ function AppWorkspace() {
                   lancamentos={lancamentos}
                 />
               )}
+
+              {tabAtiva === "backups" && <BackupsTab />}
             </div>
 
             {/* Robô Murade: minimizado e flutuante (abre ao clicar) */}

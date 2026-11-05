@@ -20,6 +20,7 @@ import {
   Home,
   Database,
   ClipboardCheck,
+  ShieldHalf,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -135,6 +136,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
       icon: Bot,
       badge: "Autônomo",
       badgeColor: "bg-amber-400/30 text-amber-200",
+    },
+    {
+      id: "backups" as TabId,
+      label: "Backups",
+      icon: ShieldHalf,
+      badge: "Mensal",
+      badgeColor: "bg-emerald-400/30 text-emerald-100",
     },
     {
       id: "ia-premium" as TabId,

@@ -20,6 +20,8 @@ import { executarRobo, registrarResultadoRobo, registrarRobo, statusRobos } from
 import { buscarEmpresasDoFiscal, cnpjsValidosDoFiscal } from "./src/server/empresasDoFiscal";
 import { resumoRelatorioAcessos, rodarConferidorAcessos } from "./src/server/conferidorAcessos";
 import { achadosEcdDoConferidor, rodarConferidorContabil } from "./src/server/conferidorContabil";
+import { conferirBackupsEscritorios } from "./src/server/conferidorBackupsContabil";
+import { gerarBackupEscritorio, listarBackupsEscritorio, baixarBackupEscritorio, periodoDe } from "./src/services/backupEscritorioContabilService";
 import { gerarCandidatosRascunhosAutomaticos, mesclarRascunhosNoWorkspace, prepararRascunhosContabeisAutomaticos } from "./src/server/prepararRascunhosContabeis";
 import { respostaRapida } from "./src/server/respostasRapidas";
 import { omitirXmlOriginal, resumirCoberturaXmlFiscal } from "./src/server/coberturaXmlFiscal";
@@ -1043,6 +1045,57 @@ const reconciliacaoRascunhosStatus: {
     res.setHeader("Cache-Control", "no-store");
     return res.json({ sucesso: true, ...statusRobos() });
   });
+  // Backups mensais cifrados do escritório — cada rota só lê/gera o backup do próprio tenant (sessao.tenantId).
+  // Nível de escritório, não de uma empresa; qualquer pessoa da equipe vê, só admin/equipe do escritório gera.
+  app.get("/api/contabil/backups", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "private, no-store");
+    const sessao = sessaoDaRequisicaoContabil(req);
+    if (!sessao) return res.status(401).json({ sucesso: false, motivo: "Entre no sistema." });
+    if (!bancoContabilConfigurado()) return res.json({ sucesso: true, backups: [], periodoAtual: periodoDe(new Date()) });
+    try {
+      await prepararAuthContabil();
+      const backups = await listarBackupsEscritorio((sql, params) => consultaBancoContabil(sql, params), String(sessao.tenantId));
+      return res.json({ sucesso: true, backups, periodoAtual: periodoDe(new Date()) });
+    } catch (erro: any) {
+      console.error("Falha ao listar backups do escritório:", erro?.message || erro);
+      return res.status(503).json({ sucesso: false, motivo: "Não foi possível ler os backups agora." });
+    }
+  });
+  app.post("/api/contabil/backups/gerar", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "private, no-store");
+    const sessao = sessaoDaRequisicaoContabil(req);
+    if (!sessao) return res.status(401).json({ sucesso: false, motivo: "Entre no sistema." });
+    if (!sessao.administrador && !sessao.escritorioDe) return res.status(403).json({ sucesso: false, motivo: "Somente o administrador ou a equipe do escritório pode gerar o backup." });
+    if (!bancoContabilConfigurado()) return res.status(503).json({ sucesso: false, motivo: "PostgreSQL não configurado." });
+    try {
+      await prepararAuthContabil();
+      const agora = new Date();
+      const resultado = await gerarBackupEscritorio((sql, params) => consultaBancoContabil(sql, params), String(sessao.tenantId), periodoDe(agora), agora);
+      if (resultado.motivo === "sem_empresas") return res.status(400).json({ sucesso: false, motivo: "Cadastre ao menos uma empresa antes de gerar o backup." });
+      return res.json({ sucesso: true, criadoAgora: resultado.criado, registro: resultado.registro });
+    } catch (erro: any) {
+      console.error("Falha ao gerar backup do escritório:", erro?.message || erro);
+      return res.status(503).json({ sucesso: false, motivo: String(erro?.message || "Não foi possível gerar o backup agora.").slice(0, 200) });
+    }
+  });
+  app.get("/api/contabil/backups/:id/download", exigirSessaoContabil, async (req, res) => {
+    const sessao = sessaoDaRequisicaoContabil(req);
+    if (!sessao) return res.status(401).json({ sucesso: false, motivo: "Entre no sistema." });
+    if (!bancoContabilConfigurado()) return res.status(503).json({ sucesso: false, motivo: "PostgreSQL não configurado." });
+    try {
+      await prepararAuthContabil();
+      const arquivo = await baixarBackupEscritorio((sql, params) => consultaBancoContabil(sql, params), String(sessao.tenantId), String(req.params.id));
+      if (!arquivo) return res.status(404).json({ sucesso: false, motivo: "Backup não encontrado para o seu escritório." });
+      res.setHeader("Cache-Control", "private, no-store");
+      res.setHeader("Content-Type", "application/octet-stream");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("Content-Disposition", `attachment; filename="${arquivo.nomeArquivo}"`);
+      return res.send(arquivo.conteudo);
+    } catch (erro: any) {
+      console.error("Falha ao baixar backup do escritório:", erro?.message || erro);
+      return res.status(503).json({ sucesso: false, motivo: "Não foi possível baixar o backup agora." });
+    }
+  });
   // Mensagens entre Agentes IA dos sistemas Murade (token de integração).
   app.post("/api/integracao/agente/mensagem", async (req, res) => {
     if (negarIntegracao(req, res)) return;
@@ -1081,6 +1134,26 @@ const reconciliacaoRascunhosStatus: {
   }).catch((e) => console.error("Falha no Robô Conferidor de Acessos:", e?.message || e)) : undefined;
   setTimeout(() => void rodarConferidorDeAcessos(), 90_000).unref();
   setInterval(() => void rodarConferidorDeAcessos(), 60 * 60_000).unref();
+  registrarRobo({ id: "backups", nome: "Robô de Backups Mensais", posto: "conferidor", missao: "Conferir se cada escritório com empresa cadastrada já tem o backup cifrado do mês corrente, gerado e conferido (checksum e reabertura do zip); gera de novo sozinho quando falta ou falhou, sem precisar do dono. Mantém só os últimos 12 meses de cada escritório.", intervaloMs: 60 * 60_000 });
+  const escritoriosParaBackup = async (): Promise<{ id: string; cnpjs: string[] }[]> => {
+    const r = await consultaBancoContabil(
+      `SELECT u.id AS id, array_agg(DISTINCT a.cnpj) AS cnpjs
+       FROM contabil_auth_users u
+       JOIN contabil_auth_company_access a ON a.user_id = u.id
+       WHERE u.global_admin = true AND u.disabled = false
+       GROUP BY u.id`,
+    );
+    return r.rows.map((row: any) => ({ id: String(row.id), cnpjs: (row.cnpjs || []).filter(Boolean).map((c: any) => String(c)) }));
+  };
+  const rodarConferidorBackups = () => bancoContabilConfigurado() ? executarRobo("backups", async () => {
+    await prepararAuthContabil();
+    const escritorios = await escritoriosParaBackup();
+    const r = await conferirBackupsEscritorios((sql, params) => consultaBancoContabil(sql, params), escritorios);
+    registrarResultadoRobo("backups", r.resumo);
+    if (r.atencao) console.warn(`Robô de Backups Mensais: ${r.resumo}`);
+  }).catch((e) => console.error("Falha no Robô de Backups Mensais:", e?.message || e)) : undefined;
+  setTimeout(() => void rodarConferidorBackups(), 150_000).unref();
+  setInterval(() => void rodarConferidorBackups(), 60 * 60_000).unref();
   const timerMensageiro = setInterval(() => { executarRobo("mensageiro", () => centralDePedidos.reenviarPendentes()).catch((e) => console.error("Falha ao reenviar pedidos entre agentes:", e?.message || e)); }, 60_000);
   timerMensageiro.unref();
 
