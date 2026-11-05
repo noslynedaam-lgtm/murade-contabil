@@ -256,10 +256,10 @@ export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
           <div>
             <h1 className="text-base sm:text-lg font-extrabold text-slate-900 flex items-center gap-1.5">
               <span>⚡ Fluxo Prevítico</span>
-              <span className="text-[11px] font-semibold text-slate-500 hidden sm:inline">— Projeção IA 90 Dias</span>
+              <span className="text-[11px] font-semibold text-slate-500 hidden sm:inline">— Projeção 90 Dias</span>
             </h1>
             <p className="text-[11px] text-slate-600">
-              Cálculo bancário automático + edição direta na tela (precisão estimada 95%).
+              Saldo + entradas − saídas, com os 3 valores digitados por você (sem conexão bancária automática).
             </p>
           </div>
         </div>
