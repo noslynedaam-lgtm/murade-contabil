@@ -233,9 +233,9 @@ export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
 
   return (
     <div className="space-y-6 text-slate-800">
-      {/* Toast Flutuante */}
+      {/* Toast Flutuante — embaixo e centralizado, para nunca ficar atrás das barras fixas do topo */}
       {mensagemToast && (
-        <div className="fixed top-5 right-5 z-50 bg-[#EEF4F9] border-2 border-emerald-500 text-slate-900 px-5 py-3.5 rounded-xl font-bold shadow-lg flex items-center gap-2.5 animate-bounce">
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[120] w-[min(92vw,460px)] bg-[#EEF4F9] border-2 border-emerald-500 text-slate-900 px-5 py-3.5 rounded-xl font-bold shadow-lg flex items-center gap-2.5 animate-bounce">
           <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
           <span className="text-xs sm:text-sm">{mensagemToast}</span>
         </div>
