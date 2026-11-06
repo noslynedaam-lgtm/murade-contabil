@@ -40,6 +40,9 @@ export const SUGESTOES_CONTAS_POR_ORIGEM: Record<OrigemMapeadaContabil, RegraOri
     { debito: ["5.2.1", /pessoal/i], credito: ["2.2.2", /fgts/i] },
     { debito: ["4.3.01.04.02", /^fgts$/i], credito: ["2.1.05.01.06", /fgts a recolher/i] },
   ],
+  // Sem regra padrão: a multa de 40% do FGTS na rescisão não é um encargo comum a todo plano de
+  // contas (muitos planos nem separam essa conta). Fica só para preenchimento manual na revisão.
+  dp_multa_fgts_rescisoria: [],
 };
 
 /** Mantido por compatibilidade: primeira regra de cada origem (plano simples/Ferragista). */

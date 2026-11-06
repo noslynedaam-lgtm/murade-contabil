@@ -2,6 +2,7 @@ import type { OrigemMapeadaContabil } from "../types";
 import { lerDocumentosFiscais, fiscalStoreConfigurado } from "./documentosFiscaisStore";
 import { lerResumosDP, dpStoreConfigurado } from "./dadosDpStore";
 import { lerResumosProLaboreDP } from "./dadosProLaboreStore";
+import { lerEventosDP, type EventoDPLido, type TipoEventoDP } from "./dadosDpEventosStore";
 import { lerWorkspaceInternoContabil, mesclarRascunhosAutomaticosContabil, type RascunhoAutomaticoContabil } from "./authContabil";
 
 type Registro = Record<string, any>;
@@ -15,6 +16,7 @@ const mapeamentosOrigem = {
   "DP — INSS patronal": "dp_inss_patronal",
   "DP — IRRF": "dp_descontos_irrf",
   "DP — FGTS": "dp_fgts",
+  "DP — Multa FGTS rescisória": "dp_multa_fgts_rescisoria",
 } satisfies Record<string, OrigemMapeadaContabil>;
 
 const valorNumerico = (valor: unknown): number | null => typeof valor === "number" && Number.isFinite(valor) ? valor : null;
@@ -168,6 +170,51 @@ function gerarRascunhosFolha(cnpj: string, folhas: ResumoFolha[], contas: Regist
   return candidatos;
 }
 
+/**
+ * 13º e rescisão confirmados como pagos no DP. Reaproveita as mesmas contas já configuradas para
+ * "DP — Folha" / INSS / INSS patronal / IRRF / FGTS (ambos são, contabilmente, despesa de pessoal
+ * e seus encargos), exceto a multa de 40% do FGTS na rescisão, que usa uma conta própria — não é
+ * razoável presumir que ela usa a mesma conta do FGTS mensal. Cada evento gera seu próprio
+ * pré-lançamento (referenciaOrigem inclui o tipo e a referência do evento, nunca a competência
+ * isolada), então nunca é descartado por outro evento ou pela folha do mesmo mês.
+ */
+export function gerarRascunhosEventosDP(cnpj: string, eventos: EventoDPLido[], contas: Registro[], mapeamentos: Registro[], agora: string): RascunhoAutomaticoContabil[] {
+  const contasAnaliticas = new Set(contas.filter((conta) => conta?.tipo === "analitica").map((conta) => conta.codigo));
+  const titulos: Record<TipoEventoDP, string> = { decimo: "13º salário", rescisao: "Rescisão" };
+  const origens = [
+    { campo: "bruto", origem: "DP — Folha" as const },
+    { campo: "descontosINSS", origem: "DP — INSS" as const },
+    { campo: "inssPatronal", origem: "DP — INSS patronal" as const, opcional: true },
+    { campo: "descontosIRRF", origem: "DP — IRRF" as const },
+    { campo: "fgts", origem: "DP — FGTS" as const },
+    { campo: "multaFgts", origem: "DP — Multa FGTS rescisória" as const, opcional: true },
+  ];
+  const candidatos: RascunhoAutomaticoContabil[] = [];
+  for (const evento of eventos) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(evento.competencia) || !evento.resumo) continue;
+    const valores = evento.resumo;
+    const tituloBase = titulos[evento.tipo];
+    for (const item of origens) {
+      if (!(item.campo in valores)) continue; // multaFgts só existe em rescisão
+      const valor = valorNumerico(valores[item.campo]);
+      if (valor === null) { if ("opcional" in item && item.opcional) continue; break; }
+      if (valor === 0) continue;
+      const mapping = mapeamentos.find((candidate) => candidate.origem === mapeamentosOrigem[item.origem]);
+      if (!mapping || !contasAnaliticas.has(mapping.contaDebitoCodigo) || !contasAnaliticas.has(mapping.contaCreditoCodigo)
+        || mapping.contaDebitoCodigo === mapping.contaCreditoCodigo) continue;
+      const referencia = `DP:${cnpj}:${evento.tipo}:${evento.referencia}:${item.campo}`;
+      candidatos.push({
+        id: referencia, referenciaOrigem: referencia, competencia: evento.competencia, data: `${evento.competencia}-01`,
+        origem: item.origem, contaDebitoCodigo: String(mapping.contaDebitoCodigo), contaCreditoCodigo: String(mapping.contaCreditoCodigo),
+        valor: Math.round((valor + Number.EPSILON) * 100) / 100,
+        historico: `${tituloBase} confirmado no DP — ${item.campo === "bruto" ? "valor bruto" : item.campo === "multaFgts" ? "multa do FGTS (40%)" : item.origem.replace("DP — ", "")} — pré-lançamento para conferência`,
+        criadoEm: agora,
+      });
+    }
+  }
+  return candidatos;
+}
+
 /** Pró-labore dos sócios: mesmas contas da folha (despesa com pessoal / salários a pagar; INSS e IRRF retidos a recolher). Tudo ou nada por competência. */
 export function gerarRascunhosProLabore(cnpj: string, resumos: Array<{ competencia: string; resumo: Record<string, number> }>, contas: Registro[], mapeamentos: Registro[], agora: string): RascunhoAutomaticoContabil[] {
   const contasAnaliticas = new Set(contas.filter((conta) => conta?.tipo === "analitica").map((conta) => conta.codigo));
@@ -211,16 +258,18 @@ export async function gerarCandidatosRascunhosAutomaticos(cnpj: string, workspac
   const mapeamentos = Array.isArray(workspace.mapeamentosOrigem) ? workspace.mapeamentosOrigem as Registro[] : [];
   if (!mapeamentos.length) return [];
 
-  const [documentos, folhas, proLabores] = await Promise.all([
+  const [documentos, folhas, proLabores, eventos] = await Promise.all([
     lerDocumentosFiscais(cnpj, "", "", 500),
     lerResumosDP(cnpj, "", "", 200) as Promise<ResumoFolha[]>,
     lerResumosProLaboreDP(cnpj, 200).catch(() => []),
+    lerEventosDP(cnpj, undefined, 200).catch(() => []),
   ]);
   const agora = new Date().toISOString();
   const candidatos = [
     ...gerarRascunhosFiscal(cnpj, documentos as Registro[], contas, mapeamentos, agora, regimeSimplesNacional((workspace.empresa as Registro | undefined)?.regime)),
     ...gerarRascunhosFolha(cnpj, folhas, contas, mapeamentos, agora),
     ...gerarRascunhosProLabore(cnpj, proLabores, contas, mapeamentos, agora),
+    ...gerarRascunhosEventosDP(cnpj, eventos, contas, mapeamentos, agora),
   ];
   return candidatos;
 }

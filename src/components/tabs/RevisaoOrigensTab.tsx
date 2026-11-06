@@ -27,6 +27,7 @@ const origensMapeaveis: Array<{ id: OrigemMapeadaContabil; titulo: string; descr
   { id: "dp_inss_patronal", titulo: "INSS patronal", descricao: "Encargo da empresa contra INSS patronal a recolher; usa somente o valor apurado e persistido pelo DP." },
   { id: "dp_descontos_irrf", titulo: "IRRF descontado", descricao: "Reduz salários a pagar e credita IRRF a recolher." },
   { id: "dp_fgts", titulo: "FGTS informado pelo DP", descricao: "Despesa de FGTS contra FGTS a recolher. Valores só chegam após cálculo persistido no DP." },
+  { id: "dp_multa_fgts_rescisoria", titulo: "Multa do FGTS na rescisão (40%)", descricao: "Só aparece quando o DP confirma uma rescisão com multa de FGTS a pagar; é separada do FGTS mensal (8%)." },
 ];
 
 /** O cadastro pode trazer o regime com sufixo de fonte (ex.: "Simples Nacional (opção cadastral informada pela fonte)"). */

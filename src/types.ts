@@ -185,7 +185,8 @@ export type OrigemMapeadaContabil =
   | "dp_descontos_inss"
   | "dp_inss_patronal"
   | "dp_descontos_irrf"
-  | "dp_fgts";
+  | "dp_fgts"
+  | "dp_multa_fgts_rescisoria";
 
 export interface MapeamentoOrigemContabil {
   origem: OrigemMapeadaContabil;
@@ -199,7 +200,7 @@ export interface PreLancamentoContabil {
   referenciaOrigem: string;
   competencia: string;
   data: string;
-  origem: "DP — Folha" | "DP — INSS" | "DP — INSS patronal" | "DP — IRRF" | "DP — FGTS" | "Fiscal — Entrada" | "Fiscal — Saída";
+  origem: "DP — Folha" | "DP — INSS" | "DP — INSS patronal" | "DP — IRRF" | "DP — FGTS" | "DP — Multa FGTS rescisória" | "Fiscal — Entrada" | "Fiscal — Saída";
   contaDebitoCodigo: string;
   contaCreditoCodigo: string;
   valor: number;
