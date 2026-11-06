@@ -1254,16 +1254,16 @@ const reconciliacaoRascunhosStatus: {
   }).catch((e) => console.error("Falha no Robô Conferidor de Acessos:", e?.message || e)) : undefined;
   setTimeout(() => void rodarConferidorDeAcessos(), 90_000).unref();
   setInterval(() => void rodarConferidorDeAcessos(), 60 * 60_000).unref();
-  registrarRobo({ id: "backups", nome: "Robô de Backups Mensais", posto: "conferidor", missao: "Conferir se cada escritório com empresa cadastrada já tem o backup cifrado do mês corrente, gerado e conferido (checksum e reabertura do zip); gera de novo sozinho quando falta ou falhou, sem precisar do dono. Mantém só os últimos 12 meses de cada escritório.", intervaloMs: 60 * 60_000 });
-  const escritoriosParaBackup = async (): Promise<{ id: string; cnpjs: string[] }[]> => {
+  registrarRobo({ id: "backups", nome: "Robô de Backups Mensais", posto: "conferidor", missao: "Conferir se cada escritório com empresa cadastrada já tem o backup cifrado do mês corrente, gerado e conferido (checksum e reabertura do zip); gera de novo sozinho quando falta ou falhou, sem precisar do dono. Mantém só o backup do mês corrente (o anterior é apagado) e avisa o escritório por e-mail quando fica pronto.", intervaloMs: 60 * 60_000 });
+  const escritoriosParaBackup = async (): Promise<{ id: string; login: string; cnpjs: string[] }[]> => {
     const r = await consultaBancoContabil(
-      `SELECT u.id AS id, array_agg(DISTINCT a.cnpj) AS cnpjs
+      `SELECT u.id AS id, u.login AS login, array_agg(DISTINCT a.cnpj) AS cnpjs
        FROM contabil_auth_users u
        JOIN contabil_auth_company_access a ON a.user_id = u.id
        WHERE u.global_admin = true AND u.disabled = false
-       GROUP BY u.id`,
+       GROUP BY u.id, u.login`,
     );
-    return r.rows.map((row: any) => ({ id: String(row.id), cnpjs: (row.cnpjs || []).filter(Boolean).map((c: any) => String(c)) }));
+    return r.rows.map((row: any) => ({ id: String(row.id), login: String(row.login), cnpjs: (row.cnpjs || []).filter(Boolean).map((c: any) => String(c)) }));
   };
   const rodarConferidorBackups = () => bancoContabilConfigurado() ? executarRobo("backups", async () => {
     await prepararAuthContabil();

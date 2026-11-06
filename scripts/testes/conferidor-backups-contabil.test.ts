@@ -57,6 +57,27 @@ test('escritório sem empresa não entra na conta; com empresa, gera e depois fi
   } finally { await pool.end(); }
 });
 
+test('sem EMAIL_FROM configurado, não tenta mandar e-mail (nem falha) e o backup sai normalmente', { skip: !urlBanco }, async () => {
+  const { pool, consultar } = await banco();
+  const emailFromOriginal = process.env.EMAIL_FROM;
+  delete process.env.EMAIL_FROM;
+  try {
+    const empresaA = await cadastrarEmpresa(consultar);
+    const agora = new Date('2026-11-05T12:00:00Z');
+    const r = await conferirBackupsEscritorios(
+      consultar, [{ id: empresaA.tenantId, cnpjs: [empresaA.cnpj], login: `teste-${empresaA.tenantId}@murade.test` }], agora,
+    );
+    assert.equal(r.gerados, 1);
+    assert.equal(r.emailsEnviados, 0);
+    assert.equal(r.emailsFalhos, 0);
+    const lista = await listarBackupsEscritorio(consultar, empresaA.tenantId);
+    assert.equal(lista[0].emailEnviado, false);
+  } finally {
+    if (emailFromOriginal === undefined) delete process.env.EMAIL_FROM; else process.env.EMAIL_FROM = emailFromOriginal;
+    await pool.end();
+  }
+});
+
 test('falha de um escritório não impede os demais, e gera ATENÇÃO no resumo', { skip: !urlBanco }, async () => {
   const { pool, consultar } = await banco();
   try {

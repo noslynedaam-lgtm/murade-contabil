@@ -12,7 +12,7 @@ import { Pool } from 'pg';
 import {
   gerarBackupEscritorio, listarBackupsEscritorio, baixarBackupEscritorio, prunarBackupsAntigos,
   nomeArquivoBackup, periodoDe, EXTENSAO_BACKUP, garantirTabelaBackups, limparCacheBackupsParaTeste,
-  removerCamposCertificado,
+  removerCamposCertificado, marcarEmailBackupEnviado,
 } from '../../src/services/backupEscritorioContabilService';
 
 const urlBanco = process.env.TEST_DATABASE_URL;
@@ -145,14 +145,14 @@ test('sem a chave mestra configurada, a geração falha com mensagem clara (nada
   } finally { await pool.end(); }
 });
 
-test('retenção: mantém só os últimos 12 períodos de cada escritório', { skip: !urlBanco }, async () => {
+test('retenção: mantém só o backup do mês corrente de cada escritório (decisão do dono de 06/11/2026)', { skip: !urlBanco }, async () => {
   const { pool, consultar } = await banco();
   try {
     await garantirTabelaBackups(consultar);
     const tenantId = crypto.randomUUID();
     const periodos: string[] = [];
-    for (let i = 0; i < 13; i++) {
-      const data = new Date(Date.UTC(2026, 10 - i, 1)); // 13 meses, terminando em novembro/2026
+    for (let i = 0; i < 3; i++) {
+      const data = new Date(Date.UTC(2026, 10 - i, 1)); // 3 meses, terminando em novembro/2026
       const periodo = periodoDe(data);
       periodos.push(periodo);
       await consultar(
@@ -161,12 +161,32 @@ test('retenção: mantém só os últimos 12 períodos de cada escritório', { s
         [crypto.randomUUID(), tenantId, periodo, `x${i}.mcbx`, Buffer.from([1]), 'f'.repeat(64)],
       );
     }
-    const maisAntigo = periodos[periodos.length - 1];
+    const maisRecente = periodos[0];
     const apagados = await prunarBackupsAntigos(consultar, tenantId);
-    assert.equal(apagados, 1);
+    assert.equal(apagados, 2);
     const restantes = await listarBackupsEscritorio(consultar, tenantId);
-    assert.equal(restantes.length, 12);
-    assert.ok(!restantes.some((b) => b.periodo === maisAntigo));
+    assert.equal(restantes.length, 1);
+    assert.equal(restantes[0].periodo, maisRecente);
+  } finally { await pool.end(); }
+});
+
+test('email_enviado começa falso e só o próprio escritório marca o seu', { skip: !urlBanco }, async () => {
+  const { pool, consultar } = await banco();
+  try {
+    const empresaA = await cadastrarEmpresa(consultar, 'Empresa A');
+    const empresaB = await cadastrarEmpresa(consultar, 'Empresa B');
+    const periodo = periodoDe(new Date('2026-11-05T12:00:00Z'));
+    const a = await gerarBackupEscritorio(consultar, empresaA.tenantId, periodo, new Date('2026-11-05T12:00:00Z'), env());
+    const b = await gerarBackupEscritorio(consultar, empresaB.tenantId, periodo, new Date('2026-11-05T12:00:00Z'), env());
+    assert.equal(a.registro?.emailEnviado, false);
+    assert.equal(b.registro?.emailEnviado, false);
+
+    await marcarEmailBackupEnviado(consultar, crypto.randomUUID(), b.registro!.id);
+    assert.equal((await listarBackupsEscritorio(consultar, empresaB.tenantId))[0].emailEnviado, false);
+
+    await marcarEmailBackupEnviado(consultar, empresaB.tenantId, b.registro!.id);
+    assert.equal((await listarBackupsEscritorio(consultar, empresaB.tenantId))[0].emailEnviado, true);
+    assert.equal((await listarBackupsEscritorio(consultar, empresaA.tenantId))[0].emailEnviado, false);
   } finally { await pool.end(); }
 });
 

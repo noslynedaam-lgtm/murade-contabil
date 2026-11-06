@@ -65,7 +65,7 @@ export const BackupsTab: React.FC = () => {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="flex items-center gap-2 text-base font-bold text-slate-900"><ShieldHalf className="h-5 w-5 text-blue-700" /> Backups</h2>
-            <p className="mt-1 text-sm text-slate-600">Uma cópia cifrada por mês, só com os dados deste escritório. Gerada sozinha todo mês pelo robô conferidor; os últimos 12 meses ficam guardados.</p>
+            <p className="mt-1 text-sm text-slate-600">Uma cópia cifrada por mês, só com os dados deste escritório. Gerada sozinha todo mês pelo robô conferidor (fica só a do mês corrente) e avisada por e-mail quando fica pronta.</p>
           </div>
           <button
             type="button"

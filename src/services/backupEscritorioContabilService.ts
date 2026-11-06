@@ -22,8 +22,15 @@
 //   informativo (ver CertificadoDigitalModal.tsx, que nunca persiste a senha) e, por segurança extra, os campos
 //   "certificado*" são removidos do cadastro da empresa antes de empacotar. Este módulo só LÊ essas tabelas
 //   (nenhum INSERT/UPDATE/DELETE nelas) — nunca mexe em lançamento, cadastro de empresa nem nota fiscal.
-// - Retenção: mantém os últimos 12 períodos (meses) por escritório; mais antigo que isso é apagado automaticamente
-//   depois de cada geração.
+// - Retenção: decisão do dono (06/11/2026) — mantém só o backup do mês corrente por escritório; o período anterior
+//   é apagado automaticamente depois que o novo é gerado e conferido. Quem precisar de um backup de um mês já
+//   substituído depende da cópia que recebeu por e-mail (ver envio por e-mail no robô conferidor). Antes disso a
+//   retenção era de 12 meses; o dono trocou conscientemente por "não centralizar nem guardar" dado do escritório
+//   além do estritamente necessário. Mesma decisão aplicada ao Fiscal e ao DP.
+// - Envio por e-mail: quando o backup de um período é gerado e conferido com sucesso, o robô conferidor (ver
+//   conferidorBackupsContabil.ts) manda um aviso por e-mail pro login do escritório (reaproveita emailMurade.ts,
+//   o mesmo módulo da recuperação de senha). A coluna email_enviado controla isso: fica true só depois do envio
+//   confirmado, então uma falha de e-mail é tentada de novo na próxima rodada do robô, sem travar o backup em si.
 import JSZip from 'jszip';
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { prepararAuthContabil } from '../server/authContabil';
@@ -32,7 +39,7 @@ export type Consultar = (sql: string, params?: unknown[]) => Promise<{ rows: any
 
 const FORMATO_BACKUP = 'murade-contabil-backup-escritorio';
 const VERSAO_BACKUP = 1;
-export const RETENCAO_MESES = 12;
+export const RETENCAO_MESES = 1;
 /** Extensão própria e sem relação óbvia com "backup"/"dump"/"sql"/"bak". */
 export const EXTENSAO_BACKUP = '.mcbx';
 
@@ -45,6 +52,7 @@ export interface RegistroBackup {
   tabelas: Record<string, number>;
   status: 'ok' | 'falha';
   verificado: boolean;
+  emailEnviado: boolean;
   erro: string | null;
   criadoEm: string;
 }
@@ -129,10 +137,12 @@ export function garantirTabelaBackups(consultar: Consultar): Promise<void> {
       tabelas jsonb NOT NULL DEFAULT '{}'::jsonb,
       status text NOT NULL DEFAULT 'ok',
       verificado boolean NOT NULL DEFAULT false,
+      email_enviado boolean NOT NULL DEFAULT false,
       erro text,
       criado_em timestamptz NOT NULL DEFAULT now(),
       UNIQUE (tenant_id, periodo)
-    )
+    );
+    ALTER TABLE murade_contabil_backups ADD COLUMN IF NOT EXISTS email_enviado boolean NOT NULL DEFAULT false
   `).then(() => undefined).catch((e) => { tabelaPronta = null; throw e; });
   return tabelaPronta;
 }
@@ -244,7 +254,7 @@ async function gerarENaoGravarSeJaExiste(
   consultar: Consultar, tenantId: string, periodo: string,
 ): Promise<RegistroBackup | null> {
   const r = await consultar(
-    `SELECT id, periodo, nome_arquivo, tamanho_bytes, checksum_sha256, tabelas, status, verificado, erro, criado_em
+    `SELECT id, periodo, nome_arquivo, tamanho_bytes, checksum_sha256, tabelas, status, verificado, email_enviado, erro, criado_em
      FROM murade_contabil_backups WHERE tenant_id = $1 AND periodo = $2 AND status = 'ok' AND verificado = true`,
     [tenantId, periodo],
   );
@@ -258,6 +268,7 @@ function linhaParaRegistro(linha: any): RegistroBackup {
     tamanhoBytes: Number(linha.tamanho_bytes), checksumSha256: String(linha.checksum_sha256),
     tabelas: linha.tabelas && typeof linha.tabelas === 'object' ? linha.tabelas : JSON.parse(linha.tabelas || '{}'),
     status: linha.status === 'falha' ? 'falha' : 'ok', verificado: linha.verificado === true,
+    emailEnviado: linha.email_enviado === true,
     erro: linha.erro ?? null, criadoEm: new Date(linha.criado_em).toISOString(),
   };
 }
@@ -300,7 +311,7 @@ export async function gerarBackupEscritorio(
     await prunarBackupsAntigos(consultar, tenantId);
     return {
       criado: true, motivo: 'gerado',
-      registro: { id, periodo, nomeArquivo, tamanhoBytes: cifrado.length, checksumSha256: checksum, tabelas: contagens, status: 'ok', verificado: true, erro: null, criadoEm: geradoEm },
+      registro: { id, periodo, nomeArquivo, tamanhoBytes: cifrado.length, checksumSha256: checksum, tabelas: contagens, status: 'ok', verificado: true, emailEnviado: false, erro: null, criadoEm: geradoEm },
     };
   } catch (erro: any) {
     const mensagem = String(erro?.message || 'Falha ao conferir o backup gerado.').slice(0, 300);
@@ -332,7 +343,8 @@ async function conferirIntegridadeBackup(consultar: Consultar, tenantId: string,
   }
 }
 
-/** Mantém só os últimos RETENCAO_MESES períodos de cada escritório; o resto é apagado. */
+/** Mantém só os últimos RETENCAO_MESES períodos de cada escritório (hoje, 1 — só o mês corrente); o resto é
+ * apagado. Quem precisar de um backup de um período já substituído depende da cópia enviada por e-mail. */
 export async function prunarBackupsAntigos(consultar: Consultar, tenantId: string): Promise<number> {
   const r = await consultar(
     `DELETE FROM murade_contabil_backups WHERE tenant_id = $1 AND id NOT IN (
@@ -348,11 +360,19 @@ export async function prunarBackupsAntigos(consultar: Consultar, tenantId: strin
 export async function listarBackupsEscritorio(consultar: Consultar, tenantId: string): Promise<RegistroBackup[]> {
   await garantirTabelaBackups(consultar);
   const r = await consultar(
-    `SELECT id, periodo, nome_arquivo, tamanho_bytes, checksum_sha256, tabelas, status, verificado, erro, criado_em
+    `SELECT id, periodo, nome_arquivo, tamanho_bytes, checksum_sha256, tabelas, status, verificado, email_enviado, erro, criado_em
      FROM murade_contabil_backups WHERE tenant_id = $1 ORDER BY periodo DESC`,
     [tenantId],
   );
   return r.rows.map(linhaParaRegistro);
+}
+
+/** Marca que o aviso por e-mail do backup deste período já foi enviado com sucesso — nunca marca sem o envio
+ * ter dado certo, para que uma falha seja tentada de novo na próxima rodada do robô conferidor. Filtra por
+ * tenant_id pelo mesmo motivo de isolamento das demais funções deste módulo. */
+export async function marcarEmailBackupEnviado(consultar: Consultar, tenantId: string, id: string): Promise<void> {
+  await garantirTabelaBackups(consultar);
+  await consultar('UPDATE murade_contabil_backups SET email_enviado = true WHERE id = $1 AND tenant_id = $2', [id, tenantId]);
 }
 
 /** Só devolve o arquivo se ele pertencer ao escritório informado — o filtro por tenant_id está no próprio SQL,
