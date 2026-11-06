@@ -11,7 +11,7 @@ const definirPremium = (ligada: boolean): void => { try { localStorage.setItem(C
 // ---- Ajuste de volume e velocidade por comando de voz ("fala mais rápido", "aumenta a voz"). Fica salvo. ----
 const CHAVE_AJUSTE = 'murade_voz_ajuste_v1';
 let volumeVoz = 0.8;
-let velocidadeVoz = 1;
+let velocidadeVoz = 0.95; // padrão mais calmo: falava rápido demais
 try {
   const salvo = JSON.parse(localStorage.getItem(CHAVE_AJUSTE) || 'null');
   if (salvo && Number.isFinite(salvo.v)) volumeVoz = Math.min(1, Math.max(0.2, salvo.v));
@@ -253,7 +253,7 @@ function falarTrecho(texto: string): Promise<boolean> {
     try {
       const u = new SpeechSynthesisUtterance(texto);
       u.lang = 'pt-BR';
-      u.rate = 1.1 * velocidadeVoz;
+      u.rate = velocidadeVoz;
       u.pitch = 1.0;
       u.volume = volumeVoz;
       const voz = escolherVozDoNavegador();

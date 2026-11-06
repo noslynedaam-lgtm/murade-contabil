@@ -286,6 +286,9 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
     const chamada = /\b(contabil|contabilidade|contabi)\b/;
     let ativo = true;
     let tempoComando: number | undefined;
+    let tempoEnvio: number | undefined;
+    let bufferFala = "";
+    const PAUSA_PARA_RESPONDER_MS = 1500;
     const tempoPreparo = window.setTimeout(() => { void prepararVoz(); }, 2500);
     const iniciar = () => {
       if (!ativo) return;
@@ -302,7 +305,10 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
           // "Para" / "espera": interrompe a fala e cancela o pedido em andamento.
           // Pedidos de volume e velocidade: "aumenta a voz", "fala mais rápido"...
           if (ehFinal) { const confirmacao = ajustarVoz(texto); if (confirmacao) { falarRef.current(confirmacao); continue; } }
-          if (COMANDO_PARAR.test(texto)) { pararRef.current(); continue; }
+          // Com a voz dela tocando, o microfone pega a fala dela junto: "para" no fim da frase também conta.
+          if (COMANDO_PARAR.test(texto) || (humanaFalando() && texto.split(" ").length <= 4 && /(^| )(para|pare|espera|espere|calma|silencio|chega)( ja| agora| ai| por favor)?$/.test(texto))) { bufferFala = ""; window.clearTimeout(tempoEnvio); pararRef.current(); continue; }
+          // A pessoa voltou a falar: segura a resposta até ela terminar.
+          if (bufferFala && !humanaFalando()) window.clearTimeout(tempoEnvio);
           const faladas = new Set(textoFaladoRef.current.split(" "));
           const palavrasDita = texto.split(" ");
           const parecidoComFala = Boolean(textoFaladoRef.current) && palavrasDita.filter((w) => faladas.has(w)).length / palavrasDita.length >= 0.5;
@@ -319,14 +325,16 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
             if (Date.now() - ultimaFalaRef.current < 1500) continue;
             if (Date.now() - ultimaFalaRef.current < 15000 && textoFaladoRef.current && ("pois nao" === texto || (palavrasDita.length >= 2 && palavrasDita.filter((w) => faladas.has(w)).length / palavrasDita.length >= 0.75))) continue;
           }
-          if (aguardandoComandoRef.current || Date.now() < janelaConversaRef.current) {
+          if (aguardandoComandoRef.current || bufferFala || Date.now() < janelaConversaRef.current) {
             // Logo depois de uma resposta (20 s) a conversa continua sem precisar chamar de novo.
             const rapida = respostaRapida(texto); if (rapida) { janelaConversaRef.current = Date.now() + 20000; falarRef.current(rapida); continue; }
             if (chamada.test(texto) && texto.split(" ").length <= 2) continue;
             aguardandoComandoRef.current = false;
-            janelaConversaRef.current = 0;
             window.clearTimeout(tempoComando);
-            enviarRef.current(bruto.trim());
+            // Junta o que você falou e só responde depois de uma pausa: ela ouve até o fim, sem cortar.
+            bufferFala = `${bufferFala} ${bruto.trim()}`.trim();
+            window.clearTimeout(tempoEnvio);
+            tempoEnvio = window.setTimeout(() => { const pergunta = bufferFala; bufferFala = ""; janelaConversaRef.current = 0; if (pergunta) enviarRef.current(pergunta); }, PAUSA_PARA_RESPONDER_MS);
           } else if (chamada.test(texto)) {
             const resto = bruto.replace(/^[\s,.!?]*(contábil|contabil|contabilidade)[\s,.!?:-]*/i, "").trim();
             if (resto.split(" ").length >= 3) enviarRef.current(resto);
@@ -344,7 +352,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
       try { rec.start(); } catch { /* já iniciado */ }
     };
     iniciar();
-    return () => { ativo = false; window.clearTimeout(tempoPreparo); window.clearTimeout(tempoComando); try { chamadaRef.current?.stop(); } catch { /* ignora */ } };
+    return () => { ativo = false; window.clearTimeout(tempoPreparo); window.clearTimeout(tempoComando); window.clearTimeout(tempoEnvio); try { chamadaRef.current?.stop(); } catch { /* ignora */ } };
   }, [chamadaPorVoz, gravandoVoz]);
 
   if (!isOpen) {
