@@ -206,6 +206,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
           return (
             <button
               key={item.id}
+              id={`btn-menu-${item.id}`}
               onClick={() => onSelectTab(item.id)}
               className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer text-left ${
                 isActive
