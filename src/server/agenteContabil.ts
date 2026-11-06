@@ -247,6 +247,20 @@ const FERRAMENTAS: Ferramenta[] = [
       return { sucesso: true, mensagem: String(r.corpo?.mensagem || `Competência ${mesAno(params.competencia)} fechada.`) };
     },
   },
+  {
+    tipo: 'leitura',
+    declaracao: {
+      name: 'chamar_supervisor',
+      description: 'Registra, para o dono do sistema ver e responder, uma pergunta ou pedido que você não conseguiu resolver com as ferramentas e telas que você tem (nenhuma ferramenta serve, e o MAPA DO SISTEMA também não tem onde isso se resolva). Use só depois de checar as duas coisas — nunca como primeira opção.',
+      parameters: { type: 'OBJECT', properties: { pergunta: { type: 'STRING', description: 'O que o usuário pediu ou perguntou, resumido, em português, com o contexto necessário para o supervisor entender sem precisar perguntar de novo.' }, cnpj: { type: 'STRING', description: 'CNPJ da empresa envolvida, se houver.' } }, required: ['pergunta'] },
+    },
+    async executar(ctx, args) {
+      const pergunta = String(args.pergunta || '').trim().slice(0, 280);
+      if (!pergunta) return { erro: 'Descreva a pergunta do usuário para registrar.' };
+      await ctx.registrar({ evento: 'duvida_sem_resposta', ferramenta: 'chamar_supervisor', cnpj: cnpjDe(args.cnpj), resumo: pergunta });
+      return { status: 'registrado', instrucao: 'Diga ao usuário, em uma frase calma: você não sabe resolver isso aqui, vai levar a pergunta ao seu supervisor, e assim que tiver a resposta volta a falar com ele. Não invente prazo.' };
+    },
+  },
 ];
 
 const INSTRUCAO_BASE = `Você é a Agente IA do Murade Contábil. Trabalha dentro do sistema para o contador, em português do Brasil, com tom calmo, direto e prático. Respostas curtas.
@@ -285,6 +299,8 @@ LIMITES (diga com clareza quando o pedido bater neles)
 
 NUNCA ENROLE NEM JOGUE CONVERSA FORA
 - Antes de responder qualquer pergunta sobre dados, telas, cálculos ou obrigações, pare e verifique se existe uma ferramenta (desta lista ou do MAPA DO SISTEMA acima) que responda. Se existir, use-a. Só diga que "não sabe" ou que algo "não existe no sistema" depois de checar a lista de ferramentas e o mapa do menu — nunca por suposição.
-- Se mesmo assim não houver ferramenta ou tela para aquilo, diga isso de forma direta e objetiva, em poucas frases: o que você não consegue fazer e, se souber, quem resolve (outro sistema, o contador, a Receita). Nunca fique repetindo a pergunta, dando respostas vagas, enrolando ou gerando texto sem informação nova só para preencher a resposta — isso gasta crédito sem ajudar.`;
+- Se mesmo assim não houver ferramenta ou tela para aquilo, e você tiver certeza de quem resolve (outro sistema, o contador, a Receita), diga isso de forma direta e objetiva, em poucas frases.
+- Se não houver ferramenta, tela, NEM uma resposta clara de quem resolve — ou seja, você realmente não sabe o que fazer com o pedido —, use chamar_supervisor com um resumo da pergunta, e então diga ao usuário, com calma, que você vai levar isso ao seu supervisor e que volta a falar com ele assim que tiver a resposta. Nunca invente um prazo. Isso NÃO é desculpa para pular a busca por uma ferramenta: só chame o supervisor depois de checar tudo o que você tem.
+- Nunca fique repetindo a pergunta, dando respostas vagas, enrolando ou gerando texto sem informação nova só para preencher a resposta — isso gasta crédito sem ajudar.`;
 
 export const kitContabil: KitAgente = { ferramentas: [...FERRAMENTAS, ...FERRAMENTAS_ENTRE_SISTEMAS], instrucao: INSTRUCAO_BASE + INSTRUCAO_ENTRE_SISTEMAS };

@@ -23,7 +23,7 @@ export interface RespostaModelo { texto: string; chamadas: ChamadaModelo[]; turn
 export type ModeloIA = (entrada: { instrucao: string; conteudos: any[]; declaracoes: DeclaracaoFerramenta[] }) => Promise<RespostaModelo>;
 
 export interface EventoAuditoria {
-  evento: 'proposta' | 'confirmada' | 'recusada' | 'falha' | 'whatsapp_preparado' | 'expirada';
+  evento: 'proposta' | 'confirmada' | 'recusada' | 'falha' | 'whatsapp_preparado' | 'expirada' | 'duvida_sem_resposta';
   ferramenta: string;
   cnpj: string | null;
   resumo: string;

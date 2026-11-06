@@ -1,12 +1,13 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import { escolherVozPtBr } from "../utils/vozNatural";
 import { falarHumana, pararHumana, humanaFalando, ajustarVoz, bipRapido, prepararVoz, respostaRapida } from "../utils/vozHumana";
 import { Mic, MicOff, Volume2, VolumeX, Send, Bot, Sparkles, X, RotateCcw } from "lucide-react";
 import { AcaoAgenteCartao, ChatMessage, EmpresaDados, LancamentoContabil } from "../types";
+import type { AssistenteHandle } from "../types/assistenteHandle";
 
 interface IAMuradModalProps {
-  isOpen: boolean;
-  onClose: () => void;
+  isOpen?: boolean;
+  onClose?: () => void;
   onOpen?: () => void;
   empresa: EmpresaDados;
   lancamentos: LancamentoContabil[];
@@ -31,13 +32,17 @@ const textoSemMarcas = (t: string): string => String(t || '')
 const limparTextoVoz = (t: string) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 const COMANDO_PARAR = /^(para|pare|parar|espera|espere|calma|silencio|cancela|cancelar|chega)( ja| agora| ai| por favor)?$/;
 
-export const IAMuradModal: React.FC<IAMuradModalProps> = ({
-  isOpen,
-  onClose,
-  onOpen,
+export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
+  isOpen: isOpenProp,
+  onClose: onCloseProp,
+  onOpen: onOpenProp,
   empresa,
   lancamentos,
-}) => {
+}, assistenteHandleRef) => {
+  const [abertoInterno, setAbertoInterno] = useState<boolean>(false);
+  const isOpen = isOpenProp !== undefined ? isOpenProp : abertoInterno;
+  const onOpen = () => { if (onOpenProp) onOpenProp(); else setAbertoInterno(true); };
+  const onClose = () => { if (onCloseProp) onCloseProp(); else setAbertoInterno(false); };
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "msg-0",
@@ -258,6 +263,19 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
   enviarRef.current = (t: string) => { void enviarMensagem(t); };
   falarRef.current = (t: string) => falarTexto(t);
   pararRef.current = () => { geracaoRef.current += 1; window.speechSynthesis?.cancel(); pararHumana(); falandoRef.current = false; setFalando(false); aguardandoComandoRef.current = false; setAvisoVoz(""); };
+
+  // Permite que fora deste componente (ex.: detector de dificuldade) abra a janela e fale
+  // proativamente, mostrando a fala também como mensagem na conversa (pedido do dono, 06/11/2026).
+  useImperativeHandle(assistenteHandleRef, () => ({
+    abrir: () => onOpen(),
+    falar: (texto: string) => {
+      setMessages((prev) => [...prev, { id: `${Date.now()}-ia-proativa`, sender: "ia", text: texto, timestamp: "Agora" }]);
+      falarRef.current(texto);
+    },
+    perguntar: (texto: string) => enviarRef.current(texto),
+    ocupado: () => gravandoVoz,
+    parar: () => pararRef.current(),
+  }));
 
   useEffect(() => {
     try { localStorage.setItem("murade_chamada_voz", chamadaPorVoz ? "1" : "0"); } catch { /* ignora */ }
@@ -561,4 +579,6 @@ export const IAMuradModal: React.FC<IAMuradModalProps> = ({
       </div>
     </div>
   );
-};
+});
+
+IAMuradModal.displayName = 'IAMuradModal';

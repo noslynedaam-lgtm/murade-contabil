@@ -1636,15 +1636,56 @@ export function hashSessaoContabil(req: Request): string {
 }
 
 let tabelaAgenteIAContabil: Promise<void> | null = null;
-export async function registrarAcaoAgenteIAContabil(login: string, e: { evento: string; ferramenta: string; cnpj: string | null; resumo: string; resultado?: string }): Promise<void> {
-  if (!bancoContabilConfigurado()) return;
+function garantirTabelaAgenteIAContabil(): Promise<void> {
   tabelaAgenteIAContabil ??= obterBanco().query(`
     CREATE TABLE IF NOT EXISTS contabil_ai_agent_log (
       id BIGSERIAL PRIMARY KEY, login TEXT NOT NULL, cnpj TEXT, event TEXT NOT NULL, tool TEXT NOT NULL,
-      summary TEXT NOT NULL, result TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`).then(() => undefined).catch((erro) => { tabelaAgenteIAContabil = null; throw erro; });
-  await tabelaAgenteIAContabil;
+      summary TEXT NOT NULL, result TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+    ALTER TABLE contabil_ai_agent_log ADD COLUMN IF NOT EXISTS resolved boolean NOT NULL DEFAULT false;
+    ALTER TABLE contabil_ai_agent_log ADD COLUMN IF NOT EXISTS resolved_at timestamptz;
+  `).then(() => undefined).catch((erro) => { tabelaAgenteIAContabil = null; throw erro; });
+  return tabelaAgenteIAContabil;
+}
+export async function registrarAcaoAgenteIAContabil(login: string, e: { evento: string; ferramenta: string; cnpj: string | null; resumo: string; resultado?: string }): Promise<void> {
+  if (!bancoContabilConfigurado()) return;
+  await garantirTabelaAgenteIAContabil();
   await obterBanco().query('INSERT INTO contabil_ai_agent_log (login,cnpj,event,tool,summary,result) VALUES ($1,$2,$3,$4,$5,$6)',
     [String(login).slice(0, 120), e.cnpj ? normalizarCnpjAcesso(e.cnpj) : null, e.evento.slice(0, 40), e.ferramenta.slice(0, 60), e.resumo.slice(0, 300), e.resultado ? e.resultado.slice(0, 300) : null]);
+}
+
+// ---------------------------------------------------------------------------------------------
+// "Dúvidas para o supervisor": perguntas que a Agente IA não conseguiu resolver sozinha, de
+// qualquer escritório. Pedido do dono (06/11/2026): quando a IA não souber, ela avisa que vai
+// chamar o supervisor (o dono) — isso só é verdade se ele realmente conseguir ver e responder.
+// Reaproveita a mesma tabela de log da Agente IA (contabil_ai_agent_log), filtrando pelo evento próprio.
+// ---------------------------------------------------------------------------------------------
+export async function listarDuvidasSemRespostaDonoSistemaContabil(req: Request, res: Response): Promise<void> {
+  const sessao = sessaoDaRequisicaoContabil(req);
+  if (!sessao?.donoSistema) { res.status(403).json({ sucesso: false, motivo: 'Somente o dono do sistema vê as dúvidas para o supervisor.' }); return; }
+  if (!bancoContabilConfigurado()) { res.json({ sucesso: true, duvidas: [] }); return; }
+  try {
+    await garantirTabelaAgenteIAContabil();
+    const somenteAbertas = String(req.query.todas || '') !== '1';
+    const r = await obterBanco().query(
+      `SELECT id, login, cnpj, summary, resolved, created_at FROM contabil_ai_agent_log
+       WHERE event = 'duvida_sem_resposta' ${somenteAbertas ? 'AND resolved = false' : ''}
+       ORDER BY id DESC LIMIT 100`,
+    );
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ sucesso: true, duvidas: r.rows.map((row: any) => ({ id: String(row.id), login: row.login, cnpj: row.cnpj, pergunta: row.summary, resolvida: row.resolved === true, em: new Date(row.created_at).toISOString() })) });
+  } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível consultar agora.' }); }
+}
+
+export async function resolverDuvidaSemRespostaDonoSistemaContabil(req: Request, res: Response): Promise<void> {
+  const sessao = sessaoDaRequisicaoContabil(req);
+  if (!sessao?.donoSistema) { res.status(403).json({ sucesso: false, motivo: 'Somente o dono do sistema marca uma dúvida como resolvida.' }); return; }
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ sucesso: false, motivo: 'Id inválido.' }); return; }
+  try {
+    await garantirTabelaAgenteIAContabil();
+    await obterBanco().query(`UPDATE contabil_ai_agent_log SET resolved = true, resolved_at = now() WHERE id = $1 AND event = 'duvida_sem_resposta'`, [id]);
+    res.setHeader('Cache-Control', 'no-store'); res.json({ sucesso: true });
+  } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível salvar agora.' }); }
 }
 
 export async function listarRegistroAgenteIAContabil(req: Request, limiteInformado: unknown = 30): Promise<any[]> {

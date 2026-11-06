@@ -28,6 +28,12 @@ import { MigracaoContabilTab } from "./components/tabs/MigracaoContabilTab";
 import { RevisaoOrigensTab } from "./components/tabs/RevisaoOrigensTab";
 import { BackupsTab } from "./components/tabs/BackupsTab";
 import { IAMuradModal } from "./components/IAMuradModal";
+import { BalaoAjudaProativa } from "./components/BalaoAjudaProativa";
+import { GuiaPassoAPasso, type PassoGuia } from "./components/GuiaPassoAPasso";
+import { AssistenteProvider } from "./contexts/AssistenteContext";
+import { useDetectorDificuldade, type DificuldadeDetectada } from "./hooks/useDetectorDificuldade";
+import { roteiroParaChave } from "./data/roteirosAjuda";
+import type { AssistenteHandle } from "./types/assistenteHandle";
 import { ordenarContasPorSequenciaNumerica } from "./utils/planoContasUtils";
 import { ModalConexaoMuradFiscal } from "./components/modals/ModalConexaoMuradFiscal";
 import { conectarEPuxarEmpresaMuradFiscal, conectarMuradDP } from "./services/integracaoMuradService";
@@ -49,6 +55,30 @@ function AppWorkspace() {
   const workspaceSnapshotPersistidoRef = React.useRef<string | null>(null);
   const [assistenteAberta, setAssistenteAberta] = useState(false);
   const [tabAtiva, setTabAtiva] = useState<TabId>("inicio");
+
+  // Assistente de voz (ref para abrir/falar de fora, ex.: quando a pessoa parece travada) + detector
+  // de dificuldade: oferece ajuda sozinha quando percebe cliques repetidos no mesmo lugar, e guia
+  // passo a passo com uma seta quando a pessoa aceita (pedido do dono, 06/11/2026).
+  const assistenteRef = React.useRef<AssistenteHandle | null>(null);
+  const [dificuldadeAtual, setDificuldadeAtual] = useState<DificuldadeDetectada | null>(null);
+  const [roteiroAtivo, setRoteiroAtivo] = useState<PassoGuia[] | null>(null);
+  useDetectorDificuldade({
+    ativo: !roteiroAtivo,
+    onDificuldade: (d) => setDificuldadeAtual(d),
+  });
+  const aceitarAjudaProativa = () => {
+    if (!dificuldadeAtual) return;
+    const roteiro = roteiroParaChave(dificuldadeAtual.chave);
+    if (roteiro) {
+      setRoteiroAtivo(roteiro);
+    } else {
+      assistenteRef.current?.abrir();
+      assistenteRef.current?.falar(
+        `Oi! Vi que você tentou "${dificuldadeAtual.texto}" algumas vezes e não conseguiu. Me conta o que você está tentando fazer, ou aperte o microfone e me explica, que eu te mostro o caminho.`
+      );
+    }
+    setDificuldadeAtual(null);
+  };
   // Uma IA só: os atalhos antigos "IA Premium" abrem o mesmo assistente da tela.
   React.useEffect(() => {
     if (tabAtiva === "ia-premium") {
@@ -750,6 +780,7 @@ function AppWorkspace() {
   };
 
   return (
+    <AssistenteProvider assistenteRef={assistenteRef}>
     <div className="h-screen w-full overflow-hidden bg-[#F1F5F9] text-slate-800 flex font-sans selection:bg-blue-600 selection:text-white">
       {/* 1. BARRA LATERAL NO LADO ESQUERDO (DESKTOP) — FIXA COM ROLAGEM INDEPENDENTE */}
       <div className="hidden lg:flex shrink-0 h-full">
@@ -1074,12 +1105,25 @@ function AppWorkspace() {
         }}
       />
       <IAMuradModal
+        ref={assistenteRef}
         isOpen={assistenteAberta}
         onClose={() => setAssistenteAberta(false)}
         onOpen={() => setAssistenteAberta(true)}
         empresa={empresa}
         lancamentos={lancamentos}
       />
+      <BalaoAjudaProativa
+        visivel={!!dificuldadeAtual}
+        textoAlvo={dificuldadeAtual?.texto || ''}
+        onAceitar={aceitarAjudaProativa}
+        onRecusar={() => setDificuldadeAtual(null)}
+      />
+      <GuiaPassoAPasso
+        passos={roteiroAtivo}
+        onFalarPasso={(t) => assistenteRef.current?.falar(t)}
+        onConcluir={() => setRoteiroAtivo(null)}
+      />
     </div>
+    </AssistenteProvider>
   );
 }

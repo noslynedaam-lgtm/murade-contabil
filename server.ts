@@ -17,7 +17,7 @@ import { kitContabil } from "./src/server/agenteContabil";
 import { ArmazemPedidosMemoria, ArmazemPedidosPg, CentralDePedidos, tokenValido } from "./src/server/agentesEntreSistemas";
 import { criarAtividadeEscritorio } from './src/server/atividadeEscritorio';
 import type { SessaoContabil } from './src/server/authContabil';
-import { listarRegistroAgenteIAContabil, bancoContabilConfigurado, consultaBancoContabil, hashSessaoContabil, registrarAcaoAgenteIAContabil } from "./src/server/authContabil";
+import { listarRegistroAgenteIAContabil, bancoContabilConfigurado, consultaBancoContabil, hashSessaoContabil, registrarAcaoAgenteIAContabil, listarDuvidasSemRespostaDonoSistemaContabil, resolverDuvidaSemRespostaDonoSistemaContabil } from "./src/server/authContabil";
 import { executarRobo, registrarResultadoRobo, registrarRobo, statusRobos } from "./src/server/robosStatus";
 import { buscarEmpresasDoFiscal, cnpjsValidosDoFiscal } from "./src/server/empresasDoFiscal";
 import { resumoRelatorioAcessos, rodarConferidorAcessos } from "./src/server/conferidorAcessos";
@@ -206,6 +206,8 @@ const reconciliacaoRascunhosStatus: {
   app.post("/api/auth/tenants/:login/reenviar", exigirOrigemNavegador, exigirSessaoContabil, reenviarAcessoEscritorioContabil);
   app.post("/api/auth/tenants/:login/bloqueio", exigirOrigemNavegador, exigirSessaoContabil, bloquearEscritorioContabil);
   app.post("/api/auth/tenants/:login/limite", exigirOrigemNavegador, exigirSessaoContabil, definirLimiteEscritorioContabil);
+  app.get("/api/auth/duvidas-supervisor", exigirSessaoContabil, listarDuvidasSemRespostaDonoSistemaContabil);
+  app.post("/api/auth/duvidas-supervisor/:id/resolver", exigirOrigemNavegador, exigirSessaoContabil, resolverDuvidaSemRespostaDonoSistemaContabil);
   app.get("/api/workspaces", exigirSessaoContabil, listarWorkspacesContabil);
   app.get("/api/workspaces/:cnpj", exigirSessaoContabil, lerWorkspaceContabil);
   app.get("/api/workspaces/:cnpj/historico-aprovacoes", exigirSessaoContabil, listarHistoricoAprovacoesContabil);
