@@ -43,6 +43,17 @@ export const SUGESTOES_CONTAS_POR_ORIGEM: Record<OrigemMapeadaContabil, RegraOri
   // Sem regra padrão: a multa de 40% do FGTS na rescisão não é um encargo comum a todo plano de
   // contas (muitos planos nem separam essa conta). Fica só para preenchimento manual na revisão.
   dp_multa_fgts_rescisoria: [],
+  // DIFAL, IRPJ/CSLL e PIS/COFINS do Lucro Presumido: sem regra padrão também. Nenhum dos dois
+  // planos de contas conhecidos (Ferragista JE / plano padrão de comércio) tem conta específica
+  // para esses tributos cadastrada hoje; inventar um código aqui seria "chutar" uma conta que pode
+  // nem existir no plano da empresa. Fica só para preenchimento manual na revisão, com a orientação
+  // contábil (débito/crédito) explicada na tela — ver RevisaoOrigensTab.tsx.
+  fiscal_difal_consumo: [],
+  fiscal_difal_ativo: [],
+  fiscal_irpj_presumido: [],
+  fiscal_csll_presumido: [],
+  fiscal_pis_presumido: [],
+  fiscal_cofins_presumido: [],
 };
 
 /** Mantido por compatibilidade: primeira regra de cada origem (plano simples/Ferragista). */

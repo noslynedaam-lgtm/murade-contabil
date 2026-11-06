@@ -28,6 +28,12 @@ const origensMapeaveis: Array<{ id: OrigemMapeadaContabil; titulo: string; descr
   { id: "dp_descontos_irrf", titulo: "IRRF descontado", descricao: "Reduz salários a pagar e credita IRRF a recolher." },
   { id: "dp_fgts", titulo: "FGTS informado pelo DP", descricao: "Despesa de FGTS contra FGTS a recolher. Valores só chegam após cálculo persistido no DP." },
   { id: "dp_multa_fgts_rescisoria", titulo: "Multa do FGTS na rescisão (40%)", descricao: "Só aparece quando o DP confirma uma rescisão com multa de FGTS a pagar; é separada do FGTS mensal (8%)." },
+  { id: "fiscal_difal_consumo", titulo: "DIFAL — compra para uso/consumo", descricao: "Sem direito a crédito de ICMS (LC 87/96, art. 33): o valor é custo/despesa direto. Débito: despesa (ou a própria conta do material); Crédito: ICMS DIFAL a recolher (passivo). Só chega aqui depois que a contadora confirma o cálculo no Fiscal." },
+  { id: "fiscal_difal_ativo", titulo: "DIFAL — compra para ativo imobilizado", descricao: "O direito ao crédito (via CIAP, 1/48 ao mês) não é automático — depende do estado e da destinação do bem. Por padrão o débito vai para o próprio Ativo Imobilizado (aumenta o custo do bem); se esta empresa tiver direito ao crédito do CIAP, troque o débito para a conta de ICMS a recuperar correspondente. Crédito: ICMS DIFAL a recolher (passivo)." },
+  { id: "fiscal_irpj_presumido", titulo: "IRPJ do Lucro Presumido (trimestral)", descricao: "Débito: Despesas Tributárias ou Provisão para IRPJ (resultado); Crédito: IRPJ a Recolher (passivo circulante). Inclui o adicional de 10% quando houver. Só chega aqui depois que a contadora confirma a apuração no Fiscal." },
+  { id: "fiscal_csll_presumido", titulo: "CSLL do Lucro Presumido (trimestral)", descricao: "Débito: Despesas Tributárias ou Provisão para CSLL (resultado); Crédito: CSLL a Recolher (passivo circulante)." },
+  { id: "fiscal_pis_presumido", titulo: "PIS do Lucro Presumido (mensal, cumulativo)", descricao: "Débito: PIS sobre Faturamento, como dedução da receita bruta (resultado); Crédito: PIS a Recolher (passivo circulante). Regime cumulativo: não há crédito nas compras." },
+  { id: "fiscal_cofins_presumido", titulo: "COFINS do Lucro Presumido (mensal, cumulativo)", descricao: "Débito: COFINS sobre Faturamento, como dedução da receita bruta (resultado); Crédito: COFINS a Recolher (passivo circulante). Regime cumulativo: não há crédito nas compras." },
 ];
 
 /** O cadastro pode trazer o regime com sufixo de fonte (ex.: "Simples Nacional (opção cadastral informada pela fonte)"). */

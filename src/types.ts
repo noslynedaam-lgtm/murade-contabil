@@ -186,7 +186,13 @@ export type OrigemMapeadaContabil =
   | "dp_inss_patronal"
   | "dp_descontos_irrf"
   | "dp_fgts"
-  | "dp_multa_fgts_rescisoria";
+  | "dp_multa_fgts_rescisoria"
+  | "fiscal_difal_consumo"
+  | "fiscal_difal_ativo"
+  | "fiscal_irpj_presumido"
+  | "fiscal_csll_presumido"
+  | "fiscal_pis_presumido"
+  | "fiscal_cofins_presumido";
 
 export interface MapeamentoOrigemContabil {
   origem: OrigemMapeadaContabil;

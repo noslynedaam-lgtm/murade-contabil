@@ -59,3 +59,51 @@ test("NFC-e é identificada pelo modelo 65 na chave", () => {
   assert.equal(ehNfce("52261061064838002420650010003081441050382396"), true);
   assert.equal(ehNfce("52261061064838002420550010003081441050382396"), false);
 });
+
+import { gerarRascunhosApuracoes } from "../../src/server/prepararRascunhosContabeis";
+import type { ApuracaoFiscalArmazenada } from "../../src/server/apuracoesFiscaisStore";
+
+const apuracao = (extra: Partial<ApuracaoFiscalArmazenada> = {}): ApuracaoFiscalArmazenada => ({
+  cnpj, tributo: "ICMS_DIFAL_ATIVO", competencia: "2026-09", referencia: "DIFAL:nota1",
+  valorCentavos: 7317, baseCentavos: 7000, situacao: "confirmado", versaoOrigem: "2026-09-10T00:00:00.000Z",
+  recebidoEm: agora, atualizadoEm: agora, ...extra,
+});
+const contasApuracao = [
+  { codigo: "1.2.3", tipo: "analitica" }, { codigo: "2.1.9", tipo: "analitica" },
+];
+const mapeamentosApuracao = [
+  { origem: "fiscal_difal_ativo", contaDebitoCodigo: "1.2.3", contaCreditoCodigo: "2.1.9" },
+];
+
+test("apuração confirmada com mapeamento vira pré-lançamento pelo valor em reais", () => {
+  const r = gerarRascunhosApuracoes(cnpj, [apuracao()], contasApuracao, mapeamentosApuracao, agora);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].valor, 73.17);
+  assert.equal(r[0].contaDebitoCodigo, "1.2.3");
+  assert.equal(r[0].contaCreditoCodigo, "2.1.9");
+  assert.equal(r[0].competencia, "2026-09");
+  assert.match(r[0].referenciaOrigem, /^FISCAL:11497078000180:2026-09:APURACAO:ICMS_DIFAL_ATIVO:DIFAL:nota1$/);
+});
+
+test("apuração ainda não confirmada nunca vira rascunho (defesa extra, mesmo que o store já filtre)", () => {
+  assert.equal(gerarRascunhosApuracoes(cnpj, [apuracao({ situacao: "calculado" })], contasApuracao, mapeamentosApuracao, agora).length, 0);
+});
+
+test("sem mapeamento da origem (tributo) não há rascunho", () => {
+  assert.equal(gerarRascunhosApuracoes(cnpj, [apuracao()], contasApuracao, [], agora).length, 0);
+});
+
+test("tributo desconhecido (fora do contrato) é ignorado, não derruba o lote", () => {
+  const r = gerarRascunhosApuracoes(cnpj, [apuracao({ tributo: "ALGO_NOVO" as any }), apuracao()], contasApuracao, mapeamentosApuracao, agora);
+  assert.equal(r.length, 1);
+});
+
+test("IRPJ e DIFAL geram referências e contas independentes mesmo na mesma competência", () => {
+  const mapeamentos2 = [...mapeamentosApuracao, { origem: "fiscal_irpj_presumido", contaDebitoCodigo: "1.2.3", contaCreditoCodigo: "2.1.9" }];
+  const r = gerarRascunhosApuracoes(cnpj, [
+    apuracao({ tributo: "ICMS_DIFAL_ATIVO", referencia: "DIFAL:nota1" }),
+    apuracao({ tributo: "IRPJ_PRESUMIDO", referencia: "LP:irpj:2026-T3", valorCentavos: 50000 }),
+  ], contasApuracao, mapeamentos2, agora);
+  assert.equal(r.length, 2);
+  assert.notEqual(r[0].referenciaOrigem, r[1].referenciaOrigem);
+});

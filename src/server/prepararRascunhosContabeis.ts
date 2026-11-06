@@ -1,5 +1,6 @@
 import type { OrigemMapeadaContabil } from "../types";
 import { lerDocumentosFiscais, fiscalStoreConfigurado } from "./documentosFiscaisStore";
+import { lerApuracoesFiscais, apuracoesStoreConfigurado, type ApuracaoFiscalArmazenada } from "./apuracoesFiscaisStore";
 import { lerResumosDP, dpStoreConfigurado } from "./dadosDpStore";
 import { lerResumosProLaboreDP } from "./dadosProLaboreStore";
 import { lerEventosDP, type EventoDPLido, type TipoEventoDP } from "./dadosDpEventosStore";
@@ -17,7 +18,23 @@ const mapeamentosOrigem = {
   "DP — IRRF": "dp_descontos_irrf",
   "DP — FGTS": "dp_fgts",
   "DP — Multa FGTS rescisória": "dp_multa_fgts_rescisoria",
+  "Fiscal — DIFAL (uso/consumo)": "fiscal_difal_consumo",
+  "Fiscal — DIFAL (ativo imobilizado)": "fiscal_difal_ativo",
+  "Fiscal — IRPJ Presumido": "fiscal_irpj_presumido",
+  "Fiscal — CSLL Presumido": "fiscal_csll_presumido",
+  "Fiscal — PIS Presumido": "fiscal_pis_presumido",
+  "Fiscal — COFINS Presumido": "fiscal_cofins_presumido",
 } satisfies Record<string, OrigemMapeadaContabil>;
+
+/** Tributo (contrato de integração com o Fiscal — ver apuracoesContabilOutbox.ts lá) → origem mapeável aqui. */
+const ORIGEM_POR_TRIBUTO: Record<string, keyof typeof mapeamentosOrigem> = {
+  ICMS_DIFAL_ATIVO: "Fiscal — DIFAL (ativo imobilizado)",
+  ICMS_DIFAL_CONSUMO: "Fiscal — DIFAL (uso/consumo)",
+  IRPJ_PRESUMIDO: "Fiscal — IRPJ Presumido",
+  CSLL_PRESUMIDO: "Fiscal — CSLL Presumido",
+  PIS_PRESUMIDO: "Fiscal — PIS Presumido",
+  COFINS_PRESUMIDO: "Fiscal — COFINS Presumido",
+};
 
 const valorNumerico = (valor: unknown): number | null => typeof valor === "number" && Number.isFinite(valor) ? valor : null;
 
@@ -102,6 +119,51 @@ export function gerarRascunhosFiscal(cnpj: string, documentos: Registro[], conta
       contaCreditoCodigo: String(mapping.contaCreditoCodigo),
       valor: Math.round((valor + Number.EPSILON) * 100) / 100,
       historico: `${origem} NF-e ${referenciaDocumento} — valor bruto, pré-lançamento para conferência`,
+      criadoEm: agora,
+    });
+  }
+  return candidatos;
+}
+
+const HISTORICO_POR_TRIBUTO: Record<string, string> = {
+  ICMS_DIFAL_ATIVO: "DIFAL do ICMS (ativo imobilizado) confirmado no Fiscal",
+  ICMS_DIFAL_CONSUMO: "DIFAL do ICMS (uso/consumo) confirmado no Fiscal",
+  IRPJ_PRESUMIDO: "IRPJ do Lucro Presumido (trimestre) confirmado no Fiscal",
+  CSLL_PRESUMIDO: "CSLL do Lucro Presumido (trimestre) confirmado no Fiscal",
+  PIS_PRESUMIDO: "PIS do Lucro Presumido (mês) confirmado no Fiscal",
+  COFINS_PRESUMIDO: "COFINS do Lucro Presumido (mês) confirmado no Fiscal",
+};
+
+/**
+ * Apurações de tributo (DIFAL, IRPJ/CSLL, PIS/COFINS do Lucro Presumido) já confirmadas pela
+ * contadora no Fiscal — ver apuracoesFiscaisStore.ts. Diferente das notas fiscais, aqui não há
+ * documento para reler: o valor já vem fechado e só falta o mapeamento de contas desta empresa.
+ * Só entra apuração com situação "confirmado" (o store já filtra isso na gravação; a conferência
+ * aqui é defensiva, nunca gera rascunho de algo em revisão ou ainda não confirmado).
+ */
+export function gerarRascunhosApuracoes(cnpj: string, apuracoes: ApuracaoFiscalArmazenada[], contas: Registro[], mapeamentos: Registro[], agora: string): RascunhoAutomaticoContabil[] {
+  const contasAnaliticas = new Set(contas.filter((conta) => conta?.tipo === "analitica").map((conta) => conta.codigo));
+  const candidatos: RascunhoAutomaticoContabil[] = [];
+  for (const apuracao of apuracoes) {
+    if (apuracao.situacao !== "confirmado") continue;
+    const origem = ORIGEM_POR_TRIBUTO[apuracao.tributo];
+    if (!origem) continue;
+    const valor = valorNumerico(apuracao.valorCentavos);
+    if (valor === null || valor <= 0 || !/^\d{4}-(0[1-9]|1[0-2])$/.test(apuracao.competencia)) continue;
+    const mapping = mapeamentos.find((item) => item.origem === mapeamentosOrigem[origem]);
+    if (!mapping || !contasAnaliticas.has(mapping.contaDebitoCodigo) || !contasAnaliticas.has(mapping.contaCreditoCodigo)
+      || mapping.contaDebitoCodigo === mapping.contaCreditoCodigo) continue;
+    const referencia = `FISCAL:${cnpj}:${apuracao.competencia}:APURACAO:${apuracao.tributo}:${apuracao.referencia}`;
+    candidatos.push({
+      id: referencia,
+      referenciaOrigem: referencia,
+      competencia: apuracao.competencia,
+      data: `${apuracao.competencia}-01`,
+      origem,
+      contaDebitoCodigo: String(mapping.contaDebitoCodigo),
+      contaCreditoCodigo: String(mapping.contaCreditoCodigo),
+      valor: Math.round((valor / 100 + Number.EPSILON) * 100) / 100,
+      historico: `${HISTORICO_POR_TRIBUTO[apuracao.tributo] || apuracao.tributo} — pré-lançamento para conferência`,
       criadoEm: agora,
     });
   }
@@ -258,11 +320,12 @@ export async function gerarCandidatosRascunhosAutomaticos(cnpj: string, workspac
   const mapeamentos = Array.isArray(workspace.mapeamentosOrigem) ? workspace.mapeamentosOrigem as Registro[] : [];
   if (!mapeamentos.length) return [];
 
-  const [documentos, folhas, proLabores, eventos] = await Promise.all([
+  const [documentos, folhas, proLabores, eventos, apuracoes] = await Promise.all([
     lerDocumentosFiscais(cnpj, "", "", 500),
     lerResumosDP(cnpj, "", "", 200) as Promise<ResumoFolha[]>,
     lerResumosProLaboreDP(cnpj, 200).catch(() => []),
     lerEventosDP(cnpj, undefined, 200).catch(() => []),
+    apuracoesStoreConfigurado() ? lerApuracoesFiscais(cnpj, "", "", 500).catch(() => []) : Promise.resolve([]),
   ]);
   const agora = new Date().toISOString();
   const candidatos = [
@@ -270,6 +333,7 @@ export async function gerarCandidatosRascunhosAutomaticos(cnpj: string, workspac
     ...gerarRascunhosFolha(cnpj, folhas, contas, mapeamentos, agora),
     ...gerarRascunhosProLabore(cnpj, proLabores, contas, mapeamentos, agora),
     ...gerarRascunhosEventosDP(cnpj, eventos, contas, mapeamentos, agora),
+    ...gerarRascunhosApuracoes(cnpj, apuracoes, contas, mapeamentos, agora),
   ];
   return candidatos;
 }

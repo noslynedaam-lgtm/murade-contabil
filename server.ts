@@ -6,6 +6,7 @@ import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import { timingSafeEqual } from "node:crypto";
 import { ErroValidacaoDocumentoFiscal, fiscalStoreConfigurado, gravarDocumentosFiscais, lerDocumentosFiscais, lerVersoesDocumentoFiscal, verificarEstadoStoreFiscal } from "./src/server/documentosFiscaisStore";
+import { ErroValidacaoApuracaoFiscal, apuracoesStoreConfigurado, gravarApuracoesFiscais, lerApuracoesFiscais, verificarEstadoStoreApuracoes } from "./src/server/apuracoesFiscaisStore";
 import { dpStoreConfigurado, ErroConflitoResumoDP, ErroValidacaoResumoDP, gravarResumoDP, lerResumosDP, verificarEstadoStoreDP } from "./src/server/dadosDpStore";
 import { gravarResumoProLaboreDP } from "./src/server/dadosProLaboreStore";
 import { gravarEventoDP, lerEventosDP } from "./src/server/dadosDpEventosStore";
@@ -126,7 +127,7 @@ const reconciliacaoRascunhosStatus: {
   // O corpo é lido antes de checar o login, então o limite padrão é menor para reduzir abuso.
   // Só o workspace da empresa e o recebimento de documentos fiscais precisam de corpo grande.
   // O analisador específico vem primeiro: o geral não relê um corpo já lido.
-  app.use(["/api/workspaces", "/api/integracao/fiscal/documentos"], express.json({ limit: "20mb" }));
+  app.use(["/api/workspaces", "/api/integracao/fiscal/documentos", "/api/integracao/fiscal/apuracoes"], express.json({ limit: "20mb" }));
   app.use(express.json({ limit: "2mb" }));
   const sessaoAtividade = (req: express.Request) => (req as express.Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
   const atividadeEquipe = criarAtividadeEscritorio({ consultar: consultaBancoContabil, tabela: "contabil_atividade_equipe", sessao: sessaoAtividade, podeVer: (req) => sessaoAtividade(req)?.administrador === true });
@@ -375,6 +376,12 @@ const reconciliacaoRascunhosStatus: {
     } catch {
       armazenamento = { disponivel: false, documentosRecebidos: 0, ultimoRecebimento: null };
     }
+    let apuracoes: { disponivel: boolean; apuracoesRecebidas: number; ultimoRecebimento: string | null };
+    try {
+      apuracoes = await verificarEstadoStoreApuracoes();
+    } catch {
+      apuracoes = { disponivel: false, apuracoesRecebidas: 0, ultimoRecebimento: null };
+    }
     return res.json({
       conectado: true,
       sistema: "Murade Contábil",
@@ -383,6 +390,8 @@ const reconciliacaoRascunhosStatus: {
       recebimentoFiscalConfigurado: armazenamento.disponivel,
       documentosFiscaisRecebidos: armazenamento.documentosRecebidos,
       ultimoRecebimentoFiscal: armazenamento.ultimoRecebimento,
+      apuracoesFiscaisRecebidas: apuracoes.apuracoesRecebidas,
+      ultimoRecebimentoApuracoes: apuracoes.ultimoRecebimento,
       timestamp: new Date().toISOString(),
     });
   });
@@ -450,6 +459,72 @@ const reconciliacaoRascunhosStatus: {
       return res.json({ sucesso: true, cnpj, retornados: documentos.length, documentos });
     } catch (error: any) {
       return res.status(503).json({ sucesso: false, motivo: error?.message || "Não foi possível consultar documentos armazenados." });
+    }
+  });
+
+  // Receives tax assessments (DIFAL; IRPJ/CSLL/PIS/COFINS of the Lucro Presumido regime) already
+  // confirmed by the accountant in the authenticated Fiscal service. Separate contract from
+  // /documentos above: there is no nota to re-read here, only the confirmed value itself. Storing
+  // it never creates a journal entry by itself — see prepararRascunhosContabeis.ts.
+  app.post("/api/integracao/fiscal/apuracoes", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Vary", "Authorization");
+    if (negarIntegracao(req, res)) return;
+    if (!apuracoesStoreConfigurado()) {
+      return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil para receber apurações com persistência." });
+    }
+    const cnpj = normalizarCnpjAcesso(req.body?.cnpj);
+    if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
+    if (req.body?.versaoContrato !== 1) return res.status(400).json({ sucesso: false, motivo: "Versão de contrato de integração não suportada." });
+    try {
+      if (!await verificarCnpjAutorizadoContabil(cnpj)) return res.status(403).json({ sucesso: false, motivo: "CNPJ não autorizado no cadastro seguro do Contábil." });
+      const resultado = await gravarApuracoesFiscais(cnpj, req.body?.apuracoes);
+      let rascunhos = { criados: 0, atualizados: 0, disponivel: true };
+      try {
+        const preparado = await prepararRascunhosContabeisAutomaticos(cnpj);
+        rascunhos = { ...preparado, disponivel: true };
+      } catch (error) {
+        rascunhos = { criados: 0, atualizados: 0, disponivel: false };
+        console.error("Apurações fiscais salvas; a preparação automática de rascunhos ficou pendente:", error);
+      }
+      return res.json({
+        sucesso: true,
+        persistencia: "postgresql",
+        cnpj,
+        ...resultado,
+        rascunhosContabeis: rascunhos,
+        pendente: "Os rascunhos aguardam mapeamento de contas e aprovação do contador; nenhum lançamento definitivo foi criado.",
+        recebidoEm: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      const status = error instanceof ErroValidacaoApuracaoFiscal ? 422 : 503;
+      return res.status(status).json({ sucesso: false, motivo: error?.message || "Não foi possível persistir o lote de apurações no PostgreSQL." });
+    }
+  });
+
+  // Authenticated readback for server-to-server reconciliation only.
+  app.get("/api/integracao/fiscal/apuracoes", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Vary", "Authorization");
+    if (negarIntegracao(req, res)) return;
+    if (!apuracoesStoreConfigurado()) {
+      return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil." });
+    }
+    const cnpj = normalizarCnpjAcesso(req.query.cnpj);
+    if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
+    const desde = String(req.query.desde || "");
+    const ate = String(req.query.ate || "");
+    const limite = req.query.limite == null ? 200 : Number(req.query.limite);
+    if ((desde && !/^\d{4}-(0[1-9]|1[0-2])$/.test(desde)) || (ate && !/^\d{4}-(0[1-9]|1[0-2])$/.test(ate)) || (desde && ate && desde > ate)) {
+      return res.status(400).json({ sucesso: false, motivo: "Período inválido; use AAAA-MM." });
+    }
+    if (!Number.isInteger(limite) || limite < 1 || limite > 500) return res.status(400).json({ sucesso: false, motivo: "Limite deve estar entre 1 e 500." });
+    try {
+      if (!await verificarCnpjAutorizadoContabil(cnpj)) return res.status(403).json({ sucesso: false, motivo: "CNPJ não autorizado no cadastro seguro do Contábil." });
+      const apuracoes = await lerApuracoesFiscais(cnpj, desde, ate, limite);
+      return res.json({ sucesso: true, cnpj, retornados: apuracoes.length, apuracoes });
+    } catch (error: any) {
+      return res.status(503).json({ sucesso: false, motivo: error?.message || "Não foi possível consultar apurações armazenadas." });
     }
   });
 
