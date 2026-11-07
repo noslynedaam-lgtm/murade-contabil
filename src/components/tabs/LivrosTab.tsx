@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, BookOpen, Download, ExternalLink, FileSpreadsheet, Printer } from "lucide-react";
 import { EcdGeradorPainel } from "../EcdGeradorPainel";
+import { DemonstracaoReferencialPainel } from "../DemonstracaoReferencialPainel";
 import { EcfPresumidoPainel } from "../EcfPresumidoPainel";
 import { EcfRealPainel } from "../EcfRealPainel";
 import { EcfRealPeriodosPainel } from "../EcfRealPeriodosPainel";
@@ -552,7 +553,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
             <p className="mt-1 text-[11px] text-amber-900">Esses movimentos não entram no resultado até que a classificação seja revisada. O sistema não deduz a natureza da conta.</p>
             <table className="mt-2 w-full min-w-[560px] text-left text-xs"><thead><tr><th className="py-1">Conta</th><th>Descrição</th><th className="text-right">Débito</th><th className="text-right">Crédito</th></tr></thead><tbody>{contasSemClassificacaoDRE.map((item) => <tr key={`dre-pendente-${item.conta.codigo}`} className="border-t border-amber-200"><td className="py-1 font-mono">{item.conta.codigo}</td><td>{item.conta.descricao || "Nome não informado"}</td><td className="text-right">{moedaContabil(item.debitoPeriodoCentavos)}</td><td className="text-right">{moedaContabil(item.creditoPeriodoCentavos)}</td></tr>)}{!contasSemClassificacaoDRE.length && <tr><td colSpan={4} className="py-2 text-amber-900">Nenhuma conta com movimento não classificado no período.</td></tr>}</tbody></table>
           </div>
-        </div>}
+        <DemonstracaoReferencialPainel empresa={empresa} balancete={relatorios.balancete} qual="dre" /></div>}
 
         {livroVisivel === "balanco" && <div className="p-3">
           <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950">Balanço gerencial classifica Ativo, Passivo e Patrimônio Líquido pelas descrições das contas e dos grupos superiores, independentemente do código. Saldos de contas sem descrição reconhecível ficam fora deste resumo. Contas de receita e despesa também não são transferidas automaticamente para o patrimônio líquido: {contasResultadoNaoEncerradasBalanco.length} conta(s) de resultado têm movimento/saldo e exigem conferência do encerramento. Nenhum encerramento ou ajuste é criado aqui.</p>
@@ -564,7 +565,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
             <p className="mt-1 text-[11px] text-amber-900">Saldos sem classificação reconhecida ficam fora dos totais de Ativo, Passivo e Patrimônio Líquido até a revisão do plano.</p>
             <table className="mt-2 w-full min-w-[560px] text-left text-xs"><thead><tr><th className="py-1">Conta</th><th>Descrição</th><th className="text-right">Saldo devedor</th><th className="text-right">Saldo credor</th></tr></thead><tbody>{contasSemClassificacaoBalanco.map((item) => <tr key={`bp-pendente-${item.conta.codigo}`} className="border-t border-amber-200"><td className="py-1 font-mono">{item.conta.codigo}</td><td>{item.conta.descricao || "Nome não informado"}</td><td className="text-right">{moedaContabil(item.saldoDevedorCentavos)}</td><td className="text-right">{moedaContabil(item.saldoCredorCentavos)}</td></tr>)}{!contasSemClassificacaoBalanco.length && <tr><td colSpan={4} className="py-2 text-amber-900">Nenhum saldo sem classificação reconhecida.</td></tr>}</tbody></table>
           </div>
-        </div>}
+        <DemonstracaoReferencialPainel empresa={empresa} balancete={relatorios.balancete} qual="balanco" /></div>}
 
         {livroVisivel === "fluxo-caixa" && <div className="space-y-3 p-3">
           <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-950"><strong>Relatório interno de movimentação de caixa e bancos.</strong> Marque as contas analíticas de disponibilidades da empresa. O sistema usa somente lançamentos definitivos e saldo inicial com competência-base confirmada; não estima saldo ausente nem classifica os fluxos em operacionais, investimentos ou financiamentos.</div>
