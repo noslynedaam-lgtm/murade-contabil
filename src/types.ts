@@ -187,6 +187,11 @@ export type OrigemMapeadaContabil =
   | "dp_descontos_irrf"
   | "dp_fgts"
   | "dp_multa_fgts_rescisoria"
+  | "dp_salario_familia"
+  | "dp_desconto_faltas"
+  | "dp_desconto_vt"
+  | "dp_desconto_pensao"
+  | "dp_desconto_adiantamento"
   | "fiscal_difal_consumo"
   | "fiscal_difal_ativo"
   | "fiscal_irpj_presumido"
@@ -206,7 +211,7 @@ export interface PreLancamentoContabil {
   referenciaOrigem: string;
   competencia: string;
   data: string;
-  origem: "DP — Folha" | "DP — INSS" | "DP — INSS patronal" | "DP — IRRF" | "DP — FGTS" | "DP — Multa FGTS rescisória" | "Fiscal — Entrada" | "Fiscal — Saída";
+  origem: "DP — Folha" | "DP — INSS" | "DP — INSS patronal" | "DP — IRRF" | "DP — FGTS" | "DP — Multa FGTS rescisória" | "DP — Salário-família" | "DP — Faltas e DSR" | "DP — Desconto de vale-transporte" | "DP — Pensão alimentícia" | "DP — Adiantamento" | "Fiscal — Entrada" | "Fiscal — Saída" | "Fiscal — DIFAL (uso/consumo)" | "Fiscal — DIFAL (ativo imobilizado)" | "Fiscal — IRPJ Presumido" | "Fiscal — CSLL Presumido" | "Fiscal — PIS Presumido" | "Fiscal — COFINS Presumido";
   contaDebitoCodigo: string;
   contaCreditoCodigo: string;
   valor: number;

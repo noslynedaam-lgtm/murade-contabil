@@ -5,6 +5,7 @@ import { conferirFechamento } from '../utils/fechamentoContabil';
 import type { BemImobilizado } from '../utils/imobilizado';
 import { conferirEcdWorkspace, type AchadoEcd } from './conferidorEcd';
 import { limiteLc224Workspace } from './limiteLc224';
+import { conferirFolhasDP } from './conferidorFolhaDP';
 
 export type PendenciaConferidor = { id: string; titulo: string; detalhe: string };
 export type AchadoEmpresa = {
@@ -62,7 +63,14 @@ export async function rodarConferidorContabil(consultar: Consultar, agora = new 
       const cnpj = String(row.cnpj); vistos.add(cnpj);
       try { const e = conferirEcdWorkspace(cnpj, row.payload || {}, agora); if (e) achadosEcd.set(cnpj, e); else achadosEcd.delete(cnpj); } catch (erro: any) { console.error(`Conferidor da ECD falhou para ${cnpj}:`, erro?.message || erro); }
       if (fechadasSet.has(cnpj)) { achados.delete(cnpj); continue; }
-      const a = conferirWorkspace(cnpj, row.payload || {}, competencia, agora);
+      let a = conferirWorkspace(cnpj, row.payload || {}, competencia, agora);
+      // Folha que o DP mandou e não virou partida (resumo que não fecha, ou conta sem mapeamento): aponta o motivo.
+      let doDP: PendenciaConferidor[] = [];
+      try { doDP = await conferirFolhasDP(consultar, cnpj, row.payload || {}); } catch { /* a tabela do DP pode ainda não existir nesta instalação */ }
+      if (doDP.length) {
+        if (!a) a = { cnpj, competencia, verificadoEm: agora.toISOString(), pendencias: [], preLancamentosPendentesPorOrigem: {}, lancamentosAguardandoAprovacao: 0 };
+        a.pendencias.push(...doDP);
+      }
       if (!a) { achados.delete(cnpj); continue; }
       achados.set(cnpj, a); empresas += 1;
       if (a.pendencias.length || Object.keys(a.preLancamentosPendentesPorOrigem).length) comPendencia += 1;

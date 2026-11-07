@@ -1,3 +1,4 @@
+import { ITENS_FOLHA_DP, conciliarResumoFolhaDP } from "../../utils/origensContabeis";
 import { sugerirMapeamentosPadrao } from "../../utils/sugestoesContas";
 import { confirmarNaTela } from "../../utils/dialogoNaTela";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -28,6 +29,11 @@ const origensMapeaveis: Array<{ id: OrigemMapeadaContabil; titulo: string; descr
   { id: "dp_descontos_irrf", titulo: "IRRF descontado", descricao: "Reduz salários a pagar e credita IRRF a recolher." },
   { id: "dp_fgts", titulo: "FGTS informado pelo DP", descricao: "Despesa de FGTS contra FGTS a recolher. Valores só chegam após cálculo persistido no DP." },
   { id: "dp_multa_fgts_rescisoria", titulo: "Multa do FGTS na rescisão (40%)", descricao: "Só aparece quando o DP confirma uma rescisão com multa de FGTS a pagar; é separada do FGTS mensal (8%)." },
+  { id: "dp_salario_familia", titulo: "Salário-família", descricao: "Pago ao empregado e compensado na GPS: débito em INSS a recolher (reduz a guia), crédito em salários a pagar. Só aparece quando a folha tem salário-família." },
+  { id: "dp_desconto_faltas", titulo: "Desconto de faltas e DSR", descricao: "Estorna parte da folha bruta: débito em salários a pagar, crédito na despesa de salários (inverso da conta da folha bruta)." },
+  { id: "dp_desconto_vt", titulo: "Desconto do vale-transporte (até 6%)", descricao: "Débito em salários a pagar; crédito na recuperação da despesa com vale-transporte (ou na conta em que a empresa registra o VT). A conta varia por empresa: confirme com a contadora." },
+  { id: "dp_desconto_pensao", titulo: "Pensão alimentícia descontada", descricao: "Débito em salários a pagar; crédito em pensão alimentícia a pagar (repasse ao beneficiário por determinação judicial)." },
+  { id: "dp_desconto_adiantamento", titulo: "Adiantamento descontado", descricao: "Débito em salários a pagar; crédito em adiantamentos a empregados (baixa do adiantamento pago antes)." },
   { id: "fiscal_difal_consumo", titulo: "DIFAL — compra para uso/consumo", descricao: "Sem direito a crédito de ICMS (LC 87/96, art. 33): o valor é custo/despesa direto. Débito: despesa (ou a própria conta do material); Crédito: ICMS DIFAL a recolher (passivo). Só chega aqui depois que a contadora confirma o cálculo no Fiscal." },
   { id: "fiscal_difal_ativo", titulo: "DIFAL — compra para ativo imobilizado", descricao: "O direito ao crédito (via CIAP, 1/48 ao mês) não é automático — depende do estado e da destinação do bem. Por padrão o débito vai para o próprio Ativo Imobilizado (aumenta o custo do bem); se esta empresa tiver direito ao crédito do CIAP, troque o débito para a conta de ICMS a recuperar correspondente. Crédito: ICMS DIFAL a recolher (passivo)." },
   { id: "fiscal_irpj_presumido", titulo: "IRPJ do Lucro Presumido (trimestral)", descricao: "Débito: Despesas Tributárias ou Provisão para IRPJ (resultado); Crédito: IRPJ a Recolher (passivo circulante). Inclui o adicional de 10% quando houver. Só chega aqui depois que a contadora confirma a apuração no Fiscal." },
@@ -306,37 +312,21 @@ export const RevisaoOrigensTab: React.FC<{
     const partidas: PreviaPartidaDP[] = [];
     const pendencias: EstadoPreviaDP["pendencias"] = [];
     const porOrigem = new Map<OrigemMapeadaContabil, MapeamentoOrigemContabil>(mapeamentos.map((item) => [item.origem, item]));
-    const origens = [
-      { campo: "folhaBruta", origem: "dp_folha_bruta" as const, titulo: "Folha bruta" },
-      { campo: "descontosINSS", origem: "dp_descontos_inss" as const, titulo: "INSS descontado do empregado" },
-      { campo: "inssPatronal", origem: "dp_inss_patronal" as const, titulo: "INSS patronal", opcional: true },
-      { campo: "descontosIRRF", origem: "dp_descontos_irrf" as const, titulo: "IRRF descontado" },
-      { campo: "fgts", origem: "dp_fgts" as const, titulo: "FGTS informado pelo DP" },
-    ];
     for (const { atual: folha } of historicoFolhasDP) {
       if (!folha) continue;
       const valores = folha.resumo || {};
-      const camposObrigatorios = ["folhaBruta", "descontosINSS", "descontosIRRF", "descontosOutros", "liquidoFolha", "fgts"];
-      if (camposObrigatorios.some((campo) => typeof valores[campo] !== "number" || !Number.isFinite(valores[campo]))) {
-        pendencias.push({ competencia: folha.competencia, motivo: "Há totais essenciais não apurados; nenhuma prévia foi montada." });
-        continue;
-      }
-      const folhaBruta = valores.folhaBruta as number;
-      const descontosINSS = valores.descontosINSS as number;
-      const descontosIRRF = valores.descontosIRRF as number;
-      const descontosOutros = valores.descontosOutros as number;
-      const liquidoFolha = valores.liquidoFolha as number;
-      const saldoLiquidoCalculado = Math.round((folhaBruta - descontosINSS - descontosIRRF - descontosOutros + Number.EPSILON) * 100) / 100;
-      if (descontosOutros > 0 || Math.abs(saldoLiquidoCalculado - liquidoFolha) > 0.01) {
-        pendencias.push({ competencia: folha.competencia, motivo: "Descontos ou líquido não conciliam com os mapeamentos disponíveis; classifique todos os descontos antes de preparar partidas." });
+      const conciliacao = conciliarResumoFolhaDP(valores);
+      if (conciliacao.ok === false) {
+        pendencias.push({ competencia: folha.competencia, motivo: conciliacao.motivo });
         continue;
       }
       const candidatas: PreviaPartidaDP[] = [];
       let incompleta = false;
-      for (const origem of origens) {
+      for (const origem of ITENS_FOLHA_DP) {
         const valorRecebido = valores[origem.campo];
-        if (valorRecebido == null && "opcional" in origem && origem.opcional) {
-          pendencias.push({ competencia: folha.competencia, motivo: `${origem.titulo} não recebido do DP; nenhum valor foi presumido.` });
+        const opcional = ("opcional" in origem && origem.opcional) || ("classificado" in origem && origem.classificado);
+        if (valorRecebido == null && opcional) {
+          if ("opcional" in origem && origem.opcional) pendencias.push({ competencia: folha.competencia, motivo: `${origem.titulo} não recebido do DP; nenhum valor foi presumido.` });
           continue;
         }
         const valor = valorRecebido as number;

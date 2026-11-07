@@ -1,3 +1,4 @@
+import { ROTULOS_ORIGEM } from "../utils/origensContabeis";
 import type { CentroCustoContabil, ContaPlano, EmpresaDados, LancamentoContabil } from "../types";
 import { getTextContent, parseXml, type XmlElement } from "@f-o-t/xml";
 
@@ -386,7 +387,7 @@ function parseAlterdataTextoContabil(rows: string[][], fileName: string, errors:
 }
 
 function isPackage(value: any): value is PacoteMigracaoContabil {
-  const origensPermitidas = new Set(["Cadastro", "Fiscal — NFe Entrada", "Fiscal — NFe Saída", "Fiscal — Apuração ICMS", "DP — Folha", "DP — INSS", "DP — INSS patronal", "DP — IRRF", "DP — FGTS", "Financeiro / Bancos", "Manual"]);
+  const origensPermitidas = new Set(["Cadastro", "Fiscal — NFe Entrada", "Fiscal — NFe Saída", "Fiscal — Apuração ICMS", "Financeiro / Bancos", "Manual", ...ROTULOS_ORIGEM]);
   const chavesPermitidas = (item: any, permitidas: string[]) => item && typeof item === "object" && !Array.isArray(item) && Object.keys(item).every((key) => permitidas.includes(key));
   const camposConta = ["codigo", "descricao", "nivel", "tipo", "natureza", "saldoInicial", "saldoInicialCompetencia", "saldoInicialConvertidoEm"];
   const camposCentro = ["id", "codigo", "nome", "descricao", "centroPaiCodigo"];

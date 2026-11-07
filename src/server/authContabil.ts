@@ -1,3 +1,4 @@
+import { IDS_ORIGEM, ROTULOS_ORIGEM, ROTULO_PARA_ID, origemDaReferencia } from "../utils/origensContabeis";
 import { sugerirMapeamentosPadrao } from "../utils/sugestoesContas";
 import crypto from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
@@ -655,8 +656,8 @@ export async function bloquearEscritorioContabil(req: Request, res: Response): P
 }
 
 const CAMPOS_WORKSPACE = new Set(["empresa", "contas", "centrosCusto", "mapeamentosOrigem", "preLancamentos", "lancamentos", "livros", "lembretes", "bensImobilizado"]);
-const ORIGENS_MAPEAVEIS = new Set(["fiscal_entrada", "fiscal_saida", "dp_folha_bruta", "dp_descontos_inss", "dp_inss_patronal", "dp_descontos_irrf", "dp_fgts"]);
-const ORIGENS_PRELANCAMENTO = new Set(["DP — Folha", "DP — INSS", "DP — INSS patronal", "DP — IRRF", "DP — FGTS", "Fiscal — Entrada", "Fiscal — Saída"]);
+const ORIGENS_MAPEAVEIS = IDS_ORIGEM;
+const ORIGENS_PRELANCAMENTO = ROTULOS_ORIGEM;
 const CHAVES_CERTIFICADO_INFORMATIVAS = new Set([
   "certificadoativo", "certificadonomearquivo", "certificadovalidade", "certificadotipo",
   "certificadoemissor", "certificadotamanho", "certificadodataupload",
@@ -668,7 +669,7 @@ function chaveContemSegredo(chave: string): boolean {
   return /(senha|password|secret|token|apikey|authorization|privatekey|chaveprivada|certificado|certificate|pkcs12|pfxdata|base64)/i.test(normalizada);
 }
 
-function workspaceValido(value: unknown): value is Record<string, unknown> {
+export function workspaceValido(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const payload = value as Record<string, unknown>;
   if (Object.keys(payload).some((key) => !CAMPOS_WORKSPACE.has(key))) return false;
@@ -720,17 +721,11 @@ function workspaceValido(value: unknown): value is Record<string, unknown> {
       const camposPermitidos = ["id", "referenciaOrigem", "competencia", "data", "origem", "contaDebitoCodigo", "contaCreditoCodigo", "valor", "historico", "status", "criadoEm", "contabilizadoEm", "geradoAutomaticamente"];
       if (Object.keys(lancamento).some((key) => !camposPermitidos.includes(key))) return false;
       const referencia = typeof lancamento.referenciaOrigem === "string" ? lancamento.referenciaOrigem : "";
-      const referenciaDP = /^DP:[A-Z0-9]{12}\d{2}:\d{4}-(0[1-9]|1[0-2]):(folhaBruta|descontosINSS|inssPatronal|descontosIRRF|fgts)$/.test(referencia);
-      const referenciaFiscal = /^FISCAL:[A-Z0-9]{12}\d{2}:\d{4}-(0[1-9]|1[0-2]):(Entrada|Saida):[A-Za-z0-9:_-]{1,128}$/.test(referencia);
-      if ((!referenciaDP && !referenciaFiscal) || referencias.has(referencia) || lancamento.id !== referencia) return false;
-      if (typeof lancamento.competencia !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(lancamento.competencia) || !referencia.includes(`:${lancamento.competencia}:`)) return false;
-      if (typeof lancamento.data !== "string" || (referenciaDP && lancamento.data !== `${lancamento.competencia}-01`) || (referenciaFiscal && (!/^\d{4}-\d{2}-\d{2}$/.test(lancamento.data) || lancamento.data.slice(0, 7) !== lancamento.competencia))) return false;
-      if (typeof lancamento.origem !== "string" || !ORIGENS_PRELANCAMENTO.has(lancamento.origem)) return false;
-      const campoOrigem = referenciaDP ? referencia.slice(referencia.lastIndexOf(":") + 1) : referencia.split(":")[3];
-      const origemEsperada = referenciaFiscal
-        ? campoOrigem === "Entrada" ? "Fiscal — Entrada" : campoOrigem === "Saida" ? "Fiscal — Saída" : ""
-        : campoOrigem === "folhaBruta" ? "DP — Folha" : campoOrigem === "descontosINSS" ? "DP — INSS" : campoOrigem === "inssPatronal" ? "DP — INSS patronal" : campoOrigem === "descontosIRRF" ? "DP — IRRF" : "DP — FGTS";
-      if (!origemEsperada || lancamento.origem !== origemEsperada) return false;
+      const origemRef = origemDaReferencia(referencia);
+      if (!origemRef || referencias.has(referencia) || lancamento.id !== referencia) return false;
+      if (typeof lancamento.competencia !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(lancamento.competencia) || (origemRef.competencia !== null && origemRef.competencia !== lancamento.competencia)) return false;
+      if (typeof lancamento.data !== "string" || (origemRef.sistema === "DP" && lancamento.data !== `${lancamento.competencia}-01`) || (origemRef.sistema === "FISCAL" && (!/^\d{4}-\d{2}-\d{2}$/.test(lancamento.data) || lancamento.data.slice(0, 7) !== lancamento.competencia))) return false;
+      if (typeof lancamento.origem !== "string" || !ORIGENS_PRELANCAMENTO.has(lancamento.origem) || lancamento.origem !== origemRef.rotulo) return false;
       if (typeof lancamento.contaDebitoCodigo !== "string" || typeof lancamento.contaCreditoCodigo !== "string" || lancamento.contaDebitoCodigo === lancamento.contaCreditoCodigo || !contasAnaliticas.has(lancamento.contaDebitoCodigo) || !contasAnaliticas.has(lancamento.contaCreditoCodigo)) return false;
       if (typeof lancamento.valor !== "number" || !Number.isFinite(lancamento.valor) || lancamento.valor <= 0 || lancamento.valor > 999999999999) return false;
       if (typeof lancamento.historico !== "string" || lancamento.historico.length > 240 || !["pendente_conferencia", "contabilizado"].includes(String(lancamento.status))) return false;
@@ -876,7 +871,7 @@ export async function contabilizarRascunhosAutomaticosContabil(
     await client.query("BEGIN");
     const selecionado = await client.query("SELECT payload,version FROM contabil_company_workspaces WHERE cnpj=$1 FOR UPDATE", [cnpj]);
     if (!selecionado.rowCount) { await client.query("ROLLBACK"); res.status(404).json({ sucesso: false, motivo: "Workspace da empresa não encontrado." }); return; }
-    const fechamento = await client.query("SELECT 1 FROM contabil_period_closures WHERE cnpj=$1 AND competencia=ANY($2::text[]) LIMIT 1", [cnpj, referencias.map((referencia) => referencia.split(":")[2]).filter((item) => /^\d{4}-(0[1-9]|1[0-2])$/.test(item))]);
+    const fechamento = await client.query("SELECT 1 FROM contabil_period_closures WHERE cnpj=$1 AND competencia=ANY($2::text[]) LIMIT 1", [cnpj, referencias.flatMap((referencia) => [origemDaReferencia(referencia)?.competencia, candidatosAtuais.find((c) => c.referenciaOrigem === referencia)?.competencia]).filter((item): item is string => typeof item === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(item))]);
     if (fechamento.rowCount) { await client.query("ROLLBACK"); res.status(409).json({ sucesso: false, motivo: "Há referência de competência fechada. Nenhum rascunho foi contabilizado." }); return; }
     const payload = selecionado.rows[0].payload as Record<string, any>;
     const rascunhos = Array.isArray(payload.preLancamentos) ? [...payload.preLancamentos] : [];
@@ -894,13 +889,7 @@ export async function contabilizarRascunhosAutomaticosContabil(
       if (!rascunho || rascunho.status !== "pendente_conferencia" || rascunho.geradoAutomaticamente !== true || !candidato) {
         throw Object.assign(new Error("Um ou mais rascunhos já não atendem às regras atuais. Atualize os dados e revise novamente."), { status: 409 });
       }
-      const origemMapeamento: Record<string, string> = {
-        "Fiscal — Entrada": "fiscal_entrada", "Fiscal — Saída": "fiscal_saida",
-        "DP — Folha": "dp_folha_bruta", "DP — INSS": "dp_descontos_inss",
-        "DP — INSS patronal": "dp_inss_patronal",
-        "DP — IRRF": "dp_descontos_irrf", "DP — FGTS": "dp_fgts",
-      };
-      const mapping = mapas.find((item: any) => item.origem === origemMapeamento[rascunho.origem]);
+      const mapping = mapas.find((item: any) => item.origem === ROTULO_PARA_ID[rascunho.origem]);
       const analiticas = new Set(contas.filter((item: any) => item?.tipo === "analitica").map((item: any) => String(item.codigo)));
       const confereAtual = rascunho.referenciaOrigem === candidato.referenciaOrigem
         && rascunho.competencia === candidato.competencia && rascunho.data === candidato.data
@@ -1343,7 +1332,7 @@ export async function mesclarRascunhosAutomaticosContabil(
       if (!referencia.startsWith(`DP:${normalizado}:`) && !referencia.startsWith(`FISCAL:${normalizado}:`)) continue;
       if (fechados.has(candidato.competencia)) continue;
       if (lancamentos.some((item) => item.documentoRef === referencia || item.id === referencia)) continue;
-      const campoOrigem = referencia.startsWith("DP:") ? referenceDpOrigem(referencia) : referenceFiscalOrigem(referencia);
+      const campoOrigem = origemDaReferencia(referencia)?.id ?? "";
       const mapeamento = mapeamentos.find((item) => item.origem === campoOrigem);
       if (!mapeamento || mapeamento.contaDebitoCodigo !== candidato.contaDebitoCodigo || mapeamento.contaCreditoCodigo !== candidato.contaCreditoCodigo) continue;
 
@@ -1382,18 +1371,6 @@ export async function mesclarRascunhosAutomaticosContabil(
   } finally {
     client.release();
   }
-}
-
-function referenceDpOrigem(referencia: string): string {
-  const campo = referencia.split(":").at(-1);
-  return campo === "folhaBruta" || campo === "proLabore" ? "dp_folha_bruta" : campo === "descontosINSS" || campo === "inssSocio" ? "dp_descontos_inss"
-    : campo === "inssPatronal" ? "dp_inss_patronal"
-    : campo === "descontosIRRF" || campo === "irrfSocio" ? "dp_descontos_irrf" : campo === "fgts" ? "dp_fgts" : "";
-}
-
-function referenceFiscalOrigem(referencia: string): string {
-  const tipo = referencia.split(":")[3];
-  return tipo === "Entrada" ? "fiscal_entrada" : tipo === "Saida" ? "fiscal_saida" : "";
 }
 
 export async function lerWorkspaceContabil(req: Request, res: Response): Promise<void> {

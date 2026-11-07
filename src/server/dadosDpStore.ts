@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import { cnpjContabilValido, normalizarCnpjAcesso } from "./authContabil";
+import { CAMPOS_DESCONTOS_CLASSIFICADOS, CAMPOS_OPCIONAIS_RESUMO_DP } from "../utils/origensContabeis";
 
 let pool: Pool | null | undefined;
 let inicializacao: Promise<void> | null = null;
@@ -50,7 +51,9 @@ const camposMonetarios = [
   "encargosOutros",
 ] as const;
 
-const camposResumoPermitidos = new Set(["quantidadeFuncionarios", ...camposMonetarios]);
+// Campos que o DP passou a enviar (salário-família e a classificação de "outros descontos"). Opcionais: o contrato versão 1 antigo continua válido.
+const camposOpcionaisClassificados = CAMPOS_OPCIONAIS_RESUMO_DP;
+const camposResumoPermitidos = new Set(["quantidadeFuncionarios", ...camposMonetarios, ...camposOpcionaisClassificados]);
 const camposAindaNaoApurados = new Set(["inssPatronal", "provisaoFerias", "provisao13", "encargosOutros"]);
 
 function arredondarCentavos(valor: number): number {
@@ -93,7 +96,7 @@ export function normalizarResumoDPContrato(cnpj: string, body: any) {
   if (camposRecebidos.some((campo) => !camposResumoPermitidos.has(campo))) {
     throw new ErroValidacaoResumoDP("O resumo aceita apenas totais agregados; remova nomes, CPF, dados bancários ou outros dados pessoais.");
   }
-  if ([...camposResumoPermitidos].some((campo) => !Object.prototype.hasOwnProperty.call(body.resumo, campo))) {
+  if ([...camposResumoPermitidos].some((campo) => !(camposOpcionaisClassificados as readonly string[]).includes(campo) && !Object.prototype.hasOwnProperty.call(body.resumo, campo))) {
     throw new ErroValidacaoResumoDP("O resumo precisa informar todos os totais do contrato; campos ainda não apurados devem ser null, não zero.");
   }
   if (typeof body.resumo.quantidadeFuncionarios !== "number" || !Number.isInteger(body.resumo.quantidadeFuncionarios) || body.resumo.quantidadeFuncionarios < 0 || body.resumo.quantidadeFuncionarios > 100000) {
@@ -111,6 +114,18 @@ export function normalizarResumoDPContrato(cnpj: string, body: any) {
       throw new ErroValidacaoResumoDP(`Valor agregado inválido: ${campo}.`);
     }
     resumo[campo] = arredondarCentavos(valor);
+  }
+
+  for (const campo of camposOpcionaisClassificados) {
+    if (!Object.prototype.hasOwnProperty.call(body.resumo, campo)) continue;
+    const valor = body.resumo[campo];
+    if (typeof valor !== "number" || !Number.isFinite(valor) || valor < 0 || valor > 999999999999) throw new ErroValidacaoResumoDP(`Valor agregado inválido: ${campo}.`);
+    resumo[campo] = arredondarCentavos(valor);
+  }
+  // Os descontos classificados precisam explicar exatamente "outros descontos"; senão o DP está enviando um total que não sabe explicar.
+  const classificados = CAMPOS_DESCONTOS_CLASSIFICADOS.reduce((total, campo) => total + (typeof resumo[campo] === "number" ? (resumo[campo] as number) : 0), 0);
+  if (CAMPOS_DESCONTOS_CLASSIFICADOS.some((campo) => resumo[campo] !== undefined) && Math.abs(arredondarCentavos(classificados) - (resumo.descontosOutros as number)) > 0.01) {
+    throw new ErroValidacaoResumoDP("Os descontos classificados (faltas, vale-transporte, pensão e adiantamento) não somam o total de outros descontos.");
   }
 
   return {

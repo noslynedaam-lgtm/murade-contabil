@@ -43,6 +43,21 @@ export const SUGESTOES_CONTAS_POR_ORIGEM: Record<OrigemMapeadaContabil, RegraOri
   // Sem regra padrão: a multa de 40% do FGTS na rescisão não é um encargo comum a todo plano de
   // contas (muitos planos nem separam essa conta). Fica só para preenchimento manual na revisão.
   dp_multa_fgts_rescisoria: [],
+  // Salário-família é compensado na GPS: débito no INSS a recolher, crédito em salários a pagar (o valor é pago ao empregado e abatido da guia).
+  dp_salario_familia: [
+    { debito: ["2.2.1", /inss/i], credito: ["2.1.2", /sal[áa]rio/i] },
+    { debito: ["2.1.05.01.05", /contribui[çc][õo]es previdenci[áa]rias/i], credito: ["2.1.06.01.01", /sal[áa]rios a pagar/i] },
+  ],
+  // Faltas e DSR descontados estornam a despesa já lançada na folha bruta: o inverso da conta "Folha bruta".
+  dp_desconto_faltas: [
+    { debito: ["2.1.2", /sal[áa]rio/i], credito: ["5.2.1", /pessoal/i] },
+    { debito: ["2.1.06.01.01", /sal[áa]rios a pagar/i], credito: ["4.3.01.02.01", /sal[áa]rios e ordenados/i] },
+  ],
+  // Sem regra padrão: a contrapartida varia por empresa (VT: recuperação da despesa com vale-transporte; pensão: pensão a pagar;
+  // adiantamento: adiantamentos a empregados). Não se chuta conta que pode nem existir no plano.
+  dp_desconto_vt: [],
+  dp_desconto_pensao: [],
+  dp_desconto_adiantamento: [],
   // DIFAL, IRPJ/CSLL e PIS/COFINS do Lucro Presumido: sem regra padrão também. Nenhum dos dois
   // planos de contas conhecidos (Ferragista JE / plano padrão de comércio) tem conta específica
   // para esses tributos cadastrada hoje; inventar um código aqui seria "chutar" uma conta que pode

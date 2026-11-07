@@ -1,4 +1,5 @@
 import type { OrigemMapeadaContabil } from "../types";
+import { ROTULO_PARA_ID, ID_PARA_ROTULO, ORIGEM_POR_TRIBUTO as ORIGEM_POR_TRIBUTO_ID, ITENS_FOLHA_DP, conciliarResumoFolhaDP } from "../utils/origensContabeis";
 import { lerDocumentosFiscais, fiscalStoreConfigurado } from "./documentosFiscaisStore";
 import { lerApuracoesFiscais, apuracoesStoreConfigurado, type ApuracaoFiscalArmazenada } from "./apuracoesFiscaisStore";
 import { lerResumosDP, dpStoreConfigurado } from "./dadosDpStore";
@@ -9,32 +10,10 @@ import { lerWorkspaceInternoContabil, mesclarRascunhosAutomaticosContabil, type 
 type Registro = Record<string, any>;
 type ResumoFolha = { competencia: string; calculadoEm?: string; atualizadoEm?: string; recebidoEm?: string; resumo?: Record<string, unknown> };
 
-const mapeamentosOrigem = {
-  "Fiscal — Entrada": "fiscal_entrada",
-  "Fiscal — Saída": "fiscal_saida",
-  "DP — Folha": "dp_folha_bruta",
-  "DP — INSS": "dp_descontos_inss",
-  "DP — INSS patronal": "dp_inss_patronal",
-  "DP — IRRF": "dp_descontos_irrf",
-  "DP — FGTS": "dp_fgts",
-  "DP — Multa FGTS rescisória": "dp_multa_fgts_rescisoria",
-  "Fiscal — DIFAL (uso/consumo)": "fiscal_difal_consumo",
-  "Fiscal — DIFAL (ativo imobilizado)": "fiscal_difal_ativo",
-  "Fiscal — IRPJ Presumido": "fiscal_irpj_presumido",
-  "Fiscal — CSLL Presumido": "fiscal_csll_presumido",
-  "Fiscal — PIS Presumido": "fiscal_pis_presumido",
-  "Fiscal — COFINS Presumido": "fiscal_cofins_presumido",
-} satisfies Record<string, OrigemMapeadaContabil>;
+const mapeamentosOrigem: Record<string, OrigemMapeadaContabil> = ROTULO_PARA_ID;
 
-/** Tributo (contrato de integração com o Fiscal — ver apuracoesContabilOutbox.ts lá) → origem mapeável aqui. */
-const ORIGEM_POR_TRIBUTO: Record<string, keyof typeof mapeamentosOrigem> = {
-  ICMS_DIFAL_ATIVO: "Fiscal — DIFAL (ativo imobilizado)",
-  ICMS_DIFAL_CONSUMO: "Fiscal — DIFAL (uso/consumo)",
-  IRPJ_PRESUMIDO: "Fiscal — IRPJ Presumido",
-  CSLL_PRESUMIDO: "Fiscal — CSLL Presumido",
-  PIS_PRESUMIDO: "Fiscal — PIS Presumido",
-  COFINS_PRESUMIDO: "Fiscal — COFINS Presumido",
-};
+/** Tributo (contrato de integração com o Fiscal — ver apuracoesContabilOutbox.ts lá) → rótulo da origem mapeável aqui. */
+const ORIGEM_POR_TRIBUTO: Record<string, string> = Object.fromEntries(Object.entries(ORIGEM_POR_TRIBUTO_ID).map(([tributo, id]) => [tributo, ID_PARA_ROTULO[id]]));
 
 const valorNumerico = (valor: unknown): number | null => typeof valor === "number" && Number.isFinite(valor) ? valor : null;
 
@@ -170,7 +149,7 @@ export function gerarRascunhosApuracoes(cnpj: string, apuracoes: ApuracaoFiscalA
   return candidatos;
 }
 
-function gerarRascunhosFolha(cnpj: string, folhas: ResumoFolha[], contas: Registro[], mapeamentos: Registro[], agora: string): RascunhoAutomaticoContabil[] {
+export function gerarRascunhosFolha(cnpj: string, folhas: ResumoFolha[], contas: Registro[], mapeamentos: Registro[], agora: string): RascunhoAutomaticoContabil[] {
   const contasAnaliticas = new Set(contas.filter((conta) => conta?.tipo === "analitica").map((conta) => conta.codigo));
   const porCompetencia = new Map<string, ResumoFolha>();
   for (const folha of [...folhas].sort((a, b) => String(b.atualizadoEm || b.calculadoEm || b.recebidoEm || "").localeCompare(String(a.atualizadoEm || a.calculadoEm || a.recebidoEm || "")))) {
@@ -178,37 +157,26 @@ function gerarRascunhosFolha(cnpj: string, folhas: ResumoFolha[], contas: Regist
   }
 
   const candidatos: RascunhoAutomaticoContabil[] = [];
-  const origens = [
-    { campo: "folhaBruta", origem: "DP — Folha", titulo: "Folha bruta" },
-    { campo: "descontosINSS", origem: "DP — INSS", titulo: "INSS descontado do empregado" },
-    { campo: "inssPatronal", origem: "DP — INSS patronal", titulo: "INSS patronal", opcional: true },
-    { campo: "descontosIRRF", origem: "DP — IRRF", titulo: "IRRF descontado" },
-    { campo: "fgts", origem: "DP — FGTS", titulo: "FGTS informado pelo DP" },
-  ] as const;
-  const obrigatorios = ["folhaBruta", "descontosINSS", "descontosIRRF", "descontosOutros", "liquidoFolha", "fgts"];
-
   for (const folha of porCompetencia.values()) {
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(folha.competencia) || !folha.resumo) continue;
     const valores = folha.resumo;
-    if (obrigatorios.some((campo) => valorNumerico(valores[campo]) === null)) continue;
-    const folhaBruta = valorNumerico(valores.folhaBruta)!;
-    const inss = valorNumerico(valores.descontosINSS)!;
-    const irrf = valorNumerico(valores.descontosIRRF)!;
-    const outros = valorNumerico(valores.descontosOutros)!;
-    const liquido = valorNumerico(valores.liquidoFolha)!;
-    if (outros !== 0 || Math.abs(Math.round((folhaBruta - inss - irrf + Number.EPSILON) * 100) / 100 - liquido) > 0.01) continue;
+    // Só gera quando a folha fecha: bruto − INSS − IRRF − descontos classificados + salário-família = líquido.
+    if (!conciliarResumoFolhaDP(valores).ok) continue;
 
+    // Várias partidas por folha (multipartida): cada item é um par débito/crédito balanceado, na ordem do contrato.
     const lote: RascunhoAutomaticoContabil[] = [];
     let completo = true;
-    for (const item of origens) {
+    for (const item of ITENS_FOLHA_DP) {
       const valor = valorNumerico(valores[item.campo]);
-      if (valor === null && "opcional" in item && item.opcional) continue;
+      const opcional = ("opcional" in item && item.opcional) || ("classificado" in item && item.classificado);
+      if (valor === null && opcional) continue;
       if (valor === null || valor < 0) { completo = false; break; }
       if (valor === 0) continue;
-      const mappingKey = mapeamentosOrigem[item.origem];
-      const mapping = mapeamentos.find((candidate) => candidate.origem === mappingKey);
+      const mapping = mapeamentos.find((candidate) => candidate.origem === item.origem);
       if (!mapping || !contasAnaliticas.has(mapping.contaDebitoCodigo) || !contasAnaliticas.has(mapping.contaCreditoCodigo)
         || mapping.contaDebitoCodigo === mapping.contaCreditoCodigo) {
+        // INSS patronal ausente continua opcional (como antes). Desconto ou provento classificado sem conta trava a folha toda:
+        // lançar só uma parte deixaria "salários a pagar" diferente do líquido.
         if ("opcional" in item && item.opcional) continue;
         completo = false;
         break;
@@ -219,7 +187,7 @@ function gerarRascunhosFolha(cnpj: string, folhas: ResumoFolha[], contas: Regist
         referenciaOrigem: referencia,
         competencia: folha.competencia,
         data: `${folha.competencia}-01`,
-        origem: item.origem,
+        origem: ID_PARA_ROTULO[item.origem],
         contaDebitoCodigo: String(mapping.contaDebitoCodigo),
         contaCreditoCodigo: String(mapping.contaCreditoCodigo),
         valor: Math.round((valor + Number.EPSILON) * 100) / 100,

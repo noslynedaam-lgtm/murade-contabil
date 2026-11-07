@@ -11,9 +11,15 @@ const planoModelo = [
   { codigo: "5.2.1", descricao: "Despesas com Pessoal e Encargos", tipo: "analitica" },
 ];
 
-test("Plano padrão: sugere as 7 origens, com débito e crédito diferentes", () => {
+test("Plano padrão: sugere as 9 origens (as 7 de sempre + salário-família e faltas), com débito e crédito diferentes", () => {
   const s = sugerirMapeamentosPadrao(planoModelo, [], "2026-11-03T00:00:00.000Z");
-  assert.equal(s.length, 7);
+  assert.equal(s.length, 9);
+  const sf = s.find((x) => x.origem === "dp_salario_familia")!;
+  assert.deepEqual([sf.contaDebitoCodigo, sf.contaCreditoCodigo], ["2.2.1", "2.1.2"]);
+  const faltas = s.find((x) => x.origem === "dp_desconto_faltas")!;
+  assert.deepEqual([faltas.contaDebitoCodigo, faltas.contaCreditoCodigo], ["2.1.2", "5.2.1"]);
+  // VT, pensão e adiantamento dependem da empresa: nunca se chuta conta.
+  for (const o of ["dp_desconto_vt", "dp_desconto_pensao", "dp_desconto_adiantamento"]) assert.ok(!s.some((x) => x.origem === o));
   const saida = s.find((x) => x.origem === "fiscal_saida")!;
   assert.deepEqual([saida.contaDebitoCodigo, saida.contaCreditoCodigo], ["1.1.5", "4.1.1"]);
   for (const x of s) assert.notEqual(x.contaDebitoCodigo, x.contaCreditoCodigo);
@@ -24,7 +30,7 @@ test("Não adivinha: plano diferente (outros códigos) não recebe sugestão; ma
   assert.equal(sugerirMapeamentosPadrao(outroPlano, [], "x").length, 0);
   const existente = [{ origem: "fiscal_saida", contaDebitoCodigo: "9.9", contaCreditoCodigo: "8.8", revisadoEm: "x" }];
   const s = sugerirMapeamentosPadrao(planoModelo, existente, "x");
-  assert.equal(s.length, 6); assert.ok(!s.some((x) => x.origem === "fiscal_saida"));
+  assert.equal(s.length, 8); assert.ok(!s.some((x) => x.origem === "fiscal_saida"));
   assert.equal(sugerirMapeamentosPadrao(planoModelo.map((c) => c.codigo === "1.1.5" ? { ...c, tipo: "sintetica" } : c), [], "x").some((x) => x.origem === "fiscal_saida"), false);
 });
 
@@ -45,9 +51,9 @@ const planoPadraoComercio572 = [
   { codigo: "2.1.05.02.02", descricao: "Imposto de Renda Retido na Fonte - de Terceiros", natureza: "C", tipo: "analitica" },
 ];
 
-test("Plano padrão de comércio (572 contas, 5 níveis): sugere as 7 origens a partir das contas reais do escritório", () => {
+test("Plano padrão de comércio (572 contas, 5 níveis): sugere as 9 origens a partir das contas reais do escritório", () => {
   const s = sugerirMapeamentosPadrao(planoPadraoComercio572, [], "2026-11-03T00:00:00.000Z");
-  assert.equal(s.length, 7);
+  assert.equal(s.length, 9);
   const esperado: Record<string, [string, string]> = {
     fiscal_entrada: ["1.1.08.01.07", "2.1.03.01.01"],
     fiscal_saida: ["1.1.04.01.01", "3.1.01.01.02"],
@@ -56,6 +62,8 @@ test("Plano padrão de comércio (572 contas, 5 níveis): sugere as 7 origens a 
     dp_inss_patronal: ["4.3.01.04.01", "2.1.05.01.05"],
     dp_descontos_irrf: ["2.1.06.01.01", "2.1.05.02.01"],
     dp_fgts: ["4.3.01.04.02", "2.1.05.01.06"],
+    dp_salario_familia: ["2.1.05.01.05", "2.1.06.01.01"],
+    dp_desconto_faltas: ["2.1.06.01.01", "4.3.01.02.01"],
   };
   for (const origem of Object.keys(esperado)) {
     const item = s.find((x) => x.origem === origem);
@@ -66,7 +74,7 @@ test("Plano padrão de comércio (572 contas, 5 níveis): sugere as 7 origens a 
 
 test("Plano padrão de comércio: empresa sem o plano padrão carregado (plano simples) continua usando as regras do plano simples", () => {
   const s = sugerirMapeamentosPadrao(planoModelo, [], "x");
-  assert.equal(s.length, 7);
+  assert.equal(s.length, 9);
   assert.deepEqual([s.find((x) => x.origem === "dp_fgts")!.contaDebitoCodigo, s.find((x) => x.origem === "dp_fgts")!.contaCreditoCodigo], ["5.2.1", "2.2.2"]);
 });
 
