@@ -195,6 +195,7 @@ export type OrigemMapeadaContabil =
   | "dp_provisao_ferias"
   | "dp_provisao_13"
   | "dp_provisao_encargos"
+  | "dp_ferias"
   | "fiscal_difal_consumo"
   | "fiscal_difal_ativo"
   | "fiscal_irpj_presumido"
@@ -214,7 +215,7 @@ export interface PreLancamentoContabil {
   referenciaOrigem: string;
   competencia: string;
   data: string;
-  origem: "DP — Folha" | "DP — INSS" | "DP — INSS patronal" | "DP — IRRF" | "DP — FGTS" | "DP — Multa FGTS rescisória" | "DP — Salário-família" | "DP — Faltas e DSR" | "DP — Desconto de vale-transporte" | "DP — Pensão alimentícia" | "DP — Adiantamento" | "DP — Provisão de férias" | "DP — Provisão de 13º" | "DP — Encargos sobre provisões" | "Fiscal — Entrada" | "Fiscal — Saída" | "Fiscal — DIFAL (uso/consumo)" | "Fiscal — DIFAL (ativo imobilizado)" | "Fiscal — IRPJ Presumido" | "Fiscal — CSLL Presumido" | "Fiscal — PIS Presumido" | "Fiscal — COFINS Presumido";
+  origem: "DP — Folha" | "DP — INSS" | "DP — INSS patronal" | "DP — IRRF" | "DP — FGTS" | "DP — Multa FGTS rescisória" | "DP — Salário-família" | "DP — Faltas e DSR" | "DP — Desconto de vale-transporte" | "DP — Pensão alimentícia" | "DP — Adiantamento" | "DP — Provisão de férias" | "DP — Provisão de 13º" | "DP — Encargos sobre provisões" | "DP — Férias" | "Fiscal — Entrada" | "Fiscal — Saída" | "Fiscal — DIFAL (uso/consumo)" | "Fiscal — DIFAL (ativo imobilizado)" | "Fiscal — IRPJ Presumido" | "Fiscal — CSLL Presumido" | "Fiscal — PIS Presumido" | "Fiscal — COFINS Presumido";
   contaDebitoCodigo: string;
   contaCreditoCodigo: string;
   valor: number;

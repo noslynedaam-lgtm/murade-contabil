@@ -684,7 +684,7 @@ const reconciliacaoRascunhosStatus: {
     if (negarIntegracao(req, res)) return;
     if (!dpStoreConfigurado()) return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil." });
     const cnpj = normalizarCnpjAcesso(req.query.cnpj);
-    const tipo = req.query.tipo === "decimo" || req.query.tipo === "rescisao" ? req.query.tipo : undefined;
+    const tipo = req.query.tipo === "decimo" || req.query.tipo === "rescisao" || req.query.tipo === "ferias" ? req.query.tipo : undefined;
     const limite = req.query.limite == null ? 50 : Number(req.query.limite);
     if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
     if (!Number.isInteger(limite) || limite < 1 || limite > 200) return res.status(400).json({ sucesso: false, motivo: "Limite deve estar entre 1 e 200." });

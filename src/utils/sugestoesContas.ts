@@ -62,6 +62,8 @@ export const SUGESTOES_CONTAS_POR_ORIGEM: Record<OrigemMapeadaContabil, RegraOri
   dp_provisao_ferias: [],
   dp_provisao_13: [],
   dp_provisao_encargos: [],
+  // Férias pagas: debita a provisão de férias (ou a despesa, se a empresa não provisiona). Depende do plano; sem regra padrão.
+  dp_ferias: [],
   // DIFAL, IRPJ/CSLL e PIS/COFINS do Lucro Presumido: sem regra padrão também. Nenhum dos dois
   // planos de contas conhecidos (Ferragista JE / plano padrão de comércio) tem conta específica
   // para esses tributos cadastrada hoje; inventar um código aqui seria "chutar" uma conta que pode

@@ -20,6 +20,7 @@ export const ORIGENS = [
   { id: "dp_provisao_ferias", rotulo: "DP — Provisão de férias" },
   { id: "dp_provisao_13", rotulo: "DP — Provisão de 13º" },
   { id: "dp_provisao_encargos", rotulo: "DP — Encargos sobre provisões" },
+  { id: "dp_ferias", rotulo: "DP — Férias" },
   { id: "fiscal_difal_consumo", rotulo: "Fiscal — DIFAL (uso/consumo)" },
   { id: "fiscal_difal_ativo", rotulo: "Fiscal — DIFAL (ativo imobilizado)" },
   { id: "fiscal_irpj_presumido", rotulo: "Fiscal — IRPJ Presumido" },
@@ -100,7 +101,7 @@ export function conciliarResumoFolhaDP(v: Record<string, unknown>): { ok: true }
 
 // ---------------------------------------------------------------- referências
 // DP mensal:    DP:<cnpj>:AAAA-MM:<campo>                       (campo da folha ou do pró-labore)
-// DP evento:    DP:<cnpj>:decimo|rescisao:<referência>:<campo>  (13º e rescisão pagos)
+// DP evento:    DP:<cnpj>:decimo|rescisao|ferias:<referência>:<campo>  (13º, rescisão e férias pagos)
 // Fiscal nota:  FISCAL:<cnpj>:AAAA-MM:Entrada|Saida:<chave>
 // Fiscal apur.: FISCAL:<cnpj>:AAAA-MM:APURACAO:<TRIBUTO>:<referência>
 const CAMPO_DP_MENSAL: Record<string, IdOrigem> = {
@@ -123,7 +124,12 @@ export function origemDaReferencia(referencia: string): OrigemDaReferencia | nul
   const monta = (id: IdOrigem | undefined, competencia: string | null): OrigemDaReferencia | null => (id ? { id, rotulo: ID_PARA_ROTULO[id], competencia, sistema: p[0] as "DP" | "FISCAL" } : null);
   if (p[0] === "DP") {
     if (COMP.test(p[2])) return p.length === 4 ? monta(CAMPO_DP_MENSAL[p[3]], p[2]) : null;
-    if ((p[2] === "decimo" || p[2] === "rescisao") && p.length >= 5 && p[3]) return monta(CAMPO_DP_EVENTO[p[p.length - 1]], null);
+    if ((p[2] === "decimo" || p[2] === "rescisao" || p[2] === "ferias") && p.length >= 5 && p[3]) {
+      const campo = p[p.length - 1];
+      // O bruto das férias tem conta própria: é pago contra a provisão de férias (quando a empresa provisiona), não contra a despesa de folha.
+      if (p[2] === "ferias" && campo === "bruto") return monta("dp_ferias", null);
+      return monta(CAMPO_DP_EVENTO[campo], null);
+    }
     return null;
   }
   if (!COMP.test(p[2])) return null;

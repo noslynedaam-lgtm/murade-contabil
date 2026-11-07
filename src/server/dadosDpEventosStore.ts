@@ -1,4 +1,4 @@
-// Eventos de 13º e rescisão confirmados como pagos no Murade DP (não é a folha mensal — fica numa
+// Eventos de 13º, rescisão e férias confirmados como pagos no Murade DP (não é a folha mensal — fica numa
 // tabela própria, separada de murade_folhas_dp_origem, para nunca disputar o mesmo lugar na
 // geração de rascunhos: a folha mensal nunca pode falhar e não pode ser afetada por este envio).
 // Nunca recebe nome, CPF ou qualquer dado que identifique o funcionário: "referencia" é o ano (13º,
@@ -6,14 +6,16 @@
 import { cnpjContabilValido, normalizarCnpjAcesso } from "./authContabil";
 import { obterPoolDP, ErroValidacaoResumoDP, ErroConflitoResumoDP } from "./dadosDpStore";
 
-export type TipoEventoDP = "decimo" | "rescisao";
+export type TipoEventoDP = "decimo" | "rescisao" | "ferias";
 
 const camposMonetariosPorTipo: Record<TipoEventoDP, readonly string[]> = {
   decimo: ["bruto", "descontosINSS", "inssPatronal", "descontosIRRF", "fgts"],
   rescisao: ["bruto", "descontosINSS", "inssPatronal", "descontosIRRF", "fgts", "multaFgts"],
+  // Férias: bruto = férias + 1/3 + abono + 1/3 do abono; INSS e IRRF só sobre o que tem incidência; FGTS só sobre férias + 1/3.
+  ferias: ["bruto", "descontosINSS", "inssPatronal", "descontosIRRF", "fgts"],
 };
 // INSS patronal pode não estar apurado (mesma regra do resumo mensal); os demais são obrigatórios.
-const camposOpcionaisPorTipo: Record<TipoEventoDP, readonly string[]> = { decimo: ["inssPatronal"], rescisao: ["inssPatronal"] };
+const camposOpcionaisPorTipo: Record<TipoEventoDP, readonly string[]> = { decimo: ["inssPatronal"], rescisao: ["inssPatronal"], ferias: ["inssPatronal"] };
 
 const arred = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
 const canonico = (r: Record<string, unknown>) => JSON.stringify(Object.fromEntries(Object.entries(r).sort(([a], [b]) => a.localeCompare(b))));
@@ -25,7 +27,7 @@ export function normalizarEventoDPContrato(cnpj: string, body: any) {
   if (Object.keys(body).some((c) => !envelope.has(c))) throw new ErroValidacaoResumoDP("O contrato não aceita dados pessoais ou campos adicionais no envelope.");
   if (body.versaoContrato !== 1) throw new ErroValidacaoResumoDP("Versão do contrato não suportada.");
   if (normalizarCnpjAcesso(body.cnpj) !== cnpj) throw new ErroValidacaoResumoDP("O CNPJ do envio não corresponde à empresa solicitada.");
-  if (body.tipo !== "decimo" && body.tipo !== "rescisao") throw new ErroValidacaoResumoDP("Tipo de evento inválido.");
+  if (body.tipo !== "decimo" && body.tipo !== "rescisao" && body.tipo !== "ferias") throw new ErroValidacaoResumoDP("Tipo de evento inválido.");
   const tipo = body.tipo as TipoEventoDP;
   if (typeof body.referencia !== "string" || !/^[0-9a-f]{8,64}$/i.test(body.referencia) || /\d{11}/.test(body.referencia)) {
     throw new ErroValidacaoResumoDP("Referência do evento inválida ou contém dado que parece pessoal.");
@@ -64,7 +66,7 @@ async function inicializar(): Promise<void> {
     inicializacao = db.query(`
       CREATE TABLE IF NOT EXISTS murade_eventos_dp_origem (
         cnpj char(14) NOT NULL CHECK (cnpj ~ '^[A-Z0-9]{12}[0-9]{2}$'),
-        tipo varchar(20) NOT NULL CHECK (tipo IN ('decimo','rescisao')),
+        tipo varchar(20) NOT NULL,
         referencia varchar(64) NOT NULL,
         competencia char(7) NOT NULL CHECK (competencia ~ '^\\d{4}-(0[1-9]|1[0-2])$'),
         processamento_id varchar(128) NOT NULL,
@@ -73,7 +75,10 @@ async function inicializar(): Promise<void> {
         recebido_em timestamptz NOT NULL DEFAULT now(),
         atualizado_em timestamptz NOT NULL DEFAULT now(),
         PRIMARY KEY (cnpj, tipo, referencia)
-      )`).then(() => undefined).catch((e) => { inicializacao = null; throw e; });
+      );
+      -- A tabela nasceu só com 13º e rescisão; troca a trava para aceitar também férias (idempotente).
+      ALTER TABLE murade_eventos_dp_origem DROP CONSTRAINT IF EXISTS murade_eventos_dp_origem_tipo_check;
+      ALTER TABLE murade_eventos_dp_origem ADD CONSTRAINT murade_eventos_dp_origem_tipo_check CHECK (tipo IN ('decimo','rescisao','ferias'));`).then(() => undefined).catch((e) => { inicializacao = null; throw e; });
   }
   await inicializacao;
 }

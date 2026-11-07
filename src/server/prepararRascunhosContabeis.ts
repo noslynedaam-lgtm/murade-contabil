@@ -210,7 +210,7 @@ export function gerarRascunhosFolha(cnpj: string, folhas: ResumoFolha[], contas:
  */
 export function gerarRascunhosEventosDP(cnpj: string, eventos: EventoDPLido[], contas: Registro[], mapeamentos: Registro[], agora: string): RascunhoAutomaticoContabil[] {
   const contasAnaliticas = new Set(contas.filter((conta) => conta?.tipo === "analitica").map((conta) => conta.codigo));
-  const titulos: Record<TipoEventoDP, string> = { decimo: "13º salário", rescisao: "Rescisão" };
+  const titulos: Record<TipoEventoDP, string> = { decimo: "13º salário", rescisao: "Rescisão", ferias: "Férias" };
   const origens = [
     { campo: "bruto", origem: "DP — Folha" as const },
     { campo: "descontosINSS", origem: "DP — INSS" as const },
@@ -224,7 +224,9 @@ export function gerarRascunhosEventosDP(cnpj: string, eventos: EventoDPLido[], c
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(evento.competencia) || !evento.resumo) continue;
     const valores = evento.resumo;
     const tituloBase = titulos[evento.tipo];
-    for (const item of origens) {
+    for (const itemBase of origens) {
+      // O bruto das férias usa a conta própria "DP — Férias" (pago contra a provisão), não a da folha mensal.
+      const item = evento.tipo === "ferias" && itemBase.campo === "bruto" ? { ...itemBase, origem: "DP — Férias" as const } : itemBase;
       if (!(item.campo in valores)) continue; // multaFgts só existe em rescisão
       const valor = valorNumerico(valores[item.campo]);
       if (valor === null) { if ("opcional" in item && item.opcional) continue; break; }
