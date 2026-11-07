@@ -117,3 +117,15 @@ test("conferidor: folha do DP sem conta mapeada ou que não fecha aparece como p
   const naoFecha = pendenciasFolhasDP(cnpj, [{ competencia: "2026-09", resumo: { ...resumo, liquidoFolha: 1 } }], completo);
   assert.equal(naoFecha.length, 1); assert.match(naoFecha[0].detalhe, /não fecham/);
 });
+
+test("provisões mensais (férias, 13º, encargos) viram partidas próprias; sem a conta mapeada só elas ficam de fora", () => {
+  const comProv = { ...resumo, provisaoFerias: 1333.32, provisao13: 1000, encargosOutros: 186.66 };
+  const mapProv = [...mapeamentos, mapa("dp_provisao_ferias", "5.2.1", "6.1.1"), mapa("dp_provisao_13", "5.2.1", "6.1.2"), mapa("dp_provisao_encargos", "5.2.1", "2.2.2")];
+  const r = gerarRascunhosFolha(cnpj, [{ competencia: "2026-10", resumo: comProv } as any], contas, mapProv, agora);
+  assert.equal(r.length, 12);
+  assert.equal(r.find((x) => x.referenciaOrigem.endsWith(":provisaoFerias"))!.valor, 1333.32);
+  assert.equal(workspaceValido(base({ mapeamentosOrigem: mapProv, preLancamentos: r.map(comoPre) })), true);
+  const semProv = gerarRascunhosFolha(cnpj, [{ competencia: "2026-10", resumo: comProv } as any], contas, mapeamentos, agora);
+  assert.equal(semProv.length, 9); // folha completa continua saindo
+  assert.equal(gerarRascunhosFolha(cnpj, [{ competencia: "2026-10", resumo: { ...resumo, provisaoFerias: null, provisao13: null, encargosOutros: null } } as any], contas, mapProv, agora).length, 9);
+});

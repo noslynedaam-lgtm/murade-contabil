@@ -58,6 +58,10 @@ export const SUGESTOES_CONTAS_POR_ORIGEM: Record<OrigemMapeadaContabil, RegraOri
   dp_desconto_vt: [],
   dp_desconto_pensao: [],
   dp_desconto_adiantamento: [],
+  // Provisões: a conta de despesa e a de passivo variam por plano (provisão de férias/13º a pagar, encargos sobre provisões); sem regra padrão.
+  dp_provisao_ferias: [],
+  dp_provisao_13: [],
+  dp_provisao_encargos: [],
   // DIFAL, IRPJ/CSLL e PIS/COFINS do Lucro Presumido: sem regra padrão também. Nenhum dos dois
   // planos de contas conhecidos (Ferragista JE / plano padrão de comércio) tem conta específica
   // para esses tributos cadastrada hoje; inventar um código aqui seria "chutar" uma conta que pode

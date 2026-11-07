@@ -17,6 +17,9 @@ export const ORIGENS = [
   { id: "dp_desconto_vt", rotulo: "DP — Desconto de vale-transporte" },
   { id: "dp_desconto_pensao", rotulo: "DP — Pensão alimentícia" },
   { id: "dp_desconto_adiantamento", rotulo: "DP — Adiantamento" },
+  { id: "dp_provisao_ferias", rotulo: "DP — Provisão de férias" },
+  { id: "dp_provisao_13", rotulo: "DP — Provisão de 13º" },
+  { id: "dp_provisao_encargos", rotulo: "DP — Encargos sobre provisões" },
   { id: "fiscal_difal_consumo", rotulo: "Fiscal — DIFAL (uso/consumo)" },
   { id: "fiscal_difal_ativo", rotulo: "Fiscal — DIFAL (ativo imobilizado)" },
   { id: "fiscal_irpj_presumido", rotulo: "Fiscal — IRPJ Presumido" },
@@ -51,6 +54,10 @@ export const ITENS_FOLHA_DP = [
   { campo: "inssPatronal", origem: "dp_inss_patronal", titulo: "INSS patronal", opcional: true },
   { campo: "descontosIRRF", origem: "dp_descontos_irrf", titulo: "IRRF descontado" },
   { campo: "fgts", origem: "dp_fgts", titulo: "FGTS informado pelo DP" },
+  // Provisões mensais (competência): independentes do líquido; sem conta mapeada, só elas ficam de fora.
+  { campo: "provisaoFerias", origem: "dp_provisao_ferias", titulo: "Provisão de férias + 1/3", opcional: true },
+  { campo: "provisao13", origem: "dp_provisao_13", titulo: "Provisão de 13º salário", opcional: true },
+  { campo: "encargosOutros", origem: "dp_provisao_encargos", titulo: "FGTS e INSS patronal sobre as provisões", opcional: true },
   { campo: "salarioFamilia", origem: "dp_salario_familia", titulo: "Salário-família (compensação na GPS)", classificado: true },
   { campo: "descontosFaltas", origem: "dp_desconto_faltas", titulo: "Desconto de faltas e DSR", classificado: true },
   { campo: "descontosVT", origem: "dp_desconto_vt", titulo: "Desconto do vale-transporte", classificado: true },
@@ -99,6 +106,7 @@ export function conciliarResumoFolhaDP(v: Record<string, unknown>): { ok: true }
 const CAMPO_DP_MENSAL: Record<string, IdOrigem> = {
   folhaBruta: "dp_folha_bruta", descontosINSS: "dp_descontos_inss", inssPatronal: "dp_inss_patronal", descontosIRRF: "dp_descontos_irrf", fgts: "dp_fgts",
   salarioFamilia: "dp_salario_familia", descontosFaltas: "dp_desconto_faltas", descontosVT: "dp_desconto_vt", descontosPensao: "dp_desconto_pensao", descontosAdiantamento: "dp_desconto_adiantamento",
+  provisaoFerias: "dp_provisao_ferias", provisao13: "dp_provisao_13", encargosOutros: "dp_provisao_encargos",
   proLabore: "dp_folha_bruta", inssSocio: "dp_descontos_inss", irrfSocio: "dp_descontos_irrf",
 };
 const CAMPO_DP_EVENTO: Record<string, IdOrigem> = {
