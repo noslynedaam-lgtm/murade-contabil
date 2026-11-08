@@ -1,6 +1,7 @@
 import { IDS_ORIGEM, ROTULOS_ORIGEM, ROTULO_PARA_ID, origemDaReferencia } from "../utils/origensContabeis";
 import { sugerirMapeamentosPadrao } from "../utils/sugestoesContas";
 import crypto from "node:crypto";
+import { diaDeHoje } from "./agenteSaudacao";
 import type { NextFunction, Request, Response } from "express";
 import { Pool, type PoolClient } from "pg";
 import { gerarRelatoriosContabeis, normalizarDataContabil } from "../utils/livrosContabeis";
@@ -160,6 +161,8 @@ export async function prepararAuthContabil(): Promise<void> {
       ALTER TABLE contabil_auth_users ADD COLUMN IF NOT EXISTS tenant_id uuid;
       ALTER TABLE contabil_auth_users ADD COLUMN IF NOT EXISTS max_usuarios integer CHECK (max_usuarios IS NULL OR max_usuarios BETWEEN 1 AND 1000);
       ALTER TABLE contabil_auth_invites ADD COLUMN IF NOT EXISTS novo_escritorio boolean NOT NULL DEFAULT false;
+      ALTER TABLE contabil_auth_users ADD COLUMN IF NOT EXISTS nome_tratamento text;
+      ALTER TABLE contabil_auth_users ADD COLUMN IF NOT EXISTS ultima_saudacao date;
       UPDATE contabil_auth_users SET tenant_id=id WHERE tenant_id IS NULL AND global_admin=true;
       UPDATE contabil_auth_users SET tenant_id=office_owner WHERE tenant_id IS NULL AND office_owner IS NOT NULL;
     `);
@@ -1641,6 +1644,22 @@ export async function logoutAuthContabil(req: Request, res: Response): Promise<v
 /** Acesso genérico ao banco do Contábil para módulos próprios (protocolo entre agentes, auditoria da Agente IA). */
 export function consultaBancoContabil(sql: string, params: unknown[] = []): Promise<{ rows: any[] }> {
   return obterBanco().query(sql, params as any[]);
+}
+// --- Nome de tratamento e saudação do dia da Agente IA (regra fixa, sem chamar IA) ---------------------------------
+export async function lerPerfilSaudacaoContabil(userId: string): Promise<{ nome: string | null; saudadoHoje: boolean }> {
+  await prepararAuthContabil();
+  const hoje = diaDeHoje();
+  const r = await obterBanco().query("SELECT nome_tratamento, ultima_saudacao::text AS ultima FROM contabil_auth_users WHERE id=$1", [userId]);
+  const linha = r.rows[0];
+  return { nome: linha?.nome_tratamento ? String(linha.nome_tratamento) : null, saudadoHoje: linha?.ultima === hoje };
+}
+export async function gravarNomeTratamentoContabil(userId: string, nome: string): Promise<void> {
+  await prepararAuthContabil();
+  await obterBanco().query("UPDATE contabil_auth_users SET nome_tratamento=$2 WHERE id=$1", [userId, nome]);
+}
+export async function marcarSaudadoHojeContabil(userId: string): Promise<void> {
+  await prepararAuthContabil();
+  await obterBanco().query("UPDATE contabil_auth_users SET ultima_saudacao=$2::date WHERE id=$1", [userId, diaDeHoje()]);
 }
 export function bancoContabilConfigurado(): boolean { return Boolean(process.env.DATABASE_URL?.trim()); }
 /** Identificador não reversível da sessão atual (para vincular ações pendentes a quem as pediu). */

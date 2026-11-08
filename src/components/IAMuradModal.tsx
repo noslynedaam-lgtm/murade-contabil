@@ -71,6 +71,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
   const textoFaladoRef = useRef("");
   const geracaoRef = useRef(0);
   const janelaConversaRef = useRef(0);
+  const aguardandoNomeRef = useRef(false);
   const pararRef = useRef<() => void>(() => {});
   const falandoRef = useRef(false);
   const enviarRef = useRef<(t: string) => void>(() => {});
@@ -86,6 +87,24 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
+
+  // Saudação do dia ("Bom dia, Herbert!") e pergunta do nome na primeira vez. Regra fixa no servidor: não gasta crédito de IA.
+  useEffect(() => {
+    let cancelado = false;
+    const t = window.setTimeout(async () => {
+      try {
+        const r = await fetch("/api/ai/agente/saudacao", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const d = await r.json().catch(() => ({}));
+        if (cancelado || !r.ok || !d?.sucesso || !d.saudar || typeof d.frase !== "string") return;
+        setMessages((prev) => [...prev, { id: `${Date.now()}-saudacao`, sender: "ia", text: d.frase, timestamp: "Agora" }]);
+        if (d.precisaNome) { aguardandoNomeRef.current = true; janelaConversaRef.current = Date.now() + 25000; onOpen(); }
+        falarRef.current(d.frase);
+        mostrarAviso(d.frase);
+      } catch { /* sem saudação, o resto funciona igual */ }
+    }, 2500);
+    return () => { cancelado = true; window.clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Sintetizador de voz natural em português
   const falarTexto = (texto: string) => {
@@ -158,6 +177,19 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
 
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
+    // Primeira vez: a resposta é o nome da pessoa. O servidor grava no usuário (sem IA).
+    if (aguardandoNomeRef.current) {
+      try {
+        const rn = await fetch("/api/ai/agente/nome", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texto }) });
+        const dn = await rn.json().catch(() => ({}));
+        const frase = typeof dn?.frase === "string" ? dn.frase : (typeof dn?.mensagem === "string" ? dn.mensagem : "Não entendi o nome. Pode repetir só o nome?");
+        if (dn?.sucesso) aguardandoNomeRef.current = false;
+        else janelaConversaRef.current = Date.now() + 25000;
+        setMessages((prev) => [...prev, { id: `msg-${Date.now() + 1}-nome`, sender: "ia", text: frase, timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]);
+        if (minhaGeracao === geracaoRef.current) { falarTexto(frase); mostrarAviso(frase); }
+      } catch { /* sem resposta do servidor: a pergunta do nome continua valendo */ }
+      return;
+    }
     setLoading(true);
 
     try {

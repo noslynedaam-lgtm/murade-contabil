@@ -17,6 +17,8 @@ import { kitContabil } from "./src/server/agenteContabil";
 import { ArmazemPedidosMemoria, ArmazemPedidosPg, CentralDePedidos, tokenValido } from "./src/server/agentesEntreSistemas";
 import { criarAtividadeEscritorio } from './src/server/atividadeEscritorio';
 import type { SessaoContabil } from './src/server/authContabil';
+import { lerPerfilSaudacaoContabil, gravarNomeTratamentoContabil, marcarSaudadoHojeContabil } from "./src/server/authContabil";
+import { extrairNomeDaResposta, fraseDeSaudacao } from "./src/server/agenteSaudacao";
 import { listarRegistroAgenteIAContabil, bancoContabilConfigurado, consultaBancoContabil, hashSessaoContabil, registrarAcaoAgenteIAContabil, listarDuvidasSemRespostaDonoSistemaContabil, resolverDuvidaSemRespostaDonoSistemaContabil } from "./src/server/authContabil";
 import { executarRobo, registrarResultadoRobo, registrarRobo, statusRobos } from "./src/server/robosStatus";
 import { buscarEmpresasDoFiscal, cnpjsValidosDoFiscal } from "./src/server/empresasDoFiscal";
@@ -1125,6 +1127,32 @@ const reconciliacaoRascunhosStatus: {
     };
   };
 
+  // Saudação do dia: "Bom dia, Herbert!" uma vez por dia por usuário. Se ainda não sabe o nome, pede. Sem IA, sem custo.
+  app.post("/api/ai/agente/saudacao", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const sessao = sessaoDaRequisicaoContabil(req);
+    if (!sessao) return res.status(401).json({ sucesso: false });
+    try {
+      const perfil = await lerPerfilSaudacaoContabil(sessao.userId);
+      if (!perfil.nome) return res.json({ sucesso: true, precisaNome: true, saudar: true, frase: `${fraseDeSaudacao(null)} Eu sou a sua assistente. Qual é o seu nome?` });
+      if (perfil.saudadoHoje) return res.json({ sucesso: true, precisaNome: false, saudar: false, nome: perfil.nome });
+      await marcarSaudadoHojeContabil(sessao.userId);
+      return res.json({ sucesso: true, precisaNome: false, saudar: true, nome: perfil.nome, frase: fraseDeSaudacao(perfil.nome) });
+    } catch (error) { console.error("Falha na saudação da Agente IA do Contábil:", error instanceof Error ? error.message : error); return res.json({ sucesso: false }); }
+  });
+  app.post("/api/ai/agente/nome", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const sessao = sessaoDaRequisicaoContabil(req);
+    if (!sessao) return res.status(401).json({ sucesso: false });
+    const nome = extrairNomeDaResposta(typeof req.body?.texto === "string" ? req.body.texto : "");
+    if (!nome) return res.json({ sucesso: false, mensagem: "Não entendi o nome. Pode repetir só o nome?" });
+    try {
+      await gravarNomeTratamentoContabil(sessao.userId, nome);
+      await marcarSaudadoHojeContabil(sessao.userId);
+      return res.json({ sucesso: true, nome, frase: `Prazer, ${nome}! Pode falar o que precisa.` });
+    } catch (error) { console.error("Falha ao gravar o nome da Agente IA do Contábil:", error instanceof Error ? error.message : error); return res.status(503).json({ sucesso: false, mensagem: "Não consegui gravar o nome agora." }); }
+  });
+
   app.post("/api/ai/agente", exigirSessaoContabil, async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     const ctx = contextoAgenteIA(req);
@@ -1138,6 +1166,7 @@ const reconciliacaoRascunhosStatus: {
       ? req.body.historico.filter((t: any) => t && (t.papel === "usuario" || t.papel === "ia") && typeof t.texto === "string").slice(-10)
       : [];
     try {
+      try { const sessao = sessaoDaRequisicaoContabil(req); if (sessao) ctx.nomeUsuario = (await lerPerfilSaudacaoContabil(sessao.userId)).nome || undefined; } catch { /* sem o nome a conversa segue normal */ }
       return res.json({ sucesso: true, ...(await conversarAgenteIA(ctx, modeloGeminiAgente(), message, historico)) });
     } catch (error) {
       console.error("Falha na Agente IA do Contábil:", error instanceof Error ? error.message : error);
