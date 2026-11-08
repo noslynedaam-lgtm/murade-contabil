@@ -135,17 +135,28 @@ export const LIMITE_FALHAS_POR_USUARIO = 20;
 export const JANELA_BLOQUEIO_MINUTOS = 15;
 export const DIAS_APARELHO_CONFIAVEL = 90;
 
-const prefixoValido = (p: string) => { if (!/^[a-z][a-z0-9_]{2,40}$/.test(p)) throw new Error('Prefixo de tabela inválido.'); return p; };
+/** Prefixo das tabelas: `murade_fiscal` ou, quando o sistema usa schema próprio, `schema.prefixo` (ex.: `fiscoia.seg`). */
+const prefixoValido = (p: string) => { if (!/^(?:[a-z][a-z0-9_]{1,30}\.)?[a-z][a-z0-9_]{2,40}$/.test(p)) throw new Error('Prefixo de tabela inválido.'); return p; };
+/** Nome de índice nunca leva o schema na frente. */
+const nomeIndice = (p: string, sufixo: string) => `${p.replace('.', '_')}_${sufixo}`;
 
 export async function prepararSeguranca(c: Consultar, prefixo: string): Promise<void> {
   const p = prefixoValido(prefixo);
   await c(`
     CREATE TABLE IF NOT EXISTS ${p}_login_falhas (chave text PRIMARY KEY, tentativas integer NOT NULL DEFAULT 0, ate timestamptz NOT NULL);
     CREATE TABLE IF NOT EXISTS ${p}_eventos_seguranca (id bigserial PRIMARY KEY, quando timestamptz NOT NULL DEFAULT now(), tipo text NOT NULL, login text, ip text);
-    CREATE INDEX IF NOT EXISTS ${p}_eventos_seguranca_quando_idx ON ${p}_eventos_seguranca(quando DESC);
+    CREATE INDEX IF NOT EXISTS ${nomeIndice(p, 'eventos_seguranca_quando_idx')} ON ${p}_eventos_seguranca(quando DESC);
     CREATE TABLE IF NOT EXISTS ${p}_2fa (user_id text PRIMARY KEY, segredo_cifrado text NOT NULL, ativo boolean NOT NULL DEFAULT false, ultimo_passo bigint, emergencia text[] NOT NULL DEFAULT '{}', criado_em timestamptz NOT NULL DEFAULT now(), ativado_em timestamptz);
     CREATE TABLE IF NOT EXISTS ${p}_dispositivos_confiaveis (token_hash char(64) PRIMARY KEY, user_id text NOT NULL, criado_em timestamptz NOT NULL DEFAULT now(), expira_em timestamptz NOT NULL);
-    CREATE INDEX IF NOT EXISTS ${p}_dispositivos_confiaveis_user_idx ON ${p}_dispositivos_confiaveis(user_id);
+    CREATE INDEX IF NOT EXISTS ${nomeIndice(p, 'dispositivos_confiaveis_user_idx')} ON ${p}_dispositivos_confiaveis(user_id);
+  `);
+  await limparSeguranca(c, p);
+}
+
+/** Faxina: tentativas vencidas, aparelhos vencidos e eventos com mais de 90 dias. */
+export async function limparSeguranca(c: Consultar, prefixo: string): Promise<void> {
+  const p = prefixoValido(prefixo);
+  await c(`
     DELETE FROM ${p}_login_falhas WHERE ate < now() - interval '1 day';
     DELETE FROM ${p}_dispositivos_confiaveis WHERE expira_em < now();
     DELETE FROM ${p}_eventos_seguranca WHERE quando < now() - interval '90 days';

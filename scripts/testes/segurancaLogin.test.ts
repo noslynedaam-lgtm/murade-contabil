@@ -201,3 +201,24 @@ test('banco: ativar o código de segurança, entrar com ele, não repetir o mesm
     assert.equal(await m.aparelhoConfiavel(q, p, 'u1', token2), false, 'sem código ativo, aparelhos antigos são esquecidos');
   } finally { await q(`DROP TABLE IF EXISTS ${p}_login_falhas, ${p}_eventos_seguranca, ${p}_2fa, ${p}_dispositivos_confiaveis`); await pool.end(); }
 });
+
+test('banco: prefixo com schema próprio (schema.prefixo) cria as tabelas e a faxina remove o que venceu', { skip: !urlBanco }, async () => {
+  const { Pool } = await import('pg');
+  const m = await import('../../src/server/segurancaLogin');
+  const pool = new Pool({ connectionString: urlBanco });
+  const q = (s: string, p?: unknown[]) => pool.query(s, p as any);
+  const esquema = `sch_${crypto.randomBytes(3).toString('hex')}`; const p = `${esquema}.seg`;
+  try {
+    await q(`CREATE SCHEMA ${esquema}`);
+    await m.prepararSeguranca(q, p);
+    assert.equal((await q(`SELECT to_regclass('${p}_login_falhas') IS NOT NULL AS ok`)).rows[0].ok, true);
+    await m.registrarFalha(q, p, '4.4.4.4', 'eva');
+    assert.equal(await m.estaBloqueado(q, p, '4.4.4.4', 'eva'), false);
+    await q(`INSERT INTO ${p}_login_falhas(chave, tentativas, ate) VALUES ('ip:velho', 3, now() - interval '3 days')`);
+    await q(`INSERT INTO ${p}_eventos_seguranca(quando, tipo) VALUES (now() - interval '120 days', 'login_falhou')`);
+    await m.limparSeguranca(q, p);
+    assert.equal((await q(`SELECT count(*)::int AS n FROM ${p}_login_falhas WHERE chave='ip:velho'`)).rows[0].n, 0);
+    assert.equal((await q(`SELECT count(*)::int AS n FROM ${p}_eventos_seguranca WHERE quando < now() - interval '100 days'`)).rows[0].n, 0);
+    await assert.rejects(() => m.estaBloqueado(q, 'x;drop', 'a', 'b'), /Prefixo/);
+  } finally { await q(`DROP SCHEMA IF EXISTS ${esquema} CASCADE`); await pool.end(); }
+});
