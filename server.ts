@@ -11,7 +11,7 @@ import { dpStoreConfigurado, ErroConflitoResumoDP, ErroValidacaoResumoDP, gravar
 import { gravarResumoProLaboreDP } from "./src/server/dadosProLaboreStore";
 import { gravarEventoDP, lerEventosDP } from "./src/server/dadosDpEventosStore";
 import { registrarGestaoEquipe } from "./src/server/gestaoEquipe";
-import { prepararAuthContabil, configGestaoEquipeContabil, adicionarEmpresaAcessoContabil, adicionarEquipeContabil, bloquearEscritorioContabil, definirLimiteEscritorioContabil, convidarEquipeContabil, convidarEscritorioContabil, reenviarAcessoEscritorioContabil, listarEquipeContabil, listarEscritoriosContabil, removerEquipeContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, sessaoDaRequisicaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarCnpjsComOrigensSemMapeamentoContabil, aplicarMapeamentosPadraoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, manterConectadoContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil, importarCnpjsCompartilhados } from "./src/server/authContabil";
+import { prepararAuthContabil, configGestaoEquipeContabil, adicionarEmpresaAcessoContabil, adicionarEquipeContabil, bloquearEscritorioContabil, definirLimiteEscritorioContabil, convidarEquipeContabil, convidarEscritorioContabil, reenviarAcessoEscritorioContabil, listarEquipeContabil, listarEscritoriosContabil, removerEquipeContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, sessaoDaRequisicaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarCnpjsComOrigensSemMapeamentoContabil, aplicarMapeamentosPadraoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, manterConectadoContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil, importarCnpjsCompartilhados, auth2faEstadoContabil, auth2faIniciarContabil, auth2faAtivarContabil, auth2faDesativarContabil, auth2faRedefinirContabil, auth2faResumoContabil, resumoSegurancaContabil } from "./src/server/authContabil";
 import { ArmazemAcoesPendentes, confirmarAcao as confirmarAcaoAgenteIA, conversar as conversarAgenteIA, recusarAcao as recusarAcaoAgenteIA, type ChamarApi, type ContextoAgente, type ModeloIA } from "./src/server/agenteMotor";
 import { kitContabil } from "./src/server/agenteContabil";
 import { ArmazemPedidosMemoria, ArmazemPedidosPg, CentralDePedidos, tokenValido } from "./src/server/agentesEntreSistemas";
@@ -188,6 +188,12 @@ const reconciliacaoRascunhosStatus: {
   app.post("/api/auth/login", exigirOrigemNavegador, loginAuthContabil);
   app.post("/api/auth/logout", exigirOrigemNavegador, logoutAuthContabil);
   app.post("/api/auth/manter-conectado", exigirOrigemNavegador, manterConectadoContabil);
+  app.get("/api/auth/2fa", exigirSessaoContabil, auth2faEstadoContabil);
+  app.post("/api/auth/2fa/iniciar", exigirOrigemNavegador, exigirSessaoContabil, auth2faIniciarContabil);
+  app.post("/api/auth/2fa/ativar", exigirOrigemNavegador, exigirSessaoContabil, auth2faAtivarContabil);
+  app.post("/api/auth/2fa/desativar", exigirOrigemNavegador, exigirSessaoContabil, auth2faDesativarContabil);
+  app.post("/api/auth/2fa/redefinir", exigirOrigemNavegador, exigirSessaoContabil, auth2faRedefinirContabil);
+  app.get("/api/auth/2fa/resumo", exigirSessaoContabil, auth2faResumoContabil);
   registrarGestaoEquipe(app, configGestaoEquipeContabil(exigirSessaoContabil, exigirOrigemNavegador));
   app.post("/api/auth/redeem", exigirOrigemNavegador, resgatarConviteUsuarioContabil);
   app.post("/api/auth/companies", exigirOrigemNavegador, exigirSessaoContabil, adicionarEmpresaAcessoContabil);
@@ -1256,6 +1262,14 @@ const reconciliacaoRascunhosStatus: {
   }).catch((e) => console.error("Falha no Robô Conferidor de Acessos:", e?.message || e)) : undefined;
   setTimeout(() => void rodarConferidorDeAcessos(), 90_000).unref();
   setInterval(() => void rodarConferidorDeAcessos(), 60 * 60_000).unref();
+  registrarRobo({ id: "seguranca_login", nome: "Robô Conferidor de Segurança do Login", posto: "conferidor", missao: "Conferir, só em leitura, as últimas 24 horas do login: senhas e códigos errados, bloqueios por excesso de tentativas, códigos de emergência usados e se o dono do sistema está com o código de segurança ligado. Avisa quando algo foge do normal. Nunca bloqueia, libera nem altera nenhuma conta.", intervaloMs: 2 * 60 * 60_000 });
+  const rodarSegurancaLogin = () => bancoContabilConfigurado() ? executarRobo("seguranca_login", async () => {
+    const r = await resumoSegurancaContabil(1);
+    registrarResultadoRobo("seguranca_login", r.texto);
+    if (r.alerta) throw new Error(r.texto);
+  }).catch((e) => console.error("Alerta do Robô Conferidor de Segurança do Login:", e?.message || e)) : undefined;
+  setTimeout(() => void rodarSegurancaLogin(), 130_000).unref();
+  setInterval(() => void rodarSegurancaLogin(), 2 * 60 * 60_000).unref();
   registrarRobo({ id: "backups", nome: "Robô de Backups Mensais", posto: "conferidor", missao: "Conferir se cada escritório com empresa cadastrada já tem o backup cifrado do mês corrente, gerado e conferido (checksum e reabertura do zip); gera de novo sozinho quando falta ou falhou, sem precisar do dono. Mantém só o backup do mês corrente (o anterior é apagado) e avisa o escritório por e-mail quando fica pronto.", intervaloMs: 60 * 60_000 });
   const escritoriosParaBackup = async (): Promise<{ id: string; login: string; cnpjs: string[] }[]> => {
     const r = await consultaBancoContabil(

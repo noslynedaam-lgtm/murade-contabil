@@ -195,6 +195,29 @@ const FERRAMENTAS: Ferramenta[] = [
 
   // ---------------------------------------------------------------- ações (exigem confirmação)
   {
+    tipo: 'leitura',
+    declaracao: { name: 'seguranca_login', description: 'Mostra a segurança do login das últimas 24 horas: senhas e códigos errados, bloqueios por excesso de tentativas, códigos de emergência usados, quantas contas têm o código de segurança ligado e se o dono do sistema está com ele ligado. Só o dono do sistema vê. Só lê; não bloqueia nem libera ninguém.', parameters: { type: 'OBJECT', properties: {} } },
+    async executar(ctx) {
+      const r = await ctx.chamarApi('GET', '/api/auth/2fa/resumo');
+      if (!ok(r)) return erroApi(r);
+      return { situacao: r.corpo?.texto, alerta: r.corpo?.alerta === true, numeros: r.corpo?.resumo, donosSemCodigo: r.corpo?.donosSemCodigo };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'redefinir_codigo_usuario', description: 'Propõe redefinir o código de segurança de um usuário que perdeu o celular: o código é desligado, ele sai de todos os aparelhos e entra de novo só com a senha (depois pode ligar o código outra vez). O dono do sistema pode redefinir qualquer usuário; o administrador de um escritório, só os da própria equipe.', parameters: { type: 'OBJECT', properties: { login: { type: 'STRING', description: 'Usuário (e-mail) de quem perdeu o celular.' } }, required: ['login'] } },
+    async preparar(_ctx, args) {
+      const login = String(args.login || '').trim().toLowerCase();
+      if (login.length < 3 || login.length > 80 || !/^[a-z0-9._@+-]+$/.test(login)) return { erro: 'Informe o usuário (e-mail) de quem perdeu o celular.' };
+      return { cnpj: '', params: { login }, titulo: 'Redefinir código de segurança', descricao: [`Usuário ${login}`, 'O código de segurança dele é desligado e ele sai de todos os aparelhos. Entra de novo só com a senha e pode ligar o código outra vez.'], aviso: 'Confirme que é mesmo a pessoa quem pediu (por exemplo, por telefone), porque quem tiver só a senha passa a entrar sem o código até ele ligar de novo.', resumo: `Redefinir código de segurança de ${login}` };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', '/api/auth/2fa/redefinir', params);
+      if (!ok(r)) return { sucesso: false, mensagem: erroApi(r).erro };
+      return { sucesso: true, mensagem: r.corpo?.aviso || 'Código redefinido.' };
+    },
+  },
+  {
     tipo: 'acao',
     declaracao: { name: 'trazer_empresas_do_fiscal', description: 'Propõe TRAZER para o Contábil as empresas cadastradas no Murade Fiscal que ainda não existem aqui. Não altera empresas já cadastradas, não leva certificado nem senha. Só o dono do sistema.', parameters: { type: 'OBJECT', properties: {}, required: [] } },
     async preparar() {

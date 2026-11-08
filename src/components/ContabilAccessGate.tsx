@@ -1,13 +1,14 @@
 import { confirmarNaTela } from "../utils/dialogoNaTela";
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { UserPlus, X, LogOut, KeyRound } from "lucide-react";
+import { UserPlus, X, LogOut, KeyRound, ShieldCheck } from "lucide-react";
+import { SegurancaConta } from "./SegurancaConta";
 import { PainelEquipe } from "./PainelEquipe";
 import { EsqueciSenha } from "./EsqueciSenha";
 import { PainelEscritorios } from "./PainelEscritorios";
 import { PainelDuvidasSupervisor } from "./PainelDuvidasSupervisor";
 
 type Membership = { cnpj: string; role: "admin" | "operator" | "viewer" };
-type AuthData = { usuario: string; cnpjs: string[]; memberships: Membership[]; administrador: boolean; escritorio?: boolean; donoSistema?: boolean };
+type AuthData = { usuario: string; cnpjs: string[]; memberships: Membership[]; administrador: boolean; escritorio?: boolean; donoSistema?: boolean; doisFatores?: boolean; precisaAtivar2fa?: boolean };
 type AuthContextValue = AuthData & { sair: () => Promise<void>; atualizarAcesso: () => Promise<void> };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -17,6 +18,9 @@ export function useContabilAuth(): AuthContextValue {
   if (!value) throw new Error("useContabilAuth deve ser usado dentro de ContabilAccessGate.");
   return value;
 }
+
+/** Monta os dados da pessoa a partir da resposta de /api/auth/session ou do login. */
+const dadosDaSessao = (data: any): AuthData => ({ usuario: data.usuario, cnpjs: data.cnpjs || [], memberships: data.memberships || [], administrador: data.administrador === true, escritorio: data.escritorio === true, donoSistema: data.donoSistema === true, doisFatores: data.doisFatores === true, precisaAtivar2fa: data.precisaAtivar2fa === true });
 
 export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [auth, setAuth] = useState<AuthData | null>(null);
@@ -39,6 +43,10 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
   const [codigoConvite, setCodigoConvite] = useState("");
   const [erroConvite, setErroConvite] = useState("");
   const [usuarios, setUsuarios] = useState<Array<{ login: string; role: string }>>([]);
+  const [precisaCodigo, setPrecisaCodigo] = useState(false);
+  const [codigo, setCodigo] = useState("");
+  const [confiarAparelho, setConfiarAparelho] = useState(true);
+  const [mostrarSeguranca, setMostrarSeguranca] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.hash.slice(1));
@@ -50,7 +58,7 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
     const response = await fetch("/api/auth/session", { credentials: "include", cache: "no-store" });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.motivo || "Não foi possível consultar a sessão.");
-    setAuth(data.autenticado ? { usuario: data.usuario, cnpjs: data.cnpjs || [], memberships: data.memberships || [], administrador: data.administrador === true, escritorio: data.escritorio === true, donoSistema: data.donoSistema === true } : null);
+    setAuth(data.autenticado ? dadosDaSessao(data) : null);
   };
 
   useEffect(() => {
@@ -65,7 +73,7 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
         if (!ativo) return;
         if (!statusResponse.ok || !statusData.disponivel) throw new Error(statusData.motivo || "Autenticação indisponível.");
         setStatus({ carregando: false, primeiroAcesso: statusData.primeiroAcesso === true, configuracaoNecessaria: statusData.configuracaoNecessaria === true, erro: "" });
-        setAuth(sessionResponse.ok && sessionData.autenticado ? { usuario: sessionData.usuario, cnpjs: sessionData.cnpjs || [], memberships: sessionData.memberships || [], administrador: sessionData.administrador === true, escritorio: sessionData.escritorio === true, donoSistema: sessionData.donoSistema === true } : null);
+        setAuth(sessionResponse.ok && sessionData.autenticado ? dadosDaSessao(sessionData) : null);
       } catch (error) {
         if (!ativo) return;
         setStatus({ carregando: false, primeiroAcesso: false, configuracaoNecessaria: false, erro: error instanceof Error ? error.message : "Não foi possível validar o acesso." });
@@ -77,10 +85,12 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
   const efetuarLogin = async (usuario: string, password: string) => {
     const response = await fetch("/api/auth/login", {
       method: "POST", credentials: "include", headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ login: usuario, senha: password }),
+      body: JSON.stringify(precisaCodigo ? { login: usuario, senha: password, codigo, confiarAparelho } : { login: usuario, senha: password }),
     });
     const data = await response.json().catch(() => ({}));
+    if (data.precisaCodigo === true) { const tinhaCodigo = precisaCodigo && codigo.trim() !== ""; setPrecisaCodigo(true); setCodigo(""); setMensagem(tinhaCodigo ? String(data.motivo || "Código incorreto.") : ""); return; }
     if (!response.ok || data.sucesso !== true) throw new Error(data.motivo || "Não foi possível entrar.");
+    setPrecisaCodigo(false); setCodigo("");
     await atualizarAcesso();
   };
 
@@ -118,7 +128,7 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const sair = async () => {
-    try { await fetch("/api/auth/logout", { method: "POST", credentials: "include" }); } finally { setAuth(null); }
+    try { await fetch("/api/auth/logout", { method: "POST", credentials: "include" }); } finally { setAuth(null); setMostrarSeguranca(false); setPrecisaCodigo(false); setCodigo(""); }
   };
 
   const value = useMemo(() => auth ? { ...auth, sair, atualizarAcesso } : null, [auth]);
@@ -154,8 +164,10 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
       setLoginExistente(""); const list = await fetch(`/api/auth/users?cnpj=${encodeURIComponent(cnpjUsuarios)}`, { credentials: "include", cache: "no-store" }).then((r) => r.json()); setUsuarios(Array.isArray(list.usuarios) ? list.usuarios : []);
     } catch (error) { setErroConvite(error instanceof Error ? error.message : "Falha ao vincular usuário."); }
   };
+  if (auth?.precisaAtivar2fa) return <SegurancaConta sistema="Murade Contábil" obrigatorio aoMudar={atualizarAcesso} aoSair={() => void sair()} />;
   if (auth) return <AuthContext.Provider value={value!}>
-    <div className="top-0 z-[100] flex min-h-7 flex-nowrap items-center justify-between gap-2 bg-slate-950 px-3 py-0.5 text-xs text-white md:sticky md:min-h-10 md:flex-wrap md:px-4 md:py-1.5"><span className="min-w-0 truncate">Conta: <strong>{auth.usuario}</strong><span className="hidden md:inline"> · {auth.cnpjs.length} empresa(s) autorizada(s)</span></span><div className="flex shrink-0 gap-2">{auth.administrador && <button onClick={() => setPainelUsuarios(true)} className="rounded bg-white/15 px-2 py-0.5 hover:bg-white/25 md:px-3 md:py-1"><UserPlus className="mr-1 inline h-3.5 w-3.5" /> <span className="md:hidden">Usuários</span><span className="hidden md:inline">Usuários e licenças</span></button>}<button onClick={() => void sair()} className="rounded bg-white/15 px-2 py-0.5 hover:bg-white/25 md:px-3 md:py-1"><LogOut className="mr-1 inline h-3.5 w-3.5" /> Sair</button></div></div>
+    <div className="top-0 z-[100] flex min-h-7 flex-nowrap items-center justify-between gap-2 bg-slate-950 px-3 py-0.5 text-xs text-white md:sticky md:min-h-10 md:flex-wrap md:px-4 md:py-1.5"><span className="min-w-0 truncate">Conta: <strong>{auth.usuario}</strong><span className="hidden md:inline"> · {auth.cnpjs.length} empresa(s) autorizada(s)</span></span><div className="flex shrink-0 gap-2">{auth.administrador && <button onClick={() => setPainelUsuarios(true)} className="rounded bg-white/15 px-2 py-0.5 hover:bg-white/25 md:px-3 md:py-1"><UserPlus className="mr-1 inline h-3.5 w-3.5" /> <span className="md:hidden">Usuários</span><span className="hidden md:inline">Usuários e licenças</span></button>}<button onClick={() => setMostrarSeguranca(true)} className="rounded bg-white/15 px-2 py-0.5 hover:bg-white/25 md:px-3 md:py-1" aria-label="Segurança da conta"><ShieldCheck className="mr-1 inline h-3.5 w-3.5" /> <span className="hidden md:inline">Segurança</span></button><button onClick={() => void sair()} className="rounded bg-white/15 px-2 py-0.5 hover:bg-white/25 md:px-3 md:py-1"><LogOut className="mr-1 inline h-3.5 w-3.5" /> Sair</button></div></div>
+    {mostrarSeguranca && <SegurancaConta sistema="Murade Contábil" aoMudar={atualizarAcesso} aoFechar={() => setMostrarSeguranca(false)} />}
     {painelUsuarios && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4"><section className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white p-5 text-slate-900 shadow-2xl"><header className="mb-4 flex items-center justify-between"><h2 className="text-lg font-bold">Usuários e licenças por empresa</h2><button onClick={() => setPainelUsuarios(false)} aria-label="Fechar"><X /></button></header>
       {auth.donoSistema && <PainelEscritorios />}{auth.donoSistema && <PainelDuvidasSupervisor />}{auth.administrador && <PainelEquipe />}<label className="block text-sm font-semibold">Empresa<select value={cnpjUsuarios} onChange={(e) => setCnpjUsuarios(e.target.value)} className="mt-1 w-full rounded-lg border p-2">{empresasAdministradas.map((cnpj) => <option key={cnpj}>{cnpj}</option>)}</select></label>
       <form onSubmit={criarConvite} className="mt-4 space-y-3 rounded-xl border border-slate-200 p-4"><h3 className="font-semibold">Convidar usuário individual</h3><p className="text-xs text-slate-600">A pessoa define a própria senha ao ativar o convite; você não recebe nem compartilha a senha.</p><label className="block text-sm">Login<input required value={novoLogin} onChange={(e) => setNovoLogin(e.target.value)} className="mt-1 w-full rounded-lg border p-2" /></label><label className="block text-sm">Acesso<select value={novoPerfil} onChange={(e) => setNovoPerfil(e.target.value as Membership["role"])} className="mt-1 w-full rounded-lg border p-2"><option value="operator">Operador</option><option value="viewer">Somente leitura</option><option value="admin">Administrador da empresa</option></select></label><button className="rounded-lg bg-blue-700 px-4 py-2 font-semibold text-white"><KeyRound className="mr-1 inline h-4 w-4" /> Gerar convite (válido por 30 dias)</button></form>
@@ -201,6 +213,14 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
               {modo === "ativar" && <label className="block text-sm font-semibold text-slate-700">Repita a senha
                 <input type="password" autoComplete="new-password" required minLength={12} value={confirmaSenha} onChange={(event) => setConfirmaSenha(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal" />
               </label>}
+              {modo === "login" && precisaCodigo && <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                <label className="block text-sm font-semibold"><ShieldCheck className="mr-1 inline h-4 w-4 text-emerald-700" />Código de segurança
+                  <input required autoFocus inputMode="numeric" autoComplete="one-time-code" value={codigo} onChange={(event) => setCodigo(event.target.value)} className="mt-1 w-full rounded-lg border p-3 text-center text-2xl font-normal tracking-[0.3em]" placeholder="000000" />
+                </label>
+                <p className="text-xs text-slate-700">Abra o aplicativo de código de segurança no seu celular e digite o número de 6 dígitos. Perdeu o celular? Digite um código de emergência.</p>
+                <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={confiarAparelho} onChange={(event) => setConfiarAparelho(event.target.checked)} />Confiar neste aparelho (não pedir o código de novo aqui)</label>
+                <button type="button" onClick={() => { setPrecisaCodigo(false); setCodigo(""); setMensagem(""); }} className="text-xs font-semibold text-blue-800 underline">Voltar</button>
+              </div>}
             </>
           )}
           {status.primeiroAcesso && (

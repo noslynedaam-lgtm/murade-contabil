@@ -4,6 +4,10 @@ import crypto from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { Pool, type PoolClient } from "pg";
 import { gerarRelatoriosContabeis, normalizarDataContabil } from "../utils/livrosContabeis";
+import {
+  aparelhoConfiavel, cookieAparelho, criarAparelhoConfiavel, concluirAtivacao2fa, desativar2fa, estaBloqueado, iniciarAtivacao2fa, ler2fa, lerChaveMestra, lerCookie,
+  limparFalhasDoAparelho, mensagemDoResumo, NOME_COOKIE_APARELHO, prepararSeguranca, registrarEvento, registrarFalha, resumirSeguranca, tem2faAtivo, verificarSegundoFator, type Consultar,
+} from "./segurancaLogin";
 
 const COOKIE = "murade_contabil_session";
 const SESSION_SECONDS = 8 * 60 * 60;
@@ -15,6 +19,13 @@ export function duracaoSessaoContabil(req: Request): number { return ehCelularUA
 let pool: Pool | null = null;
 let schemaPromise: Promise<void> | null = null;
 let ultimaLimpezaSessao = 0;
+/** Prefixo das tabelas de segurança do login (bloqueio de tentativas, código de segurança, aparelhos confiáveis, eventos). */
+export const PREFIXO_SEGURANCA_CONTABIL = "contabil";
+const consultarSeguranca: Consultar = (sql, params) => obterBanco().query(sql, params as any[]);
+/** Chave que cifra o segredo do código de segurança: a mesma chave-mestra que o sistema já usa nos backups. Sem ela, o recurso fica indisponível (e nada trava). */
+function chaveMestra2fa(): Buffer | null { return lerChaveMestra(process.env.MURADE_BACKUP_MASTER_KEY); }
+/** O dono do sistema é obrigado a ter o código; MURADE_2FA_OBRIGATORIO_DONO=nao desliga a exigência (saída de emergência). */
+function obrigatorio2faDono(): boolean { return Boolean(chaveMestra2fa()) && String(process.env.MURADE_2FA_OBRIGATORIO_DONO || "").trim().toLowerCase() !== "nao"; }
 
 export type SessaoContabil = { userId: string; login: string; cnpjs: string[]; memberships: Array<{ cnpj: string; role: 'admin' | 'operator' | 'viewer' }>; administrador: boolean; escritorioDe?: string; tenantId?: string; donoSistema?: boolean };
 
@@ -162,7 +173,7 @@ export async function prepararAuthContabil(): Promise<void> {
       ON CONFLICT (chave_legada) DO NOTHING
     `);
     await obterBanco().query("DELETE FROM contabil_auth_sessions WHERE expires_at <= now()");
-  }).then(() => undefined).catch((error) => {
+  }).then(() => prepararSeguranca(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL)).catch((error) => {
     schemaPromise = null;
     throw error;
   });
@@ -273,6 +284,10 @@ export async function exigirSessaoContabil(req: Request, res: Response, next: Ne
     const sessao = await obterSessaoContabil(req);
     if (!sessao) { res.status(401).json({ sucesso: false, motivo: "Entre para acessar os dados contábeis." }); return; }
     (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil = sessao;
+    // Dono do sistema sem o código de segurança ligado: só liga o código (ou sai); o resto do sistema espera.
+    if (sessao.donoSistema === true && obrigatorio2faDono() && !ROTAS_LIVRES_SEM_CODIGO.test(`${req.method} ${req.baseUrl}${req.path}`) && !(await tem2faAtivo(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, sessao.userId))) {
+      res.status(403).json({ sucesso: false, precisaAtivar2fa: true, motivo: "Antes de continuar, ligue o código de segurança da sua conta (obrigatório para o dono do sistema)." }); return;
+    }
     next();
   } catch (error) {
     console.error("Falha ao validar sessão do Contábil:", error);
@@ -296,8 +311,6 @@ export async function statusAuthContabil(_req: Request, res: Response): Promise<
     res.status(503).json({ disponivel: false, motivo: "Não foi possível acessar o banco persistente do Contábil." });
   }
 }
-
-const falhasLogin = new Map<string, { count: number; until: number }>();
 
 export async function bootstrapAuthContabil(req: Request, res: Response): Promise<void> {
   const esperado = process.env.CONTABIL_AUTH_BOOTSTRAP_TOKEN || "";
@@ -332,14 +345,20 @@ export async function bootstrapAuthContabil(req: Request, res: Response): Promis
   }
 }
 
+/** Quanto a pessoa precisa saber sobre segurança da própria conta (a tela usa para mostrar o botão e a exigência do dono). */
+async function infoSegurancaContabil(sessao: Pick<SessaoContabil, "userId" | "donoSistema">): Promise<{ doisFatores: boolean; doisFatoresDisponivel: boolean; precisaAtivar2fa: boolean }> {
+  const disponivel = Boolean(chaveMestra2fa());
+  const ativo = await tem2faAtivo(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, String(sessao.userId));
+  return { doisFatores: ativo, doisFatoresDisponivel: disponivel, precisaAtivar2fa: sessao.donoSistema === true && obrigatorio2faDono() && !ativo };
+}
+
 export async function loginAuthContabil(req: Request, res: Response): Promise<void> {
   const ip = req.ip || "unknown";
-  const state = falhasLogin.get(ip);
-  if (state && state.until > Date.now() && state.count >= 8) { res.status(429).json({ sucesso: false, motivo: "Muitas tentativas. Aguarde 15 minutos." }); return; }
   const login = String(req.body?.login || "").trim().toLowerCase();
   const senha = String(req.body?.senha || "");
   try {
     await prepararAuthContabil();
+    if (await estaBloqueado(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, ip, login)) { res.status(429).json({ sucesso: false, motivo: "Muitas tentativas. Aguarde 15 minutos." }); return; }
     const result = await obterBanco().query("SELECT id,login,password_salt,password_hash,global_admin,office_owner,tenant_id FROM contabil_auth_users WHERE login=$1 AND disabled=false", [login]);
     const row = result.rows[0];
     const salt = row?.password_salt || "murade-contabil-dummy-salt";
@@ -347,20 +366,37 @@ export async function loginAuthContabil(req: Request, res: Response): Promise<vo
     const expected = Buffer.from(row?.password_hash || "0".repeat(128), "hex");
     const valid = Boolean(row) && calculated.length === expected.length && crypto.timingSafeEqual(calculated, expected);
     if (!valid) {
-      const current = falhasLogin.get(ip);
-      const next = current && current.until > Date.now() ? { count: current.count + 1, until: current.until } : { count: 1, until: Date.now() + 15 * 60_000 };
-      falhasLogin.set(ip, next);
+      await registrarFalha(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, ip, login);
       res.status(401).json({ sucesso: false, motivo: "Usuário ou senha incorretos." }); return;
     }
-    falhasLogin.delete(ip);
+    // Segundo fator: só depois de a senha estar certa (assim ninguém descobre quem usa código só tentando usuários).
+    let cookieDoAparelho: string | null = null;
+    if ((await ler2fa(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, String(row.id)))?.ativo === true) {
+      const chave = chaveMestra2fa();
+      if (!chave) { res.status(503).json({ sucesso: false, motivo: "O código de segurança está indisponível agora. Fale com o administrador do sistema." }); return; }
+      const conhecido = await aparelhoConfiavel(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, String(row.id), lerCookie(req.header("cookie"), NOME_COOKIE_APARELHO));
+      if (!conhecido) {
+        const codigo = String(req.body?.codigo || "").trim();
+        if (!codigo) { res.status(401).json({ sucesso: false, precisaCodigo: true, motivo: "Digite o código de segurança do aplicativo no seu celular." }); return; }
+        const conferido = await verificarSegundoFator(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, chave, String(row.id), codigo);
+        if (!conferido.ok) {
+          const bloqueou = await registrarFalha(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, ip, login, "codigo_falhou");
+          res.status(bloqueou ? 429 : 401).json({ sucesso: false, precisaCodigo: !bloqueou, motivo: bloqueou ? "Muitas tentativas. Aguarde 15 minutos." : "Código incorreto ou já usado. Espere o número mudar no aplicativo e digite o novo." }); return;
+        }
+        if (conferido.via === "emergencia") await registrarEvento(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, "codigo_emergencia_usado", login, ip);
+        if (req.body?.confiarAparelho !== false) cookieDoAparelho = cookieAparelho(await criarAparelhoConfiavel(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, String(row.id)), process.env.NODE_ENV === "production");
+      }
+    }
+    await limparFalhasDoAparelho(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, ip);
     const token = crypto.randomBytes(32).toString("base64url");
     const hash = crypto.createHash("sha256").update(token).digest("hex");
     const duracao = duracaoSessaoContabil(req);
     await obterBanco().query("INSERT INTO contabil_auth_sessions(token_hash,user_id,expires_at) VALUES($1,$2,now() + ($3 * interval '1 second'))", [hash, row.id, duracao]);
     gravarCookie(res, token, duracao);
+    if (cookieDoAparelho) res.append("Set-Cookie", cookieDoAparelho);
     res.setHeader("Cache-Control", "no-store");
     const completa = await montarSessaoContabil(row);
-    res.json({ sucesso: true, usuario: row.login, cnpjs: completa.cnpjs, memberships: completa.memberships, administrador: row.global_admin === true, escritorio: Boolean(completa.escritorioDe), donoSistema: completa.donoSistema === true });
+    res.json({ sucesso: true, usuario: row.login, cnpjs: completa.cnpjs, memberships: completa.memberships, administrador: row.global_admin === true, escritorio: Boolean(completa.escritorioDe), donoSistema: completa.donoSistema === true, ...(await infoSegurancaContabil(completa)) });
   } catch (error) {
     console.error("Falha no login do Contábil:", error);
     res.status(503).json({ sucesso: false, motivo: "Autenticação indisponível: confira o PostgreSQL do Contábil." });
@@ -372,7 +408,7 @@ export async function sessaoAtualContabil(req: Request, res: Response): Promise<
     const sessao = await obterSessaoContabil(req);
     res.setHeader("Cache-Control", "no-store");
     if (!sessao) { res.json({ autenticado: false }); return; }
-    res.json({ autenticado: true, usuario: sessao.login, cnpjs: sessao.cnpjs, memberships: sessao.memberships, administrador: sessao.administrador, escritorio: Boolean(sessao.escritorioDe), donoSistema: sessao.donoSistema === true });
+    res.json({ autenticado: true, usuario: sessao.login, cnpjs: sessao.cnpjs, memberships: sessao.memberships, administrador: sessao.administrador, escritorio: Boolean(sessao.escritorioDe), donoSistema: sessao.donoSistema === true, ...(await infoSegurancaContabil(sessao)) });
   } catch (error) {
     console.error("Falha ao consultar sessão do Contábil:", error);
     res.status(503).json({ autenticado: false, motivo: "Autenticação indisponível." });
@@ -1710,4 +1746,121 @@ export async function importarCnpjsCompartilhados(itens: Array<{ cnpj: string; e
     if (meu && item.dados) await obterBanco().query("INSERT INTO contabil_empresas_compartilhadas(cnpj,dados) VALUES($1,$2::jsonb) ON CONFLICT(cnpj) DO NOTHING", [cnpj, JSON.stringify(item.dados)]);
   }
   return { criadas, jaExistiam, semEscritorio, semDono: !dono && itens.some((i) => i.donoSistema) ? true : undefined };
+}
+
+// ===== Código de segurança (segundo fator) — telas "Segurança" e "Usuários" =====
+
+const EMISSOR_2FA = "Murade Contábil";
+const naoColocarEmCache = (res: Response) => res.setHeader("Cache-Control", "no-store");
+
+/** Dono do sistema que ainda não ligou o código só pode ligar o código ou sair; o resto do sistema espera (a pessoa liga na hora, sem ajuda de ninguém). */
+export const ROTAS_LIVRES_SEM_CODIGO = /^(GET|POST) \/api\/auth\/(2fa(\/[a-z]+)?|logout|manter-conectado)$/;
+
+/** GET /api/auth/2fa — situação do código de segurança da própria conta. */
+export async function auth2faEstadoContabil(req: Request, res: Response): Promise<void> {
+  const sessao = sessaoDaRequisicaoContabil(req); if (!sessao) { res.status(401).json({ sucesso: false, motivo: "Entre no sistema primeiro." }); return; }
+  try {
+    const estado = await ler2fa(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, sessao.userId); naoColocarEmCache(res);
+    res.json({ sucesso: true, disponivel: Boolean(chaveMestra2fa()), ativo: estado?.ativo === true, emergenciaRestantes: estado?.ativo ? estado.emergenciaRestantes : 0, obrigatorio: sessao.donoSistema === true && obrigatorio2faDono() });
+  } catch (error) { console.error("Falha ao ler código de segurança Contábil:", error); res.status(503).json({ sucesso: false, motivo: "Não foi possível consultar agora." }); }
+}
+
+/** POST /api/auth/2fa/iniciar — gera o segredo e o QR Code para a pessoa apontar o celular. Ainda não liga nada. */
+export async function auth2faIniciarContabil(req: Request, res: Response): Promise<void> {
+  const sessao = sessaoDaRequisicaoContabil(req); if (!sessao) { res.status(401).json({ sucesso: false, motivo: "Entre no sistema primeiro." }); return; }
+  const chave = chaveMestra2fa();
+  if (!chave) { res.status(503).json({ sucesso: false, motivo: "O código de segurança ainda não está disponível neste sistema (falta a chave de criptografia no servidor)." }); return; }
+  try {
+    const inicio = await iniciarAtivacao2fa(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, chave, sessao.userId, sessao.login, EMISSOR_2FA);
+    const QR = await import("qrcode"); const qr = await QR.toDataURL(inicio.uri, { margin: 1, width: 240, errorCorrectionLevel: "M" });
+    naoColocarEmCache(res); res.json({ sucesso: true, segredo: inicio.segredo, uri: inicio.uri, qr });
+  } catch (error) { const msg = error instanceof Error ? error.message : ""; if (/já está ativo/.test(msg)) { res.status(409).json({ sucesso: false, motivo: msg }); return; } console.error("Falha ao iniciar código de segurança Contábil:", error); res.status(503).json({ sucesso: false, motivo: "Não foi possível preparar agora." }); }
+}
+
+/** POST /api/auth/2fa/ativar { codigo } — confere o primeiro número, liga o código e mostra os códigos de emergência (uma vez só). */
+export async function auth2faAtivarContabil(req: Request, res: Response): Promise<void> {
+  const sessao = sessaoDaRequisicaoContabil(req); if (!sessao) { res.status(401).json({ sucesso: false, motivo: "Entre no sistema primeiro." }); return; }
+  const chave = chaveMestra2fa(); if (!chave) { res.status(503).json({ sucesso: false, motivo: "O código de segurança ainda não está disponível neste sistema." }); return; }
+  const ip = req.ip || "unknown";
+  try {
+    if (await estaBloqueado(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, ip, sessao.login)) { res.status(429).json({ sucesso: false, motivo: "Muitas tentativas. Aguarde 15 minutos." }); return; }
+    const r = await concluirAtivacao2fa(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, chave, sessao.userId, String(req.body?.codigo || ""));
+    if (!r.ok) { await registrarFalha(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, ip, sessao.login, "codigo_falhou"); res.status(400).json({ sucesso: false, motivo: "Código incorreto. Confira o número que aparece agora no aplicativo e digite de novo." }); return; }
+    await registrarEvento(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, "2fa_ativado", sessao.login, ip);
+    // Este aparelho acabou de provar que tem o celular: não pede o código de novo aqui.
+    res.append("Set-Cookie", cookieAparelho(await criarAparelhoConfiavel(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, sessao.userId), process.env.NODE_ENV === "production"));
+    naoColocarEmCache(res); res.json({ sucesso: true, codigosEmergencia: r.codigosEmergencia, aviso: "Guarde estes códigos de emergência em lugar seguro. Cada um vale uma vez e não aparecem de novo." });
+  } catch (error) { console.error("Falha ao ativar código de segurança Contábil:", error); res.status(503).json({ sucesso: false, motivo: "Não foi possível ativar agora." }); }
+}
+
+/** POST /api/auth/2fa/desativar { senha, codigo } — a própria pessoa desliga (pede senha e um código). O dono do sistema não pode desligar. */
+export async function auth2faDesativarContabil(req: Request, res: Response): Promise<void> {
+  const sessao = sessaoDaRequisicaoContabil(req); if (!sessao) { res.status(401).json({ sucesso: false, motivo: "Entre no sistema primeiro." }); return; }
+  const chave = chaveMestra2fa(); const ip = req.ip || "unknown";
+  try {
+    if (sessao.donoSistema === true && obrigatorio2faDono()) { res.status(409).json({ sucesso: false, motivo: "O código de segurança é obrigatório para o dono do sistema e não pode ser desligado." }); return; }
+    if (!chave || !(await tem2faAtivo(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, sessao.userId))) { res.status(409).json({ sucesso: false, motivo: "O código de segurança não está ligado nesta conta." }); return; }
+    if (await estaBloqueado(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, ip, sessao.login)) { res.status(429).json({ sucesso: false, motivo: "Muitas tentativas. Aguarde 15 minutos." }); return; }
+    const u = await obterBanco().query("SELECT password_salt, password_hash FROM contabil_auth_users WHERE id=$1 AND disabled=false", [sessao.userId]);
+    const calculado = await senhaHash(String(req.body?.senha || "").slice(0, 256), String(u.rows[0]?.password_salt || "murade-contabil-dummy-salt")); const esperado = Buffer.from(String(u.rows[0]?.password_hash || "0".repeat(128)), "hex");
+    const senhaOk = Boolean(u.rowCount) && esperado.length === calculado.length && crypto.timingSafeEqual(calculado, esperado);
+    const codigoOk = senhaOk && (await verificarSegundoFator(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, chave, sessao.userId, String(req.body?.codigo || ""))).ok;
+    if (!senhaOk || !codigoOk) { await registrarFalha(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, ip, sessao.login, senhaOk ? "codigo_falhou" : "login_falhou"); res.status(400).json({ sucesso: false, motivo: "Senha ou código incorretos." }); return; }
+    await desativar2fa(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, sessao.userId);
+    await registrarEvento(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, "2fa_desativado", sessao.login, ip);
+    naoColocarEmCache(res); res.json({ sucesso: true });
+  } catch (error) { console.error("Falha ao desativar código de segurança Contábil:", error); res.status(503).json({ sucesso: false, motivo: "Não foi possível desativar agora." }); }
+}
+
+/** Quem pode redefinir o código de outra pessoa (celular perdido): o dono do sistema, ou o administrador do próprio escritório sobre a equipe dele. */
+export async function redefinirCodigoDeUsuarioContabil(sessao: SessaoContabil, loginAlvo: string, ip: string): Promise<{ ok: true; login: string } | { ok: false; status: number; motivo: string }> {
+  const login = String(loginAlvo || "").trim().toLowerCase();
+  if (login.length < 3 || login.length > 80 || !/^[a-z0-9._@+-]+$/.test(login)) return { ok: false, status: 400, motivo: "Informe o usuário." };
+  const alvo = await obterBanco().query("SELECT id, login, COALESCE(tenant_id, office_owner, id) AS escritorio FROM contabil_auth_users WHERE login=$1", [login]);
+  const linha = alvo.rows[0];
+  const permitido = Boolean(linha) && (sessao.donoSistema === true || (sessao.administrador === true && String(linha.escritorio) === String(sessao.tenantId)));
+  if (!permitido) return { ok: false, status: 403, motivo: "Você não pode redefinir o código deste usuário." };
+  await desativar2fa(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, String(linha.id));
+  await obterBanco().query("DELETE FROM contabil_auth_sessions WHERE user_id=$1", [linha.id]);
+  await registrarEvento(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, "2fa_redefinido", login, ip);
+  return { ok: true, login };
+}
+
+/** POST /api/auth/2fa/redefinir { login } */
+export async function auth2faRedefinirContabil(req: Request, res: Response): Promise<void> {
+  const sessao = sessaoDaRequisicaoContabil(req); if (!sessao) { res.status(401).json({ sucesso: false, motivo: "Entre no sistema primeiro." }); return; }
+  try {
+    const r = await redefinirCodigoDeUsuarioContabil(sessao, String(req.body?.login || ""), req.ip || "unknown");
+    if (r.ok === false) { res.status(r.status).json({ sucesso: false, motivo: r.motivo }); return; }
+    naoColocarEmCache(res); res.json({ sucesso: true, aviso: `Código de segurança de ${r.login} redefinido. Na próxima entrada ele entra só com a senha e pode ligar o código de novo.` });
+  } catch (error) { console.error("Falha ao redefinir código de segurança Contábil:", error); res.status(503).json({ sucesso: false, motivo: "Não foi possível redefinir agora." }); }
+}
+
+/** Logins do dono do sistema que ainda estão sem código de segurança (só conta quando a exigência está valendo). Mesma regra de "dono" da sessão. */
+export async function donosDoSistemaSemCodigoContabil(): Promise<string[]> {
+  if (!obrigatorio2faDono()) return [];
+  await prepararAuthContabil();
+  const lista = (process.env.MURADE_DONO_SISTEMA || "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
+  const donos = lista.length
+    ? await obterBanco().query("SELECT id, login FROM contabil_auth_users WHERE lower(login)=ANY($1::text[]) AND disabled=false AND global_admin=true", [lista])
+    : await obterBanco().query("SELECT id, login FROM (SELECT id, login, disabled FROM contabil_auth_users WHERE global_admin=true ORDER BY created_at, id LIMIT 1) primeiro WHERE disabled=false");
+  const sem: string[] = [];
+  for (const d of donos.rows) if (!(await tem2faAtivo(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, String(d.id)))) sem.push(String(d.login));
+  return sem;
+}
+
+/** Só leitura: o que o robô conferidor e a Agente IA mostram sobre a segurança do login. */
+export async function resumoSegurancaContabil(dias = 1): Promise<{ resumo: Awaited<ReturnType<typeof resumirSeguranca>>; donosSemCodigo: string[]; alerta: boolean; texto: string }> {
+  await prepararAuthContabil();
+  const resumo = await resumirSeguranca(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, dias);
+  const donosSemCodigo = await donosDoSistemaSemCodigoContabil();
+  return { resumo, donosSemCodigo, ...mensagemDoResumo(resumo, donosSemCodigo) };
+}
+
+/** GET /api/auth/2fa/resumo — só o dono do sistema. */
+export async function auth2faResumoContabil(req: Request, res: Response): Promise<void> {
+  const sessao = sessaoDaRequisicaoContabil(req);
+  if (!sessao?.donoSistema) { res.status(403).json({ sucesso: false, motivo: "Somente o dono do sistema vê o resumo de segurança." }); return; }
+  try { naoColocarEmCache(res); res.json({ sucesso: true, ...(await resumoSegurancaContabil(1)) }); }
+  catch (error) { console.error("Falha ao resumir segurança Contábil:", error); res.status(503).json({ sucesso: false, motivo: "Não foi possível consultar agora." }); }
 }
