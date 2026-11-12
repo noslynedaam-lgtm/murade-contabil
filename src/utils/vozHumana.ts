@@ -273,8 +273,15 @@ function mostrarDicaVoz(): void {
     if (document.getElementById('murade-dica-voz')) return;
     const d = document.createElement('div');
     d.id = 'murade-dica-voz';
-    d.textContent = '🔊 Toque aqui para liberar a voz';
-    d.style.cssText = 'position:fixed;right:12px;bottom:56px;z-index:2147483000;background:#0a2342;color:#fff;padding:9px 14px;border-radius:14px;font:600 13px sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.3);cursor:pointer';
+    d.style.cssText = 'position:fixed;right:12px;bottom:56px;z-index:2147483000;display:flex;align-items:center;gap:10px;background:#0a2342;color:#fff;padding:7px 8px 7px 14px;border-radius:14px;font:600 13px sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.3);cursor:pointer';
+    const texto = document.createElement('span');
+    texto.textContent = '🔊 Toque aqui para liberar a voz';
+    // Botão para dispensar o aviso sem ligar a voz (antes ele só saía tocando no texto ou depois de 20 segundos).
+    const fechar = document.createElement('span');
+    fechar.textContent = '✕'; fechar.setAttribute('role', 'button'); fechar.setAttribute('aria-label', 'Fechar o aviso da voz'); fechar.title = 'Fechar';
+    fechar.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.2);font-weight:700;cursor:pointer';
+    fechar.onclick = (e) => { e.stopPropagation(); d.remove(); };
+    d.append(texto, fechar);
     d.onclick = () => { d.remove(); liberarVoz(); };
     document.body.appendChild(d);
     window.setTimeout(() => d.remove(), 20000);

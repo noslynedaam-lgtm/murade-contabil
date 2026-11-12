@@ -76,6 +76,8 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
   const falandoRef = useRef(false);
   const enviarRef = useRef<(t: string) => void>(() => {});
   const falarRef = useRef<(t: string) => void>(() => {});
+  // Fecha o aviso na hora e também para a voz, para a saudação nunca ficar presa na tela.
+  const fecharAviso = () => { window.clearTimeout(tempoAvisoRef.current); setAvisoVoz(""); window.speechSynthesis?.cancel(); pararHumana(); };
   const mostrarAviso = (texto: string) => {
     const limpo = textoSemMarcas(texto);
     setAvisoVoz(limpo.length > 420 ? `${limpo.slice(0, 417)}…` : limpo);
@@ -87,6 +89,16 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
+
+  // Esc fecha a conversa aberta.
+  const fecharPorEscRef = useRef<() => void>(() => {});
+  fecharPorEscRef.current = () => { window.speechSynthesis?.cancel(); pararHumana(); onClose(); };
+  useEffect(() => {
+    if (!isOpen) return;
+    const aoTeclar = (e: KeyboardEvent) => { if (e.key === "Escape") fecharPorEscRef.current(); };
+    window.addEventListener("keydown", aoTeclar);
+    return () => window.removeEventListener("keydown", aoTeclar);
+  }, [isOpen]);
 
   // Saudação do dia ("Bom dia, Herbert!") e pergunta do nome na primeira vez. Regra fixa no servidor: não gasta crédito de IA.
   useEffect(() => {
@@ -391,7 +403,10 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
     return (
       <>
         {avisoVoz && (
-          <div role="status" onClick={() => setAvisoVoz("")} className="fixed bottom-14 right-3 z-40 max-w-[min(86vw,360px)] cursor-pointer rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 shadow-xl" title="Toque para fechar">{avisoVoz}</div>
+          <div role="status" onClick={fecharAviso} className="fixed bottom-[6.5rem] right-3 z-40 max-w-[min(86vw,360px)] cursor-pointer rounded-xl border border-slate-300 bg-white py-2 pl-3 pr-10 text-xs text-slate-800 shadow-xl" title="Toque para fechar">
+            {avisoVoz}
+            <button type="button" onClick={(e) => { e.stopPropagation(); fecharAviso(); }} aria-label="Fechar o aviso" title="Fechar" className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-sm font-bold text-slate-700 hover:bg-slate-200">✕</button>
+          </div>
         )}
         <div className="fixed bottom-3 right-3 z-40 flex items-center gap-1.5" id="btn-ia-flutuante">
           <button
@@ -419,7 +434,10 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
   }
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-4 animate-fade-in">
+    <div
+      className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-4 animate-fade-in"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) { window.speechSynthesis?.cancel(); pararHumana(); onClose(); } }}
+    >
       <div className="bg-white rounded-2xl max-w-2xl w-full h-[88vh] max-h-[700px] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
         {/* Topo do Modal */}
         <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-purple-700 text-white px-5 py-3.5 flex items-center justify-between shrink-0 shadow-xs">
@@ -477,7 +495,9 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
                 window.speechSynthesis?.cancel(); pararHumana();
                 onClose();
               }}
-              className="p-2 rounded-lg hover:bg-white/20 text-white transition cursor-pointer"
+              className="p-2 rounded-lg bg-white/15 hover:bg-white/30 text-white transition cursor-pointer"
+              title="Fechar (Esc)"
+              aria-label="Fechar a conversa com a assistente"
             >
               <X className="w-5 h-5" />
             </button>
