@@ -24,10 +24,14 @@ function salvarAjuste(): void {
 }
 
 /** Reconhece pedidos de volume/velocidade (texto já sem acento). Devolve a frase de confirmação, ou null. */
-export function ajustarVoz(texto: string): string | null {
+export function ajustarVoz(texto: string, maxPalavras = 8): string | null {
   const t = texto.trim();
-  if (t.split(' ').length > 8) return null;
-  if (/\b(troca|troque|muda|mude|trocar|mudar|outra)\b.*\bvoz\b/.test(t) && !/\bvoz (premium|humana|normal|economica)\b/.test(t)) return trocarVoz();
+  if (t.split(' ').length > maxPalavras) return null;
+  // Reclamação de voz robótica ("essa voz está muito robótica", "quero uma voz mais natural"): troca para outra voz e avisa da premium.
+  if (/\bvoz\b/.test(t) && /\b(robotic[ao]s?|robo|robozinho|mecanic[ao]|artificial|menos robo\w*|mais (natural|humana|bonita))\b/.test(t) && !/\bvoz (premium|humana|bonita|cara)\b.*\b(usa|use|liga|ative|ativa)\b/.test(t)) {
+    return `${trocarVoz()} Se ainda ficar robótica, diga "usa a voz premium": ela é bem mais humana.`;
+  }
+  if (/\b(troca|troque|muda|mude|trocar|mudar|outra|quero)\b.*\bvoz\b/.test(t) && !/\bvoz (premium|humana|normal|economica)\b/.test(t)) return trocarVoz();
   if (/\bvoz (premium|humana|bonita|cara)\b/.test(t) && /\b(usa|use|usar|liga|ligue|ativa|ative|coloca|ponha|poe)\b/.test(t)) {
     definirPremium(true); return 'Ativei a voz premium. Ela é mais bonita, mas gasta mais da chave.';
   }

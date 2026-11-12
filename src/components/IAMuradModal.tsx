@@ -189,6 +189,14 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
 
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
+    // Ajustes de voz (trocar a voz, mais rápido, voz premium) valem também no texto e no botão do microfone:
+    // são feitos no aparelho, sem perguntar à IA (que não mexe na voz do aparelho).
+    const ajusteVoz = ajustarVoz(limparTextoVoz(texto), 14);
+    if (ajusteVoz) {
+      setMessages((prev) => [...prev, { id: `msg-${Date.now() + 1}-voz`, sender: "ia", text: ajusteVoz, timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]);
+      if (minhaGeracao === geracaoRef.current) falarRef.current(ajusteVoz);
+      return;
+    }
     // Primeira vez: a resposta é o nome da pessoa. O servidor grava no usuário (sem IA).
     if (aguardandoNomeRef.current) {
       try {
