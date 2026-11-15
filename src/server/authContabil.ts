@@ -11,7 +11,7 @@ import {
 } from "./segurancaLogin";
 
 const COOKIE = "murade_contabil_session";
-const SESSION_SECONDS = 8 * 60 * 60;
+const SESSION_SECONDS = 12 * 60 * 60;
 const SESSION_LONGA_SECONDS = 90 * 24 * 60 * 60;
 /** Celular/tablet: a senha é pedida só no primeiro acesso (sessão de 90 dias), a menos que a pessoa ligue "pedir senha ao abrir". */
 export function ehCelularUA(ua: string): boolean { return /Android|iPhone|iPad|iPod|Mobile/i.test(ua || ""); }
@@ -1605,7 +1605,7 @@ export async function salvarWorkspaceContabil(req: Request, res: Response, opcoe
   } finally { client?.release(); }
 }
 
-/** Liga/desliga "manter conectado" na sessão atual (celular). Desligado = volta a pedir senha em 8 horas. */
+/** Liga/desliga "manter conectado" na sessão atual (celular). Desligado = volta a pedir senha em 12 horas. */
 export async function manterConectadoContabil(req: Request, res: Response): Promise<void> {
   res.setHeader("Cache-Control", "no-store");
   try {

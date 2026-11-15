@@ -11,12 +11,12 @@ test('celular: senha só na primeira vez (90 dias)', () => {
   assert.equal(duracaoSessaoContabil(req(IPHONE)), 90 * 24 * 3600);
   assert.equal(duracaoSessaoContabil(req(ANDROID)), 90 * 24 * 3600);
 });
-test('computador continua com 8 horas', () => {
-  assert.equal(duracaoSessaoContabil(req(PC)), 8 * 3600);
+test('computador continua com 12 horas', () => {
+  assert.equal(duracaoSessaoContabil(req(PC)), 12 * 3600);
   assert.equal(ehCelularUA(PC), false);
 });
-test('celular com "pedir senha ao abrir" ligado volta a 8 horas', () => {
-  assert.equal(duracaoSessaoContabil(req(IPHONE, 'a=b; murade_exigir_senha=1')), 8 * 3600);
-  assert.equal(duracaoSessaoContabil(req(IPHONE, 'murade_exigir_senha=1; a=b')), 8 * 3600);
+test('celular com "pedir senha ao abrir" ligado volta a 12 horas', () => {
+  assert.equal(duracaoSessaoContabil(req(IPHONE, 'a=b; murade_exigir_senha=1')), 12 * 3600);
+  assert.equal(duracaoSessaoContabil(req(IPHONE, 'murade_exigir_senha=1; a=b')), 12 * 3600);
   assert.equal(duracaoSessaoContabil(req(IPHONE, 'xmurade_exigir_senha=1')), 90 * 24 * 3600);
 });
