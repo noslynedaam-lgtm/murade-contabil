@@ -18,8 +18,8 @@ test("Plano padrão: sugere as 9 origens (as 7 de sempre + salário-família e f
   assert.deepEqual([sf.contaDebitoCodigo, sf.contaCreditoCodigo], ["2.2.1", "2.1.2"]);
   const faltas = s.find((x) => x.origem === "dp_desconto_faltas")!;
   assert.deepEqual([faltas.contaDebitoCodigo, faltas.contaCreditoCodigo], ["2.1.2", "5.2.1"]);
-  // VT, pensão e adiantamento dependem da empresa: nunca se chuta conta.
-  for (const o of ["dp_desconto_vt", "dp_desconto_pensao", "dp_desconto_adiantamento"]) assert.ok(!s.some((x) => x.origem === o));
+  // VT, pensão, adiantamento e consignado dependem da empresa: nunca se chuta conta.
+  for (const o of ["dp_desconto_vt", "dp_desconto_pensao", "dp_desconto_adiantamento", "dp_desconto_consignado"]) assert.ok(!s.some((x) => x.origem === o));
   const saida = s.find((x) => x.origem === "fiscal_saida")!;
   assert.deepEqual([saida.contaDebitoCodigo, saida.contaCreditoCodigo], ["1.1.5", "4.1.1"]);
   for (const x of s) assert.notEqual(x.contaDebitoCodigo, x.contaCreditoCodigo);

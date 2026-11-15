@@ -125,7 +125,7 @@ export function normalizarResumoDPContrato(cnpj: string, body: any) {
   // Os descontos classificados precisam explicar exatamente "outros descontos"; senão o DP está enviando um total que não sabe explicar.
   const classificados = CAMPOS_DESCONTOS_CLASSIFICADOS.reduce((total, campo) => total + (typeof resumo[campo] === "number" ? (resumo[campo] as number) : 0), 0);
   if (CAMPOS_DESCONTOS_CLASSIFICADOS.some((campo) => resumo[campo] !== undefined) && Math.abs(arredondarCentavos(classificados) - (resumo.descontosOutros as number)) > 0.01) {
-    throw new ErroValidacaoResumoDP("Os descontos classificados (faltas, vale-transporte, pensão e adiantamento) não somam o total de outros descontos.");
+    throw new ErroValidacaoResumoDP("Os descontos classificados (faltas, vale-transporte, pensão, adiantamento e consignado) não somam o total de outros descontos.");
   }
 
   return {

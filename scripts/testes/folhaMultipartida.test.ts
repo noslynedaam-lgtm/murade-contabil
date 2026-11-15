@@ -65,6 +65,37 @@ test("sem a conta de uma partida classificada, a folha inteira fica de fora (nã
   assert.equal(gerarRascunhosFolha(cnpj, [{ competencia: "2026-10", resumo: semVtValor } as any], contas, semVt, agora).length, 8);
 });
 
+// Caso real (Ferragista JE, 11/2026): consignado do governo (Crédito do Trabalhador) de R$ 724,28 descontado de um empregado.
+// O DP manda descontosConsignado separado; o Contábil precisa reconhecê-lo, senão recusa o resumo ("descontos classificados não somam").
+const comConsignado = { ...resumo, descontosConsignado: 724.28, descontosOutros: 2004.28, liquidoFolha: 6830.8 };
+
+test("consignado: o resumo do DP com descontosConsignado fecha, é aceito e o formato sem o campo continua valendo", () => {
+  assert.deepEqual(conciliarResumoFolhaDP(comConsignado), { ok: true });
+  const envelope = (r: Record<string, unknown>) => ({ versaoContrato: 1, cnpj, competencia: "2026-11", processamentoId: "2b9c6f3a-50f1-4e52-8e3b-6a6a6a6a6a6a", calculadoEm: agora, resumo: r });
+  const aceito = normalizarResumoDPContrato(cnpj, envelope(comConsignado));
+  assert.equal(aceito.resumo.descontosConsignado, 724.28);
+  // formato anterior (sem o campo) segue valendo
+  assert.doesNotThrow(() => normalizarResumoDPContrato(cnpj, envelope(resumo)));
+  // consignado que o DP não classificou (soma não fecha) continua sendo recusado, com a mensagem citando o consignado
+  assert.throws(() => normalizarResumoDPContrato(cnpj, envelope({ ...comConsignado, descontosOutros: 1280 })), (e: any) => e instanceof ErroValidacaoResumoDP && /consignado/.test(e.message));
+  assert.equal(conciliarResumoFolhaDP({ ...comConsignado, descontosConsignado: -1 }).ok, false);
+});
+
+test("consignado: vira uma partida própria (débito salários a pagar, crédito na conta de consignados) e o saldo de salários fecha com o líquido", () => {
+  const contasC = [...contas, { codigo: "2.9.4", descricao: "Consignados a repassar", tipo: "analitica", nivel: 5, natureza: "C" }];
+  const mapC = [...mapeamentos, mapa("dp_desconto_consignado", "2.1.2", "2.9.4")];
+  const r = gerarRascunhosFolha(cnpj, [{ competencia: "2026-11", resumo: comConsignado } as any], contasC, mapC, agora);
+  assert.equal(r.length, 10);
+  const c = r.find((x) => x.referenciaOrigem.endsWith(":descontosConsignado"))!;
+  assert.deepEqual([c.contaDebitoCodigo, c.contaCreditoCodigo, c.valor], ["2.1.2", "2.9.4", 724.28]);
+  let saldo = 0;
+  for (const x of r) { if (x.contaCreditoCodigo === "2.1.2") saldo += x.valor; if (x.contaDebitoCodigo === "2.1.2") saldo -= x.valor; }
+  assert.equal(Math.round(saldo * 100) / 100, 6830.8);
+  // sem a conta do consignado a folha inteira fica de fora (não lança metade) até alguém mapear
+  assert.equal(gerarRascunhosFolha(cnpj, [{ competencia: "2026-11", resumo: comConsignado } as any], contasC, mapeamentos, agora).length, 0);
+  assert.equal(origemDaReferencia(`DP:${cnpj}:2026-11:descontosConsignado`)?.id, "dp_desconto_consignado");
+});
+
 test("referências: mensal, 13º/rescisão, pró-labore e Fiscal (nota e apuração) apontam para a origem certa", () => {
   const o = (r: string) => origemDaReferencia(r)?.id;
   assert.equal(o(`DP:${cnpj}:2026-10:salarioFamilia`), "dp_salario_familia");
@@ -128,4 +159,12 @@ test("provisões mensais (férias, 13º, encargos) viram partidas próprias; sem
   const semProv = gerarRascunhosFolha(cnpj, [{ competencia: "2026-10", resumo: comProv } as any], contas, mapeamentos, agora);
   assert.equal(semProv.length, 9); // folha completa continua saindo
   assert.equal(gerarRascunhosFolha(cnpj, [{ competencia: "2026-10", resumo: { ...resumo, provisaoFerias: null, provisao13: null, encargosOutros: null } } as any], contas, mapProv, agora).length, 9);
+});
+
+test("consignado: o validador do workspace aceita a partida do consignado (referência e origem coerentes)", () => {
+  const contasC = [...contas, { codigo: "2.9.4", descricao: "Consignados a repassar", tipo: "analitica", nivel: 5, natureza: "C" }];
+  const mapC = [...mapeamentos, mapa("dp_desconto_consignado", "2.1.2", "2.9.4")];
+  const lote = gerarRascunhosFolha(cnpj, [{ competencia: "2026-11", resumo: { ...resumo, descontosConsignado: 724.28, descontosOutros: 2004.28, liquidoFolha: 6830.8 } } as any], contasC, mapC, agora).map(comoPre);
+  assert.equal(lote.length, 10);
+  assert.equal(workspaceValido(base({ contas: contasC, mapeamentosOrigem: mapC, preLancamentos: lote })), true);
 });

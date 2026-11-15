@@ -17,6 +17,7 @@ export const ORIGENS = [
   { id: "dp_desconto_vt", rotulo: "DP — Desconto de vale-transporte" },
   { id: "dp_desconto_pensao", rotulo: "DP — Pensão alimentícia" },
   { id: "dp_desconto_adiantamento", rotulo: "DP — Adiantamento" },
+  { id: "dp_desconto_consignado", rotulo: "DP — Consignado" },
   { id: "dp_provisao_ferias", rotulo: "DP — Provisão de férias" },
   { id: "dp_provisao_13", rotulo: "DP — Provisão de 13º" },
   { id: "dp_provisao_encargos", rotulo: "DP — Encargos sobre provisões" },
@@ -64,11 +65,12 @@ export const ITENS_FOLHA_DP = [
   { campo: "descontosVT", origem: "dp_desconto_vt", titulo: "Desconto do vale-transporte", classificado: true },
   { campo: "descontosPensao", origem: "dp_desconto_pensao", titulo: "Pensão alimentícia descontada", classificado: true },
   { campo: "descontosAdiantamento", origem: "dp_desconto_adiantamento", titulo: "Adiantamento descontado", classificado: true },
+  { campo: "descontosConsignado", origem: "dp_desconto_consignado", titulo: "Empréstimo consignado descontado", classificado: true },
 ] as const;
 export type ItemFolhaDP = (typeof ITENS_FOLHA_DP)[number];
 
 /** Descontos que, somados, precisam fechar com `descontosOutros`. */
-export const CAMPOS_DESCONTOS_CLASSIFICADOS = ["descontosFaltas", "descontosVT", "descontosPensao", "descontosAdiantamento"] as const;
+export const CAMPOS_DESCONTOS_CLASSIFICADOS = ["descontosFaltas", "descontosVT", "descontosPensao", "descontosAdiantamento", "descontosConsignado"] as const;
 export const CAMPOS_OPCIONAIS_RESUMO_DP = ["salarioFamilia", ...CAMPOS_DESCONTOS_CLASSIFICADOS] as const;
 
 const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
@@ -93,7 +95,7 @@ export function conciliarResumoFolhaDP(v: Record<string, unknown>): { ok: true }
   if (Math.abs(r2(classificados) - r2(outros!)) > 0.01) {
     return { ok: false, motivo: outros! > 0 && classificados === 0
       ? "Há outros descontos que o DP não classificou (resumo no formato antigo); reenvie a folha pelo DP atualizado para gerar as partidas."
-      : "Os descontos classificados (faltas, vale-transporte, pensão e adiantamento) não somam o total de outros descontos." };
+      : "Os descontos classificados (faltas, vale-transporte, pensão, adiantamento e consignado) não somam o total de outros descontos." };
   }
   if (Math.abs(r2(bruto! - inss! - irrf! - outros! + sf) - r2(liquido!)) > 0.01) return { ok: false, motivo: "Bruto, descontos e salário-família não fecham com o líquido da folha." };
   return { ok: true };
@@ -106,7 +108,7 @@ export function conciliarResumoFolhaDP(v: Record<string, unknown>): { ok: true }
 // Fiscal apur.: FISCAL:<cnpj>:AAAA-MM:APURACAO:<TRIBUTO>:<referência>
 const CAMPO_DP_MENSAL: Record<string, IdOrigem> = {
   folhaBruta: "dp_folha_bruta", descontosINSS: "dp_descontos_inss", inssPatronal: "dp_inss_patronal", descontosIRRF: "dp_descontos_irrf", fgts: "dp_fgts",
-  salarioFamilia: "dp_salario_familia", descontosFaltas: "dp_desconto_faltas", descontosVT: "dp_desconto_vt", descontosPensao: "dp_desconto_pensao", descontosAdiantamento: "dp_desconto_adiantamento",
+  salarioFamilia: "dp_salario_familia", descontosFaltas: "dp_desconto_faltas", descontosVT: "dp_desconto_vt", descontosPensao: "dp_desconto_pensao", descontosAdiantamento: "dp_desconto_adiantamento", descontosConsignado: "dp_desconto_consignado",
   provisaoFerias: "dp_provisao_ferias", provisao13: "dp_provisao_13", encargosOutros: "dp_provisao_encargos",
   proLabore: "dp_folha_bruta", inssSocio: "dp_descontos_inss", irrfSocio: "dp_descontos_irrf",
 };

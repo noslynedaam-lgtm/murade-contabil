@@ -192,6 +192,7 @@ export type OrigemMapeadaContabil =
   | "dp_desconto_vt"
   | "dp_desconto_pensao"
   | "dp_desconto_adiantamento"
+  | "dp_desconto_consignado"
   | "dp_provisao_ferias"
   | "dp_provisao_13"
   | "dp_provisao_encargos"
