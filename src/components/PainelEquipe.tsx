@@ -1,5 +1,6 @@
 import { confirmarNaTela } from "../utils/dialogoNaTela";
 import React, { useEffect, useState } from 'react';
+import { CONSULTA_EXTRA, FAIXAS_PLANO, PONTO_EXTRA_MENSAL, reais, reaisInteiro } from '../utils/planosMurade';
 import { PainelAtividade } from './PainelAtividade';
 
 // Equipe do escritório: quem entra aqui enxerga TODAS as empresas do escritório (inclusive as cadastradas depois).
@@ -8,10 +9,11 @@ export function PainelEquipe() {
   const [equipe, setEquipe] = useState<string[]>([]);
   const [membros, setMembros] = useState<{ login: string; bloqueado: boolean }[]>([]);
   const [convites, setConvites] = useState<{ login: string; expiraEm: string; vencido?: boolean }[]>([]);
+  const [pontos, setPontos] = useState<{ limite: number | null; usados: number } | null>(null);
   const [login, setLogin] = useState('');
   const [link, setLink] = useState('');
   const [msg, setMsg] = useState('');
-  const carregar = () => fetch('/api/auth/team/detalhes', { credentials: 'include', cache: 'no-store' }).then((r) => r.json()).then((d) => { setMembros(Array.isArray(d.membros) ? d.membros : []); setConvites(Array.isArray(d.convites) ? d.convites : []); setEquipe((d.membros || []).map((m: { login: string }) => m.login)); }).catch(() => { setEquipe([]); setMembros([]); setConvites([]); });
+  const carregar = () => fetch('/api/auth/team/detalhes', { credentials: 'include', cache: 'no-store' }).then((r) => r.json()).then((d) => { setMembros(Array.isArray(d.membros) ? d.membros : []); setConvites(Array.isArray(d.convites) ? d.convites : []); setPontos(d.pontos && typeof d.pontos.usados === 'number' ? d.pontos : null); setEquipe((d.membros || []).map((m: { login: string }) => m.login)); }).catch(() => { setEquipe([]); setMembros([]); setConvites([]); setPontos(null); });
   useEffect(() => { void carregar(); }, []);
   const chamar = async (url: string, metodo: string, corpo?: object) => {
     const r = await fetch(url, { method: metodo, credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: corpo ? JSON.stringify(corpo) : undefined });
@@ -41,10 +43,16 @@ export function PainelEquipe() {
       <h3 className="mb-1 font-semibold">Equipe do escritório</h3>
       <p className="mb-2 text-xs text-slate-600">Quem está na equipe acessa todas as empresas do escritório, as de hoje e as futuras, de qualquer computador. Cliente não entra aqui: convide-o pela empresa dele, abaixo.</p>
       <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm"><strong>Aplicativo instalado travou ou ficou desatualizado?</strong> Não precisa reenviar convite nem instalar de novo. Mande este link para a pessoa abrir uma vez; o usuário, a senha e os dados dela continuam iguais: <a className="break-all text-blue-800 underline" href="/reparar.html">{`${window.location.origin}/reparar.html`}</a> <button type="button" className="ml-2 rounded bg-blue-800 px-2 py-1 text-white" onClick={() => void navigator.clipboard.writeText(`${window.location.origin}/reparar.html`)}>Copiar</button></div>
-      <form onSubmit={convidar} className="flex gap-2">
-        <input required value={login} onChange={(e) => setLogin(e.target.value)} placeholder="Usuário (e-mail) do funcionário" className="min-w-0 flex-1 rounded-lg border p-2" />
-        <button className="rounded-lg bg-slate-800 px-3 text-white">Gerar convite</button>
-        <button type="button" onClick={() => void adicionar()} className="rounded-lg border px-3" title="Para quem já tem conta neste sistema">Adicionar conta existente</button>
+      <details className="mb-3 rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-950">
+        <summary className="cursor-pointer font-semibold">Pontos e plano{pontos ? (pontos.limite == null ? ` — ${pontos.usados} ponto(s) em uso` : ` — ${pontos.usados} de ${pontos.limite} pontos em uso`) : ''}</summary>
+        <p className="mt-2">Cada pessoa com acesso (você incluso) usa 1 ponto. <strong>Cada ponto a mais custa {reais(PONTO_EXTRA_MENSAL)} por mês.</strong> Para liberar um ponto extra, fale com o fornecedor.</p>
+        <div className="mt-2 overflow-x-auto"><table className="w-full text-left text-xs"><thead><tr className="border-b border-indigo-200"><th className="py-1 pr-2">Empresas</th><th className="pr-2">Mensalidade</th><th>Pontos incluídos</th></tr></thead><tbody>{FAIXAS_PLANO.map((f) => <tr key={f.rotulo} className="border-b border-indigo-100"><td className="py-1 pr-2">{f.rotulo}</td><td className="pr-2 font-semibold">{f.ate === null ? 'a partir de ' : ''}{reaisInteiro(f.mensalidade)}</td><td>{f.pontos}</td></tr>)}</tbody></table></div>
+        <p className="mt-2"><strong>Consultas oficiais (Serpro):</strong> 1 grátis por semana por empresa (não acumula). Da 2ª em diante, {reais(CONSULTA_EXTRA)} cada, cobrada por fora da mensalidade e só com a sua confirmação.</p>
+      </details>
+      <form onSubmit={convidar} className="flex flex-wrap gap-2">
+        <input required value={login} onChange={(e) => setLogin(e.target.value)} placeholder="Usuário (e-mail) do funcionário" className="min-w-0 basis-full rounded-lg border p-2 sm:basis-0 sm:flex-1" />
+        <button className="flex-1 rounded-lg bg-slate-800 px-3 py-2 text-white sm:flex-none">Gerar convite</button>
+        <button type="button" onClick={() => void adicionar()} className="flex-1 rounded-lg border px-3 py-2 sm:flex-none" title="Para quem já tem conta neste sistema">Adicionar conta existente</button>
       </form>
       {link && <div className="mt-2 break-all rounded-lg border border-green-300 bg-green-50 p-3 text-sm"><strong>Link de uso único:</strong> <a className="text-blue-800 underline" href={link}>{link}</a> <button type="button" className="ml-2 rounded bg-green-800 px-2 py-1 text-white" onClick={() => void navigator.clipboard.writeText(link)}>Copiar</button></div>}
       {msg && <p role="alert" className="mt-2 text-sm text-red-700">{msg}</p>}

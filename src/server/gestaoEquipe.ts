@@ -122,7 +122,13 @@ export function registrarGestaoEquipe(app: Express, cfg: ConfigGestaoEquipe, par
       const m = await db().query(`SELECT login, disabled FROM ${T.usuarios} WHERE office_owner=$1 ORDER BY login`, [s.userId]);
       const c = await db().query(`SELECT DISTINCT ON (login) login, expires_at, (expires_at<=now()) AS vencido FROM ${T.convites} WHERE office_owner=$1 AND expires_at>now()-interval '30 days' ORDER BY login, created_at DESC`, [s.userId]); // vencidos continuam na lista (30 dias) para poder reenviar
       res.setHeader('Cache-Control', 'no-store');
-      res.json({ sucesso: true, membros: m.rows.map((x) => ({ login: x.login, bloqueado: x.disabled === true })), convites: c.rows.map((x) => ({ login: x.login, expiraEm: x.expires_at, vencido: x.vencido === true })) });
+      // Pontos do escritório: a mesma conta que trava o convite (dono + equipe ativa + convites válidos). Se falhar, a tela só não mostra o número.
+      let pontos: { limite: number | null; usados: number } | null = null;
+      try {
+        const p = await db().query(`SELECT o.max_usuarios, (SELECT count(*)::int FROM ${T.usuarios} t WHERE t.tenant_id=o.id AND t.id<>o.id AND t.disabled=false) + (SELECT count(*)::int FROM ${T.convites} i WHERE i.office_owner=o.id AND i.expires_at>now()) AS equipe FROM ${T.usuarios} o WHERE o.id=$1`, [s.userId]);
+        if (p.rows[0]) pontos = { limite: p.rows[0].max_usuarios == null ? null : Number(p.rows[0].max_usuarios), usados: 1 + Number(p.rows[0].equipe) };
+      } catch { pontos = null; }
+      res.json({ sucesso: true, pontos, membros: m.rows.map((x) => ({ login: x.login, bloqueado: x.disabled === true })), convites: c.rows.map((x) => ({ login: x.login, expiraEm: x.expires_at, vencido: x.vencido === true })) });
     } catch (e) { falha(res, e); }
   });
 

@@ -562,7 +562,7 @@ async function limiteEquipeAtingidoContabil(donoId: string): Promise<string | nu
     FROM contabil_auth_users o WHERE o.id=$1`, [donoId]);
   const linha = r.rows[0]; if (!linha || linha.max_usuarios == null) return null;
   const usados = 1 + Number(linha.equipe);
-  return usados >= Number(linha.max_usuarios) ? `O plano deste escritório permite ${linha.max_usuarios} usuário(s) (dono incluso) e todos já estão em uso. Fale com o fornecedor para ampliar.` : null;
+  return usados >= Number(linha.max_usuarios) ? `O plano deste escritório permite ${linha.max_usuarios} usuário(s) (dono incluso) e todos já estão em uso. Cada ponto a mais custa R$ 100,00 por mês: fale com o fornecedor para liberar.` : null;
 }
 
 export async function definirLimiteEscritorioContabil(req: Request, res: Response): Promise<void> {
