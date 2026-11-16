@@ -10,6 +10,7 @@ import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import { RobotSidebar } from "./components/RobotSidebar";
 import { FaixaEcd } from "./components/FaixaEcd";
+import { ErroTela } from "./components/ErroTela";
 import { InicioTab } from "./components/tabs/InicioTab";
 import { ConexoesTab } from "./components/tabs/ConexoesTab";
 import { EmpresaTab } from "./components/tabs/EmpresaTab";
@@ -854,6 +855,7 @@ function AppWorkspace() {
             <div className="grid grid-cols-1 gap-5 items-start">
             {/* Coluna Esquerda: Conteúdo da Aba Selecionada */}
             <div className="space-y-4 min-w-0">
+              <ErroTela chave={String(tabAtiva)}>
               {tabAtiva === "inicio" && (
                 <InicioTab
                   empresa={empresa}
@@ -1080,6 +1082,7 @@ function AppWorkspace() {
               )}
 
               {tabAtiva === "backups" && <BackupsTab />}
+              </ErroTela>
             </div>
 
             {/* Robô Murade: minimizado e flutuante (abre ao clicar) */}
