@@ -2,7 +2,9 @@ import { confirmarNaTela } from "../../utils/dialogoNaTela";
 import React, { useMemo, useState } from "react";
 import { CentroCustoContabil, ContaPlano, EmpresaDados, LancamentoContabil, PreLancamentoContabil } from "../../types";
 import { compararPeriodos, explicarVariacoes, resultadoPorCentroCusto } from "../../utils/analiseContabil";
-import { BemImobilizado, depreciacaoAcumulada, filialAtual, quotaDoMes, resultadoDaBaixa, totalQuotasDoMes, validarBem, valorContabilLiquido } from "../../utils/imobilizado";
+import { BemImobilizado, definirAjusteQuota, depreciacaoAcumulada, filialAtual, quotaAutomatica, quotaDoMes, quotaFoiAjustada, removerAjusteQuota, resultadoDaBaixa, totalQuotasDoMes, validarBem, valorContabilLiquido } from "../../utils/imobilizado";
+import { centavosParaTexto, liquidoLancado, montarComplemento, paraCentavos, valorEfetivoCentavos } from "../../utils/ajusteManual";
+import { BotaoRecalcular, CampoAjustavel } from "../AjusteManual";
 import { conciliar, lancamentoDoMovimento, lerOFX, MovimentoExtrato, sugerirContraPartida } from "../../utils/extratoBancario";
 import { CONFIRMACOES_MANUAIS, conferirFechamento, referenciaDepreciacao } from "../../utils/fechamentoContabil";
 import { moedaContabil } from "../../utils/livrosContabeis";
@@ -127,12 +129,70 @@ const Centros: React.FC<Props & { periodo: string }> = ({ contas, lancamentos, c
   );
 };
 
+// Quota do mês: mostra o automático e deixa ajustar à mão (marcado como "ajustado manualmente"); voltar ao automático pede confirmação.
+const QuotaAjustavel: React.FC<{ bem: BemImobilizado; periodo: string; onBem: (b: BemImobilizado) => void }> = ({ bem, periodo, onBem }) => {
+  const auto = quotaAutomatica(bem, periodo), atual = quotaDoMes(bem, periodo), ajustada = quotaFoiAjustada(bem, periodo);
+  const [texto, setTexto] = useState(""); const [erro, setErro] = useState("");
+  if (!bem.depreciavel) return <>{moedaContabil(0)}</>;
+  const aplicar = () => {
+    const c = paraCentavos(texto);
+    if (c === null) return setErro("Digite um valor válido, por exemplo 1.250,00.");
+    const r = definirAjusteQuota(bem, periodo, c);
+    if (r.erro || !r.bem) return setErro(r.erro || "Não foi possível ajustar.");
+    setErro(""); setTexto(""); onBem(r.bem);
+  };
+  return (
+    <div>
+      <div>{moedaContabil(atual)}{ajustada && <span className="ml-1 rounded bg-violet-100 px-1 text-[10px] font-bold text-violet-900">ajustado manualmente</span>}</div>
+      {ajustada && <div className="text-[10px] text-slate-600">Automático: {moedaContabil(auto)}</div>}
+      <div className="mt-1 flex flex-wrap items-center gap-1">
+        <input aria-label={`Ajustar quota de ${bem.descricao}`} inputMode="decimal" placeholder="ajustar (R$)" value={texto} onChange={(e) => setTexto(e.target.value)} className="w-24 rounded border px-1 py-0.5" />
+        <button type="button" className="rounded border px-1.5 py-0.5" disabled={!texto.trim()} onClick={aplicar}>Aplicar</button>
+        {ajustada && <button type="button" className="rounded border px-1.5 py-0.5" onClick={async () => { if (await confirmarNaTela(`Voltar a quota de ${bem.descricao} em ${periodo} ao cálculo automático (${moedaContabil(auto)})? O valor ajustado por você será descartado.`)) onBem(removerAjusteQuota(bem, periodo)); }}>Voltar ao automático</button>}
+      </div>
+      {erro && <div className="text-[10px] text-red-700">{erro}</div>}
+    </div>
+  );
+};
+
 const Imobilizado: React.FC<Props & { periodo: string; analiticas: ContaPlano[] }> = ({ bens, onBens, periodo, analiticas, lancamentos, onAdicionarLancamento, workspacePersistido }) => {
   const [f, setF] = useState({ descricao: "", filial: "", custo: "", residual: "0", vida: "60", inicio: periodo, depreciavel: true });
   const [erros, setErros] = useState<string[]>([]);
   const [despesa, setDespesa] = useState(""); const [acumulada, setAcumulada] = useState(""); const [msg, setMsg] = useState("");
+  const [edit, setEdit] = useState<{ id: string; descricao: string; filial: string; custo: string; residual: string; vida: string; inicio: string } | null>(null);
   const quotas = totalQuotasDoMes(bens, periodo);
-  const jaLancada = lancamentos.some((l) => l.documentoRef === referenciaDepreciacao(periodo) && l.statusManual !== "rejeitado");
+  const refDeprec = referenciaDepreciacao(periodo);
+  const jaLancada = lancamentos.some((l) => l.documentoRef === refDeprec && l.statusManual !== "rejeitado");
+  const liquido = liquidoLancado(lancamentos, refDeprec);
+  const diferenca = jaLancada ? quotas.total - liquido.centavos : 0;
+  const ajustesNoMes = bens.filter((b) => quotaFoiAjustada(b, periodo)).length;
+  const trocarBem = (novo: BemImobilizado) => onBens(bens.map((x) => (x.id === novo.id ? novo : x)));
+  const recalcularMes = async () => {
+    if (!ajustesNoMes) return setMsg("Recalculado: nenhuma quota deste mês estava ajustada à mão, tudo segue o cálculo automático.");
+    if (!(await confirmarNaTela(`${ajustesNoMes} bem(ns) têm a quota de ${periodo} ajustada manualmente. Recalcular vai voltar todas ao cálculo automático e descartar os valores que você digitou. Nenhum lançamento já feito é apagado. Continuar?`))) return;
+    onBens(bens.map((b) => removerAjusteQuota(b, periodo)));
+    setMsg("Recalculado: as quotas do mês voltaram ao cálculo automático.");
+  };
+  const lancarDiferenca = async () => {
+    if (!liquido.base || !diferenca) return;
+    if (!workspacePersistido) return setMsg("Aguarde a confirmação do banco desta empresa antes de lançar.");
+    if (!(await confirmarNaTela(`O lançamento de depreciação de ${periodo} está em ${moedaContabil(liquido.centavos)} e o cálculo atual dá ${moedaContabil(quotas.total)}. Criar um lançamento de ${diferenca > 0 ? "complemento" : "redução"} de ${moedaContabil(Math.abs(diferenca))}, pendente de aprovação? O lançamento original continua preservado.`))) return;
+    const n = lancamentos.filter((l) => String(l.documentoRef || "").startsWith(`${refDeprec}:AJ:`)).length + 1;
+    const novo = montarComplemento(liquido.base, refDeprec, diferenca, n, periodo, "Depreciação");
+    if (!novo) return;
+    onAdicionarLancamento(novo);
+    setMsg("Lançamento de diferença criado e enviado para aprovação na aba Lançamentos.");
+  };
+  const abrirEdicao = (b: BemImobilizado) => setEdit({ id: b.id, descricao: b.descricao, filial: b.filial || "", custo: centavosParaTexto(b.custoCentavos), residual: centavosParaTexto(b.residualCentavos), vida: String(b.vidaUtilMeses), inicio: b.inicioDepreciacao });
+  const salvarEdicao = async () => {
+    if (!edit) return;
+    const b = bens.find((x) => x.id === edit.id); if (!b) return;
+    const novo: BemImobilizado = { ...b, descricao: edit.descricao.trim(), filial: edit.filial.trim() || undefined, custoCentavos: paraCentavos(edit.custo) ?? NaN, residualCentavos: paraCentavos(edit.residual) ?? NaN, vidaUtilMeses: b.depreciavel ? Number(edit.vida) : 0, inicioDepreciacao: edit.inicio };
+    const e = validarBem(novo); setErros(e);
+    if (e.length) return;
+    if (!(await confirmarNaTela(`Salvar as alterações de "${b.descricao}"? A depreciação de todos os meses será recalculada com os novos dados. Lançamentos de depreciação já feitos não são apagados: depois use "Lançar diferença" para acertar.`))) return;
+    trocarBem(novo); setEdit(null); setMsg("Bem atualizado. A depreciação foi recalculada com os novos dados.");
+  };
   const cadastrar = () => {
     const bem: BemImobilizado = { id: `BEM-${Date.now()}`, descricao: f.descricao.trim(), filial: f.filial.trim() || undefined, custoCentavos: reais(f.custo), residualCentavos: reais(f.residual), vidaUtilMeses: f.depreciavel ? Number(f.vida) : 0, inicioDepreciacao: f.inicio, depreciavel: f.depreciavel };
     const e = validarBem(bem); setErros(e);
@@ -181,13 +241,39 @@ const Imobilizado: React.FC<Props & { periodo: string; analiticas: ContaPlano[] 
           <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left">
             <thead><tr><th>Bem</th><th>Filial</th><th>Custo</th><th>Quota do mês</th><th>Acumulada</th><th>Valor líquido</th><th>Situação</th><th></th></tr></thead>
             <tbody>{bens.map((b) => (
-              <tr key={b.id}><td>{b.descricao}</td><td>{filialAtual(b, periodo) ?? "—"}</td><td>{moedaContabil(b.custoCentavos)}</td><td>{moedaContabil(quotaDoMes(b, periodo))}</td><td>{moedaContabil(depreciacaoAcumulada(b, periodo))}</td><td>{moedaContabil(valorContabilLiquido(b, periodo))}</td>
+              <tr key={b.id}><td>{b.descricao}</td><td>{filialAtual(b, periodo) ?? "—"}</td><td>{moedaContabil(b.custoCentavos)}</td><td><QuotaAjustavel bem={b} periodo={periodo} onBem={trocarBem} /></td><td>{moedaContabil(depreciacaoAcumulada(b, periodo))}</td><td>{moedaContabil(valorContabilLiquido(b, periodo))}</td>
                 <td>{b.baixa ? `${b.baixa.motivo === "venda" ? "Vendido" : "Baixado"} em ${b.baixa.competencia} · ${(resultadoDaBaixa(b) ?? 0) >= 0 ? "ganho" : "perda"} de ${moedaContabil(Math.abs(resultadoDaBaixa(b) ?? 0))}` : "Em uso"}</td>
-                <td>{!b.baixa && <span className="flex gap-1"><button type="button" className="rounded border px-2 py-0.5" onClick={() => registrarBaixa(b, "venda")}>Vender</button><button type="button" className="rounded border px-2 py-0.5" onClick={() => registrarBaixa(b, "baixa")}>Baixar</button><button type="button" className="rounded border px-2 py-0.5" onClick={() => transferir(b)}>Transferir</button></span>}</td></tr>
+                <td>{!b.baixa && <span className="flex flex-wrap gap-1"><button type="button" className="rounded border px-2 py-0.5" onClick={() => abrirEdicao(b)}>Editar</button><button type="button" className="rounded border px-2 py-0.5" onClick={() => registrarBaixa(b, "venda")}>Vender</button><button type="button" className="rounded border px-2 py-0.5" onClick={() => registrarBaixa(b, "baixa")}>Baixar</button><button type="button" className="rounded border px-2 py-0.5" onClick={() => transferir(b)}>Transferir</button></span>}</td></tr>
             ))}</tbody>
           </table></div>
         )}
+        {edit && (
+          <div className="mt-3 rounded-lg border border-violet-300 bg-violet-50 p-3">
+            <p className="font-bold">Editar bem</p>
+            <div className="mt-1 flex flex-wrap items-end gap-2">
+              <label className="grid gap-1">Descrição<input value={edit.descricao} onChange={(e) => setEdit({ ...edit, descricao: e.target.value })} className="w-48 rounded border px-2 py-1" /></label>
+              <label className="grid gap-1">Filial<input value={edit.filial} onChange={(e) => setEdit({ ...edit, filial: e.target.value })} className="w-28 rounded border px-2 py-1" /></label>
+              <label className="grid gap-1">Custo (R$)<input value={edit.custo} onChange={(e) => setEdit({ ...edit, custo: e.target.value })} className="w-28 rounded border px-2 py-1" /></label>
+              <label className="grid gap-1">Residual (R$)<input value={edit.residual} onChange={(e) => setEdit({ ...edit, residual: e.target.value })} className="w-24 rounded border px-2 py-1" /></label>
+              {bens.find((x) => x.id === edit.id)?.depreciavel && <label className="grid gap-1">Vida útil (meses)<input type="number" min={1} value={edit.vida} onChange={(e) => setEdit({ ...edit, vida: e.target.value })} className="w-24 rounded border px-2 py-1" /></label>}
+              <label className="grid gap-1">Início de uso<input type="month" value={edit.inicio} onChange={(e) => setEdit({ ...edit, inicio: e.target.value })} className="rounded border px-2 py-1" /></label>
+              <button type="button" onClick={() => void salvarEdicao()} className="rounded-md bg-violet-700 px-3 py-1.5 font-bold text-white">Salvar alterações</button>
+              <button type="button" onClick={() => { setEdit(null); setErros([]); }} className="rounded-md border px-3 py-1.5 font-bold">Cancelar</button>
+            </div>
+            {erros.length > 0 && <ul className="mt-1 text-red-700">{erros.map((e) => <li key={e}>{e}</li>)}</ul>}
+          </div>
+        )}
         <p className="mt-2 font-semibold">Depreciação do mês: {moedaContabil(quotas.total)} {jaLancada && "(já lançada)"}</p>
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => void recalcularMes()} className="rounded border border-violet-400 bg-white px-2 py-1 font-semibold">Recalcular depreciação do mês</button>
+          {ajustesNoMes > 0 && <span className="text-violet-800">{ajustesNoMes} quota(s) ajustada(s) manualmente neste mês</span>}
+        </div>
+        {jaLancada && liquido.base && diferenca !== 0 && (
+          <div role="status" className="mt-2 rounded border border-amber-300 bg-amber-50 p-2">
+            O lançamento do mês soma {moedaContabil(liquido.centavos)}, mas o cálculo atual é {moedaContabil(quotas.total)} (diferença de {moedaContabil(Math.abs(diferenca))}).{" "}
+            <button type="button" onClick={() => void lancarDiferenca()} disabled={!workspacePersistido} className="rounded border border-amber-500 bg-white px-2 py-0.5 font-bold disabled:opacity-50">Lançar diferença ({diferenca > 0 ? "complemento" : "redução"})</button>
+          </div>
+        )}
         <div className="mt-2 flex flex-wrap items-end gap-2">
           <label className="grid gap-1">Conta de despesa de depreciação<select value={despesa} onChange={(e) => setDespesa(e.target.value)} className="rounded border px-2 py-1"><option value="">Escolha…</option>{analiticas.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} {c.descricao}</option>)}</select></label>
           <label className="grid gap-1">Conta de depreciação acumulada<select value={acumulada} onChange={(e) => setAcumulada(e.target.value)} className="rounded border px-2 py-1"><option value="">Escolha…</option>{analiticas.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} {c.descricao}</option>)}</select></label>
@@ -275,45 +361,72 @@ const Fechamento: React.FC<Props & { periodo: string }> = ({ contas, lancamentos
   );
 };
 
-const Provisoes: React.FC<Props & { periodo: string; analiticas: ContaPlano[] }> = ({ lancamentos, analiticas, periodo, onAdicionarLancamento, workspacePersistido }) => {
+const Provisoes: React.FC<Props & { periodo: string; analiticas: ContaPlano[] }> = ({ empresa, lancamentos, analiticas, periodo, onAdicionarLancamento, workspacePersistido }) => {
   const [enc, setEnc] = useState(8);
   const [c, setC] = useState({ despFerias: "", provFerias: "", despDecimo: "", provDecimo: "" });
   const [msg, setMsg] = useState("");
-  const base = useMemo(() => baseFolhaBruta(lancamentos, periodo), [lancamentos, periodo]);
+  // Ajustes manuais (base da folha e valores finais) guardados por empresa e competência; o cálculo automático não os sobrescreve.
+  const chaveAj = `murade_provisao_ajustes_${String(empresa.cnpj || "").replace(/\W/g, "")}_${periodo}`;
+  const [aj, setAj] = useState<Record<string, string>>({});
+  React.useEffect(() => { try { const v = JSON.parse(localStorage.getItem(chaveAj) || "{}"); setAj(v && typeof v === "object" && !Array.isArray(v) ? v : {}); } catch { setAj({}); } }, [chaveAj]);
+  const ajustar = (k: string) => (v: string | undefined) => setAj((a) => { const n = { ...a }; if (v === undefined) delete n[k]; else n[k] = v; try { localStorage.setItem(chaveAj, JSON.stringify(n)); } catch { /* opcional */ } return n; });
+  const descartar = () => { setAj({}); try { localStorage.removeItem(chaveAj); } catch { /* opcional */ } };
+  const baseAuto = useMemo(() => baseFolhaBruta(lancamentos, periodo), [lancamentos, periodo]);
+  const base = valorEfetivoCentavos(baseAuto, aj.base);
   const prov = useMemo(() => calcularProvisaoFolha(base, enc), [base, enc]);
-  const lancado = (tipo: string) => lancamentos.some((l) => l.documentoRef === `PROV:${tipo}:${periodo}` && l.statusManual !== "rejeitado");
+  const valorDe = (tipo: "FERIAS" | "DECIMO") => valorEfetivoCentavos(tipo === "FERIAS" ? prov.totalFerias : prov.totalDecimo, aj[tipo]);
+  const refDe = (tipo: string) => `PROV:${tipo}:${periodo}`;
+  const lancado = (tipo: string) => lancamentos.some((l) => l.documentoRef === refDe(tipo) && l.statusManual !== "rejeitado");
   const lancar = (tipo: "FERIAS" | "DECIMO") => {
     const d = analiticas.find((x) => x.codigo === (tipo === "FERIAS" ? c.despFerias : c.despDecimo)), a = analiticas.find((x) => x.codigo === (tipo === "FERIAS" ? c.provFerias : c.provDecimo));
-    const valor = tipo === "FERIAS" ? prov.totalFerias : prov.totalDecimo;
+    const valor = valorDe(tipo);
     if (!d || !a || d.codigo === a.codigo) return setMsg("Escolha duas contas diferentes: despesa e provisão (passivo).");
-    if (valor <= 0) return setMsg("A base da folha deste mês é zero: não há o que provisionar.");
+    if (valor <= 0) return setMsg("O valor a provisionar deste mês é zero: não há o que lançar.");
     if (lancado(tipo)) return setMsg("Esta provisão já foi lançada neste mês.");
     if (!workspacePersistido) return setMsg("Aguarde a confirmação do banco desta empresa antes de lançar.");
-    onAdicionarLancamento({ id: `PROV-${tipo}-${periodo}`, data: `${periodo}-28`, contaDebitoCodigo: d.codigo, contaDebitoNome: d.descricao, contaCreditoCodigo: a.codigo, contaCreditoNome: a.descricao, valor: valor / 100, historico: `Provisão de ${tipo === "FERIAS" ? "férias e 1/3" : "13º salário"} com encargos de ${enc}% — ${periodo}`, origem: "Manual", documentoRef: `PROV:${tipo}:${periodo}`, competencia: periodo, statusManual: "pendente_aprovacao" });
+    onAdicionarLancamento({ id: `PROV-${tipo}-${periodo}`, data: `${periodo}-28`, contaDebitoCodigo: d.codigo, contaDebitoNome: d.descricao, contaCreditoCodigo: a.codigo, contaCreditoNome: a.descricao, valor: valor / 100, historico: `Provisão de ${tipo === "FERIAS" ? "férias e 1/3" : "13º salário"} com encargos de ${enc}% — ${periodo}${aj[tipo] !== undefined || aj.base !== undefined ? " (valor ajustado manualmente)" : ""}`, origem: "Manual", documentoRef: refDe(tipo), competencia: periodo, statusManual: "pendente_aprovacao" });
     setMsg("Provisão enviada para aprovação na aba Lançamentos.");
+  };
+  const diferencaDe = (tipo: "FERIAS" | "DECIMO") => { const l = liquidoLancado(lancamentos, refDe(tipo)); return l.base ? { l, dif: valorDe(tipo) - l.centavos } : null; };
+  const lancarDiferenca = async (tipo: "FERIAS" | "DECIMO") => {
+    const x = diferencaDe(tipo); if (!x || !x.l.base || !x.dif) return;
+    if (!workspacePersistido) return setMsg("Aguarde a confirmação do banco desta empresa antes de lançar.");
+    if (!(await confirmarNaTela(`A provisão lançada soma ${moedaContabil(x.l.centavos)} e o valor atual é ${moedaContabil(valorDe(tipo))}. Criar um lançamento de ${x.dif > 0 ? "complemento" : "redução"} de ${moedaContabil(Math.abs(x.dif))}, pendente de aprovação? O lançamento original continua preservado.`))) return;
+    const n = lancamentos.filter((l) => String(l.documentoRef || "").startsWith(`${refDe(tipo)}:AJ:`)).length + 1;
+    const novo = montarComplemento(x.l.base, refDe(tipo), x.dif, n, periodo, tipo === "FERIAS" ? "Provisão de férias" : "Provisão de 13º");
+    if (!novo) return;
+    onAdicionarLancamento(novo); setMsg("Lançamento de diferença enviado para aprovação na aba Lançamentos.");
   };
   const seletor = (rot: string, chave: keyof typeof c) => (
     <label className="grid gap-1">{rot}<select value={c[chave]} onChange={(e) => setC({ ...c, [chave]: e.target.value })} className="max-w-[260px] rounded border px-2 py-1"><option value="">Escolha…</option>{analiticas.map((x) => <option key={x.codigo} value={x.codigo}>{x.codigo} {x.descricao}</option>)}</select></label>
   );
+  const difLinha = (tipo: "FERIAS" | "DECIMO") => { const x = diferencaDe(tipo); return x && x.dif !== 0 ? (
+    <p role="status" className="mt-1 rounded border border-amber-300 bg-amber-50 p-2">Já lançado: {moedaContabil(x.l.centavos)}; valor atual: {moedaContabil(valorDe(tipo))}.{" "}
+      <button type="button" onClick={() => void lancarDiferenca(tipo)} disabled={!workspacePersistido} className="rounded border border-amber-500 bg-white px-2 py-0.5 font-bold disabled:opacity-50">Lançar diferença ({x.dif > 0 ? "complemento" : "redução"})</button></p>) : null; };
   return (
     <Cartao titulo={`Provisões de férias e 13º — ${periodo}`}>
-      <p>Base: folha bruta do DP contabilizada no mês = <strong>{moedaContabil(base)}</strong>{base === 0 && " (nenhum lançamento definitivo de “DP — Folha” nesta competência)"}.</p>
+      <p className="flex flex-wrap items-center gap-2">Base: folha bruta do DP contabilizada no mês (R$) = <CampoAjustavel rotulo="Base da folha" automaticoCentavos={baseAuto} ajuste={aj.base} onChange={ajustar("base")} />{baseAuto === 0 && aj.base === undefined && " (nenhum lançamento definitivo de “DP — Folha” nesta competência)"}</p>
       <label className="mt-2 flex items-center gap-2">Encargos sobre as provisões (%)<input type="number" min={0} max={100} step={0.5} value={enc} onChange={(e) => setEnc(Number(e.target.value) || 0)} className="w-20 rounded border px-2 py-1" /></label>
       <table className="mt-2 w-full max-w-md text-left"><tbody>
         <tr><td>Férias (1/12)</td><td>{moedaContabil(prov.ferias)}</td></tr><tr><td>1/3 constitucional</td><td>{moedaContabil(prov.tercoFerias)}</td></tr>
         <tr><td>13º salário (1/12)</td><td>{moedaContabil(prov.decimoTerceiro)}</td></tr><tr><td>Encargos ({enc}%)</td><td>{moedaContabil(prov.encargos)}</td></tr>
         <tr className="font-bold"><td>Total a provisionar</td><td>{moedaContabil(prov.total)}</td></tr>
+        <tr><td>Valor a lançar — férias (R$)</td><td><CampoAjustavel rotulo="Valor das férias" automaticoCentavos={prov.totalFerias} ajuste={aj.FERIAS} onChange={ajustar("FERIAS")} /></td></tr>
+        <tr><td>Valor a lançar — 13º (R$)</td><td><CampoAjustavel rotulo="Valor do 13º" automaticoCentavos={prov.totalDecimo} ajuste={aj.DECIMO} onChange={ajustar("DECIMO")} /></td></tr>
       </tbody></table>
+      <p className="mt-1"><BotaoRecalcular ajustes={aj} onDescartar={descartar} texto="Recalcular provisões pela folha" /></p>
       <div className="mt-3 flex flex-wrap items-end gap-2">
         {seletor("Despesa de férias", "despFerias")}{seletor("Provisão de férias (passivo)", "provFerias")}
-        <button type="button" onClick={() => lancar("FERIAS")} disabled={lancado("FERIAS")} className="rounded-md bg-emerald-700 px-3 py-1.5 font-bold text-white disabled:opacity-50">{lancado("FERIAS") ? "Férias já lançada" : `Lançar férias (${moedaContabil(prov.totalFerias)})`}</button>
+        <button type="button" onClick={() => lancar("FERIAS")} disabled={lancado("FERIAS")} className="rounded-md bg-emerald-700 px-3 py-1.5 font-bold text-white disabled:opacity-50">{lancado("FERIAS") ? "Férias já lançada" : `Lançar férias (${moedaContabil(valorDe("FERIAS"))})`}</button>
       </div>
+      {difLinha("FERIAS")}
       <div className="mt-2 flex flex-wrap items-end gap-2">
         {seletor("Despesa de 13º", "despDecimo")}{seletor("Provisão de 13º (passivo)", "provDecimo")}
-        <button type="button" onClick={() => lancar("DECIMO")} disabled={lancado("DECIMO")} className="rounded-md bg-emerald-700 px-3 py-1.5 font-bold text-white disabled:opacity-50">{lancado("DECIMO") ? "13º já lançado" : `Lançar 13º (${moedaContabil(prov.totalDecimo)})`}</button>
+        <button type="button" onClick={() => lancar("DECIMO")} disabled={lancado("DECIMO")} className="rounded-md bg-emerald-700 px-3 py-1.5 font-bold text-white disabled:opacity-50">{lancado("DECIMO") ? "13º já lançado" : `Lançar 13º (${moedaContabil(valorDe("DECIMO"))})`}</button>
       </div>
+      {difLinha("DECIMO")}
       {msg && <p className="mt-2">{msg}</p>}
-      <p className="mt-2 text-slate-600">Estimativa: 1/12 da folha bruta para férias, mais 1/3 constitucional (CF, art. 7º, XVII), e 1/12 para o 13º (Lei 4.749/1965). O percentual de encargos é seu (FGTS 8%; INSS patronal depende do regime da empresa). A base é a folha bruta que o DP enviou, sem separar horas extras e adicionais. Impostos a recolher entram pelos lançamentos do Fiscal e do DP.</p>
+      <p className="mt-2 text-slate-600">Estimativa: 1/12 da folha bruta para férias, mais 1/3 constitucional (CF, art. 7º, XVII), e 1/12 para o 13º (Lei 4.749/1965). O percentual de encargos é seu (FGTS 8%; INSS patronal depende do regime da empresa). A base é a folha bruta que o DP enviou, sem separar horas extras e adicionais. Impostos a recolher entram pelos lançamentos do Fiscal e do DP. Os valores automáticos se refazem sozinhos; o que você ajustar fica marcado e só volta ao automático com confirmação.</p>
     </Cartao>
   );
 };

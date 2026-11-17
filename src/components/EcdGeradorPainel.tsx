@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Download, FileText } from "lucide-react";
 import { ContaPlano, EmpresaDados } from "../types";
+import { confirmarNaTela } from "../utils/dialogoNaTela";
 import { LancamentoValidado } from "../utils/livrosContabeis";
 import { codPlanRefECD, contasReferenciais, existeContaReferencialAnalitica, FONTE_PLANO_REFERENCIAL, regimeReferencial, sugerirMapeamento } from "../services/planoReferencialService";
 import { conferirBlocoL, registrosBlocoL } from "../services/ecfBlocoLService";
@@ -46,9 +47,10 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
       const salvo = localStorage.getItem(chave);
       setF(salvo ? { ...inicial(), ...JSON.parse(salvo) } : inicial());
     } catch { setF(inicial()); }
-    setNaturezas({});
+    try { const n = JSON.parse(localStorage.getItem(`${chave}_naturezas`) || "{}"); setNaturezas(n && typeof n === "object" && !Array.isArray(n) ? n : {}); } catch { setNaturezas({}); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chave]);
+  useEffect(() => { try { localStorage.setItem(`${chave}_naturezas`, JSON.stringify(naturezas)); } catch { /* opcional */ } }, [chave, naturezas]);
   useEffect(() => { try { localStorage.setItem(chave, JSON.stringify(f)); } catch { /* opcional */ } }, [chave, f]);
 
   const regimeRef = regimeReferencial(empresa.regime);
@@ -59,21 +61,50 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
     [contas, regimeRef, naturezasContas, mapaRef],
   );
   const [autoAplicados, setAutoAplicados] = useState(0);
-  // Automático: vínculos de alta confiança são aplicados sozinhos; o contador só revisa o restante.
+  // Contas cujo vínculo foi escolhido/alterado/removido à mão: o automático nunca mexe nelas sem confirmação.
+  const chaveManual = `murade_ecd_vinculos_manuais_${String(empresa.cnpj || "").replace(/\W/g, "")}`;
+  const [manuais, setManuais] = useState<string[]>([]);
+  useEffect(() => {
+    try { const v = JSON.parse(localStorage.getItem(chaveManual) || "[]"); setManuais(Array.isArray(v) ? v.filter((x) => typeof x === "string") : []); } catch { setManuais([]); }
+  }, [chaveManual]);
+  const marcarManual = (conta: string) => setManuais((a) => {
+    if (a.includes(conta)) return a;
+    const n = [...a, conta];
+    try { localStorage.setItem(chaveManual, JSON.stringify(n)); } catch { /* opcional */ }
+    return n;
+  });
+  // Automático: vínculos de alta confiança são aplicados sozinhos às contas sem vínculo e sem ajuste manual; o contador só revisa o restante.
   useEffect(() => {
     if (!regimeRef || !onMapeamentoReferencial) return;
-    const altas = sugestoes.filter((x) => x.confianca === "alta");
+    const altas = sugestoes.filter((x) => x.confianca === "alta" && !manuais.includes(x.contaCodigo));
     if (!altas.length) return;
     const novo = { ...mapaRef };
     for (const a of altas) novo[a.contaCodigo] = a.candidatos[0].codigo;
     setAutoAplicados((n) => n + altas.length);
     onMapeamentoReferencial(novo);
-  }, [sugestoes, regimeRef, onMapeamentoReferencial, mapaRef]);
+  }, [sugestoes, regimeRef, onMapeamentoReferencial, mapaRef, manuais]);
   const definirVinculo = (conta: string, ref: string) => {
     if (!onMapeamentoReferencial) return;
     const novo = { ...mapaRef };
     if (ref) novo[conta] = ref; else delete novo[conta];
+    marcarManual(conta);
     onMapeamentoReferencial(novo);
+  };
+  // Sugestão automática para todas as contas (inclusive as já vinculadas), usada para mostrar opções e para "Refazer".
+  const sugestoesTodas = useMemo(
+    () => (regimeRef ? sugerirMapeamento(contas, regimeRef, naturezasContas as Map<string, string>, {}) : []),
+    [contas, regimeRef, naturezasContas],
+  );
+  const refazerAutomatico = async () => {
+    if (!onMapeamentoReferencial) return;
+    const alvo = sugestoesTodas.filter((x) => x.confianca === "alta" && !manuais.includes(x.contaCodigo) && mapaRef[x.contaCodigo] !== x.candidatos[0].codigo);
+    const trocas = alvo.filter((x) => mapaRef[x.contaCodigo]).length;
+    if (!alvo.length) { setMsg("Refeito: os vínculos automáticos já estão iguais à sugestão atual. Contas ajustadas à mão não foram mexidas."); return; }
+    if (!(await confirmarNaTela(`Refazer os vínculos automáticos com o plano referencial?\n\n${alvo.length} conta(s) serão vinculadas pela sugestão atual (${trocas} delas já tinham outro vínculo, que será trocado).\nContas que você ajustou à mão (${manuais.length}) não serão alteradas.`))) return;
+    const novo = { ...mapaRef };
+    for (const a of alvo) novo[a.contaCodigo] = a.candidatos[0].codigo;
+    onMapeamentoReferencial(novo);
+    setMsg(`Refeito: ${alvo.length} vínculo(s) automático(s) atualizado(s).`);
   };
   const analiticasRef = contas.filter((c) => c.tipo === "analitica");
   const vinculadas = analiticasRef.filter((c) => mapaRef[c.codigo]).length;
@@ -152,6 +183,36 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
               {pendentesRef.length > 60 && <p className="mt-1 text-[11px]">E mais {pendentesRef.length - 60} conta(s); resolva estas primeiro.</p>}
             </div>
           )}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => void refazerAutomatico()} className="rounded border border-amber-400 bg-white px-2 py-1 font-semibold">Refazer vínculos automáticos</button>
+            <span className="text-[11px]">{manuais.length} conta(s) com vínculo ajustado manualmente (o automático não mexe nelas).</span>
+          </div>
+          {vinculadas > 0 && (
+            <details className="mt-2 rounded border border-amber-200 bg-white p-2">
+              <summary className="cursor-pointer font-bold">Revisar ou trocar vínculos já feitos ({vinculadas})</summary>
+              <div className="mt-2 max-h-72 overflow-auto">
+                {analiticasRef.filter((c) => mapaRef[c.codigo]).slice(0, 80).map((c) => {
+                  const sug = sugestoesTodas.find((x) => x.contaCodigo === c.codigo);
+                  const grupo = naturezasContas.get(c.codigo) === "04" ? "resultado" : "patrimonial";
+                  const manual = manuais.includes(c.codigo);
+                  return (
+                    <div key={c.codigo} className="mt-1 flex flex-wrap items-center gap-2">
+                      <span className="min-w-[10rem] font-semibold">{c.codigo} — {c.descricao}</span>
+                      <span className="rounded bg-slate-100 px-1">{mapaRef[c.codigo]}</span>
+                      <span className={`rounded px-1 text-[10px] font-bold ${manual ? "bg-violet-100 text-violet-900" : "bg-emerald-100 text-emerald-900"}`}>{manual ? "ajustado manualmente" : "automático"}</span>
+                      <select className="max-w-full rounded border border-amber-300 bg-white px-2 py-1" value="" onChange={(e) => { if (e.target.value) definirVinculo(c.codigo, e.target.value); }}>
+                        <option value="">Trocar por…</option>
+                        {(sug?.candidatos.length ? sug.candidatos : contasReferenciais(regimeRef, grupo).filter((r) => r.tipo === "A").slice(0, 40)).map((r) => <option key={r.codigo} value={r.codigo}>{r.codigo} — {r.descricao}</option>)}
+                      </select>
+                      <input className="w-40 rounded border border-amber-300 px-2 py-1" placeholder="ou digite o código" onBlur={(e) => { const v = e.target.value.trim(); if (v && existeContaReferencialAnalitica(regimeRef, v)) definirVinculo(c.codigo, v); e.target.value = ""; }} />
+                      <button type="button" className="rounded border border-amber-300 px-2 py-0.5" onClick={async () => { if (await confirmarNaTela(`Tirar o vínculo referencial da conta ${c.codigo}? Só o vínculo sai (a conta e os lançamentos ficam). Ela passa a aparecer como pendente e o automático não a vincula de novo sozinho.`)) definirVinculo(c.codigo, ""); }}>Tirar vínculo</button>
+                    </div>
+                  );
+                })}
+                {vinculadas > 80 && <p className="mt-1 text-[11px]">Mostrando as 80 primeiras; use “Refazer vínculos automáticos” ou ajuste pelas pendentes.</p>}
+              </div>
+            </details>
+          )}
         </div>
       )}
       {resultado.pendenciasNatureza.length > 0 && (
@@ -166,6 +227,24 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
           ))}
         </div>
       )}
+      <details className="mt-3 rounded border border-slate-200 bg-slate-50 p-2">
+        <summary className="cursor-pointer font-bold">Revisar a natureza detectada das contas (Ativo, Passivo, PL, Resultado…)</summary>
+        <p className="mt-1 text-[11px]">O sistema detecta a natureza pelo nome do grupo. Se estiver errada, escolha a correta: fica “ajustado manualmente” e vale para todo o grupo.</p>
+        {contas.filter((c) => c.tipo === "sintetica" && c.nivel === 1).map((c) => {
+          const detectada = naturezasDasContas(contas, {}).get(c.codigo);
+          const manual = naturezas[c.codigo];
+          return (
+            <div key={c.codigo} className="mt-1 flex flex-wrap items-center gap-2">
+              <span className="min-w-[10rem] font-semibold">{c.codigo} — {c.descricao}</span>
+              <span className="text-[11px]">Automático: {detectada ? NATUREZAS.find((n) => n.v === detectada)?.t : "não detectada"}</span>
+              <select className="rounded border border-slate-300 bg-white px-2 py-1" value={manual || ""} onChange={(e) => setNaturezas((a) => { const n = { ...a }; if (e.target.value) n[c.codigo] = e.target.value as CodigoNaturezaConta; else delete n[c.codigo]; return n; })}>
+                <option value="">{manual ? "Voltar ao automático" : "Usar o automático"}</option>{NATUREZAS.map((n) => <option key={n.v} value={n.v}>{n.v} — {n.t}</option>)}
+              </select>
+              {manual && <span className="rounded bg-violet-100 px-1 text-[10px] font-bold text-violet-900">ajustado manualmente</span>}
+            </div>
+          );
+        })}
+      </details>
       {resultado.erros.some((e) => e.startsWith("Escolha a conta do Patrimônio Líquido")) && resultado.contasPL && (
         <div className="mt-3 rounded border border-amber-300 bg-amber-50 p-2">
           <p className="font-bold">Conta do Patrimônio Líquido que recebe o resultado do exercício (encerramento automático):</p>

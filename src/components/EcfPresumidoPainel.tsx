@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Calculator, Download } from "lucide-react";
 import { calcularAnoPresumido, calcularTrimestrePresumido, EntradaTrimestrePresumido, PeriodoPresumido, registrosBlocoPTrimestre } from "../services/ecfPresumidoService";
+import { CampoAjustavel, BotaoRecalcular } from "./AjusteManual";
+import { valorEfetivoCentavos } from "../utils/ajusteManual";
 import { analisarObrigatoriedadeECD } from "../services/ecdService";
 
 interface Props {
@@ -21,10 +23,13 @@ const ATIVIDADES: Array<{ id: string; t: string; irpj: keyof EntradaTrimestrePre
 ];
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-export const EcfPresumidoPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, receitaContabilPorTrimestre, onRegistros }) => {
+export const EcfPresumidoPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, receitaContabilPorTrimestre: receitaAuto, onRegistros }) => {
   const chave = `murade_ecf_presumido_${cnpj.replace(/\W/g, "")}_${ano}`;
-  const vazio = () => ({ ativ: "a", aliq: "1", trimestres: PERIODOS.map(() => ({ irrf: "", outras: "" })) });
+  const vazio = () => ({ ativ: "a", aliq: "1", trimestres: PERIODOS.map(() => ({ irrf: "", outras: "" })), ajustes: {} as Record<string, string> });
   const [f, setF] = useState(vazio);
+  // Receita de cada trimestre: automática (contabilidade) ou ajustada à mão; o automático nunca sobrescreve o ajuste.
+  const receitaContabilPorTrimestre = React.useMemo(() => PERIODOS.map((_, i) => valorEfetivoCentavos(receitaAuto[i] || 0, f.ajustes?.[`rec${i}`])), [receitaAuto, f.ajustes]);
+  const ajustar = (k: string) => (v: string | undefined) => setF((a) => { const n = { ...(a.ajustes || {}) }; if (v === undefined) delete n[k]; else n[k] = v; return { ...a, ajustes: n }; });
   useEffect(() => {
     try { const s = localStorage.getItem(chave); setF(s ? { ...vazio(), ...JSON.parse(s) } : vazio()); } catch { setF(vazio()); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -78,15 +83,19 @@ export const EcfPresumidoPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, 
           </div>
           <div className="mt-2 overflow-x-auto"><table className="w-full min-w-[640px] text-left">
             <thead><tr className="bg-amber-100"><th className="p-1">Trimestre</th><th className="p-1">Receita bruta</th><th className="p-1">Outras receitas (P200/11)</th><th className="p-1">IRRF (P300/10)</th><th className="p-1">Base IRPJ</th><th className="p-1">IRPJ a pagar</th><th className="p-1">Base CSLL</th><th className="p-1">CSLL a pagar</th></tr></thead>
-            <tbody>{calculo.itens.map((r, i) => (
-              <tr key={r.periodo} className="border-t border-amber-100">
-                <td className="p-1 font-bold">{r.periodo}</td>
-                <td className="p-1">{brl((receitaContabilPorTrimestre[i] || 0) / 100)}</td>
+            <tbody>{PERIODOS.map((p, i) => {
+              // Todos os trimestres aparecem (mesmo sem movimento) para poder ajustar a receita à mão; o resultado só existe nos trimestres apurados.
+              const r = calculo.itens.find((x) => x.periodo === p);
+              return (
+              <tr key={p} className="border-t border-amber-100">
+                <td className="p-1 font-bold">{p}</td>
+                <td className="p-1"><CampoAjustavel rotulo={`Receita bruta ${p}`} automaticoCentavos={receitaAuto[i] || 0} ajuste={f.ajustes?.[`rec${i}`]} onChange={ajustar(`rec${i}`)} /></td>
                 <td className="p-1"><input className="w-24 rounded border border-amber-300 px-1" inputMode="decimal" value={f.trimestres[i].outras} onChange={(e) => setF((a) => ({ ...a, trimestres: a.trimestres.map((t, j) => (j === i ? { ...t, outras: e.target.value } : t)) }))} /></td>
                 <td className="p-1"><input className="w-24 rounded border border-amber-300 px-1" inputMode="decimal" value={f.trimestres[i].irrf} onChange={(e) => setF((a) => ({ ...a, trimestres: a.trimestres.map((t, j) => (j === i ? { ...t, irrf: e.target.value } : t)) }))} /></td>
-                <td className="p-1">{brl(r.baseIrpj)}</td><td className="p-1 font-bold">{brl(r.irpjAPagar)}</td><td className="p-1">{brl(r.baseCsll)}</td><td className="p-1 font-bold">{brl(r.csllAPagar)}</td>
-              </tr>))}</tbody>
+                <td className="p-1">{r ? brl(r.baseIrpj) : "—"}</td><td className="p-1 font-bold">{r ? brl(r.irpjAPagar) : "—"}</td><td className="p-1">{r ? brl(r.baseCsll) : "—"}</td><td className="p-1 font-bold">{r ? brl(r.csllAPagar) : "—"}</td>
+              </tr>); })}</tbody>
           </table></div>
+          <p className="mt-2 text-[11px]">A receita de cada trimestre vem da contabilidade e se refaz sozinha. Pode digitar outro valor: fica “ajustado manualmente” e o automático não o troca. <BotaoRecalcular ajustes={f.ajustes} onDescartar={() => setF((a) => ({ ...a, ajustes: {} }))} /></p>
           {obrig === "dispensada" && <p className="mt-2 text-[11px]">Atenção: pelo regime cadastrado a ECF pode estar dispensada; confira a obrigatoriedade antes.</p>}
           <button type="button" onClick={baixar} className="mt-2 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold"><Download className="h-3.5 w-3.5" /> Baixar registros do Bloco P (.txt)</button>
         </>

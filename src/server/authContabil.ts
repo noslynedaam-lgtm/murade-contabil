@@ -716,7 +716,7 @@ export function workspaceValido(value: unknown): value is Record<string, unknown
   if (arrays.some((key) => !Array.isArray(payload[key]) || (payload[key] as unknown[]).length > 20000)) return false;
   if (payload.bensImobilizado !== undefined) {
     if (!Array.isArray(payload.bensImobilizado) || payload.bensImobilizado.length > 5000) return false;
-    const camposBem = ["id", "descricao", "filial", "custoCentavos", "residualCentavos", "vidaUtilMeses", "inicioDepreciacao", "depreciavel", "baixa", "transferencias"];
+    const camposBem = ["id", "descricao", "filial", "custoCentavos", "residualCentavos", "vidaUtilMeses", "inicioDepreciacao", "depreciavel", "baixa", "transferencias", "ajustesQuota"];
     const idsBens = new Set<string>();
     for (const item of payload.bensImobilizado) {
       if (!item || typeof item !== "object" || Array.isArray(item)) return false;
@@ -733,6 +733,11 @@ export function workspaceValido(value: unknown): value is Record<string, unknown
         if (!b || typeof b !== "object" || typeof b.competencia !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(b.competencia) || !Number.isSafeInteger(b.valorVendaCentavos) || (b.valorVendaCentavos as number) < 0 || !["venda", "baixa"].includes(String(b.motivo))) return false;
       }
       if (bem.transferencias !== undefined && (!Array.isArray(bem.transferencias) || bem.transferencias.length > 200 || bem.transferencias.some((t) => !t || typeof t !== "object" || typeof (t as any).competencia !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test((t as any).competencia) || typeof (t as any).para !== "string" || (t as any).para.length > 120))) return false;
+      if (bem.ajustesQuota !== undefined) {
+        const aj = bem.ajustesQuota as Record<string, unknown>;
+        if (!aj || typeof aj !== "object" || Array.isArray(aj) || Object.keys(aj).length > 1200) return false;
+        for (const [comp, v] of Object.entries(aj)) if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(comp) || !Number.isSafeInteger(v) || (v as number) < 0 || (v as number) > (bem.custoCentavos as number)) return false;
+      }
       idsBens.add(bem.id);
     }
   }

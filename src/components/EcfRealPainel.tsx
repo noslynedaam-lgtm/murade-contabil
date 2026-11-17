@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Calculator, Download, Plus, Trash2 } from "lucide-react";
+import { CampoAjustavel, BotaoRecalcular } from "./AjusteManual";
+import { valorEfetivoCentavos } from "../utils/ajusteManual";
 import { codigosIncentivo } from "../services/ecfIncentivosService";
 import { calcularLucroRealAnual, registrosLucroRealAnual, type LancamentoLalur } from "../services/ecfRealService";
 
@@ -28,10 +30,15 @@ const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", curren
 const num = (s: string) => { const v = Number(String(s).replace(/\./g, "").replace(",", ".")); return Number.isFinite(v) ? v : 0; };
 const vazioLinha = (): Linha => ({ codigo: "", descricao: "", valor: "", ambos: true });
 
-export const EcfRealPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, resultadoContabilCentavos, irpjContabilizadoCentavos, csllContabilizadaCentavos, onRegistros }) => {
+export const EcfRealPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, resultadoContabilCentavos: resultadoAuto, irpjContabilizadoCentavos: irpjAuto, csllContabilizadaCentavos: csllAuto, onRegistros }) => {
   const chave = `murade_ecf_real_${cnpj.replace(/\W/g, "")}_${ano}`;
-  const vazio = () => ({ aliq: "1", prejuizo: "", baseNeg: "", adicoes: [] as Linha[], exclusoes: [] as Linha[], irrf: "", estimativaIr: "", csllRetida: "", estimativaCsll: "", incentivos: {} as Record<string, string> });
+  const vazio = () => ({ aliq: "1", prejuizo: "", baseNeg: "", adicoes: [] as Linha[], exclusoes: [] as Linha[], irrf: "", estimativaIr: "", csllRetida: "", estimativaCsll: "", incentivos: {} as Record<string, string>, ajustes: {} as Record<string, string> });
   const [f, setF] = useState(vazio);
+  // Ajuste manual dos valores que vêm da contabilidade (res, irpj, csll): vence o automático até ser desfeito com confirmação.
+  const resultadoContabilCentavos = valorEfetivoCentavos(resultadoAuto, f.ajustes?.res);
+  const irpjContabilizadoCentavos = valorEfetivoCentavos(irpjAuto, f.ajustes?.irpj);
+  const csllContabilizadaCentavos = valorEfetivoCentavos(csllAuto, f.ajustes?.csll);
+  const ajustar = (k: string) => (v: string | undefined) => setF((a) => { const n = { ...(a.ajustes || {}) }; if (v === undefined) delete n[k]; else n[k] = v; return { ...a, ajustes: n }; });
   useEffect(() => {
     try { const s = localStorage.getItem(chave); setF(s ? { ...vazio(), ...JSON.parse(s) } : vazio()); } catch { setF(vazio()); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -88,10 +95,11 @@ export const EcfRealPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, resul
       <p className="mt-1 text-[11px]">O resultado do exercício vem da contabilidade e o robô separa IRPJ e CSLL já lançados. Falta só você informar adições, exclusões e saldos de prejuízo (Parte B). Calcula M300, M350, N500, N630, N650 e N670 pelas tabelas da ECF Leiaute 12. Calcula os incentivos fiscais do IRPJ (com a regra dos 90% da LC 224/25 a partir de 2026). A apuração trimestral e a estimativa mensal ficam no painel logo abaixo. Não calcula isenção/redução e reinvestimento (N610), lucro da exploração, nem gera os blocos 0, C, L, X e Y: use o arquivo para conferir e importar no programa da ECF.</p>
       <datalist id="ecf-real-codigos">{CODIGOS_COMUNS.map((c) => <option key={c.c} value={c.c}>{c.t}</option>)}</datalist>
       <div className="mt-2 grid gap-2 sm:grid-cols-3">
-        <div className="rounded bg-amber-50 p-2">Resultado do exercício (contabilidade)<div className="font-bold">{brl(resultadoContabilCentavos / 100)}</div></div>
-        <div className="rounded bg-amber-50 p-2">IRPJ já contabilizado<div className="font-bold">{brl(irpjContabilizadoCentavos / 100)}</div></div>
-        <div className="rounded bg-amber-50 p-2">CSLL já contabilizada<div className="font-bold">{brl(csllContabilizadaCentavos / 100)}</div></div>
+        <div className="rounded bg-amber-50 p-2">Resultado do exercício (contabilidade, R$)<div><CampoAjustavel rotulo="Resultado do exercício" automaticoCentavos={resultadoAuto} ajuste={f.ajustes?.res} onChange={ajustar("res")} /></div></div>
+        <div className="rounded bg-amber-50 p-2">IRPJ já contabilizado (R$)<div><CampoAjustavel rotulo="IRPJ contabilizado" automaticoCentavos={irpjAuto} ajuste={f.ajustes?.irpj} onChange={ajustar("irpj")} /></div></div>
+        <div className="rounded bg-amber-50 p-2">CSLL já contabilizada (R$)<div><CampoAjustavel rotulo="CSLL contabilizada" automaticoCentavos={csllAuto} ajuste={f.ajustes?.csll} onChange={ajustar("csll")} /></div></div>
       </div>
+      <p className="mt-1 text-[11px]">Os três valores acima vêm da contabilidade e são refeitos sozinhos a cada lançamento. Se precisar, digite o valor correto: ele fica marcado como “ajustado manualmente” e o automático não o troca. <BotaoRecalcular ajustes={f.ajustes} onDescartar={() => setF((a) => ({ ...a, ajustes: {} }))} /></p>
       <div className="mt-2 grid gap-2 sm:grid-cols-3">
         <label>Alíquota da CSLL<select className={campo} value={f.aliq} onChange={(e) => setF((a) => ({ ...a, aliq: e.target.value }))}><option value="1">9% (demais PJ)</option><option value="4">15%</option><option value="3">20%</option></select></label>
         <label>Saldo de prejuízo fiscal a compensar<input className={campo} inputMode="decimal" value={f.prejuizo} onChange={(e) => setF((a) => ({ ...a, prejuizo: e.target.value }))} /></label>

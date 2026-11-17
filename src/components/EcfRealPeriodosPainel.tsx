@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Calculator, Download } from "lucide-react";
+import { CampoAjustavel, BotaoRecalcular } from "./AjusteManual";
+import { valorEfetivoCentavos } from "../utils/ajusteManual";
 import {
   calcularEstimativaMensal, calcularLucroRealTrimestral, registrosEstimativaMensal, registrosLucroRealTrimestral,
   type MesEstimativa, type TrimestreReal,
@@ -23,14 +25,22 @@ const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "O
 const PER = ["T01", "T02", "T03", "T04"] as const;
 type Aba = "estimativa" | "trimestral";
 
-export const EcfRealPeriodosPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, receitaPorMesCentavos, resultadoPorTrimestre, onRegistros }) => {
+export const EcfRealPeriodosPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, receitaPorMesCentavos: receitaMesAuto, resultadoPorTrimestre: resultadoTriAuto, onRegistros }) => {
   const chave = `murade_ecf_real_periodos_${cnpj.replace(/\W/g, "")}_${ano}`;
   const vazio = () => ({
     aba: "estimativa" as Aba, aliq: "1", ativ: "a", saldoPrejuizo: "", saldoBaseNeg: "",
     meses: MESES.map(() => ({ irrf: "", acresc: "" })),
     tri: PER.map(() => ({ adicoes: "", exclusoes: "" })),
+    ajustes: {} as Record<string, string>,
   });
   const [f, setF] = useState(vazio);
+  // Valores vindos da contabilidade (receita do mês; resultado, IRPJ e CSLL do trimestre) podem ser ajustados à mão.
+  const receitaPorMesCentavos = React.useMemo(() => MESES.map((_, i) => valorEfetivoCentavos(receitaMesAuto[i] || 0, f.ajustes?.[`rm${i}`])), [receitaMesAuto, f.ajustes]);
+  const resultadoPorTrimestre = React.useMemo(() => PER.map((_, i) => {
+    const d = resultadoTriAuto[i] || { resultado: 0, irpj: 0, csll: 0 };
+    return { resultado: valorEfetivoCentavos(d.resultado, f.ajustes?.[`rt${i}`]), irpj: valorEfetivoCentavos(d.irpj, f.ajustes?.[`it${i}`]), csll: valorEfetivoCentavos(d.csll, f.ajustes?.[`ct${i}`]) };
+  }), [resultadoTriAuto, f.ajustes]);
+  const ajustar = (k: string) => (v: string | undefined) => setF((a) => { const n = { ...(a.ajustes || {}) }; if (v === undefined) delete n[k]; else n[k] = v; return { ...a, ajustes: n }; });
   useEffect(() => {
     try { const s = localStorage.getItem(chave); setF(s ? { ...vazio(), ...JSON.parse(s) } : vazio()); } catch { setF(vazio()); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -107,7 +117,7 @@ export const EcfRealPeriodosPainel: React.FC<Props> = ({ empresaRegime, cnpj, an
             <thead><tr className="bg-amber-100"><th className="p-1">Mês</th><th className="p-1">Receita</th><th className="p-1">Acréscimos</th><th className="p-1">IRRF (N620/21)</th><th className="p-1">Base IRPJ</th><th className="p-1">IRPJ do mês</th><th className="p-1">Base CSLL</th><th className="p-1">CSLL do mês</th></tr></thead>
             <tbody>{MESES.map((m, i) => { const r = estimativa.r.find((x) => x.mes === i + 1); return (
               <tr key={m} className="border-t border-amber-100">
-                <td className="p-1 font-bold">{m}</td><td className="p-1">{brl((receitaPorMesCentavos[i] || 0) / 100)}</td>
+                <td className="p-1 font-bold">{m}</td><td className="p-1"><CampoAjustavel rotulo={`Receita de ${m}`} automaticoCentavos={receitaMesAuto[i] || 0} ajuste={f.ajustes?.[`rm${i}`]} onChange={ajustar(`rm${i}`)} /></td>
                 <td className="p-1"><input className="w-24 rounded border border-amber-300 px-1 py-0.5" inputMode="decimal" value={f.meses[i]?.acresc || ""} onChange={(e) => setF((a) => ({ ...a, meses: a.meses.map((x, j) => (j === i ? { ...x, acresc: e.target.value } : x)) }))} /></td>
                 <td className="p-1"><input className="w-24 rounded border border-amber-300 px-1 py-0.5" inputMode="decimal" value={f.meses[i]?.irrf || ""} onChange={(e) => setF((a) => ({ ...a, meses: a.meses.map((x, j) => (j === i ? { ...x, irrf: e.target.value } : x)) }))} /></td>
                 <td className="p-1">{r ? brl(r.baseIrpj) : "—"}</td><td className="p-1 font-bold">{r ? brl(r.irpjDevido) : "—"}</td><td className="p-1">{r ? brl(r.baseCsll) : "—"}</td><td className="p-1 font-bold">{r ? brl(r.csllDevida) : "—"}</td>
@@ -121,13 +131,24 @@ export const EcfRealPeriodosPainel: React.FC<Props> = ({ empresaRegime, cnpj, an
             <thead><tr className="bg-amber-100"><th className="p-1">Trimestre</th><th className="p-1">Resultado</th><th className="p-1">Adições</th><th className="p-1">Exclusões</th><th className="p-1">Base IRPJ</th><th className="p-1">IRPJ</th><th className="p-1">Base CSLL</th><th className="p-1">CSLL</th></tr></thead>
             <tbody>{PER.map((p, i) => { const r = trimestral.r.find((x) => x.periodo === p); return (
               <tr key={p} className="border-t border-amber-100">
-                <td className="p-1 font-bold">{p}</td><td className="p-1">{brl((resultadoPorTrimestre[i]?.resultado || 0) / 100)}</td>
+                <td className="p-1 font-bold">{p}</td><td className="p-1"><CampoAjustavel rotulo={`Resultado do ${p}`} automaticoCentavos={resultadoTriAuto[i]?.resultado || 0} ajuste={f.ajustes?.[`rt${i}`]} onChange={ajustar(`rt${i}`)} /></td>
                 <td className="p-1"><input className="w-24 rounded border border-amber-300 px-1 py-0.5" inputMode="decimal" value={f.tri[i]?.adicoes || ""} onChange={(e) => setF((a) => ({ ...a, tri: a.tri.map((x, j) => (j === i ? { ...x, adicoes: e.target.value } : x)) }))} /></td>
                 <td className="p-1"><input className="w-24 rounded border border-amber-300 px-1 py-0.5" inputMode="decimal" value={f.tri[i]?.exclusoes || ""} onChange={(e) => setF((a) => ({ ...a, tri: a.tri.map((x, j) => (j === i ? { ...x, exclusoes: e.target.value } : x)) }))} /></td>
                 <td className="p-1">{r ? brl(r.baseIrpj) : "—"}</td><td className="p-1 font-bold">{r ? brl(r.irpjAPagar) : "—"}</td><td className="p-1">{r ? brl(r.baseCsll) : "—"}</td><td className="p-1 font-bold">{r ? brl(r.csllAPagar) : "—"}</td>
               </tr>); })}</tbody>
           </table></div>
         </>
+      )}
+      <p className="mt-2 text-[11px]">Receita e resultado vêm da contabilidade e se refazem sozinhos. Pode digitar outro valor: fica “ajustado manualmente” e o automático não o troca. <BotaoRecalcular ajustes={f.ajustes} onDescartar={() => setF((a) => ({ ...a, ajustes: {} }))} /></p>
+      {f.aba === "trimestral" && (
+        <details className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-[11px]">
+          <summary className="cursor-pointer font-bold">IRPJ e CSLL já contabilizados por trimestre (ajustáveis)</summary>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{PER.map((p, i) => (
+            <div key={p} className="rounded bg-white p-2"><strong>{p}</strong>
+              <div>IRPJ <CampoAjustavel rotulo={`IRPJ contabilizado ${p}`} automaticoCentavos={resultadoTriAuto[i]?.irpj || 0} ajuste={f.ajustes?.[`it${i}`]} onChange={ajustar(`it${i}`)} /></div>
+              <div>CSLL <CampoAjustavel rotulo={`CSLL contabilizada ${p}`} automaticoCentavos={resultadoTriAuto[i]?.csll || 0} ajuste={f.ajustes?.[`ct${i}`]} onChange={ajustar(`ct${i}`)} /></div>
+            </div>))}</div>
+        </details>
       )}
       {atual.erro && <p role="alert" className="mt-2 rounded bg-red-50 p-2 text-red-900">{atual.erro}</p>}
       {atual.r.flatMap((x: any) => x.avisos as string[]).map((a, i) => <p key={i} className="mt-1 text-[11px]">• {a}</p>)}
