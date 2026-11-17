@@ -839,7 +839,7 @@ function AppWorkspace() {
         {/* Notificação Toast — embaixo e centralizada, para nunca ficar atrás das barras fixas do topo */}
         {toastMessage && (
           <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[120] w-[min(92vw,420px)] animate-bounce">
-            <div className="bg-[#082B66] text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-2xl border border-[#0A357D] flex items-center gap-2">
+            <div className="bg-[var(--marca-fundo)] text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-2xl border border-[var(--marca)] flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-300 shrink-0" />
               <span>{toastMessage.text}</span>
             </div>
@@ -848,6 +848,7 @@ function AppWorkspace() {
 
         {/* CONTAINER DO CONTEÚDO CENTRAL COM ROLAGEM INDEPENDENTE (A BARRA LATERAL FICA FIXA) */}
         <div className="flex-1 overflow-y-auto overscroll-contain content-scroll">
+          <div className="faixa-marca" aria-hidden="true" />
           <AlertaRobosParados />
           <FaixaEcd cnpj={empresa.cnpj} onAbrir={() => setTabAtiva("livros" as TabId)} />
           <main className="p-2 sm:p-3 w-full mx-auto">

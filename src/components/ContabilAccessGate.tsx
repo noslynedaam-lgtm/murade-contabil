@@ -181,10 +181,12 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
   return (
     <main className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
       <section className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
-        <div className="bg-[#082B66] px-6 py-5 text-white">
-          <div className="text-xs font-semibold uppercase tracking-widest text-blue-200">Murade Contábil · acesso seguro</div>
+        <div className="h-1 bg-gradient-to-r from-[var(--marca-escura)] via-[var(--marca)] to-[var(--marca-clara)]" aria-hidden="true" />
+        <div className="bg-[var(--marca-fundo)] px-6 py-5 text-white">
+          <img src="/icone-app-192.png?v=5" alt="" width={56} height={56} className="mb-3 h-14 w-14 rounded-2xl ring-2 ring-[var(--marca)] shadow-[0_0_14px_3px_rgba(217,119,6,0.6)]" />
+          <div className="text-xs font-semibold uppercase tracking-widest text-amber-200">Murade Contábil · acesso seguro</div>
           <h1 className="mt-2 text-2xl font-black">{status.primeiroAcesso ? "Configurar primeiro acesso" : "Entrar"}</h1>
-          <p className="mt-1 text-sm text-blue-100">Os dados contábeis ficam separados por CNPJ e vinculados à sua sessão.</p>
+          <p className="mt-1 text-sm text-amber-50">Os dados contábeis ficam separados por CNPJ e vinculados à sua sessão.</p>
         </div>
         <form className="space-y-4 p-6" onSubmit={enviar}>
           {status.carregando && <p className="text-sm text-slate-600">Verificando banco persistente…</p>}
@@ -235,7 +237,7 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
           )}
           {mensagem && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{mensagem}</p>}
           {!status.carregando && !status.erro && !status.configuracaoNecessaria && !auth && (
-            <button disabled={enviando} className="w-full rounded-lg bg-blue-700 px-4 py-3 font-bold text-white disabled:opacity-60">{enviando ? "Aguarde…" : status.primeiroAcesso ? "Criar acesso e entrar" : modo === "ativar" ? "Ativar conta e entrar" : "Entrar"}</button>
+            <button disabled={enviando} className="w-full rounded-lg bg-[var(--marca-escura)] hover:bg-[#78350f] px-4 py-3 font-bold text-white disabled:opacity-60">{enviando ? "Aguarde…" : status.primeiroAcesso ? "Criar acesso e entrar" : modo === "ativar" ? "Ativar conta e entrar" : "Entrar"}</button>
           )}
           {!status.primeiroAcesso && !auth && <EsqueciSenha />}
           <p className="text-xs text-slate-500">A senha é armazenada como hash; o navegador recebe apenas um cookie de sessão HTTP-only.</p>
