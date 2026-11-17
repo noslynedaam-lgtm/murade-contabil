@@ -160,19 +160,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
   };
 
   return (
-    <aside className="w-52 bg-[var(--marca-fundo)] text-white flex flex-col shrink-0 border-r border-[var(--marca-borda)] select-none h-full max-h-screen shadow-md overflow-hidden">
+    <aside className="w-52 bg-[#082B66] text-white flex flex-col shrink-0 border-r border-[#0A357D] select-none h-full max-h-screen shadow-md overflow-hidden">
       {/* Topo da Barra Lateral: Marca Murade */}
-      <div className="px-3 py-2 border-b border-[var(--marca-borda)] bg-[var(--marca-fundo)] shrink-0">
+      <div className="px-3 py-2 border-b border-[#0A357D] bg-[#082B66] shrink-0">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-white text-[var(--marca-fundo)] flex items-center justify-center font-black text-sm border border-amber-300 relative group ring-2 ring-[var(--marca)] shadow-[0_0_10px_2px_rgba(217,119,6,0.65)]">
+          <div className="w-8 h-8 rounded-lg bg-white text-[#082B66] flex items-center justify-center font-black text-sm shadow-md border border-blue-200 relative group">
             <span>MC</span>
-            <Scale className="w-3.5 h-3.5 text-[var(--marca-escura)] ml-0.5" title="Símbolo Oficial da Contabilidade" />
+            <Scale className="w-3.5 h-3.5 text-amber-600 ml-0.5" title="Símbolo Oficial da Contabilidade" />
           </div>
           <div>
             <h1 className="text-xs font-black text-white tracking-tight flex items-center gap-1">
               <span>MURADE CONTÁBIL</span>
             </h1>
-            <span className="mt-0.5 inline-block rounded-sm bg-[var(--marca-escura)] px-1.5 py-px text-[9px] font-bold uppercase tracking-wider text-white">Contábil</span>
 
           </div>
         </div>
@@ -181,7 +180,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
         <div
           onClick={copiarCodigo}
           title="Clique para copiar código de ligação dos sistemas"
-          className="mt-2 bg-[var(--marca-fundo-2)] hover:bg-[var(--marca-fundo-2)] border border-amber-400/30 rounded-md px-2 py-1.5 flex items-center justify-between cursor-pointer transition group shadow-2xs"
+          className="mt-2 bg-[#06214E] hover:bg-[#0A357D] border border-blue-400/30 rounded-md px-2 py-1.5 flex items-center justify-between cursor-pointer transition group shadow-2xs"
         >
           <div className="flex items-center gap-2 text-xs">
             <span className="text-amber-300">🔑</span>
@@ -189,13 +188,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
               MURADE-2026-GO
             </span>
           </div>
-          <Copy className="w-3.5 h-3.5 text-amber-200 group-hover:text-amber-200 transition" />
+          <Copy className="w-3.5 h-3.5 text-blue-200 group-hover:text-amber-200 transition" />
         </div>
       </div>
 
       {/* Navegação Principal Lateral com Rolagem Independente */}
-      <div className="flex-1 py-2 px-1.5 space-y-0.5 overflow-y-auto overscroll-contain bg-[var(--marca-fundo)] sidebar-scroll">
-        <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-200/90">
+      <div className="flex-1 py-2 px-1.5 space-y-0.5 overflow-y-auto overscroll-contain bg-[#082B66] sidebar-scroll">
+        <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-200/90">
           Navegação Geral
         </div>
 
@@ -211,20 +210,20 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
               onClick={() => onSelectTab(item.id)}
               className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer text-left ${
                 isActive
-                  ? "bg-[var(--marca-clara)] text-[var(--marca-fundo)] shadow-md font-bold border-l-4 border-[var(--marca)]"
+                  ? "bg-white text-[#082B66] shadow-md font-bold"
                   : isRobo
-                  ? "bg-[var(--marca-fundo-2)] text-white hover:bg-[var(--marca-fundo-2)] border border-amber-400/30 shadow-2xs"
-                  : "text-amber-50 hover:bg-[var(--marca-fundo-2)] hover:text-white"
+                  ? "bg-[#06214E] text-white hover:bg-[#0A357D] border border-blue-400/30 shadow-2xs"
+                  : "text-blue-100 hover:bg-[#0A357D] hover:text-white"
               }`}
             >
               <div className="flex items-center gap-2.5 truncate">
                 <Icon
                   className={`w-4 h-4 shrink-0 ${
                     isActive
-                      ? "text-[var(--marca-fundo)]"
+                      ? "text-[#082B66]"
                       : isRobo
-                      ? "text-amber-200"
-                      : "text-amber-200"
+                      ? "text-blue-200"
+                      : "text-blue-200"
                   }`}
                 />
                 <span className="truncate">
@@ -238,7 +237,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
                     isActive
                       ? isRobo
                         ? "bg-emerald-400/20 text-emerald-800 border border-emerald-400/40 font-bold"
-                        : "bg-amber-100 text-[var(--marca-fundo)] font-bold"
+                        : "bg-blue-100 text-[#082B66] font-bold"
                       : isRobo
                       ? "bg-emerald-950/80 text-emerald-300 border border-emerald-400/30"
                       : item.badgeColor
@@ -253,8 +252,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
       </div>
 
       {/* Rodapé da Barra Lateral */}
-      <div className="p-2 border-t border-[var(--marca-borda)] bg-[var(--marca-fundo)] shrink-0">
-        <div className="bg-[var(--marca-fundo-2)] border border-amber-400/30 rounded-lg p-2 text-[11px] text-white flex items-center justify-between">
+      <div className="p-2 border-t border-[#0A357D] bg-[#082B66] shrink-0">
+        <div className="bg-[#06214E] border border-blue-400/30 rounded-lg p-2 text-[11px] text-white flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <ShieldCheck className="w-4 h-4 text-emerald-300 shrink-0" />
             <span className="font-semibold text-white">Certificado A1</span>

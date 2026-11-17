@@ -62,14 +62,14 @@ export const Header: React.FC<HeaderProps> = ({
   onLogout,
 }) => {
   return (
-    <header className="bg-[var(--marca-fundo)] border-t-[3px] border-t-[var(--marca)] border-b border-[var(--marca-borda)] sticky top-0 z-30 text-white shadow-md shrink-0">
+    <header className="bg-[#082B66] border-b border-[#0A357D] sticky top-0 z-30 text-white shadow-md shrink-0">
       {/* Linha Superior: Logo/Status Compacto */}
-      <div className="px-3 sm:px-4 py-1 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--marca-borda)] text-xs bg-[var(--marca-fundo)]">
+      <div className="px-3 sm:px-4 py-1 flex flex-wrap items-center justify-between gap-2 border-b border-[#0A357D] text-xs bg-[#082B66]">
         <div className="flex items-center gap-2.5">
           {onToggleMobileSidebar && (
             <button
               onClick={onToggleMobileSidebar}
-              className="lg:hidden p-1.5 rounded-lg bg-[var(--marca-fundo-2)] text-white hover:bg-[var(--marca-fundo-2)] cursor-pointer border border-amber-400/30"
+              className="lg:hidden p-1.5 rounded-lg bg-[#06214E] text-white hover:bg-[#0A357D] cursor-pointer border border-blue-400/30"
               title="Abrir Menu"
             >
               <Menu className="w-4 h-4" />
@@ -81,7 +81,7 @@ export const Header: React.FC<HeaderProps> = ({
             className="flex items-center gap-2 cursor-pointer hover:opacity-95 transition text-left"
             title="Ir para Tela Inicial"
           >
-            <div className="flex items-center gap-1 bg-[var(--marca-fundo-2)] px-2.5 py-1 rounded-md border border-[var(--marca)] text-white shadow-[0_0_8px_1px_rgba(217,119,6,0.55)]">
+            <div className="flex items-center gap-1 bg-[#06214E] px-2.5 py-1 rounded-md border border-blue-400/40 text-white shadow-xs">
               <span className="font-black text-xs tracking-wider">MC</span>
               <Scale className="w-3.5 h-3.5 text-amber-300" title="Símbolo Oficial da Contabilidade (Balança / Equilíbrio)" />
             </div>
@@ -89,8 +89,8 @@ export const Header: React.FC<HeaderProps> = ({
               <span>Murade Contábil</span>
               <Scale className="w-4 h-4 text-amber-300" title="Balança da Contabilidade" />
             </span>
-            <span className="text-amber-300 hidden sm:inline">•</span>
-            <span className="text-[11px] text-amber-200 hidden sm:flex items-center gap-1.5 font-semibold bg-[var(--marca-fundo-2)] px-2 py-0.5 rounded-full border border-amber-400/30">
+            <span className="text-blue-300 hidden sm:inline">•</span>
+            <span className="text-[11px] text-amber-200 hidden sm:flex items-center gap-1.5 font-semibold bg-[#06214E] px-2 py-0.5 rounded-full border border-amber-400/30">
               Integrações pendentes
             </span>
           </button>
@@ -131,17 +131,17 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          <div className="hidden md:flex items-center gap-1.5 bg-[var(--marca-fundo-2)] px-2.5 py-1 rounded-lg border border-amber-400/30 text-amber-50">
+          <div className="hidden md:flex items-center gap-1.5 bg-[#06214E] px-2.5 py-1 rounded-lg border border-blue-400/30 text-blue-100">
             <Activity className="w-3 h-3 text-amber-300" />
             <span>Gov Sync: não configurado</span>
-            <span className="text-amber-400">|</span>
+            <span className="text-blue-400">|</span>
             <span className="text-amber-300 font-mono font-bold">{new Date().toLocaleDateString("pt-BR", { month: "2-digit", year: "numeric" })}</span>
           </div>
         </div>
       </div>
 
       {/* Linha de Botões na Barra de Cima — Mesma Cor Azul #082B66 Conforme Solicitado */}
-      <div className="px-2 sm:px-3 py-1 overflow-x-auto scrollbar-none flex items-center gap-1.5 bg-[var(--marca-fundo)]">
+      <div className="px-2 sm:px-3 py-1 overflow-x-auto scrollbar-none flex items-center gap-1.5 bg-[#082B66]">
         {navBotoes.map((item) => {
           const Icon = item.icon;
           const isActive = tabAtiva === item.id;
@@ -151,16 +151,16 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={() => onSelectTab && onSelectTab(item.id)}
               className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer shrink-0 ${
                 isActive
-                  ? "bg-[var(--marca-clara)] text-[var(--marca-fundo)] shadow-xs font-black ring-1 ring-[var(--marca)]"
-                  : "bg-white/10 hover:bg-[var(--marca-fundo-2)] text-white border border-white/10"
+                  ? "bg-white text-[#082B66] shadow-xs font-black ring-1 ring-white/50"
+                  : "bg-white/10 hover:bg-[#0A357D] text-white border border-white/10"
               }`}
             >
-              <Icon className={`w-3.5 h-3.5 ${isActive ? "text-[var(--marca-fundo)]" : "text-amber-200"}`} />
+              <Icon className={`w-3.5 h-3.5 ${isActive ? "text-[#082B66]" : "text-blue-200"}`} />
               <span>{item.label}</span>
               {item.badge && (
                 <span
                   className={`text-[9px] px-1 py-0.2 rounded font-black tracking-tighter ${
-                    isActive ? "bg-[var(--marca-escura)] text-white" : item.corBadge || "bg-white/20 text-white"
+                    isActive ? "bg-[#082B66] text-white" : item.corBadge || "bg-white/20 text-white"
                   }`}
                 >
                   {item.badge}

@@ -1,22 +1,5 @@
 @import "tailwindcss";
 
-/* Cor da marca do Murade Contábil (âmbar). Fonte única em src/marca.ts; trocar aqui também. */
-:root {
-  --marca: #d97706;          /* detalhes, faixas, halos (NÃO para texto branco: contraste baixo) */
-  --marca-escura: #92400e;   /* fundos com texto branco (AA) */
-  --marca-clara: #fef3c7;    /* textos sobre fundo escuro, realces claros */
-  --marca-fundo: #2b1707;    /* barra lateral / topo / login */
-  --marca-fundo-2: #3d210a;  /* hover / cartões sobre o fundo */
-  --marca-borda: #5a3410;
-}
-@media (prefers-color-scheme: dark) {
-  :root { --marca: #f59e0b; --marca-clara: #fde68a; }
-}
-
-/* Faixa fina da marca no topo de cada módulo (rola junto com o conteúdo: não ocupa área fixa no celular) */
-.faixa-marca { height: 4px; background: linear-gradient(90deg, var(--marca-escura), var(--marca), var(--marca-clara)); }
-@media (max-width: 640px) { .faixa-marca { height: 3px; } }
-
 @keyframes floatUpDown {
   0%, 100% {
     transform: translateY(0);
@@ -37,7 +20,7 @@
 /* Rolagem independente e elegante da barra lateral */
 .sidebar-scroll {
   scrollbar-width: thin;
-  scrollbar-color: var(--marca-borda) var(--marca-fundo);
+  scrollbar-color: #1a458a #082B66;
 }
 
 .sidebar-scroll::-webkit-scrollbar {
@@ -45,16 +28,16 @@
 }
 
 .sidebar-scroll::-webkit-scrollbar-track {
-  background: var(--marca-fundo);
+  background: #082B66;
 }
 
 .sidebar-scroll::-webkit-scrollbar-thumb {
-  background: var(--marca-borda);
+  background: #1a458a;
   border-radius: 9999px;
 }
 
 .sidebar-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--marca-escura);
+  background: #2563eb;
 }
 
 /* Rolagem independente e elegante do conteúdo central */
