@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 
-interface Robo { id: string; nome: string; missao: string; estado: 'ativo' | 'parado' | 'aguardando_configuracao'; executando: boolean; podeRodarAgora?: boolean; intervaloSegundos: number | null; ultimaExecucao: string | null; execucoes: number; falhas: number; ultimoErro: string | null; ultimoResultado: string | null; motivoSemRotina: string | null }
+interface Robo { id: string; nome: string; missao: string; estado: 'ativo' | 'parado' | 'aguardando_configuracao'; executando: boolean; podeRodarAgora?: boolean; intervaloSegundos: number | null; ultimaExecucao: string | null; execucoes: number; falhas: number; ultimoErro: string | null; ultimoResultado: string | null; motivoSemRotina: string | null; alerta?: { nivel: 'aviso' | 'critico'; texto: string } | null }
 
 const dataHora = (iso: string | null) => (iso ? new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
 const cadaQuanto = (s: number | null) => (s === null ? 'sem rotina automática' : s >= 3600 ? `automático a cada ${Math.round(s / 3600)} h` : `automático a cada ${Math.max(1, Math.round(s / 60))} min`);
@@ -34,6 +34,7 @@ export function PainelRobos() {
         <article key={r.id} className="rounded-lg border border-slate-200 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2"><b className="text-sm">{r.nome}</b><span className={`text-xs font-bold ${r.estado === 'parado' ? 'text-red-700' : r.estado === 'ativo' ? 'text-emerald-700' : 'text-slate-500'}`}>{ROTULO[r.estado]} · {cadaQuanto(r.intervaloSegundos)} · última: {dataHora(r.ultimaExecucao)}</span></div>
           <p className="mt-1 text-xs text-slate-600">{r.missao}</p>
+          {r.alerta && <p role="alert" className={`mt-1 rounded p-2 text-xs font-bold ${r.alerta.nivel === 'critico' ? 'bg-red-50 text-red-900' : 'bg-amber-50 text-amber-900'}`}>{r.alerta.texto}</p>}
           {r.ultimoResultado && <p className="mt-1 text-sm text-slate-800">{r.ultimoResultado}</p>}
           {r.ultimoErro && <p className="mt-1 text-xs font-semibold text-red-700">Último erro: {r.ultimoErro}</p>}
           {r.motivoSemRotina && <p className="mt-1 text-xs text-slate-500">Manual por regra: {r.motivoSemRotina}</p>}

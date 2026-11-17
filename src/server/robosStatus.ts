@@ -29,6 +29,8 @@ interface RegistroRobo extends DefinicaoRoboDP {
   ultimoErroEm: string | null;
   /** Resumo, em uma frase, do que a última rodada encontrou ou corrigiu. */
   ultimoResultado: string | null;
+  /** Alerta que o painel de Saúde dos robôs mostra em destaque (ex.: backup do banco há mais de 26 h sem rodar). */
+  alerta: { nivel: 'aviso' | 'critico'; texto: string } | null;
 }
 
 const iniciadoEm = new Date();
@@ -51,7 +53,14 @@ export function registrarRobo(definicao: DefinicaoRoboDP): void {
     ultimoErro: null,
     ultimoErroEm: null,
     ultimoResultado: null,
+    alerta: null,
   });
+}
+
+/** Define (ou limpa, com null) o alerta em destaque de um robô no painel de Saúde dos robôs. */
+export function definirAlertaRobo(id: string, alerta: { nivel: 'aviso' | 'critico'; texto: string } | null): void {
+  const robo = robos.get(id);
+  if (robo) robo.alerta = alerta ? { nivel: alerta.nivel, texto: alerta.texto.slice(0, 400) } : null;
 }
 
 /** Guarda o resumo da última rodada para a tela e a Agente IA mostrarem o que o robô fez de verdade. */
@@ -145,6 +154,7 @@ export function statusRobos(agora = Date.now()) {
       ultimoErro: robo.ultimoErro,
       ultimoErroEm: robo.ultimoErroEm,
       ultimoResultado: robo.ultimoResultado,
+      alerta: robo.alerta,
       motivoSemRotina: robo.intervaloMs ? null : (robo.motivoSemRotina || null),
     })),
   };

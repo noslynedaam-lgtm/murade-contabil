@@ -44,6 +44,13 @@ function obterBanco(): Pool {
   return pool;
 }
 
+/** Mesma URL e mesmo SSL do banco do sistema, para o backup completo abrir a própria conexão (a do pool não serve para uma leitura longa). */
+export function opcoesConexaoBancoContabil(): { connectionString: string; ssl?: { rejectUnauthorized: boolean } } {
+  const url = process.env.DATABASE_URL?.trim();
+  if (!url) throw new Error("DATABASE_URL não configurada no Contábil.");
+  return { connectionString: url, ssl: process.env.PGSSLMODE === "require" ? { rejectUnauthorized: false } : undefined };
+}
+
 export function contabilAuthBancoConfigurado(): boolean {
   return Boolean(process.env.DATABASE_URL?.trim());
 }

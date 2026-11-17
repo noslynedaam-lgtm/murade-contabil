@@ -204,6 +204,39 @@ const FERRAMENTAS: Ferramenta[] = [
     },
   },
   {
+    tipo: 'leitura',
+    declaracao: { name: 'status_backup', description: 'Mostra o estado do backup COMPLETO do banco do Contábil (a cópia cifrada guardada fora do Render): se o destino está configurado, quando foi o último backup concluído, tamanho, se deu certo, a última conferência e se passou de 26 horas sem backup. Só o dono do sistema vê. Não confundir com o backup mensal de cada escritório.', parameters: { type: 'OBJECT', properties: {} } },
+    async executar(ctx) {
+      const r = await ctx.chamarApi('GET', '/api/backup-banco/status');
+      if (!ok(r)) return erroApi(r);
+      const c = r.corpo || {};
+      if (c.configurado !== true) return { situacao: 'Backup do banco DESLIGADO: falta configurar o destino.', faltando: (c.faltando || []).map((f: any) => f.variavel), observacao: 'O passo a passo está no painel "Backup completo do banco", na tela de Integração.' };
+      const u = c.ultimoSucesso;
+      return {
+        situacao: c.alerta?.texto || 'Em dia.', alerta: c.alerta?.nivel || null, emAndamento: Boolean(c.emAndamento),
+        ultimoBackup: u ? { quando: u.finalizadoEm, tamanhoBytes: u.tamanhoBytes, tabelas: u.tabelas, linhas: u.linhas, origem: u.origem, horasAtras: c.horasSemBackup, conferido: u.validadoEm ? (u.validacaoOk ? 'íntegro' : 'com problema') : 'ainda não conferido' } : null,
+        ultimaTentativa: c.ultimo ? { resultado: c.ultimo.resultado, quando: c.ultimo.iniciadoEm, erro: c.ultimo.erro } : null,
+        ultimaConferencia: c.ultimaConferencia ? { ok: c.ultimaConferencia.ok, mensagem: c.ultimaConferencia.mensagem } : null,
+      };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'backup_agora', description: 'Propõe fazer AGORA o backup COMPLETO do banco do Contábil e enviar, cifrado, para o destino fora do Render (sem esperar o robô das 3h). Só o dono do sistema. Só lê o banco; não altera nem apaga nada. Use quando o dono pedir para fazer o backup do banco na hora.', parameters: { type: 'OBJECT', properties: {}, required: [] } },
+    async preparar(ctx) {
+      const r = await ctx.chamarApi('GET', '/api/backup-banco/status');
+      if (!ok(r)) return erroApi(r);
+      if (r.corpo?.configurado !== true) return { erro: 'Falta configurar o destino do backup (variáveis MURADE_BACKUP_* no Render). O passo a passo está no painel "Backup completo do banco".' };
+      if (r.corpo?.emAndamento) return { erro: 'Já existe um backup em andamento. Aguarde terminar.' };
+      return { cnpj: '', params: {}, titulo: 'Fazer o backup completo do banco agora', descricao: ['Gera a cópia cifrada de todo o banco do Murade Contábil e envia para o destino configurado' + (r.corpo?.destino?.bucket ? ` (bucket ${r.corpo.destino.bucket})` : '') + '.', 'Só lê o banco: nada do sistema é alterado ou apagado. Leva de alguns segundos a poucos minutos.'], resumo: 'Fazer o backup completo do banco agora' };
+    },
+    async executar(ctx) {
+      const r = await ctx.chamarApi('POST', '/api/backup-banco/gerar', {});
+      if (!ok(r)) return { sucesso: false, mensagem: erroApi(r).erro };
+      return { sucesso: true, mensagem: r.corpo?.mensagem || 'Backup iniciado.' };
+    },
+  },
+  {
     tipo: 'acao',
     declaracao: { name: 'redefinir_codigo_usuario', description: 'Propõe redefinir o código de segurança de um usuário que perdeu o celular: o código é desligado, ele sai de todos os aparelhos e entra de novo só com a senha (depois pode ligar o código outra vez). O dono do sistema pode redefinir qualquer usuário; o administrador de um escritório, só os da própria equipe.', parameters: { type: 'OBJECT', properties: { login: { type: 'STRING', description: 'Usuário (e-mail) de quem perdeu o celular.' } }, required: ['login'] } },
     async preparar(_ctx, args) {

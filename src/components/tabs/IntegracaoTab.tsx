@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clock3, Database, RefreshCw } from "lucide-react";
 import { EmpresaDados } from "../../types";
 import { PainelRobos } from "../PainelRobos";
+import { PainelBackupBanco } from "../PainelBackupBanco";
 
 type EstadoOrigem = { disponivel: boolean; documentosRecebidos?: number; folhasRecebidas?: number; ultimoRecebimento: string | null };
 type EstadoIntegracao = {
@@ -121,6 +122,7 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({ empresa }) => {
       <p className="flex items-center gap-1 text-[11px] text-slate-500"><Clock3 className="h-3.5 w-3.5" /> Consultado em {new Date(estado.consultadoEm).toLocaleString("pt-BR")}</p>
     </>}
     <PainelRobos />
+    <PainelBackupBanco />
   </section>;
 };
 

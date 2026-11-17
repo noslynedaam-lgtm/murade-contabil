@@ -19,8 +19,10 @@ import { criarAtividadeEscritorio } from './src/server/atividadeEscritorio';
 import type { SessaoContabil } from './src/server/authContabil';
 import { lerPerfilSaudacaoContabil, gravarNomeTratamentoContabil, marcarSaudadoHojeContabil } from "./src/server/authContabil";
 import { extrairNomeDaResposta, fraseDeSaudacao } from "./src/server/agenteSaudacao";
+import { opcoesConexaoBancoContabil } from "./src/server/authContabil";
 import { listarRegistroAgenteIAContabil, bancoContabilConfigurado, consultaBancoContabil, hashSessaoContabil, registrarAcaoAgenteIAContabil, listarDuvidasSemRespostaDonoSistemaContabil, resolverDuvidaSemRespostaDonoSistemaContabil } from "./src/server/authContabil";
-import { dispararRoboAgora, executarRobo, registrarResultadoRobo, registrarRobo, registrarRotinaManual, statusRobos } from "./src/server/robosStatus";
+import { definirAlertaRobo, dispararRoboAgora, executarRobo, registrarResultadoRobo, registrarRobo, registrarRotinaManual, statusRobos } from "./src/server/robosStatus";
+import { criarServicoBackupBanco } from "./src/server/backupBanco/servico";
 import { buscarEmpresasDoFiscal, cnpjsValidosDoFiscal } from "./src/server/empresasDoFiscal";
 import { resumoRelatorioAcessos, rodarConferidorAcessos } from "./src/server/conferidorAcessos";
 import { achadosEcdDoConferidor, rodarConferidorContabil } from "./src/server/conferidorContabil";
@@ -1200,7 +1202,10 @@ const reconciliacaoRascunhosStatus: {
   });
   app.get("/api/robos/status", exigirSessaoContabil, (req, res) => {
     res.setHeader("Cache-Control", "no-store");
-    return res.json({ sucesso: true, ...statusRobos(), ehDono: sessaoDaRequisicaoContabil(req)?.donoSistema === true });
+    // O backup completo do banco é função de administração do sistema: só o dono vê esse robô (escritórios clientes não).
+    const ehDono = sessaoDaRequisicaoContabil(req)?.donoSistema === true;
+    const estado = statusRobos();
+    return res.json({ sucesso: true, ...estado, robos: ehDono ? estado.robos : estado.robos.filter((r) => r.id !== "backup_banco"), ehDono });
   });
   // Botão manual ao lado da rotina automática: dispara agora a rodada de um robô (as mesmas rotinas do agendador, com a
   // mesma trava de sobreposição). Os robôs são do sistema todo, por isso só o dono do sistema dispara. O Contabilizador
@@ -1295,6 +1300,41 @@ const reconciliacaoRascunhosStatus: {
       return res.status(503).json({ sucesso: false, motivo: "Não foi possível baixar o backup agora." });
     }
   });
+  // Backup COMPLETO do banco (PostgreSQL) para fora do Render. Só o dono do sistema: escritórios clientes não veem nem chamam.
+  // O backup mensal por escritório acima continua igual; este é o do sistema inteiro, cifrado, em destino S3-compatível.
+  const servicoBackupBanco = criarServicoBackupBanco({ sistema: "contabil", nomeSistema: "Murade Contábil", consulta: (sql, params) => consultaBancoContabil(sql, params), conexaoBanco: () => opcoesConexaoBancoContabil() });
+  const exigirDonoBackupBanco = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    res.setHeader("Cache-Control", "private, no-store");
+    const sessao = sessaoDaRequisicaoContabil(req);
+    if (!sessao) return res.status(401).json({ sucesso: false, motivo: "Entre no sistema." });
+    if (!sessao.donoSistema) return res.status(403).json({ sucesso: false, motivo: "Somente o dono do sistema acessa o backup completo do banco." });
+    if (!bancoContabilConfigurado()) return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil." });
+    next();
+  };
+  app.get("/api/backup-banco/status", exigirSessaoContabil, exigirDonoBackupBanco, async (_req, res) => {
+    try {
+      const mensal = statusRobos().robos.find((r) => r.id === "backups");
+      return res.json({ sucesso: true, ...(await servicoBackupBanco.status()), backupMensalEscritorios: mensal ? { estado: mensal.estado, ultimaExecucao: mensal.ultimaExecucao, resultado: mensal.ultimoResultado } : null });
+    } catch (erro: any) { console.error("Falha ao ler o estado do backup do banco:", erro?.message || erro); return res.status(503).json({ sucesso: false, motivo: "Não consegui ler o estado do backup agora." }); }
+  });
+  app.get("/api/backup-banco/lista", exigirSessaoContabil, exigirDonoBackupBanco, async (_req, res) => {
+    try { return res.json({ sucesso: true, backups: await servicoBackupBanco.listar() }); }
+    catch (erro: any) { console.error("Falha ao listar backups do banco:", erro?.message || erro); return res.status(503).json({ sucesso: false, motivo: "Não consegui listar os backups no destino agora. Confira as variáveis do destino." }); }
+  });
+  app.post("/api/backup-banco/gerar", exigirOrigemNavegador, exigirSessaoContabil, exigirDonoBackupBanco, (req, res) => {
+    const cfg = servicoBackupBanco.config();
+    if (!cfg.configurado) return res.status(400).json({ sucesso: false, motivo: "Falta configurar o destino do backup (veja o passo a passo no painel)." });
+    const r = dispararRoboAgora("backup_banco");
+    if ("codigo" in r) return res.status(409).json({ sucesso: false, motivo: r.codigo === "ja_rodando" ? "Já existe um backup em andamento. Aguarde terminar." : r.motivo });
+    console.log(`[Backup do banco] backup manual pedido por ${sessaoDaRequisicaoContabil(req)?.login}`);
+    return res.status(202).json({ sucesso: true, mensagem: "Backup iniciado. Acompanhe aqui: ele leva de alguns segundos a poucos minutos." });
+  });
+  app.post("/api/backup-banco/validar", exigirOrigemNavegador, exigirSessaoContabil, exigirDonoBackupBanco, (req, res) => {
+    if (!servicoBackupBanco.config().configurado) return res.status(400).json({ sucesso: false, motivo: "Falta configurar o destino do backup (veja o passo a passo no painel)." });
+    const chave = typeof req.body?.chave === "string" ? req.body.chave.slice(0, 200) : undefined;
+    void servicoBackupBanco.validar(chave).catch((e) => console.error("Falha ao conferir o backup do banco:", e?.message || e));
+    return res.status(202).json({ sucesso: true, mensagem: "Conferência iniciada. O resultado aparece aqui em instantes." });
+  });
   // Mensagens entre Agentes IA dos sistemas Murade (token de integração).
   app.post("/api/integracao/agente/mensagem", async (req, res) => {
     if (negarIntegracao(req, res)) return;
@@ -1361,6 +1401,24 @@ const reconciliacaoRascunhosStatus: {
   }).catch((e) => console.error("Falha no Robô de Backups Mensais:", e?.message || e)) : undefined;
   setTimeout(() => void rodarConferidorBackups(), 150_000).unref();
   setInterval(() => void rodarConferidorBackups(), 60 * 60_000).unref();
+  // Robô de Backup do Banco: backup completo e cifrado do PostgreSQL para fora do Render, todo dia a partir das 3h (Brasília).
+  registrarRobo({ id: "backup_banco", nome: "Robô de Backup do Banco", posto: "conferidor", missao: "Fazer todo dia, a partir das 3h (Brasília), o backup COMPLETO do banco do Contábil (cifrado com a chave do dono, em destino fora do Render), guardar 7 diários, 4 semanais e 12 mensais (só apaga os próprios backups antigos) e avisar aqui se passar de 26 h sem backup. Desligado até o dono configurar o destino. Só lê o banco; nunca altera nem apaga dado do sistema.", ...(bancoContabilConfigurado() ? { intervaloMs: 10 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  const rodarBackupBanco = () => bancoContabilConfigurado() ? executarRobo("backup_banco", async () => {
+    const r = await servicoBackupBanco.rodadaDoRobo();
+    definirAlertaRobo("backup_banco", r.alerta); registrarResultadoRobo("backup_banco", r.resumo);
+    if (r.falha) throw new Error(r.falha);
+  }).catch((e) => console.error("Falha no Robô de Backup do Banco:", e?.message || e)) : undefined;
+  // "Rodar agora": faz o backup na hora (manual), sem esperar as 3h; usa a mesma trava do robô.
+  const rodarBackupBancoAgora = () => executarRobo("backup_banco", async () => {
+    const r = await servicoBackupBanco.executar("manual");
+    if (r.ok) { registrarResultadoRobo("backup_banco", `Backup manual do banco concluído: ${r.tabelas} tabelas, ${r.linhas} linhas.`); definirAlertaRobo("backup_banco", null); return; }
+    if (r.codigo === "ja_rodando") return;
+    throw new Error(r.motivo || "Falha no backup do banco.");
+  }).catch((e) => console.error("Falha no backup manual do banco:", e?.message || e));
+  if (bancoContabilConfigurado()) {
+    setTimeout(() => void servicoBackupBanco.recuperarInterrompidos().then(() => rodarBackupBanco()), 120_000).unref();
+    setInterval(() => void rodarBackupBanco(), 10 * 60_000).unref();
+  }
   const timerMensageiro = setInterval(() => { executarRobo("mensageiro", () => centralDePedidos.reenviarPendentes()).catch((e) => console.error("Falha ao reenviar pedidos entre agentes:", e?.message || e)); }, 60_000);
   timerMensageiro.unref();
   // "Rodar agora" (manual) das rotinas automáticas acima; o Reconciliador registra o seu dentro do app.listen.
@@ -1370,6 +1428,7 @@ const reconciliacaoRascunhosStatus: {
   registrarRotinaManual("acessos", rodarConferidorDeAcessos);
   registrarRotinaManual("seguranca_login", rodarSegurancaLogin);
   registrarRotinaManual("backups", rodarConferidorBackups);
+  registrarRotinaManual("backup_banco", rodarBackupBancoAgora);
 
   registrarRotaVozGemini(app, { obterIA: () => getAI(), autorizar: () => true, antes: [exigirSessaoContabil] });
   app.post("/api/ai/chat", exigirSessaoContabil, async (req, res) => {
