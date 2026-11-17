@@ -219,6 +219,39 @@ const FERRAMENTAS: Ferramenta[] = [
   },
   {
     tipo: 'acao',
+    declaracao: { name: 'rodar_robo_agora', description: 'Propõe rodar AGORA, sem esperar o próximo horário, a rodada de um robô do Contábil (por exemplo o Reconciliador que recebe do Fiscal e do DP, o Conferidor do fechamento, o de empresas do Fiscal, o de backups ou o de acessos). Só o dono do sistema pode. O Contabilizador não roda sozinho: lançamento definitivo só com aprovação de uma pessoa. Use status_robos para ver os nomes (id) dos robôs.', parameters: { type: 'OBJECT', properties: { robo: { type: 'STRING', description: 'Identificador do robô, como aparece em status_robos (ex.: reconciliador, conferidor, mensageiro, backups).' } }, required: ['robo'] } },
+    async preparar(ctx, args) {
+      const id = String(args.robo || '').trim().toLowerCase();
+      if (!/^[a-z_]{2,40}$/.test(id)) return { erro: 'Diga qual robô rodar (use status_robos para ver a lista).' };
+      const r = await ctx.chamarApi('GET', '/api/robos/status');
+      if (!ok(r)) return erroApi(r);
+      if (r.corpo?.ehDono !== true) return { erro: 'Somente o dono do sistema pode rodar os robôs na hora.' };
+      const robo = (r.corpo?.robos || []).find((x: any) => x.id === id);
+      if (!robo) return { erro: 'Não encontrei esse robô. Use status_robos para ver a lista.' };
+      if (robo.podeRodarAgora !== true) return { erro: `${robo.nome} não pode ser disparado na hora (não tem rotina automática ou depende de aprovação de uma pessoa).` };
+      return { cnpj: '', params: { robo: id }, titulo: `Rodar agora: ${robo.nome}`, descricao: [robo.nome, 'A rodada começa já, sem esperar o próximo horário. O agendamento normal continua igual.'], resumo: `Rodar agora o robô ${robo.nome}` };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', `/api/robos/${q(String(params.robo))}/rodar-agora`, {});
+      if (!ok(r)) return { sucesso: false, mensagem: erroApi(r).erro };
+      return { sucesso: true, mensagem: r.corpo?.mensagem || 'Robô disparado.' };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'reprocessar_recepcao', description: 'Propõe REPROCESSAR a recepção de uma empresa: refaz agora os rascunhos contábeis com o que o Fiscal e o DP já enviaram, sem esperar o robô (que tenta sozinho a cada minuto). Não aprova nem apaga nada. Use quando algo enviado pelo Fiscal ou pelo DP não apareceu para conferência.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj }, required: ['cnpj'] } },
+    async preparar(_ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      return { cnpj, params: { cnpj }, titulo: 'Reprocessar a recepção do Fiscal e do DP', descricao: [`Empresa ${cnpj}`, 'Prepara de novo os rascunhos com os dados já recebidos. Nada é aprovado nem apagado.'], resumo: `Reprocessar recepção ${cnpj}` };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', `/api/workspaces/${q(String(params.cnpj))}/reprocessar-recepcao`, {});
+      if (!ok(r)) return { sucesso: false, mensagem: erroApi(r).erro };
+      return { sucesso: true, mensagem: String(r.corpo?.mensagem || 'Recepção reprocessada.') };
+    },
+  },
+  {
+    tipo: 'acao',
     declaracao: { name: 'trazer_empresas_do_fiscal', description: 'Propõe TRAZER para o Contábil as empresas cadastradas no Murade Fiscal que ainda não existem aqui. Não altera empresas já cadastradas, não leva certificado nem senha. Só o dono do sistema.', parameters: { type: 'OBJECT', properties: {}, required: [] } },
     async preparar() {
       return { params: {}, cnpj: '', titulo: 'Trazer as empresas do Fiscal para o Contábil', descricao: ['Cadastra no Contábil os CNPJs do Murade Fiscal que ainda não estão aqui, para ninguém cadastrar duas vezes.', 'Empresas já cadastradas não mudam.'], resumo: 'Trazer empresas do Fiscal' };

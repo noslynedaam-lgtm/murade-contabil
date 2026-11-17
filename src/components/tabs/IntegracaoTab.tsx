@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clock3, Database, RefreshCw } from "lucide-react";
 import { EmpresaDados } from "../../types";
+import { PainelRobos } from "../PainelRobos";
 
 type EstadoOrigem = { disponivel: boolean; documentosRecebidos?: number; folhasRecebidas?: number; ultimoRecebimento: string | null };
 type EstadoIntegracao = {
@@ -29,6 +30,8 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({ empresa }) => {
   const [estado, setEstado] = useState<EstadoIntegracao | null>(null);
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(false);
+  const [acao, setAcao] = useState("");
+  const [avisoAcao, setAvisoAcao] = useState("");
 
   const atualizar = useCallback(async () => {
     setCarregando(true);
@@ -46,6 +49,18 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({ empresa }) => {
       setCarregando(false);
     }
   }, [empresa?.cnpj]);
+
+  // Botões manuais ao lado das rotinas automáticas (reprocessar a recepção da empresa e conferir o fechamento na hora).
+  const chamar = async (chave: string, url: string) => {
+    setAcao(chave); setAvisoAcao("");
+    try {
+      const r = await fetch(url, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const d = await r.json().catch(() => ({}));
+      setAvisoAcao(d?.mensagem || d?.motivo || (r.ok ? "Concluído." : "Não foi possível agora."));
+      void atualizar();
+    } catch { setAvisoAcao("Não foi possível agora. Tente de novo."); }
+    finally { setAcao(""); }
+  };
 
   useEffect(() => {
     void atualizar();
@@ -83,6 +98,17 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({ empresa }) => {
         <p className="mt-1 text-xs">Isso apenas prepara ou atualiza propostas com dados recebidos do Fiscal e do DP. Não aprova lançamentos, não fecha competência e não transmite obrigações.</p>
       </div>
 
+      <div className="rounded-lg border border-slate-200 p-3 text-sm">
+        <strong>Automático e manual, lado a lado</strong>
+        <p className="mt-1 text-xs text-slate-600">O robô tenta de novo sozinho a cada minuto. Se algo enviado pelo Fiscal ou pelo DP não apareceu, ou se quer ver o que falta para fechar o mês, use os botões. Nada é aprovado, fechado ou apagado por eles.</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button type="button" disabled={!empresa?.cnpj || acao !== ""} onClick={() => empresa?.cnpj && void chamar("reprocessar", `/api/workspaces/${encodeURIComponent(empresa.cnpj.replace(/[^A-Za-z0-9]/g, "").toUpperCase())}/reprocessar-recepcao`)} className="rounded-lg border border-blue-800 px-3 py-1.5 text-xs font-bold text-blue-800 disabled:opacity-50">{acao === "reprocessar" ? "Reprocessando…" : "Reprocessar recepção desta empresa"}</button>
+          <button type="button" disabled={acao !== ""} onClick={() => void chamar("conferir", "/api/conferidor/conferir-agora")} className="rounded-lg border border-blue-800 px-3 py-1.5 text-xs font-bold text-blue-800 disabled:opacity-50">{acao === "conferir" ? "Conferindo…" : "Conferir fechamento agora"}</button>
+        </div>
+        {!empresa?.cnpj && <p className="mt-1 text-xs text-slate-500">Selecione uma empresa para reprocessar a recepção dela.</p>}
+        {avisoAcao && <p role="status" className="mt-2 rounded bg-sky-50 p-2 text-xs font-semibold text-sky-900">{avisoAcao}</p>}
+      </div>
+
       <div className="grid gap-3 md:grid-cols-2">
         <Origem titulo="Murade Fiscal" item={estado.fiscal} total={estado.fiscal.documentosRecebidos || 0} substantivo="documentos fiscais" />
         <Origem titulo="Murade Departamento Pessoal" item={estado.departamentoPessoal} total={estado.departamentoPessoal.folhasRecebidas || 0} substantivo="resumos agregados de folha" />
@@ -94,6 +120,7 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({ empresa }) => {
       {empresa?.cnpj && <p className="text-xs text-slate-500">Empresa selecionada: {empresa.razaoSocial || "Sem razão social"} · CNPJ {empresa.cnpj}. {estado.cnpjEmpresa === empresa.cnpj.replace(/[^A-Z0-9]/gi, "").toUpperCase() ? "Os totais acima correspondem somente a esta empresa." : "O servidor não confirmou o escopo desta empresa; atualize ou confira a autorização."}</p>}
       <p className="flex items-center gap-1 text-[11px] text-slate-500"><Clock3 className="h-3.5 w-3.5" /> Consultado em {new Date(estado.consultadoEm).toLocaleString("pt-BR")}</p>
     </>}
+    <PainelRobos />
   </section>;
 };
 

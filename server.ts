@@ -20,7 +20,7 @@ import type { SessaoContabil } from './src/server/authContabil';
 import { lerPerfilSaudacaoContabil, gravarNomeTratamentoContabil, marcarSaudadoHojeContabil } from "./src/server/authContabil";
 import { extrairNomeDaResposta, fraseDeSaudacao } from "./src/server/agenteSaudacao";
 import { listarRegistroAgenteIAContabil, bancoContabilConfigurado, consultaBancoContabil, hashSessaoContabil, registrarAcaoAgenteIAContabil, listarDuvidasSemRespostaDonoSistemaContabil, resolverDuvidaSemRespostaDonoSistemaContabil } from "./src/server/authContabil";
-import { executarRobo, registrarResultadoRobo, registrarRobo, statusRobos } from "./src/server/robosStatus";
+import { dispararRoboAgora, executarRobo, registrarResultadoRobo, registrarRobo, registrarRotinaManual, statusRobos } from "./src/server/robosStatus";
 import { buscarEmpresasDoFiscal, cnpjsValidosDoFiscal } from "./src/server/empresasDoFiscal";
 import { resumoRelatorioAcessos, rodarConferidorAcessos } from "./src/server/conferidorAcessos";
 import { achadosEcdDoConferidor, rodarConferidorContabil } from "./src/server/conferidorContabil";
@@ -1198,9 +1198,51 @@ const reconciliacaoRascunhosStatus: {
     if (cnpj.length !== 14 || !sessao || !sessao.cnpjs.includes(cnpj)) return res.status(403).json({ sucesso: false, motivo: "Este CNPJ não está vinculado ao seu acesso." });
     return res.json({ sucesso: true, ecd: achadosEcdDoConferidor([cnpj])[0] || null });
   });
-  app.get("/api/robos/status", exigirSessaoContabil, (_req, res) => {
+  app.get("/api/robos/status", exigirSessaoContabil, (req, res) => {
     res.setHeader("Cache-Control", "no-store");
-    return res.json({ sucesso: true, ...statusRobos() });
+    return res.json({ sucesso: true, ...statusRobos(), ehDono: sessaoDaRequisicaoContabil(req)?.donoSistema === true });
+  });
+  // Botão manual ao lado da rotina automática: dispara agora a rodada de um robô (as mesmas rotinas do agendador, com a
+  // mesma trava de sobreposição). Os robôs são do sistema todo, por isso só o dono do sistema dispara. O Contabilizador
+  // fica de fora de propósito: lançamento definitivo só nasce com a aprovação de uma pessoa.
+  app.post("/api/robos/:id/rodar-agora", exigirOrigemNavegador, exigirSessaoContabil, (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const sessao = sessaoDaRequisicaoContabil(req);
+    if (!sessao) return res.status(401).json({ sucesso: false, motivo: "Entre no sistema." });
+    if (!sessao.donoSistema) return res.status(403).json({ sucesso: false, motivo: "Somente o dono do sistema dispara os robôs na hora." });
+    const id = String(req.params.id || "").slice(0, 60);
+    const r = dispararRoboAgora(id);
+    if ("codigo" in r) return res.status(r.codigo === "desconhecido" ? 404 : 409).json({ sucesso: false, motivo: r.motivo });
+    console.log(`[Robôs] rodada manual de "${id}" pedida por ${sessao.login}`);
+    return res.json({ sucesso: true, mensagem: "Robô disparado. O resultado aparece no painel em instantes." });
+  });
+  // Reprocessar a recepção de UMA empresa (botão manual ao lado da retentativa automática de 60 s do Robô Reconciliador):
+  // reaplica os mapeamentos padrão e prepara de novo os rascunhos com o que o Fiscal e o DP já mandaram. Idempotente; não aprova nada.
+  app.post("/api/workspaces/:cnpj/reprocessar-recepcao", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const sessao = sessaoDaRequisicaoContabil(req);
+    const cnpj = normalizarCnpjAcesso(req.params.cnpj);
+    if (!sessao) return res.status(401).json({ sucesso: false, motivo: "Entre no sistema." });
+    if (!cnpjContabilValido(cnpj) || !sessao.cnpjs.map(normalizarCnpjAcesso).includes(cnpj)) return res.status(403).json({ sucesso: false, motivo: "Este CNPJ não está vinculado ao seu acesso." });
+    try {
+      const mapeamentos = await aplicarMapeamentosPadraoContabil(cnpj);
+      const r = await prepararRascunhosContabeisAutomaticos(cnpj);
+      return res.json({ sucesso: true, mapeamentosAplicados: mapeamentos, criados: r.criados, atualizados: r.atualizados, mensagem: `Recepção reprocessada: ${r.criados} rascunho(s) novo(s), ${r.atualizados} atualizado(s). Nada foi aprovado.` });
+    } catch (erro: any) {
+      console.error("Falha ao reprocessar a recepção:", erro?.message || erro);
+      return res.status(503).json({ sucesso: false, motivo: "Não consegui reprocessar agora. O robô tenta de novo sozinho a cada minuto." });
+    }
+  });
+  // Conferência do fechamento do mês: roda sozinha a cada 30 min (Robô Conferidor); este botão confere na hora. Só leitura.
+  let ultimaConferenciaManual = 0;
+  app.post("/api/conferidor/conferir-agora", exigirOrigemNavegador, exigirSessaoContabil, (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    if (!sessaoDaRequisicaoContabil(req)) return res.status(401).json({ sucesso: false, motivo: "Entre no sistema." });
+    if (Date.now() - ultimaConferenciaManual < 60_000) return res.status(429).json({ sucesso: false, motivo: "A conferência acabou de rodar. Aguarde um minuto." });
+    const r = dispararRoboAgora("conferidor");
+    if ("codigo" in r) return res.status(409).json({ sucesso: false, motivo: r.motivo });
+    ultimaConferenciaManual = Date.now();
+    return res.json({ sucesso: true, mensagem: "Conferência iniciada. Os resultados aparecem em instantes." });
   });
   // Backups mensais cifrados do escritório — cada rota só lê/gera o backup do próprio tenant (sessao.tenantId).
   // Nível de escritório, não de uma empresa; qualquer pessoa da equipe vê, só admin/equipe do escritório gera.
@@ -1264,7 +1306,7 @@ const reconciliacaoRascunhosStatus: {
   registrarRobo({ id: "contabilizador", nome: "Robô Contabilizador", posto: "calculador", missao: "Transformar pré-lançamentos em lançamentos definitivos.", motivoSemRotina: "Sem rotina automática por regra: lançamento definitivo só nasce depois da aprovação de uma pessoa." });
   registrarRobo({ id: "mensageiro", nome: "Robô Mensageiro", posto: "integrador", missao: "Reenviar pedidos entre as Agentes dos sistemas Murade que não chegaram ao destino.", intervaloMs: 60_000 });
   registrarRobo({ id: "conferidor", nome: "Robô Conferidor", posto: "conferidor", missao: "Conferir todas as empresas: o que falta para fechar o mês (aprovações, rascunhos do Fiscal e do DP, depreciação, partidas) e se a ECD do ano anterior já está pronta para o contador (Balanço, DRE, assinaturas, plano referencial), deixando o resultado para a tela e para a Agente.", intervaloMs: 30 * 60_000 });
-  const rodarConferidor = () => executarRobo("conferidor", () => rodarConferidorContabil((sql, params) => consultaBancoContabil(sql, params))).catch((e) => console.error("Falha no Robô Conferidor:", e?.message || e));
+  const rodarConferidor = () => executarRobo("conferidor", async () => { const r = await rodarConferidorContabil((sql, params) => consultaBancoContabil(sql, params)); registrarResultadoRobo("conferidor", `${r.empresas} empresa(s) conferida(s) para o fechamento; ${r.comPendencia} com pendência.`); }).catch((e) => console.error("Falha no Robô Conferidor:", e?.message || e));
   setTimeout(() => void rodarConferidor(), 45_000).unref();
   setInterval(() => void rodarConferidor(), 30 * 60_000).unref();
   registrarRobo({ id: "empresas_fiscal", nome: "Robô de Empresas do Fiscal", posto: "integrador", missao: "Trazer do Murade Fiscal as empresas que ainda não estão no Contábil, para a equipe não cadastrar duas vezes. Não altera o que já existe e não leva certificado nem senha.", intervaloMs: 60 * 60_000 });
@@ -1321,6 +1363,13 @@ const reconciliacaoRascunhosStatus: {
   setInterval(() => void rodarConferidorBackups(), 60 * 60_000).unref();
   const timerMensageiro = setInterval(() => { executarRobo("mensageiro", () => centralDePedidos.reenviarPendentes()).catch((e) => console.error("Falha ao reenviar pedidos entre agentes:", e?.message || e)); }, 60_000);
   timerMensageiro.unref();
+  // "Rodar agora" (manual) das rotinas automáticas acima; o Reconciliador registra o seu dentro do app.listen.
+  registrarRotinaManual("mensageiro", () => executarRobo("mensageiro", () => centralDePedidos.reenviarPendentes()).catch((e) => console.error("Falha ao reenviar pedidos entre agentes:", e?.message || e)));
+  registrarRotinaManual("conferidor", rodarConferidor);
+  registrarRotinaManual("empresas_fiscal", rodarEmpresasFiscal);
+  registrarRotinaManual("acessos", rodarConferidorDeAcessos);
+  registrarRotinaManual("seguranca_login", rodarSegurancaLogin);
+  registrarRotinaManual("backups", rodarConferidorBackups);
 
   registrarRotaVozGemini(app, { obterIA: () => getAI(), autorizar: () => true, antes: [exigirSessaoContabil] });
   app.post("/api/ai/chat", exigirSessaoContabil, async (req, res) => {
@@ -1457,6 +1506,7 @@ const reconciliacaoRascunhosStatus: {
     primeiraRecon.unref();
     const reconciliacaoPeriodica = setInterval(() => void executarRobo("reconciliador", reconciliarRascunhos), 60_000);
     reconciliacaoPeriodica.unref();
+    registrarRotinaManual("reconciliador", () => executarRobo("reconciliador", reconciliarRascunhos).catch(() => undefined));
     console.log("[Murad Contábil] Reconciliação de rascunhos habilitada a cada 60 segundos; lançamentos definitivos continuam exigindo aprovação.");
   });
 }

@@ -89,6 +89,28 @@ export async function executarRobo<T>(id: string, rotina: () => Promise<T>): Pro
   }
 }
 
+// Rodada manual ("Rodar agora"): cada robô que pode ser disparado na hora registra aqui a mesma rotina que o
+// agendador usa. Disparar não muda o agendamento; a trava de sobreposição de executarRobo continua valendo.
+const rotinasManuais = new Map<string, () => unknown>();
+
+/** Registra a rotina que o botão "Rodar agora" (e a Agente IA) dispara para o robô. Só robôs já registrados. */
+export function registrarRotinaManual(id: string, rotina: () => unknown): void {
+  if (robos.has(id)) rotinasManuais.set(id, rotina);
+}
+
+export type ResultadoRodarAgora = { ok: true } | { ok: false; codigo: 'desconhecido' | 'sem_rotina_manual' | 'ja_rodando'; motivo: string };
+
+/** Dispara a rodada do robô agora, sem esperar o próximo horário. Não espera o fim da rodada (o resultado aparece no painel). */
+export function dispararRoboAgora(id: string): ResultadoRodarAgora {
+  const robo = robos.get(id);
+  if (!robo) return { ok: false, codigo: 'desconhecido', motivo: 'Robô não encontrado.' };
+  const rotina = rotinasManuais.get(id);
+  if (!rotina) return { ok: false, codigo: 'sem_rotina_manual', motivo: `${robo.nome} não pode ser disparado manualmente (ele não tem rotina automática ou depende de aprovação de uma pessoa).` };
+  if (robo.executando) return { ok: false, codigo: 'ja_rodando', motivo: `${robo.nome} já está rodando agora; aguarde terminar.` };
+  try { void Promise.resolve(rotina()).catch(() => undefined); } catch { /* a rotina registra o próprio erro */ }
+  return { ok: true };
+}
+
 function estadoDe(robo: RegistroRobo, agora: number): EstadoRobo {
   if (!robo.intervaloMs) return 'aguardando_configuracao';
   if (robo.executando) return 'ativo';
@@ -113,6 +135,7 @@ export function statusRobos(agora = Date.now()) {
       missao: robo.missao,
       estado: estadoDe(robo, agora),
       executando: robo.executando,
+      podeRodarAgora: rotinasManuais.has(robo.id),
       intervaloSegundos: robo.intervaloMs ? Math.round(robo.intervaloMs / 1000) : null,
       ultimaExecucao: robo.ultimaExecucao,
       ultimaDuracaoMs: robo.ultimaDuracaoMs,
@@ -130,4 +153,5 @@ export function statusRobos(agora = Date.now()) {
 /** Somente para testes. */
 export function limparRobosParaTeste(): void {
   robos.clear();
+  rotinasManuais.clear();
 }
