@@ -274,6 +274,8 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
         </div>
 
         <button
+          id="btn-nova-conta"
+          data-piloto-abrir=""
           onClick={handleAbrirModalGeral}
           className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-xs self-start sm:self-auto"
         >
@@ -505,6 +507,7 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
                   1. Selecionar Conta Pai / Grupo Sintético:
                 </label>
                 <select
+                  data-campo="conta-pai"
                   className="w-full border border-slate-300 rounded-lg p-2 text-xs text-slate-800 bg-slate-50 focus:bg-white focus:outline-none focus:border-blue-600 font-medium"
                   value={contaPaiSelecionada}
                   onChange={(e) => handleMudarContaPai(e.target.value)}
@@ -557,6 +560,7 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
                 <div className="flex gap-2">
                   <input
                     type="text"
+                    data-campo="conta-codigo"
                     disabled={travarSequencia}
                     className={`w-full border rounded-lg p-2.5 font-mono font-bold text-xs ${
                       travarSequencia
@@ -627,6 +631,7 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
                 </label>
                 <input
                   type="text"
+                  data-campo="conta-descricao"
                   required
                   placeholder="Ex: Aplicações em Renda Fixa CDB / IBS a Compensar"
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600 font-medium"
@@ -640,6 +645,7 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Tipo da Conta</label>
                   <select
+                    data-campo="conta-tipo"
                     className="w-full border border-slate-300 rounded-lg p-2 text-xs bg-slate-50"
                     value={novoTipo}
                     onChange={(e) => setNovoTipo(e.target.value as "sintetica" | "analitica")}
@@ -652,6 +658,7 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Natureza Contábil</label>
                   <select
+                    data-campo="conta-natureza"
                     className="w-full border border-slate-300 rounded-lg p-2 text-xs bg-slate-50 font-semibold"
                     value={novaNatureza}
                     onChange={(e) => setNovaNatureza(e.target.value as "D" | "C")}
@@ -685,6 +692,8 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
                   </button>
                   <button
                     type="submit"
+                    data-campo="conta-gravar"
+                    data-piloto-final="salvar"
                     className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold cursor-pointer text-xs flex items-center gap-1.5 shadow-xs"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />

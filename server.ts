@@ -1,6 +1,8 @@
 import { registrarRotaVozGemini } from './src/server/vozGeminiTTS';
 import express from "express";
 import path from "path";
+import fsSync from "node:fs";
+import { conferirMapaPiloto, resumoRelatorioPiloto } from "./src/server/conferidorPiloto";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
@@ -1193,6 +1195,20 @@ const reconciliacaoRascunhosStatus: {
     const resultado = await confirmarAcaoAgenteIA(ctx, String(req.body?.id || ""));
     return res.status(resultado.sucesso ? 200 : 422).json(resultado);
   });
+  // Piloto Visível: o front avisa como o roteiro terminou. Só título e contagens vão para o log da Agente; nunca o que foi digitado.
+  app.post("/api/ai/agente/piloto/registro", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const ctx = contextoAgenteIA(req);
+    if (!ctx) return res.status(401).json({ sucesso: false });
+    const b = req.body || {};
+    const estado = ["concluido", "cancelado", "erro", "aguardando_confirmacao", "pausado", "segundo_plano", "rodando"].includes(b.estado) ? b.estado : null;
+    const n = (v: unknown) => (Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 999 ? (v as number) : 0);
+    if (!estado || typeof b.titulo !== "string") return res.status(400).json({ sucesso: false });
+    try {
+      await ctx.registrar({ evento: "piloto", ferramenta: "piloto_visivel", cnpj: null, resumo: `Piloto ${estado}: ${b.titulo.replace(/\s+/g, " ").slice(0, 160)} (${n(b.passosFeitos)}/${n(b.total)} passos, ${n(b.interferencias)} interferência(s)${b.usouSegundoPlano === true ? ", segundo plano" : ""}${n(b.recusados) ? `, ${n(b.recusados)} campo(s) sigiloso(s) deixado(s) para o usuário` : ""})` });
+    } catch { /* o log é só registro */ }
+    return res.json({ sucesso: true });
+  });
   app.post("/api/ai/agente/recusar", exigirSessaoContabil, async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     const ctx = contextoAgenteIA(req);
@@ -1464,6 +1480,18 @@ const reconciliacaoRascunhosStatus: {
   registrarRotinaManual("backups", rodarConferidorBackups);
   registrarRotinaManual("backup_banco", rodarBackupBancoAgora);
   // Robô Conferidor do Anti-retrabalho: vence "em andamento" esquecido, apaga registros com mais de 120 dias e relata bloqueios/avisos.
+  // Piloto Visível: confere, só em leitura, se todo alvo do mapa de telas ainda existe no código e avisa o dono se algo foi renomeado.
+  registrarRobo({ id: "piloto", nome: "Robô Conferidor do Piloto Visível", posto: "conferidor", missao: "Conferir todo dia, só em leitura, se cada tela, campo, botão e título que a Agente usa para mostrar e preencher na tela do contador ainda existe no código. Se algo for renomeado, avisa o dono do sistema aqui. Nunca altera tela, arquivo nem dado.", intervaloMs: 24 * 60 * 60_000 });
+  const rodarConferidorPiloto = () => executarRobo("piloto", async () => {
+    if (!fsSync.existsSync(path.join(process.cwd(), "src", "App.tsx"))) { registrarResultadoRobo("piloto", "Código-fonte indisponível neste ambiente: a conferência do mapa roda na compilação (npm test)."); definirAlertaRobo("piloto", null); return; }
+    const r = conferirMapaPiloto((c) => { try { return fsSync.readFileSync(path.join(process.cwd(), c), "utf8"); } catch { return null; } });
+    registrarResultadoRobo("piloto", resumoRelatorioPiloto(r));
+    definirAlertaRobo("piloto", r.problemas.length ? { nivel: "critico", texto: resumoRelatorioPiloto(r) } : null);
+    if (r.problemas.length) throw new Error(resumoRelatorioPiloto(r));
+  }).catch((e) => console.error("Alerta do Robô Conferidor do Piloto Visível:", e?.message || e));
+  setTimeout(() => void rodarConferidorPiloto(), 170_000).unref();
+  setInterval(() => void rodarConferidorPiloto(), 24 * 60 * 60_000).unref();
+  registrarRotinaManual("piloto", rodarConferidorPiloto);
   registrarRobo({ id: "servico_feito", nome: "Robô Conferidor de Serviço Feito", posto: "conferidor", missao: "Evitar retrabalho entre quem trabalha no mesmo escritório (e o robô): libera os \"estou fazendo\" esquecidos depois de 15 minutos, apaga registros com mais de 120 dias e relata quantas vezes avisou ou barrou um serviço repetido. Só mexe no próprio registro de quem fez o quê; nunca em lançamento, empresa ou nota.", intervaloMs: 15 * 60_000 });
   const rodarServicoFeito = () => bancoContabilConfigurado() ? executarRobo("servico_feito", async () => {
     registrarResultadoRobo("servico_feito", await servicoFeito.rodarConferidor());

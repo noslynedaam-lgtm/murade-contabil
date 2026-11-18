@@ -1153,6 +1153,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
               <input
                 type="text"
                 name="cnpj-da-empresa-cliente" autoComplete="off" spellCheck={false} data-lpignore="true" data-form-type="other" 
+                data-campo="empresa-cnpj"
                 value={cnpj}
                 onChange={(e) => setCnpj(e.target.value)}
                 placeholder="00.000.000/0000-00"
@@ -1186,6 +1187,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
             </div>
             <input
               type="text"
+              data-campo="empresa-razao-social"
               value={razaoSocial}
               onChange={(e) => setRazaoSocial(e.target.value)}
               placeholder="Razão Social completa da empresa"
@@ -1198,6 +1200,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
             <label className="block font-semibold text-slate-800 mb-1">Nome Fantasia</label>
             <input
               type="text"
+              data-campo="empresa-nome-fantasia"
               value={nomeFantasia}
               onChange={(e) => setNomeFantasia(e.target.value)}
               placeholder="Nome Fantasia comercial"
@@ -1209,6 +1212,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
           <div>
             <label className="block font-semibold text-slate-800 mb-1">Regime Tributário</label>
             <select
+              data-campo="empresa-regime"
               value={regimeTributario}
               onChange={(e) => setRegimeTributario(e.target.value)}
               className="w-full px-3.5 py-2.5 border-2 border-slate-200 rounded-lg text-slate-800 bg-white focus:outline-none focus:border-blue-600 transition font-medium"
@@ -1225,6 +1229,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
             <label className="block font-semibold text-slate-800 mb-1">Inscrição Estadual (SEFAZ)</label>
             <input
               type="text"
+              data-campo="empresa-ie"
               value={ie}
               onChange={(e) => setIe(e.target.value)}
               placeholder="Ex: 10.345.678-9 ou ISENTO"
@@ -1237,6 +1242,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
             <label className="block font-semibold text-slate-800 mb-1">Inscrição Municipal (Prefeitura)</label>
             <input
               type="text"
+              data-campo="empresa-im"
               value={im}
               onChange={(e) => setIm(e.target.value)}
               placeholder="Ex: 245.890-1"
@@ -1301,6 +1307,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
             <div className="flex gap-2">
               <input
                 type="text"
+                data-campo="empresa-cep"
                 value={cep}
                 onChange={(e) => setCep(e.target.value)}
                 placeholder="00000-000"
@@ -1323,6 +1330,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
             <label className="block font-semibold text-slate-800 mb-1">Cidade / UF</label>
             <input
               type="text"
+              data-campo="empresa-cidade-uf"
               value={cidadeUf}
               onChange={(e) => setCidadeUf(e.target.value)}
               placeholder="Informe a cidade e a UF da empresa"
@@ -1335,6 +1343,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
             <label className="block font-semibold text-slate-800 mb-1">Endereço Completo (Logradouro, Número, Bairro)</label>
             <input
               type="text"
+              data-campo="empresa-endereco"
               value={endereco}
               onChange={(e) => setEndereco(e.target.value)}
               placeholder="Logradouro, número, bairro e complemento"
@@ -1347,6 +1356,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
             <label className="block font-semibold text-slate-800 mb-1">Telefone / WhatsApp</label>
             <input
               type="text"
+              data-campo="empresa-telefone"
               value={telefone}
               onChange={(e) => {
                 setTelefone(e.target.value);
@@ -1362,6 +1372,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
             <label className="block font-semibold text-slate-800 mb-1">E-mail de Contato / Fiscal</label>
             <input
               type="email"
+              data-campo="empresa-email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="fiscal@empresa.com.br"
@@ -1374,6 +1385,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
             <label className="block font-semibold text-slate-800 mb-1">Responsável Legal / Administrador</label>
             <input
               type="text"
+              data-campo="empresa-responsavel"
               value={responsavelNome}
               onChange={(e) => setResponsavelNome(e.target.value)}
               placeholder="Nome do sócio-administrador"
@@ -1616,6 +1628,8 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
 
             <button
               type="button"
+              data-campo="empresa-salvar"
+              data-piloto-final="salvar"
               onClick={handleSalvarEmpresa}
               className="px-6 py-2.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs sm:text-sm font-bold transition cursor-pointer shadow-sm flex items-center gap-2"
             >

@@ -198,6 +198,7 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
 
           <button
             id="btn-novo-lancamento"
+            data-piloto-abrir=""
             onClick={() => { limparRascunhoManual(); setModalNovo(true); }}
             className="bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-300 text-xs font-bold px-3 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
           >
@@ -338,6 +339,7 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                   <input
                     type="text"
                     placeholder="DD/MM/AAAA"
+                    data-campo="lancamento-data"
                     required
                     className="w-full border border-slate-300 rounded-lg p-2 text-xs"
                     value={dataLan}
@@ -348,6 +350,7 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                   <label className="block text-slate-700 font-semibold mb-1">Valor (R$)</label>
                   <input
                     type="number"
+                    data-campo="lancamento-valor"
                     required
                     min="0.01"
                     step="0.01"
@@ -390,6 +393,7 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                   <input
                     type="text"
                     placeholder="Código"
+                    data-campo="lancamento-debito-codigo"
                     className="w-24 border border-rose-300 bg-white rounded-lg p-2 text-xs font-mono font-bold text-rose-700"
                     value={debitoCod}
                     onChange={(e) => handleSelecionarDebito(e.target.value)}
@@ -436,6 +440,7 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                   <input
                     type="text"
                     placeholder="Código"
+                    data-campo="lancamento-credito-codigo"
                     className="w-24 border border-emerald-300 bg-white rounded-lg p-2 text-xs font-mono font-bold text-emerald-700"
                     value={creditoCod}
                     onChange={(e) => handleSelecionarCredito(e.target.value)}
@@ -453,6 +458,7 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
               <div>
                 <label className="block text-slate-700 font-semibold mb-1">Histórico da Operação</label>
                 <textarea
+                  data-campo="lancamento-historico"
                   rows={2}
                   className="w-full border border-slate-300 rounded-lg p-2 text-xs"
                   value={histLan}
@@ -487,6 +493,8 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                   </button>
                   <button
                     type="submit"
+                    data-campo="lancamento-gravar"
+                    data-piloto-final="salvar"
                     className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold cursor-pointer flex items-center gap-1.5 shadow-xs"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
