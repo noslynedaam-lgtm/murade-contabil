@@ -18,6 +18,7 @@ export function MeuJeitoTab() {
   const [novo, setNovo] = useState(false);
   const [quando, setQuando] = useState<'entrar_no_sistema' | 'abrir_tela'>('abrir_tela');
   const [telaQuando, setTelaQuando] = useState('');
+  const [nomeNovo, setNomeNovo] = useState('');
   const [passos, setPassos] = useState<PassoForm[]>([{ ...passoVazio }]);
 
   const recarregar = useCallback(async () => { try { const d = await chamarJeito<{ jeito: VisaoJeito }>('/api/meu-jeito'); definirJeito(d.jeito); } catch (e) { setMsg(e instanceof Error ? e.message : 'Falha ao carregar.'); } }, []);
@@ -40,6 +41,12 @@ export function MeuJeitoTab() {
     if (!await confirmarNaTela(`Voltar ao jeito padrão e remover esta regra?\n\n${descricao}\n\nAs outras regras ficam como estão.`)) return;
     await agir('/api/meu-jeito/receitas/remover', { id }, 'Regra removida.');
   };
+  const salvarNome = async () => {
+    setOcupado(true); setMsg('');
+    try { const r = await chamarJeito<{ nome: string }>('/api/meu-jeito/nome', 'POST', { nome: nomeNovo }); setNomeNovo(''); setMsg(`Combinado, vou te chamar de ${r.nome}.`); await recarregar(); }
+    catch (e) { setMsg(e instanceof Error ? e.message : 'Não foi possível guardar o nome.'); }
+    finally { setOcupado(false); }
+  };
   const secoesDa = (tela: string) => j.catalogo.secoes.filter((s) => s.tela === tela);
   const montarAcoes = () => passos.map((p) => (p.acao === 'mostrar_atalho' ? { tipo: p.acao, tela: p.tela } : p.acao === 'destacar_secao' ? { tipo: p.acao, tela: telaQuando, secao: p.secao } : { tipo: p.acao, assunto: p.assunto }));
   const gatilho = quando === 'entrar_no_sistema' ? { tipo: quando } : { tipo: quando, tela: telaQuando };
@@ -55,6 +62,11 @@ export function MeuJeitoTab() {
       <section className="rounded-xl border border-blue-200 bg-white p-3">
         <h2 className="text-base font-bold text-slate-900">Meu jeito</h2>
         <p className="mt-1 text-sm text-slate-700">A Agente aprende como você prefere trabalhar e passa a trabalhar assim. Só guardo preferências de uso: nada do que você digita e nenhum dado de empresa ou lançamento. Você também pode ensinar falando com a Agente.</p>
+        <form className="mt-2 flex flex-wrap items-center gap-2" onSubmit={(e) => { e.preventDefault(); if (nomeNovo.trim()) void salvarNome(); }}>
+          <label htmlFor="meu-jeito-nome" className="text-sm font-semibold text-slate-800">Como te chamar{j.nome ? `: ${j.nome}` : ''}</label>
+          <input id="meu-jeito-nome" value={nomeNovo} onChange={(e) => setNomeNovo(e.target.value.slice(0, 60))} placeholder={j.nome ? 'Mudar meu nome' : 'Seu nome'} maxLength={60} className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-sm" />
+          <button type="submit" disabled={ocupado || !nomeNovo.trim()} className="rounded-lg border border-blue-300 px-3 py-1.5 text-sm font-semibold text-blue-900 disabled:opacity-50">{j.nome ? 'Mudar meu nome' : 'Salvar nome'}</button>
+        </form>
         <div className="mt-2 flex flex-wrap gap-2">
           <button type="button" onClick={() => pedirApresentacao({ acao: 'iniciar' })} className="rounded-lg bg-blue-800 px-3 py-2 text-sm font-bold text-white">Me conte o que o sistema faz</button>
           <button type="button" onClick={() => pedirApresentacao({ acao: 'iniciar', secao: 'integracoes' })} className="rounded-lg border border-blue-300 px-3 py-2 text-sm font-semibold text-blue-900">O que é integrado?</button>

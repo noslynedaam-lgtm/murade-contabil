@@ -1,7 +1,8 @@
 import type { Express, NextFunction, Request, Response } from 'express';
 import { acharPorNome, normalizarTexto } from './tarefasEquipe';
+import { extrairNomeDaResposta } from './agenteSaudacao';
 import {
-  ASSUNTOS_AGENTE, IDS_TELAS_JEITO, MODULOS_JEITO_PADRAO, SECOES_DESTACAVEIS, SESSOES_COM_BOAS_VINDAS, TEXTO_PROTECAO, rotuloDaTela, textoBoasVindas,
+  ASSUNTOS_AGENTE, IDS_TELAS_JEITO, MODULOS_JEITO_PADRAO, PERGUNTA_NOME, SECOES_DESTACAVEIS, SESSOES_COM_BOAS_VINDAS, TEXTO_PROTECAO, rotuloDaTela, textoBoasVindas,
 } from '../data/jeitoPadraoContabil';
 
 // "Meu jeito": preferências de USO de cada pessoa (e, se for administrador, o jeito padrão do escritório), por cima do jeito padrão do sistema.
@@ -28,6 +29,18 @@ export const PROPORCAO_SUGESTAO = 0.6;
 export const MAX_ACOES_POR_REGRA = 3;
 export const MAX_FAVORITOS = 6;
 export const DIAS_HASH_SESSAO = 7;
+export const MAX_NOME = 40;
+
+/**
+ * Nome que a pessoa quer ser chamada: curto (até 40 letras, no máximo 3 palavras), sem HTML, sem números nem símbolos.
+ * Aceita a frase falada ("meu nome é ana", "pode me chamar de Ana"). Devolve '' se não parecer um nome.
+ */
+export function sanearNome(bruto: unknown): string {
+  if (typeof bruto !== 'string') return '';
+  const semTags = bruto.replace(/<[^>]*>/g, ' ').replace(/[<>&]/g, ' ').replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 120);
+  const nome = extrairNomeDaResposta(semTags);
+  return nome.length >= 2 && nome.length <= MAX_NOME ? nome : '';
+}
 
 /** Sem strictNullChecks o TypeScript não estreita uniões por `ok`; este guarda faz o estreitamento. */
 export const falhou = <T extends { ok: boolean }>(r: T): r is Extract<T, { ok: false }> => r.ok === false;
@@ -349,8 +362,17 @@ export function criarServicoMeuJeito(consultar: Consultar, agora: () => Date = (
       ALTER TABLE ${TABELA_JEITO} ADD COLUMN IF NOT EXISTS legado boolean NOT NULL DEFAULT false;
       ALTER TABLE ${TABELA_JEITO} ADD COLUMN IF NOT EXISTS apresentacao_oferecida_em timestamptz;
       ALTER TABLE ${TABELA_JEITO} ADD COLUMN IF NOT EXISTS apresentacao_resposta text;
+      ALTER TABLE ${TABELA_JEITO} ADD COLUMN IF NOT EXISTS nome text;
+      ALTER TABLE ${TABELA_JEITO} ADD COLUMN IF NOT EXISTS nome_perguntado_em timestamptz;
+      ALTER TABLE ${TABELA_JEITO} ADD COLUMN IF NOT EXISTS nome_resposta text;
+      ALTER TABLE ${TABELA_JEITO} ADD COLUMN IF NOT EXISTS boas_vindas_pendente boolean NOT NULL DEFAULT false;
       INSERT INTO ${TABELA_JEITO}(tenant_id,user_id) VALUES('${TENANT_SISTEMA}','${USUARIO_IMPLANTACAO}') ON CONFLICT (tenant_id,user_id) DO NOTHING;
-    `).then(() => undefined).catch((e) => { pronta = null; throw e; });
+    `).then(async () => {
+      // Quem já tinha nome (guardado pela saudação antiga, em nome_tratamento) não é incomodado: o nome é COPIADO para cá; nada é apagado nem trocado.
+      try {
+        await consultar(`UPDATE ${TABELA_JEITO} m SET nome=u.nome_tratamento, nome_resposta='nome' FROM contabil_auth_users u WHERE u.id::text=m.user_id AND m.nome IS NULL AND u.nome_tratamento IS NOT NULL AND length(btrim(u.nome_tratamento))>0`);
+      } catch (e) { console.error('Meu jeito: não consegui copiar os nomes já conhecidos agora (tento de novo na abertura de cada pessoa):', e instanceof Error ? e.message : e); }
+    }).catch((e) => { pronta = null; throw e; });
     return pronta;
   };
   const garantirLinha = async (tenant: string, user: string): Promise<boolean> => {
@@ -364,6 +386,26 @@ export function criarServicoMeuJeito(consultar: Consultar, agora: () => Date = (
     return criada;
   };
   const lerLinha = async (tenant: string, user: string): Promise<Linha | null> => (await consultar(`SELECT * FROM ${TABELA_JEITO} WHERE tenant_id=$1 AND user_id=$2`, [tenant, user])).rows[0] ?? null;
+
+  /** Mantém o nome também onde a saudação do dia e a conversa da Agente já o leem (nome_tratamento). Falha aqui nunca derruba o resto. */
+  const espelharNome = async (user: string, nome: string): Promise<void> => {
+    try { await consultar(`UPDATE contabil_auth_users SET nome_tratamento=$2 WHERE id::text=$1`, [user, nome]); }
+    catch (e) { console.error('Meu jeito: não consegui espelhar o nome na saudação:', e instanceof Error ? e.message : e); }
+  };
+  /** Se a pessoa já tinha nome pela saudação antiga e o Meu jeito ainda não o conhece, copia (sem apagar nada). */
+  const adotarNomeAntigo = async (tenant: string, user: string): Promise<string | null> => {
+    try {
+      const r = await consultar(`UPDATE ${TABELA_JEITO} m SET nome=u.nome_tratamento, nome_resposta='nome' FROM contabil_auth_users u WHERE u.id::text=m.user_id AND m.tenant_id=$1 AND m.user_id=$2 AND m.nome IS NULL AND u.nome_tratamento IS NOT NULL AND length(btrim(u.nome_tratamento))>0 RETURNING m.nome`, [tenant, user]);
+      return r.rows[0]?.nome ? String(r.rows[0].nome) : null;
+    } catch { return null; }
+  };
+  /** Entrega o que ficou esperando o nome (boas-vindas e oferta da apresentação), uma única vez e de forma atômica. */
+  const entregarPendentes = async (tenant: string, user: string, nome: string | null) => {
+    const p = await consultar(`UPDATE ${TABELA_JEITO} SET boas_vindas_pendente=false WHERE tenant_id=$1 AND user_id=$2 AND boas_vindas_pendente RETURNING sessoes, legado`, [tenant, user]);
+    if (!p.rows.length) return { boasVindas: null as string | null, oferecerApresentacao: false };
+    const oferecer = (await consultar(`UPDATE ${TABELA_JEITO} SET apresentacao_oferecida_em=$3 WHERE tenant_id=$1 AND user_id=$2 AND apresentacao_oferecida_em IS NULL RETURNING 1`, [tenant, user, agora().toISOString()])).rows.length > 0;
+    return { boasVindas: textoBoasVindas(Number(p.rows[0].sessoes), p.rows[0].legado === true, nome), oferecerApresentacao: oferecer };
+  };
 
   function montarVisao(sessao: SessaoJeito, minha: Linha | null, escritorio: Linha | null) {
     const meus = valoresValidos(minha?.preferencias); const doEscritorio = valoresValidos(escritorio?.preferencias);
@@ -385,7 +427,7 @@ export function criarServicoMeuJeito(consultar: Consultar, agora: () => Date = (
     }).filter((r) => ID_RECEITA.test(r.id)).sort((a, b) => a.id.localeCompare(b.id));
     const sugestoes = efetivo.observarUso === false ? [] : calcularSugestoes(jsonObj(minha?.observacoes), rec, jsonArr(minha?.sugestoes_dispensadas).map(String));
     return {
-      sessoes: Number(minha?.sessoes ?? 0), podeEditarEscritorio: sessao.administrador === true,
+      sessoes: Number(minha?.sessoes ?? 0), podeEditarEscritorio: sessao.administrador === true, nome: minha?.nome ? String(minha.nome) : null,
       efetivo, origem, meus, escritorio: doEscritorio, padrao,
       preferencias: CHAVES_PREFERENCIA.map((k) => ({
         chave: k, rotulo: PREFERENCIAS[k].rotulo, descricao: PREFERENCIAS[k].descricao, valor: efetivo[k], valorTexto: PREFERENCIAS[k].texto(efetivo[k]), origem: origem[k],
@@ -415,6 +457,7 @@ export function criarServicoMeuJeito(consultar: Consultar, agora: () => Date = (
     await garantirTabelas();
     const tenant = tenantDe(sessao); const t = agora();
     await garantirLinha(tenant, sessao.userId);
+    await adotarNomeAntigo(tenant, sessao.userId);
     const linha = (await lerLinha(tenant, sessao.userId))!;
     const parada = !linha.ultima_abertura || t.getTime() - new Date(linha.ultima_abertura).getTime() > HORAS_ENTRE_SESSOES * 3_600_000;
     const nova = String(linha.ultima_sessao_hash ?? '') !== String(hashSessao) || parada;
@@ -430,12 +473,24 @@ export function criarServicoMeuJeito(consultar: Consultar, agora: () => Date = (
       `UPDATE ${TABELA_JEITO} SET sessoes=$3, ultima_sessao_hash=$4, ultima_abertura=$5, avisos='[]'::jsonb${mudouRec ? ', receitas=$6::jsonb' : ''} WHERE tenant_id=$1 AND user_id=$2`,
       mudouRec ? [tenant, sessao.userId, sessoes, hashSessao, t.toISOString(), JSON.stringify(rec)] : [tenant, sessao.userId, sessoes, hashSessao, t.toISOString()]);
     const visao = montarVisao(sessao, { ...linha, receitas: rec, sessoes }, await lerLinha(tenant, USUARIO_ESCRITORIO));
+    // PERGUNTA DO NOME: sem nome conhecido e ainda sem resposta, a Agente pergunta ANTES das boas-vindas. A pergunta é feita UMA vez só por pessoa
+    // (reservada aqui, de forma atômica: outro aparelho ou recarregar a página não repete). "Agora não" e responder encerram; depois, só se a pessoa pedir "mudar meu nome".
+    const nome = linha.nome ? String(linha.nome) : null;
+    let perguntarNome = false;
+    if (!nome && !linha.nome_resposta) {
+      perguntarNome = (await consultar(`UPDATE ${TABELA_JEITO} SET nome_perguntado_em=$3 WHERE tenant_id=$1 AND user_id=$2 AND nome_perguntado_em IS NULL RETURNING 1`, [tenant, sessao.userId, t.toISOString()])).rows.length > 0;
+    }
+    const devidoAgora = nova || linha.boas_vindas_pendente === true;
+    // Enquanto espera o nome, as boas-vindas e a oferta da apresentação ficam guardadas; saem logo depois da resposta.
+    if (perguntarNome && devidoAgora) await consultar(`UPDATE ${TABELA_JEITO} SET boas_vindas_pendente=true WHERE tenant_id=$1 AND user_id=$2`, [tenant, sessao.userId]);
+    if (!perguntarNome && linha.boas_vindas_pendente === true) await consultar(`UPDATE ${TABELA_JEITO} SET boas_vindas_pendente=false WHERE tenant_id=$1 AND user_id=$2`, [tenant, sessao.userId]);
     // A oferta da apresentação completa é feita UMA vez por pessoa (decidido aqui, no servidor, de forma atômica): nem outro aparelho repete.
     let oferecer = false;
-    if (nova) oferecer = (await consultar(`UPDATE ${TABELA_JEITO} SET apresentacao_oferecida_em=$3 WHERE tenant_id=$1 AND user_id=$2 AND apresentacao_oferecida_em IS NULL RETURNING 1`, [tenant, sessao.userId, t.toISOString()])).rows.length > 0;
+    if (devidoAgora && !perguntarNome) oferecer = (await consultar(`UPDATE ${TABELA_JEITO} SET apresentacao_oferecida_em=$3 WHERE tenant_id=$1 AND user_id=$2 AND apresentacao_oferecida_em IS NULL RETURNING 1`, [tenant, sessao.userId, t.toISOString()])).rows.length > 0;
     return {
       sessao: sessoes, novaSessao: nova, legado: linha.legado === true, ehDono: sessao.donoSistema === true, oferecerApresentacao: oferecer,
-      boasVindas: nova ? textoBoasVindas(sessoes, linha.legado === true) : null,
+      nome, perguntarNome, perguntaNome: perguntarNome ? PERGUNTA_NOME : null,
+      boasVindas: devidoAgora && !perguntarNome ? textoBoasVindas(sessoes, linha.legado === true, nome) : null,
       avisos: avisos.map((a) => String(a?.texto ?? '')).filter(Boolean).slice(0, 5),
       sugestao: visao.sugestoes[0] ? { id: visao.sugestoes[0].id, texto: visao.sugestoes[0].texto } : null,
       efetivo: visao.efetivo, receitasAtivas: receitasAtivas(visao),
@@ -505,6 +560,29 @@ export function criarServicoMeuJeito(consultar: Consultar, agora: () => Date = (
     return { aceitos: [...soma.values()].reduce((a, b) => a + b, 0), ignorado: false };
   }
 
+  /** A pessoa disse como quer ser chamada (pergunta da primeira entrada ou "mudar meu nome"). Só guarda o nome saneado; nunca muda mais nada. */
+  async function definirNome(sessao: SessaoJeito, bruto: unknown) {
+    await garantirTabelas();
+    const nome = sanearNome(bruto);
+    if (!nome) throw new ErroJeito(400, 'Não entendi o nome. Diga só como quer ser chamado, por exemplo: Ana.');
+    const tenant = tenantDe(sessao);
+    await garantirLinha(tenant, sessao.userId);
+    await consultar(`UPDATE ${TABELA_JEITO} SET nome=$3, nome_resposta='nome', nome_perguntado_em=COALESCE(nome_perguntado_em, $4), versao=versao+1, atualizado_em=now() WHERE tenant_id=$1 AND user_id=$2`, [tenant, sessao.userId, nome, agora().toISOString()]);
+    await espelharNome(sessao.userId, nome);
+    const e = await entregarPendentes(tenant, sessao.userId, nome);
+    return { nome, frase: e.boasVindas ? `Prazer, ${nome}! ${e.boasVindas}` : `Combinado, vou te chamar de ${nome}.`, boasVindas: e.boasVindas, oferecerApresentacao: e.oferecerApresentacao };
+  }
+  /** "Agora não" à pergunta do nome: não pergunta de novo sozinha (a pessoa pode pedir "mudar meu nome" quando quiser) e libera as boas-vindas. */
+  async function dispensarNome(sessao: SessaoJeito) {
+    await garantirTabelas();
+    const tenant = tenantDe(sessao);
+    await garantirLinha(tenant, sessao.userId);
+    await consultar(`UPDATE ${TABELA_JEITO} SET nome_resposta=COALESCE(nome_resposta,'depois'), nome_perguntado_em=COALESCE(nome_perguntado_em, $3) WHERE tenant_id=$1 AND user_id=$2`, [tenant, sessao.userId, agora().toISOString()]);
+    const linha = await lerLinha(tenant, sessao.userId);
+    const e = await entregarPendentes(tenant, sessao.userId, linha?.nome ? String(linha.nome) : null);
+    return { nome: linha?.nome ? String(linha.nome) : null, boasVindas: e.boasVindas, oferecerApresentacao: e.oferecerApresentacao };
+  }
+
   /** "sim" / "não" / "depois" à oferta da apresentação: só registra; nunca volta a oferecer sozinha. */
   async function responderApresentacao(sessao: SessaoJeito, resposta: unknown): Promise<void> {
     await garantirTabelas();
@@ -559,13 +637,32 @@ export function criarServicoMeuJeito(consultar: Consultar, agora: () => Date = (
     await garantirTabelas();
     const t = agora();
     const linhas = (await consultar(`SELECT * FROM ${TABELA_JEITO} WHERE tenant_id<>$1 ORDER BY tenant_id, user_id LIMIT 20000`, [TENANT_SISTEMA])).rows;
-    let regras = 0; let novasObsoletas = 0; let voltaramAValer = 0; let avisosNovos = 0; let removidas = 0; let hashesLimpos = 0; let contagensLimpas = 0; let falhas = 0;
-    const existentes = new Set((await consultar(`SELECT id::text AS id FROM contabil_auth_users`)).rows.map((r) => String(r.id)));
+    let regras = 0; let novasObsoletas = 0; let voltaramAValer = 0; let avisosNovos = 0; let removidas = 0; let hashesLimpos = 0; let contagensLimpas = 0; let falhas = 0; let nomesCorrigidos = 0; let nomesAdotados = 0; let nomesEspelhados = 0; let semNome = 0;
+    const usuarios = (await consultar(`SELECT id::text AS id, nome_tratamento FROM contabil_auth_users`)).rows;
+    const existentes = new Set(usuarios.map((r) => String(r.id)));
+    const nomeDaSaudacao = new Map<string, string>(usuarios.filter((r) => r.nome_tratamento).map((r) => [String(r.id), String(r.nome_tratamento)]));
     for (const l of linhas) {
       try {
         const user = String(l.user_id); const tenant = String(l.tenant_id);
         if (user !== USUARIO_ESCRITORIO && !existentes.has(user)) {
           await consultar(`DELETE FROM ${TABELA_JEITO} WHERE tenant_id=$1 AND user_id=$2`, [tenant, user]); removidas += 1; continue;
+        }
+        if (user !== USUARIO_ESCRITORIO) {
+          // Nome: tem de ser curto, sem HTML e igual nos dois lugares (Meu jeito e saudação). Quem já tem nome nunca é perguntado de novo.
+          const atual = l.nome ? String(l.nome) : '';
+          const daSaudacao = nomeDaSaudacao.get(user) ?? '';
+          if (atual) {
+            const limpo = sanearNome(atual);
+            if (limpo !== atual) {
+              // Sem conserto possível: o valor guardado não era um nome; a pessoa vê a pergunta UMA vez (como quem nunca respondeu).
+              await consultar(`UPDATE ${TABELA_JEITO} SET nome=$3, nome_resposta=$4, nome_perguntado_em=CASE WHEN $3::text IS NULL THEN NULL ELSE nome_perguntado_em END WHERE tenant_id=$1 AND user_id=$2`, [tenant, user, limpo || null, limpo ? 'nome' : null]); nomesCorrigidos += 1;
+            }
+            const final = limpo || '';
+            if (final && daSaudacao !== final) { await espelharNome(user, final); nomesEspelhados += 1; }
+            if (!final) semNome += 1;
+          } else if (daSaudacao && sanearNome(daSaudacao)) {
+            const adotado = await adotarNomeAntigo(tenant, user); if (adotado) nomesAdotados += 1; else semNome += 1;
+          } else semNome += 1;
         }
         const rec = jsonObj(l.receitas); const avisos = jsonArr(l.avisos).slice(); let mudou = false;
         for (const [id, r] of Object.entries(rec)) {
@@ -587,11 +684,11 @@ export function criarServicoMeuJeito(consultar: Consultar, agora: () => Date = (
       } catch (e) { falhas += 1; console.error('Robô Meu jeito: falha ao conferir uma linha:', e instanceof Error ? e.message : e); }
     }
     const resumo = linhas.length === 0 ? 'Nenhum jeito salvo ainda.'
-      : `${linhas.length} jeito(s) conferido(s), ${regras} regra(s); ${novasObsoletas} ficou(aram) obsoleta(s) e foi(ram) pausada(s) com aviso; ${voltaramAValer} voltou(aram) a valer; limpeza: ${removidas} de pessoa(s) que não existe(m) mais, ${hashesLimpos} sessão(ões) antiga(s), ${contagensLimpas} contagem(ns) inválida(s)${falhas ? `; ${falhas} falha(s)` : ''}.`;
-    return { linhas: linhas.length, regras, novasObsoletas, voltaramAValer, avisosNovos, removidas, hashesLimpos, contagensLimpas, falhas, resumo };
+      : `${linhas.length} jeito(s) conferido(s), ${regras} regra(s); ${novasObsoletas} ficou(aram) obsoleta(s) e foi(ram) pausada(s) com aviso; ${voltaramAValer} voltou(aram) a valer; limpeza: ${removidas} de pessoa(s) que não existe(m) mais, ${hashesLimpos} sessão(ões) antiga(s), ${contagensLimpas} contagem(ns) inválida(s)${falhas ? `; ${falhas} falha(s)` : ''}; nomes: ${nomesCorrigidos} corrigido(s), ${nomesAdotados} trazido(s) da saudação, ${nomesEspelhados} acertado(s) na saudação, ${semNome} pessoa(s) ainda sem nome.`;
+    return { linhas: linhas.length, regras, novasObsoletas, voltaramAValer, avisosNovos, removidas, hashesLimpos, contagensLimpas, falhas, nomesCorrigidos, nomesAdotados, nomesEspelhados, semNome, resumo };
   }
 
-  return { garantirTabelas, ler, abrir, responderApresentacao, salvarPreferencia, removerPreferencia, salvarReceita, removerReceita, observar, aceitarSugestao, dispensarSugestao, paraAgente, conferir };
+  return { garantirTabelas, ler, abrir, definirNome, dispensarNome, responderApresentacao, salvarPreferencia, removerPreferencia, salvarReceita, removerReceita, observar, aceitarSugestao, dispensarSugestao, paraAgente, conferir };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -622,6 +719,8 @@ export function registrarRotasMeuJeito(app: Express, d: DepsRotasJeito): void {
 
   app.get(base, d.exigirSessao, tratar(async (s, _req, res) => { res.json({ sucesso: true, jeito: await d.servico.ler(s) }); }));
   app.post(`${base}/abrir`, d.exigirOrigem, d.exigirSessao, tratar(async (s, req, res) => { res.json({ sucesso: true, ...(await d.servico.abrir(s, d.hashSessao(req))) }); }));
+  app.post(`${base}/nome`, d.exigirOrigem, d.exigirSessao, tratar(async (s, req, res) => { res.json({ sucesso: true, ...(await d.servico.definirNome(s, corpo(req).nome)) }); }));
+  app.post(`${base}/nome/dispensar`, d.exigirOrigem, d.exigirSessao, tratar(async (s, _req, res) => { res.json({ sucesso: true, ...(await d.servico.dispensarNome(s)) }); }));
   app.post(`${base}/apresentacao/resposta`, d.exigirOrigem, d.exigirSessao, tratar(async (s, req, res) => { await d.servico.responderApresentacao(s, corpo(req).resposta); res.json({ sucesso: true }); }));
   app.post(`${base}/observar`, d.exigirOrigem, d.exigirSessao, tratar(async (s, req, res) => { res.json({ sucesso: true, ...(await d.servico.observar(s, corpo(req).pares)) }); }));
   // Tudo por POST (a Agente IA só chama GET e POST nas rotas internas). Uma preferência ou uma regra por vez; não existe rota que apague tudo.

@@ -11,7 +11,7 @@ export type DependenciasAtividade = {
   podeVer: (req: Request) => boolean;
 };
 
-const IGNORAR = [/^\/api\/auth\/(login|logout|session|status|bootstrap|redeem|tenants|atividade)/, /^\/api\/integracao\//, /^\/api\/health/, /^\/api\/robos/, /^\/api\/meu-jeito\/(abrir|observar|apresentacao)/];
+const IGNORAR = [/^\/api\/auth\/(login|logout|session|status|bootstrap|redeem|tenants|atividade)/, /^\/api\/integracao\//, /^\/api\/health/, /^\/api\/robos/, /^\/api\/meu-jeito\/(abrir|observar|apresentacao|nome)/];
 const ROTULOS: Array<[RegExp, string]> = [
   [/tarefas-equipe/, 'Movimentou tarefa da equipe'],
   [/meu-jeito/, 'Mudou o próprio jeito de trabalhar'],

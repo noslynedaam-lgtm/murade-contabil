@@ -34,7 +34,7 @@ export const MODULOS_JEITO_PADRAO: TelaJeito[] = [
   { id: 'agente', rotulo: 'Agentes & Robô', resumo: 'Painel dos robôs e da Agente IA, com a missão e o estado de cada um.', arquivo: 'AgenteTab' },
   { id: 'tarefas-equipe', rotulo: 'Tarefas da equipe', resumo: 'Pedidos feitos à equipe, com acompanhamento de quando foram vistos e concluídos.', arquivo: 'TarefasEquipeTab' },
   { id: 'backups', rotulo: 'Backups', resumo: 'Uma cópia cifrada por mês, só com os dados do escritório, gerada sozinha pelo robô conferidor.', arquivo: 'BackupsTab' },
-  { id: 'meu-jeito', rotulo: 'Meu jeito', resumo: 'O que a Agente aprendeu do seu jeito de trabalhar: você vê, muda ou volta ao jeito padrão, uma regra por vez.', arquivo: 'MeuJeitoTab' },
+  { id: 'meu-jeito', rotulo: 'Meu jeito', resumo: 'O nome pelo qual a Agente te chama e o que ela aprendeu do seu jeito de trabalhar: você vê, muda o nome ou volta ao jeito padrão, uma regra por vez.', arquivo: 'MeuJeitoTab' },
 ];
 
 export const IDS_TELAS_JEITO: string[] = MODULOS_JEITO_PADRAO.map((m) => m.id);
@@ -86,12 +86,16 @@ const DICAS = [
   'e esta é a última vez que eu lembro sozinha; depois é só pedir "mostra meu jeito"',
 ];
 
-/** Texto fixo (sem IA). Sessão 1: o jeito padrão e o convite. Sessões 2 a 5: lembrete curto. Depois: nada. */
-export function textoBoasVindas(sessao: number, legado = false): string | null {
+/** Pergunta da primeira entrada, quando a Agente ainda não sabe o nome da pessoa. Texto fixo, sem IA. */
+export const PERGUNTA_NOME = 'Como posso te chamar?';
+
+/** Texto fixo (sem IA). Sessão 1: o jeito padrão e o convite. Sessões 2 a 5: lembrete curto. Depois: nada. Com o nome, a Agente fala o nome. */
+export function textoBoasVindas(sessao: number, legado = false, nome?: string | null): string | null {
   if (!Number.isInteger(sessao) || sessao < 1 || sessao > SESSOES_COM_BOAS_VINDAS) return null;
+  const n = typeof nome === 'string' && nome.trim() ? nome.trim() : '';
   // Quem já usava o sistema antes do "Meu jeito" conta como já tendo passado por 4 aberturas: vê UMA vez, e com o texto completo.
   if (sessao === 1 || legado) {
-    return 'Boas-vindas ao Murade Contábil! Aqui funciona assim: o Fiscal e o DP mandam os dados, você confere em Revisar dados recebidos, aprova os lançamentos, acompanha o Balancete e fecha o mês na Gestão contábil. Mas cada contador trabalha de um jeito, e eu posso aprender o seu: é só me contar como prefere trabalhar, que eu salvo e passo a trabalhar sempre do seu jeito.';
+    return `Boas-vindas ao Murade Contábil${n ? `, ${n}` : ''}! Aqui funciona assim: o Fiscal e o DP mandam os dados, você confere em Revisar dados recebidos, aprova os lançamentos, acompanha o Balancete e fecha o mês na Gestão contábil. Mas cada contador trabalha de um jeito, e eu posso aprender o seu: é só me contar como prefere trabalhar, que eu salvo e passo a trabalhar sempre do seu jeito.`;
   }
-  return `Que bom ter você de volta! Lembre que eu posso aprender o seu jeito de trabalhar, ${DICAS[sessao - 2]}. Para ver o que eu já sei, diga: mostra meu jeito.`;
+  return `Que bom ter você de volta${n ? `, ${n}` : ''}! Lembre que eu posso aprender o seu jeito de trabalhar, ${DICAS[sessao - 2]}. Para ver o que eu já sei, diga: mostra meu jeito.`;
 }

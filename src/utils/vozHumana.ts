@@ -252,7 +252,7 @@ function agruparFrases(texto: string): string[] {
   return grupos;
 }
 
-function falarTrecho(texto: string): Promise<boolean> {
+function falarTrecho(texto: string): Promise<boolean | 'interrompido'> {
   return new Promise((resolve) => {
     try {
       const u = new SpeechSynthesisUtterance(texto);
@@ -266,7 +266,8 @@ function falarTrecho(texto: string): Promise<boolean> {
       const vigia = window.setTimeout(() => { if (!iniciou) { try { window.speechSynthesis.cancel(); } catch { /* ignora */ } resolve(false); } }, 2200);
       u.onstart = () => { iniciou = true; window.clearTimeout(vigia); };
       u.onend = () => { window.clearTimeout(vigia); resolve(true); };
-      u.onerror = () => { window.clearTimeout(vigia); resolve(false); };
+      // Cortada por outro código depois de já ter começado (ex.: um clique na tela): não é falha, é interrupção.
+      u.onerror = (ev) => { window.clearTimeout(vigia); const motivo = String((ev as SpeechSynthesisErrorEvent)?.error || ''); resolve(iniciou && (motivo === 'interrupted' || motivo === 'canceled') ? 'interrompido' : false); };
       window.speechSynthesis.speak(u);
     } catch { resolve(false); }
   });
@@ -319,7 +320,9 @@ async function falarNoNavegador(texto: string, minha: number): Promise<void> {
   for (let i = 0; i < trechos.length; i += 1) {
     if (minha !== sequencia) return;
     let ok = await falarTrecho(trechos[i]);
-    if (!ok && minha === sequencia) { await esperar(200); ok = await falarTrecho(trechos[i]); }
+    // Interrompida no meio por um clique ou outra fala alheia: segue para o próximo trecho, sem repetir a frase.
+    if (ok === 'interrompido') { if (minha === sequencia) await esperar(120); continue; }
+    if (!ok && minha === sequencia) { await esperar(200); ok = await falarTrecho(trechos[i]); if (ok === 'interrompido') continue; }
     if (!ok) {
       if (minha === sequencia) { falaPendente = trechos.slice(i).join(' '); mostrarDicaVoz(); }
       return;

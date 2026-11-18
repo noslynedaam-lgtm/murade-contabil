@@ -15,7 +15,7 @@ import { compararPeriodos, explicarVariacoes } from '../utils/analiseContabil';
 import { FERRAMENTAS_ENTRE_SISTEMAS, INSTRUCAO_ENTRE_SISTEMAS } from './ferramentasEntreSistemas';
 import { FERRAMENTAS_PILOTO, INSTRUCAO_PILOTO } from './pilotoContabil';
 import { acharPessoa, acharPorNome, cnpjLimpo, formatarCnpj, formatarDataBr, montarMensagemPedido, nomeDaPessoa, normalizarTexto, prazoValido } from './tarefasEquipe';
-import { CHAVES_PREFERENCIA, falhou, PREFERENCIAS, descreverPreferencia, descreverReceita, detectarPedidoProtegido, idDaReceita, resolverTela, validarPreferencia, validarReceita } from './meuJeito';
+import { CHAVES_PREFERENCIA, falhou, PREFERENCIAS, descreverPreferencia, descreverReceita, detectarPedidoProtegido, idDaReceita, resolverTela, sanearNome, validarPreferencia, validarReceita } from './meuJeito';
 import { blocosDoAssunto, montarApresentacao, type SecaoApresentacao } from '../data/apresentacaoSistema';
 import { MODULOS_JEITO_PADRAO, PROTECOES_FIXAS, TEXTO_PROTECAO } from '../data/jeitoPadraoContabil';
 
@@ -560,6 +560,24 @@ const FERRAMENTAS: Ferramenta[] = [
     },
   },
   {
+    tipo: 'acao',
+    declaracao: {
+      name: 'mudar_meu_nome',
+      description: 'Propõe MUDAR o nome pelo qual a Agente chama esta pessoa ("me chama de Ana", "meu nome agora é Beto", "mudar meu nome"). Vira cartão de confirmação com o nome entendido; só vale após o sim. Só o nome (curto, sem números nem símbolos); não muda login, e-mail nem cadastro.',
+      parameters: { type: 'OBJECT', properties: { nome: { type: 'STRING', description: 'Como a pessoa quer ser chamada (só o nome, até 3 palavras).' } }, required: ['nome'] },
+    },
+    async preparar(_ctx, args) {
+      const nome = sanearNome(args.nome);
+      if (!nome) return { erro: 'Não entendi o nome. Peça à pessoa para dizer só como quer ser chamada, por exemplo: Ana.' };
+      return { cnpj: '', params: { nome }, titulo: `Chamar você de ${nome}`, descricao: [`A Agente passa a te chamar de ${nome}.`, 'Muda só o nome de tratamento; login e cadastro continuam iguais. Você muda de novo quando quiser.'], resumo: `Meu jeito: nome de tratamento ${nome}`.slice(0, 280) };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', '/api/meu-jeito/nome', { nome: params.nome });
+      if (!ok(r)) return { sucesso: false, mensagem: erroApi(r).erro };
+      return { sucesso: true, mensagem: `Pronto, a partir de agora eu te chamo de ${params.nome}.` };
+    },
+  },
+  {
     tipo: 'leitura',
     declaracao: { name: 'explicar_jeito_padrao', description: 'Explica como o sistema funciona por padrão (o jeito padrão de cada módulo), a partir de um arquivo fixo e verificado, sem gastar IA. Use quando pedirem "mostra como o sistema funciona" ou "para que serve a tela X". Informe o módulo para explicar só um.', parameters: { type: 'OBJECT', properties: { modulo: { type: 'STRING', description: 'Opcional: nome da tela do menu (ex.: Balancete). Vazio = todos os módulos.' } } } },
     async executar(_ctx, args) {
@@ -673,7 +691,7 @@ COMO TRABALHAR
 - PEDIR SERVIÇO À EQUIPE (delegar_tarefa): quando a contadora pedir algo como "peça para a Nilva conciliar o banco da empresa X", use delegar_tarefa com o nome da pessoa como foi dito, o serviço, a empresa (se disse) e o prazo (só se disse; converta para AAAA-MM-DD pela data de hoje). Vira cartão de confirmação; diga em uma frase para quem é o pedido e que ele só vale ao confirmar. Se a ferramenta disser que o nome é ambíguo ou não existe, pergunte UMA vez qual pessoa, sem escolher sozinha. Só a administradora do escritório pede para outra pessoa; funcionário comum só anota tarefa para si (sem destinatário). Isso funciona de qualquer tela. A pessoa recebe o pedido na tela de Tarefas da equipe.
 - Você não grava lançamentos manuais, plano de contas ou mapeamentos: isso é feito nas telas. Você pode PREENCHER o formulário à vista com preencher_na_tela, e quem clica em gravar é o usuário.
 - Antes de propor fechar o período ou contabilizar, se o usuário perguntar se alguém já fez, ou se vários colegas trabalham na empresa, use consultar_servico_feito. Se a ação for barrada porque outra pessoa (ou o robô) já fez, repasse a frase do sistema com o nome e a hora, sem tentar de novo; se o sistema avisar que alguém está fazendo agora, conte isso ao usuário e só prossiga se ele pedir de novo. Nunca invente quem fez.
-- MEU JEITO: se a pessoa contar como prefere trabalhar (tela ao entrar, atalhos do menu, conversa mais curta ou detalhada, regra "ao abrir X, destacar Y"), use aprender_meu_jeito (vira cartão com o que você entendeu; só vale após o sim); para ver o que aprendeu, mostrar_meu_jeito; para voltar ao padrão em UMA coisa, esquecer_regra_do_jeito; para explicar o jeito padrão, explicar_jeito_padrao. O jeito nunca desliga proteções (confirmações, cálculos exatos, robôs, anti-duplicidade, SERPRO só manual, nada de apagar em lote): se pedirem isso, explique com gentileza e não chame a ferramenta.
+- MEU JEITO: se a pessoa contar como prefere trabalhar (tela ao entrar, atalhos do menu, conversa mais curta ou detalhada, regra "ao abrir X, destacar Y"), use aprender_meu_jeito (vira cartão com o que você entendeu; só vale após o sim); para ver o que aprendeu, mostrar_meu_jeito; para voltar ao padrão em UMA coisa, esquecer_regra_do_jeito; para explicar o jeito padrão, explicar_jeito_padrao; para mudar o nome pelo qual você chama a pessoa ("me chama de Ana", "mudar meu nome"), mudar_meu_nome (vira cartão). O jeito nunca desliga proteções (confirmações, cálculos exatos, robôs, anti-duplicidade, SERPRO só manual, nada de apagar em lote): se pedirem isso, explique com gentileza e não chame a ferramenta.
 - APRESENTAÇÃO DO SISTEMA: para "o que o sistema faz", "o que é automático", "o que é integrado" ou "o que ele não faz", use apresentar_sistema ou perguntar_integracoes (texto fixo e conferido) e nunca invente; para "me mostra onde", use mostrar_na_tela.
 
 LIMITES (diga com clareza quando o pedido bater neles)

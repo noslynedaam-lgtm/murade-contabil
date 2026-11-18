@@ -7,6 +7,7 @@ import type { AssistenteHandle } from "../types/assistenteHandle";
 import { aplicarIntencaoAoPiloto, intencaoDoTexto, pilotoAtivo } from "../utils/pilotoVisivel";
 import { enviarAoPiloto } from "./PilotoVisivel";
 import { tratarFraseDaApresentacao } from "../utils/apresentacaoCliente";
+import { tratarRespostaDoNome } from "../utils/nomeCliente";
 
 interface IAMuradModalProps {
   isOpen?: boolean;
@@ -206,6 +207,8 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
       const r = intencao ? aplicarIntencaoAoPiloto(intencao) : null;
       if (r?.tratado) { if (!r.falado && r.resposta) responderComoIA(r.resposta); return; }
     }
+    // Pergunta do nome ("Como posso te chamar?"): se o cartão está aberto e a frase é um nome, o cartão guarda e fala. Sem IA.
+    if (tratarRespostaDoNome(texto)) return;
     // Apresentação falada do sistema: "o que o sistema faz?", "para", "continua", "pula esse bloco", "sim"/"agora não" à oferta. Sem IA.
     if (tratarFraseDaApresentacao(texto)) return;
     // Primeira vez: a resposta é o nome da pessoa. O servidor grava no usuário (sem IA).

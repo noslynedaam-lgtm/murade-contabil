@@ -34,7 +34,7 @@ export const ROBOS_APRESENTACAO: RoboApresentacao[] = [
   { id: 'backup_banco', nome: 'Robô de Backup do Banco', intervaloMs: 10 * 60_000, quando: 'todo dia, a partir das 3 horas da manhã', soDono: true, faz: 'faz o backup completo do banco, cifrado e fora do Render. Fica desligado até o dono configurar o destino.' },
   { id: 'piloto', nome: 'Robô Conferidor do Piloto Visível', intervaloMs: 24 * 60 * 60_000, soDono: true, faz: 'confere se cada tela, campo e botão que a Agente usa para mostrar e preencher na tela ainda existe no código.' },
   { id: 'servico_feito', nome: 'Robô Conferidor de Serviço Feito', intervaloMs: 15 * 60_000, faz: 'evita retrabalho entre quem trabalha na mesma empresa: libera os "estou fazendo" esquecidos depois de 15 minutos e apaga registros com mais de 120 dias.' },
-  { id: 'meu_jeito', nome: 'Robô Conferidor do Meu Jeito', intervaloMs: 24 * 60 * 60_000, faz: 'confere se as regras que a Agente aprendeu de cada pessoa ainda existem no sistema (se não, pausa a regra e avisa na próxima abertura) e limpa o que ficou velho. Nunca apaga o seu jeito.' },
+  { id: 'meu_jeito', nome: 'Robô Conferidor do Meu Jeito', intervaloMs: 24 * 60 * 60_000, faz: 'confere se as regras que a Agente aprendeu de cada pessoa ainda existem no sistema (se não, pausa a regra e avisa na próxima abertura), se o nome pelo qual ela te chama está certo e igual em todo lugar, e limpa o que ficou velho. Nunca apaga o seu jeito.' },
   { id: 'apresentacao', nome: 'Robô Conferidor da Apresentação', intervaloMs: 24 * 60 * 60_000, soDono: true, faz: 'confere se esta apresentação ainda bate com o código e avisa o dono se algo novo ainda não tem bloco.' },
 ];
 
@@ -106,7 +106,7 @@ export const DEPENDE_DO_CONTADOR: Fixo[] = [
   { id: 'depende-fechar', titulo: 'Fechar o período', tela: 'gestao-contabil', falar: 'Fechar a competência é você que decide, e não dá para desfazer. O sistema recusa se houver pendências.' },
   { id: 'depende-cartao', titulo: 'Ações da Agente', falar: 'Tudo o que eu proponho e altera dados vira um cartão na tela, e só vale depois do seu sim. Eu nunca digo que fiz antes de você confirmar.' },
   { id: 'depende-ecd', titulo: 'ECD e ECF', tela: 'livros', falar: 'O Murade monta os arquivos da ECD e da ECF e confere antes; a validação, a assinatura e a transmissão são suas, no programa da Receita. Ele não transmite SPED, ECD nem ECF.' },
-  { id: 'depende-opcoes', titulo: 'O que você liga e desliga', falar: 'Você pode ligar o código de segurança do login, ligar ou desligar a minha voz e a chamada por voz, e no Meu jeito escolher como eu trabalho com você, uma regra por vez.' },
+  { id: 'depende-opcoes', titulo: 'O que você liga e desliga', falar: 'Você pode ligar o código de segurança do login, ligar ou desligar a minha voz e a chamada por voz, e no Meu jeito escolher como eu te chamo e como eu trabalho com você, uma regra por vez.' },
 ];
 export const LIMITES: Fixo[] = [
   { id: 'limite-orgaos', titulo: 'O que não faz: órgãos', falar: 'O Contábil não consulta a SEFAZ e não transmite SPED, ECD nem ECF. Receber notas é com o Fiscal, e a folha é calculada no DP.' },

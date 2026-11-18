@@ -13,6 +13,7 @@ type Props = { assistenteRef: React.MutableRefObject<AssistenteHandle | null>; e
 
 export const ApresentacaoSistema: React.FC<Props> = ({ assistenteRef, ehDono }) => {
   const [oferta, setOferta] = useState(false);
+  const [minimizado, setMinimizado] = useState(false);
   const [, forcar] = useState(0);
   const donoRef = useRef(ehDono); donoRef.current = ehDono;
   const ofertaRef = useRef(false);
@@ -58,6 +59,8 @@ export const ApresentacaoSistema: React.FC<Props> = ({ assistenteRef, ehDono }) 
     enviarAoPiloto({ titulo: `Mostrando: ${rotuloDaTela(b.tela)}`, passos: [{ tipo: 'navegar', alvo: `#btn-menu-${b.tela}`, legenda: `Abrindo a tela ${rotuloDaTela(b.tela)}` }] });
   };
 
+  // Ao terminar ou ser encerrada, a próxima apresentação começa de novo aberta (nunca presa na bolinha).
+  useEffect(() => { if (!tocador.ativo() && snap.estado !== 'fim') setMinimizado(false); }, [snap.estado, tocador]);
   useEffect(() => { if (snap.estado !== 'fim') return undefined; const id = window.setTimeout(() => tocador.parar(), 3000); return () => window.clearTimeout(id); }, [snap.estado, tocador]);
   if (!oferta && !tocador.ativo() && snap.estado !== 'fim') return null;
   const caixa = 'fixed bottom-[9rem] left-3 z-[105] w-[min(92vw,360px)] rounded-xl border border-blue-300 bg-white p-3 shadow-2xl';
@@ -72,11 +75,21 @@ export const ApresentacaoSistema: React.FC<Props> = ({ assistenteRef, ehDono }) 
     </div>
   );
   const b = snap.bloco;
+  // Minimizada: só uma bolinha pequena; a fala continua e a pessoa navega à vontade. Só o ✕ (Sair) encerra.
+  if (minimizado) return (
+    <div role="region" aria-label="Apresentação do sistema (minimizada)" className="fixed bottom-[9rem] left-3 z-[105] flex items-center gap-1 rounded-full border border-blue-300 bg-white py-1 pl-3 pr-1 text-xs shadow-xl">
+      <button type="button" onClick={() => setMinimizado(false)} aria-label="Abrir a apresentação" className="font-semibold text-blue-900">🔊 {snap.estado === 'fim' ? 'Concluída' : `${Math.min(snap.indice + 1, snap.total)}/${snap.total}`}</button>
+      <button type="button" onClick={() => { setMinimizado(false); tocador.parar(); }} aria-label="Fechar a apresentação" className="h-8 w-8 rounded-full text-sm font-bold text-slate-500">×</button>
+    </div>
+  );
   return (
     <div role="region" aria-label="Apresentação do sistema" aria-live="polite" className={caixa}>
       <div className="flex items-center justify-between gap-2">
         <p className="text-[11px] font-bold uppercase tracking-wide text-blue-800">{b?.titulo ?? 'Apresentação'} · {Math.min(snap.indice + 1, snap.total)}/{snap.total}</p>
-        <button type="button" onClick={() => tocador.parar()} aria-label="Fechar a apresentação" className="h-8 w-8 rounded-lg border border-slate-300 text-sm font-bold">×</button>
+        <span className="flex gap-1">
+          <button type="button" onClick={() => setMinimizado(true)} aria-label="Minimizar a apresentação" className="h-8 w-8 rounded-lg border border-slate-300 text-sm font-bold">—</button>
+          <button type="button" onClick={() => { setMinimizado(false); tocador.parar(); }} aria-label="Fechar a apresentação" className="h-8 w-8 rounded-lg border border-slate-300 text-sm font-bold">×</button>
+        </span>
       </div>
       <p className="mt-1 text-sm text-slate-900">{b?.falar ?? 'Fim da apresentação.'}</p>
       <div className="mt-2 flex flex-wrap gap-1.5">

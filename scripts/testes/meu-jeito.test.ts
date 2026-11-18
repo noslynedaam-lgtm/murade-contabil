@@ -8,9 +8,9 @@ import express from 'express';
 import { Pool } from 'pg';
 import {
   CHAVES_PREFERENCIA, ID_RECEITA, PREFERENCIAS, TABELA_JEITO, TENANT_SISTEMA, USUARIO_ESCRITORIO, calcularSugestoes, criarServicoMeuJeito, descreverReceita, detectarPedidoProtegido,
-  registrarRotasMeuJeito, validarPreferencia, validarReceita, type SessaoJeito,
+  registrarRotasMeuJeito, sanearNome, validarPreferencia, validarReceita, type SessaoJeito,
 } from '../../src/server/meuJeito';
-import { ASSUNTOS_AGENTE, IDS_TELAS_JEITO, MODULOS_JEITO_PADRAO, PROTECOES_FIXAS, SECOES_DESTACAVEIS, SESSOES_COM_BOAS_VINDAS, TEXTO_PROTECAO, textoBoasVindas } from '../../src/data/jeitoPadraoContabil';
+import { ASSUNTOS_AGENTE, IDS_TELAS_JEITO, MODULOS_JEITO_PADRAO, PERGUNTA_NOME, PROTECOES_FIXAS, SECOES_DESTACAVEIS, SESSOES_COM_BOAS_VINDAS, TEXTO_PROTECAO, textoBoasVindas } from '../../src/data/jeitoPadraoContabil';
 import { BufferObservacao, efeitosDaRegra, ordenarMenu, regraDoGatilho, aplicarRitmoDoPiloto } from '../../src/utils/meuJeitoCliente';
 import { TocadorApresentacao, intencaoApresentacao, type Ambiente } from '../../src/utils/apresentacaoCliente';
 import { blocosDoAssunto, montarApresentacao, PERGUNTA_APRESENTACAO } from '../../src/data/apresentacaoSistema';
@@ -42,7 +42,7 @@ test('jeito padrão: cada parte destacável existe escrita na tela dela e cada c
   for (const a of ASSUNTOS_AGENTE) assert.ok(a.frase.endsWith('?'));
 });
 test('texto novo nunca cita o sistema concorrente', () => {
-  for (const f of ['src/data/jeitoPadraoContabil.ts', 'src/data/apresentacaoSistema.ts', 'src/server/meuJeito.ts', 'src/server/conferidorApresentacao.ts', 'src/utils/meuJeitoCliente.ts', 'src/utils/apresentacaoCliente.ts', 'src/components/MeuJeitoMotor.tsx', 'src/components/ApresentacaoSistema.tsx', 'src/components/tabs/MeuJeitoTab.tsx']) assert.doesNotMatch(ler(f), /alterdata/i, f);
+  for (const f of ['src/data/jeitoPadraoContabil.ts', 'src/data/apresentacaoSistema.ts', 'src/server/meuJeito.ts', 'src/server/conferidorApresentacao.ts', 'src/utils/meuJeitoCliente.ts', 'src/utils/apresentacaoCliente.ts', 'src/components/MeuJeitoMotor.tsx', 'src/components/ApresentacaoSistema.tsx', 'src/components/tabs/MeuJeitoTab.tsx', 'src/utils/nomeCliente.ts']) assert.doesNotMatch(ler(f), /alterdata/i, f);
 });
 
 // ------------------------------------------------------------------ boas-vindas
@@ -248,11 +248,11 @@ async function banco() {
   const consultar = (sql: string, params: unknown[] = []) => pool.query(sql, params) as any;
   return { pool, consultar };
 }
-async function escritorio(consultar: any, nomes: string[]) {
+async function escritorio(consultar: any, nomes: string[], semNome = false) {
   const tenant = crypto.randomUUID(); const sufixo = tenant.slice(0, 8); const sessoes: SessaoJeito[] = [];
   for (let i = 0; i < nomes.length; i += 1) {
     const id = i === 0 ? tenant : crypto.randomUUID(); const login = `${nomes[i]}.${sufixo}@teste.murade`;
-    await consultar(`INSERT INTO contabil_auth_users(id,login,password_salt,password_hash,global_admin,tenant_id,office_owner,nome_tratamento) VALUES($1,$2,'s','h',$3,$4,$5,$6)`, [id, login, i === 0, tenant, i === 0 ? null : tenant, nomes[i]]);
+    await consultar(`INSERT INTO contabil_auth_users(id,login,password_salt,password_hash,global_admin,tenant_id,office_owner,nome_tratamento) VALUES($1,$2,'s','h',$3,$4,$5,$6)`, [id, login, i === 0, tenant, i === 0 ? null : tenant, semNome ? null : nomes[i]]);
     sessoes.push({ userId: id, login, tenantId: tenant, escritorioDe: i === 0 ? undefined : tenant, administrador: i === 0 });
   }
   return { tenant, sessoes };
@@ -268,7 +268,7 @@ test('sessões: 5 aberturas diferentes recebem boas-vindas, a sexta não; recarr
     const textos: Array<string | null> = [];
     for (let n = 1; n <= 7; n += 1) { const r = await svc.abrir(ana, H()); textos.push(r.boasVindas); assert.equal(r.sessao, n); agora = new Date(agora.getTime() + 60_000); }
     assert.deepEqual(textos.map(Boolean), [true, true, true, true, true, false, false]);
-    assert.equal(textos[0], textoBoasVindas(1)); assert.equal(textos[4], textoBoasVindas(5));
+    assert.equal(textos[0], textoBoasVindas(1, false, 'ana')); assert.equal(textos[4], textoBoasVindas(5, false, 'ana'));
     const hash = H(); const antes = (await svc.abrir(ana, hash)).sessao; const mesma = await svc.abrir(ana, hash); assert.equal(mesma.sessao, antes); assert.equal(mesma.novaSessao, false); assert.equal(mesma.boasVindas, null);
     agora = new Date(agora.getTime() + 3 * 3_600_000); assert.equal((await svc.abrir(ana, hash)).sessao, antes + 1); // mesma sessão de login, mas parada há mais de 2 h
     const v = await svc.ler(ana); assert.equal(v.sessoes, antes + 1);
@@ -303,7 +303,7 @@ test('usuário legado (conta anterior à implantação): vê as boas-vindas UMA 
     const { sessoes: [lia, ivo] } = await escritorio(consultar, ['lia', 'ivo']);
     await consultar(`UPDATE contabil_auth_users SET created_at='2020-01-01' WHERE id=$1`, [lia.userId]); // conta antiga: não depende de flag manual
     const r1 = await svc.abrir(lia, H());
-    assert.equal(r1.legado, true); assert.equal(r1.sessao, 5); assert.equal(r1.boasVindas, textoBoasVindas(1)); assert.equal(r1.oferecerApresentacao, true);
+    assert.equal(r1.legado, true); assert.equal(r1.sessao, 5); assert.equal(r1.boasVindas, textoBoasVindas(1, false, 'lia')); assert.equal(r1.oferecerApresentacao, true);
     for (let i = 0; i < 3; i += 1) { const r = await svc.abrir(lia, H()); assert.equal(r.boasVindas, null); assert.equal(r.oferecerApresentacao, false); }
     // conta criada depois da implantação é nova: recebe as 5
     const novo = await svc.abrir(ivo, H()); assert.equal(novo.legado, false); assert.equal(novo.sessao, 1);
@@ -447,4 +447,165 @@ test('isolamento de tenant e rotas: sem sessão não entra; não existe rota que
     assert.equal((await chamar(a, '/abrir', 'POST', {})).json.sessao, 1);
     assert.equal((await chamar(a, '/apresentacao/resposta', 'POST', { resposta: 'nao' })).status, 200);
   } finally { servidor.close(); await pool.end(); }
+});
+
+
+// ================================================================== PERGUNTA DO NOME ("Como posso te chamar?")
+test('nome: saneado (curto, sem HTML, sem símbolos, máx 40) e aceita a frase falada', () => {
+  assert.equal(sanearNome('ana'), 'Ana'); assert.equal(sanearNome('  meu nome é beto  '), 'Beto'); assert.equal(sanearNome('Pode me chamar de Maria Clara!'), 'Maria Clara');
+  assert.equal(sanearNome('<b>Ana</b>'), 'Ana'); assert.equal(sanearNome('<script>alert(1)</script>'), ''); assert.equal(sanearNome('Ana <img src=x onerror=alert(1)>'), 'Ana');
+  assert.equal(sanearNome('Ana1'), ''); assert.equal(sanearNome('A'), ''); assert.equal(sanearNome(''), ''); assert.equal(sanearNome(undefined), ''); assert.equal(sanearNome(42), '');
+  assert.equal(sanearNome('sim'), ''); assert.equal(sanearNome('o que o sistema faz hoje'), '');
+  assert.equal(sanearNome('a'.repeat(41)), ''); assert.ok(sanearNome('Ana Paula de Souza') === '' || sanearNome('Ana Paula de Souza').length <= 40);
+  for (const x of ['Ana', 'Maria Clara', 'João', "D'Ávila", 'Ana-Lu']) { const n = sanearNome(x); assert.ok(n.length >= 2 && n.length <= 40 && !/[<>&]/.test(n), x); assert.equal(sanearNome(n), n, `estável: ${x}`); }
+});
+test('nome: pergunta fixa, boas-vindas com o nome só depois dele e sem nome continuam as mesmas', () => {
+  assert.equal(PERGUNTA_NOME, 'Como posso te chamar?');
+  assert.match(textoBoasVindas(1, false, 'Ana')!, /^Boas-vindas ao Murade Contábil, Ana!/); assert.match(textoBoasVindas(3, false, 'Ana')!, /^Que bom ter você de volta, Ana!/);
+  assert.match(textoBoasVindas(1)!, /^Boas-vindas ao Murade Contábil! /); assert.equal(textoBoasVindas(6, false, 'Ana'), null);
+  assert.equal(textoBoasVindas(5, true, 'Ana'), textoBoasVindas(1, false, 'Ana'));
+});
+test('Agente: "mudar meu nome" vira cartão, só grava depois do sim e recusa nome inválido', async () => {
+  assert.ok(kitContabil.ferramentas.some((f) => f.declaracao.name === 'mudar_meu_nome')); assert.match(kitContabil.instrucao, /mudar_meu_nome/);
+  const { ctx, modelo, chamadas } = montarAgente([{ chamadas: [{ nome: 'mudar_meu_nome', args: { nome: 'me chama de beto' } }] }, { texto: 'ok' }]);
+  const r = await conversar(ctx, modelo, 'x', []);
+  assert.equal(r.acoes.length, 1); assert.match(r.acoes[0].titulo, /Chamar você de Beto/); assert.equal(posts(chamadas).length, 0, 'nada grava antes do sim');
+  const c = await confirmarAcao(ctx, r.acoes[0].id); assert.equal(c.sucesso, true);
+  assert.deepEqual(posts(chamadas)[0].slice(1), ['/api/meu-jeito/nome', { nome: 'Beto' }]);
+  const ruim = montarAgente([{ chamadas: [{ nome: 'mudar_meu_nome', args: { nome: '<script>x</script>' } }] }, { texto: 'não entendi' }]);
+  assert.equal((await conversar(ruim.ctx, ruim.modelo, 'x', [])).acoes.length, 0); assert.equal(posts(ruim.chamadas).length, 0);
+});
+test('nome: a conversa, o cartão, a tela Meu jeito e o robô cobrem a regra (fonte conferida)', () => {
+  const modal = ler('src/components/IAMuradModal.tsx'); const motor = ler('src/components/MeuJeitoMotor.tsx'); const aba = ler('src/components/tabs/MeuJeitoTab.tsx'); const servidor = ler('server.ts'); const srv = ler('src/server/meuJeito.ts');
+  assert.ok(modal.indexOf('tratarRespostaDoNome(texto)') > 0 && modal.indexOf('tratarRespostaDoNome(texto)') < modal.indexOf('tratarFraseDaApresentacao(texto)'), 'resposta falada ao nome é tratada antes da IA');
+  assert.match(motor, /d\.perguntarNome/); assert.match(motor, /\/api\/meu-jeito\/nome\/dispensar/); assert.match(motor, /PERGUNTA_NOME/);
+  assert.match(aba, /Mudar meu nome/); assert.match(aba, /\/api\/meu-jeito\/nome/);
+  assert.doesNotMatch(servidor, /Qual é o seu nome\?/, 'a saudação antiga não pergunta mais o nome (quem pergunta é o Meu jeito)');
+  assert.match(servidor, /id: "meu_jeito"/); assert.match(srv, /nomesCorrigidos/);
+  assert.match(ler('src/server/atividadeEscritorio.ts'), /apresentacao\|nome/, 'o nome não vai para a atividade do escritório');
+});
+test('voz: um clique na tela que corta a fala não repete a frase; a apresentação tem Minimizar', () => {
+  const voz = ler('src/utils/vozHumana.ts'); const ap = ler('src/components/ApresentacaoSistema.tsx');
+  assert.match(voz, /Promise<boolean \| 'interrompido'>/); assert.match(voz, /if \(ok === 'interrompido'\) \{ if \(minha === sequencia\) await esperar\(120\); continue; \}/);
+  assert.match(voz, /motivo === 'interrupted' \|\| motivo === 'canceled'/);
+  assert.match(ap, /aria-label="Minimizar a apresentação"/); assert.match(ap, /if \(minimizado\) return/); assert.match(ap, /aria-label="Fechar a apresentação"/);
+});
+
+test('nome, primeira entrada: pergunta ANTES das boas-vindas, uma vez só; depois do nome vêm as boas-vindas com o nome e a oferta', { skip: !urlBanco }, async () => {
+  const { pool, consultar } = await banco();
+  try {
+    const svc = criarServicoMeuJeito(consultar); await svc.garantirTabelas();
+    const { sessoes: [ana] } = await escritorio(consultar, ['ana'], true);
+    const a1 = await svc.abrir(ana, H());
+    assert.equal(a1.perguntarNome, true); assert.equal(a1.perguntaNome, PERGUNTA_NOME); assert.equal(a1.boasVindas, null, 'sem boas-vindas antes do nome'); assert.equal(a1.oferecerApresentacao, false);
+    // recarregar ou abrir em outro aparelho NÃO pergunta de novo
+    const a2 = await svc.abrir(ana, H()); assert.equal(a2.perguntarNome, false); assert.equal(a2.boasVindas, textoBoasVindas(2), 'a espera é entregue uma vez, sem nome (ela ainda não respondeu)');
+    assert.equal(a2.oferecerApresentacao, true);
+    const r = await svc.definirNome(ana, 'meu nome é ana paula'); assert.equal(r.nome, 'Ana Paula'); assert.equal(r.boasVindas, null, 'já entregue na abertura seguinte'); assert.match(r.frase, /Combinado/);
+    assert.equal((await svc.ler(ana)).nome, 'Ana Paula');
+    assert.equal((await consultar(`SELECT nome_tratamento FROM contabil_auth_users WHERE id=$1`, [ana.userId])).rows[0].nome_tratamento, 'Ana Paula', 'a saudação do dia usa o mesmo nome');
+    const a3 = await svc.abrir(ana, H()); assert.equal(a3.perguntarNome, false); assert.equal(a3.nome, 'Ana Paula'); assert.equal(a3.boasVindas, textoBoasVindas(a3.sessao, false, 'Ana Paula'));
+    assert.match(a3.boasVindas!, /Ana Paula/);
+  } finally { await pool.end(); }
+});
+test('nome, resposta logo na primeira pergunta: frase com o nome, boas-vindas e oferta saem juntas, uma vez', { skip: !urlBanco }, async () => {
+  const { pool, consultar } = await banco();
+  try {
+    const svc = criarServicoMeuJeito(consultar); await svc.garantirTabelas();
+    const { sessoes: [bia] } = await escritorio(consultar, ['bia'], true);
+    const a = await svc.abrir(bia, H()); assert.equal(a.perguntarNome, true);
+    const r = await svc.definirNome(bia, 'Bia'); assert.equal(r.nome, 'Bia'); assert.equal(r.boasVindas, textoBoasVindas(1, false, 'Bia')); assert.equal(r.frase, `Prazer, Bia! ${textoBoasVindas(1, false, 'Bia')}`); assert.equal(r.oferecerApresentacao, true);
+    const r2 = await svc.definirNome(bia, 'Bianca'); assert.equal(r2.boasVindas, null); assert.equal(r2.oferecerApresentacao, false); assert.equal(r2.frase, 'Combinado, vou te chamar de Bianca.');
+    assert.equal((await svc.abrir(bia, H())).perguntarNome, false);
+    assert.equal((await consultar(`SELECT nome_tratamento FROM contabil_auth_users WHERE id=$1`, [bia.userId])).rows[0].nome_tratamento, 'Bianca');
+  } finally { await pool.end(); }
+});
+test('nome: "agora não" libera as boas-vindas sem nome e não pergunta mais; mudar o nome depois continua possível', { skip: !urlBanco }, async () => {
+  const { pool, consultar } = await banco();
+  try {
+    const svc = criarServicoMeuJeito(consultar); await svc.garantirTabelas();
+    const { sessoes: [caio] } = await escritorio(consultar, ['caio'], true);
+    assert.equal((await svc.abrir(caio, H())).perguntarNome, true);
+    const d = await svc.dispensarNome(caio); assert.equal(d.nome, null); assert.equal(d.boasVindas, textoBoasVindas(1)); assert.equal(d.oferecerApresentacao, true);
+    assert.equal((await svc.dispensarNome(caio)).boasVindas, null, 'não entrega duas vezes');
+    for (let i = 0; i < 3; i += 1) { const a = await svc.abrir(caio, H()); assert.equal(a.perguntarNome, false); assert.equal(a.nome, null); }
+    assert.equal((await svc.definirNome(caio, 'Caio')).nome, 'Caio');
+  } finally { await pool.end(); }
+});
+test('nome: quem já tem nome (saudação antiga) não é incomodado, e o nome é COPIADO sem apagar nada; legado sem nome vê a pergunta uma vez', { skip: !urlBanco }, async () => {
+  const { pool, consultar } = await banco();
+  try {
+    const svc = criarServicoMeuJeito(consultar); await svc.garantirTabelas();
+    const { sessoes: [duda, edu] } = await escritorio(consultar, ['Duda', 'edu']);
+    // a linha do Meu jeito já existia, sem nome (antes desta mudança), e a conta tem nome na saudação
+    await consultar(`INSERT INTO ${TABELA_JEITO}(tenant_id,user_id,sessoes) VALUES($1,$2,2)`, [duda.tenantId, duda.userId]);
+    const a = await svc.abrir(duda, H()); assert.equal(a.perguntarNome, false); assert.equal(a.nome, 'Duda');
+    assert.equal((await consultar(`SELECT nome_tratamento FROM contabil_auth_users WHERE id=$1`, [duda.userId])).rows[0].nome_tratamento, 'Duda', 'o nome antigo continua');
+    assert.equal((await svc.ler(duda)).nome, 'Duda');
+    // migração em massa: roda de novo sem estragar nem repetir
+    const m = criarServicoMeuJeito(consultar); await m.garantirTabelas(); assert.equal((await svc.ler(duda)).nome, 'Duda');
+    // legado sem nome: pergunta uma vez só
+    const { sessoes: [fia] } = await escritorio(consultar, ['fia'], true);
+    await consultar(`UPDATE contabil_auth_users SET created_at='2020-01-01' WHERE id=$1`, [fia.userId]);
+    const l1 = await svc.abrir(fia, H()); assert.equal(l1.legado, true); assert.equal(l1.perguntarNome, true); assert.equal(l1.boasVindas, null);
+    const r = await svc.definirNome(fia, 'Fia'); assert.equal(r.boasVindas, textoBoasVindas(1, true, 'Fia'));
+    for (let i = 0; i < 3; i += 1) assert.equal((await svc.abrir(fia, H())).perguntarNome, false);
+    // usuário já aberto antes (sessões contadas), sem nome e nunca perguntado: vê a pergunta uma vez
+    const { sessoes: [gui] } = await escritorio(consultar, ['gui'], true);
+    await consultar(`INSERT INTO ${TABELA_JEITO}(tenant_id,user_id,sessoes) VALUES($1,$2,3)`, [gui.tenantId, gui.userId]);
+    assert.equal((await svc.abrir(gui, H())).perguntarNome, true); assert.equal((await svc.abrir(gui, H())).perguntarNome, false);
+    void edu;
+  } finally { await pool.end(); }
+});
+test('nome: duas aberturas ao mesmo tempo (dois aparelhos) perguntam uma única vez; nome inválido não muda nada', { skip: !urlBanco }, async () => {
+  const { pool, consultar } = await banco();
+  try {
+    const svc = criarServicoMeuJeito(consultar); await svc.garantirTabelas();
+    const { sessoes: [hana] } = await escritorio(consultar, ['hana'], true);
+    const [x, y] = await Promise.all([svc.abrir(hana, H()), svc.abrir(hana, H())]);
+    assert.equal([x, y].filter((r) => r.perguntarNome).length, 1);
+    for (const ruim of ['', '   ', '<script>alert(1)</script>', 'Ana123', 'sim', 'a'.repeat(80), null, 7]) await assert.rejects(() => svc.definirNome(hana, ruim), /Não entendi o nome/);
+    assert.equal((await svc.ler(hana)).nome, null);
+    const ok = await svc.definirNome(hana, '<b>Hana</b>'); assert.equal(ok.nome, 'Hana');
+    assert.equal((await consultar(`SELECT nome FROM ${TABELA_JEITO} WHERE user_id=$1`, [hana.userId])).rows[0].nome, 'Hana');
+  } finally { await pool.end(); }
+});
+test('nome: cada pessoa tem o seu; escritórios não se enxergam; rotas exigem sessão', { skip: !urlBanco }, async () => {
+  const { pool, consultar } = await banco();
+  const servidor = await new Promise<import('node:http').Server>((resolver) => { const app = express(); app.use(express.json()); const svc = criarServicoMeuJeito(consultar);
+    const sessao = (req: express.Request): SessaoJeito | undefined => { const u = req.header('x-teste'); return u ? JSON.parse(u) : undefined; };
+    registrarRotasMeuJeito(app, { servico: svc, exigirSessao: (req, res, next) => (sessao(req) ? next() : res.status(401).json({ sucesso: false })), exigirOrigem: (_q, _r, next) => next(), sessao, hashSessao: (req) => String(req.header('x-hash') || 'h') });
+    const s = app.listen(0, () => resolver(s)); });
+  try {
+    const base = `http://127.0.0.1:${(servidor.address() as any).port}/api/meu-jeito`;
+    const { sessoes: [a] } = await escritorio(consultar, ['a'], true); const { sessoes: [b] } = await escritorio(consultar, ['b'], true);
+    const chamar = async (s: SessaoJeito | null, caminho: string, corpo: object = {}) => { const r = await fetch(`${base}${caminho}`, { method: 'POST', headers: { 'content-type': 'application/json', ...(s ? { 'x-teste': JSON.stringify(s) } : {}) }, body: JSON.stringify(corpo) }); return { status: r.status, json: await r.json().catch(() => ({})) as any }; };
+    assert.equal((await chamar(null, '/nome', { nome: 'X' })).status, 401); assert.equal((await chamar(null, '/nome/dispensar')).status, 401);
+    assert.equal((await chamar(a, '/nome', { nome: '<i>' })).status, 400);
+    const ok = await chamar(a, '/nome', { nome: 'Alice' }); assert.equal(ok.status, 200); assert.equal(ok.json.nome, 'Alice');
+    assert.equal((await svcLer(consultar, a)).nome, 'Alice'); assert.equal((await svcLer(consultar, b)).nome, null);
+    const intruso: SessaoJeito = { ...b, userId: a.userId }; assert.equal((await svcLer(consultar, intruso)).nome, null, 'outro escritório com o mesmo id não vê o nome');
+  } finally { servidor.close(); await pool.end(); }
+});
+const svcLer = (consultar: any, s: SessaoJeito) => criarServicoMeuJeito(consultar).ler(s);
+
+test('robô meu_jeito: corrige nome com HTML, traz o nome da saudação, acerta a saudação e não apaga nome válido', { skip: !urlBanco }, async () => {
+  const { pool, consultar } = await banco();
+  try {
+    const svc = criarServicoMeuJeito(consultar); await svc.garantirTabelas();
+    const { sessoes: [ivo, jade, kai, leo] } = await escritorio(consultar, ['ivo', 'jade', 'kai', 'leo'], true);
+    for (const u of [ivo, jade, kai, leo]) await consultar(`INSERT INTO ${TABELA_JEITO}(tenant_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, [u.tenantId, u.userId]);
+    await consultar(`UPDATE ${TABELA_JEITO} SET nome='<b>Ivo</b>' WHERE user_id=$1`, [ivo.userId]);                       // sujeira no banco
+    await consultar(`UPDATE ${TABELA_JEITO} SET nome='<script>' WHERE user_id=$1`, [jade.userId]);                         // sem conserto possível
+    await consultar(`UPDATE contabil_auth_users SET nome_tratamento='Kai' WHERE id=$1`, [kai.userId]);                    // só a saudação sabe
+    await consultar(`UPDATE ${TABELA_JEITO} SET nome='Leo', nome_resposta='nome' WHERE user_id=$1`, [leo.userId]);        // só o Meu jeito sabe
+    const r = await svc.conferir();
+    assert.equal(r.falhas, 0); assert.ok(r.nomesCorrigidos >= 2); assert.ok(r.nomesAdotados >= 1); assert.ok(r.nomesEspelhados >= 2); assert.match(r.resumo, /nomes:/);
+    const nome = async (u: SessaoJeito) => (await consultar(`SELECT nome FROM ${TABELA_JEITO} WHERE user_id=$1`, [u.userId])).rows[0].nome;
+    assert.equal(await nome(ivo), 'Ivo'); assert.equal(await nome(jade), null); assert.equal(await nome(kai), 'Kai'); assert.equal(await nome(leo), 'Leo');
+    const saud = async (u: SessaoJeito) => (await consultar(`SELECT nome_tratamento FROM contabil_auth_users WHERE id=$1`, [u.userId])).rows[0].nome_tratamento;
+    assert.equal(await saud(ivo), 'Ivo'); assert.equal(await saud(leo), 'Leo'); assert.equal(await saud(kai), 'Kai');
+    const r2 = await svc.conferir(); assert.equal(r2.nomesCorrigidos, 0); assert.equal(r2.nomesAdotados, 0); assert.equal(r2.nomesEspelhados, 0, 'segunda conferência não muda nada');
+    assert.equal((await svc.abrir(jade, H())).perguntarNome, true, 'quem ficou sem nome ainda não foi perguntado: vê a pergunta uma vez');
+  } finally { await pool.end(); }
 });

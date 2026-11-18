@@ -22,7 +22,7 @@ import { criarServicoTarefas, registrarRotasTarefasEquipe } from "./src/server/t
 import { criarServicoMeuJeito, registrarRotasMeuJeito, type SessaoJeito } from "./src/server/meuJeito";
 import { conferirApresentacao, resumoRelatorioApresentacao } from "./src/server/conferidorApresentacao";
 import type { SessaoContabil } from './src/server/authContabil';
-import { lerPerfilSaudacaoContabil, gravarNomeTratamentoContabil, marcarSaudadoHojeContabil } from "./src/server/authContabil";
+import { lerPerfilSaudacaoContabil, marcarSaudadoHojeContabil } from "./src/server/authContabil";
 import { extrairNomeDaResposta, fraseDeSaudacao } from "./src/server/agenteSaudacao";
 import { opcoesConexaoBancoContabil } from "./src/server/authContabil";
 import { listarRegistroAgenteIAContabil, bancoContabilConfigurado, consultaBancoContabil, hashSessaoContabil, registrarAcaoAgenteIAContabil, listarDuvidasSemRespostaDonoSistemaContabil, resolverDuvidaSemRespostaDonoSistemaContabil } from "./src/server/authContabil";
@@ -1158,7 +1158,8 @@ const reconciliacaoRascunhosStatus: {
     if (!sessao) return res.status(401).json({ sucesso: false });
     try {
       const perfil = await lerPerfilSaudacaoContabil(sessao.userId);
-      if (!perfil.nome) return res.json({ sucesso: true, precisaNome: true, saudar: true, frase: `${fraseDeSaudacao(null)} Eu sou a sua assistente. Qual é o seu nome?` });
+      // Sem nome conhecido: quem pergunta ("Como posso te chamar?") é o Meu jeito, uma vez só, na primeira entrada. Aqui não cumprimenta nem pergunta de novo.
+      if (!perfil.nome) return res.json({ sucesso: true, precisaNome: false, saudar: false });
       if (perfil.saudadoHoje) return res.json({ sucesso: true, precisaNome: false, saudar: false, nome: perfil.nome });
       await marcarSaudadoHojeContabil(sessao.userId);
       return res.json({ sucesso: true, precisaNome: false, saudar: true, nome: perfil.nome, frase: fraseDeSaudacao(perfil.nome) });
@@ -1171,7 +1172,7 @@ const reconciliacaoRascunhosStatus: {
     const nome = extrairNomeDaResposta(typeof req.body?.texto === "string" ? req.body.texto : "");
     if (!nome) return res.json({ sucesso: false, mensagem: "Não entendi o nome. Pode repetir só o nome?" });
     try {
-      await gravarNomeTratamentoContabil(sessao.userId, nome);
+      await servicoMeuJeito.definirNome(sessaoMeuJeito(req)!, nome);
       await marcarSaudadoHojeContabil(sessao.userId);
       return res.json({ sucesso: true, nome, frase: `Prazer, ${nome}! Pode falar o que precisa.` });
     } catch (error) { console.error("Falha ao gravar o nome da Agente IA do Contábil:", error instanceof Error ? error.message : error); return res.status(503).json({ sucesso: false, mensagem: "Não consegui gravar o nome agora." }); }

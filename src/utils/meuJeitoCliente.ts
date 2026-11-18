@@ -5,7 +5,7 @@ import { ASSUNTOS_AGENTE, SECOES_DESTACAVEIS } from '../data/jeitoPadraoContabil
 
 export type RegraAtiva = { id: string; gatilho: { tipo: 'entrar_no_sistema' } | { tipo: 'abrir_tela'; tela: string }; acoes: Array<{ tipo: string; tela?: string; secao?: string; assunto?: string }> };
 export type VisaoJeito = {
-  sessoes: number; podeEditarEscritorio: boolean;
+  sessoes: number; podeEditarEscritorio: boolean; nome?: string | null;
   efetivo: Record<string, any>; origem: Record<string, 'voce' | 'escritorio' | 'padrao'>;
   preferencias: Array<{ chave: string; rotulo: string; descricao: string; valor: any; valorTexto: string; origem: 'voce' | 'escritorio' | 'padrao'; escopoEscritorio: boolean; opcoes: Array<{ valor: string; rotulo: string }> | null; maxLista: number | null; valorEscritorio: any }>;
   receitas: Array<{ id: string; descricao: string; gatilho: any; acoes: any[]; origem: string; obsoleta: boolean; motivoObsoleta: string | null }>;
