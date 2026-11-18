@@ -328,7 +328,12 @@ const FERRAMENTAS: Ferramenta[] = [
       const cnpj = cnpjDe(args.cnpj); const competencia = competenciaDe(args.competencia);
       if (!cnpj || !competencia) return { erro: 'Informe CNPJ e competência (AAAA-MM) válidos.' };
       const f = await ctx.chamarApi('GET', `/api/workspaces/${q(cnpj)}/fechamentos`);
-      if (ok(f) && (f.corpo?.fechamentos || []).some((x: any) => x.competencia === competencia)) return { erro: `A competência ${mesAno(competencia)} já está fechada.` };
+      if (ok(f) && (f.corpo?.fechamentos || []).some((x: any) => x.competencia === competencia)) {
+        // Diz quem fechou e quando (mesma decisão do servidor); se a consulta falhar, mantém a resposta simples.
+        const quem = await ctx.chamarApi('GET', `/api/servico-feito?tipo=${q('fechamento:periodo')}&cnpj=${q(cnpj)}&referencia=${q(competencia)}`).catch(() => null);
+        const msg = quem && ok(quem) ? (quem.corpo?.registros?.[0]?.mensagem as string | undefined) : undefined;
+        return { erro: `A competência ${mesAno(competencia)} já está fechada.${msg ? ` ${msg}` : ''}` };
+      }
       return { cnpj, params: { cnpj, competencia }, titulo: `Fechar a competência ${mesAno(competencia)}`, descricao: ['Bloqueia o mês para novos lançamentos.', 'O sistema recusa se houver conferências pendentes.'], aviso: 'Não dá para desfazer.', irreversivel: true, resumo: `Fechar competência ${competencia}` };
     },
     async executar(ctx, params) {
@@ -406,6 +411,33 @@ const FERRAMENTAS: Ferramenta[] = [
   {
     tipo: 'leitura',
     declaracao: {
+      name: 'consultar_servico_feito',
+      description: 'Diz quem do escritório (ou o robô) já fez ou está fazendo um serviço, e quando: fechamento de período, contabilização de pré-lançamentos, decisão de lançamento manual e backup mensal. Use para "a Malba já fechou o período da empresa X?" ou "o que a Nilva fez hoje?". Só enxerga o próprio escritório e as empresas do usuário. Use ANTES de propor fechar ou contabilizar quando o usuário perguntar se alguém já fez.',
+      parameters: { type: 'OBJECT', properties: {
+        cnpj: { type: 'STRING', description: 'CNPJ da empresa, se a pergunta for sobre uma empresa.' },
+        tipo: { type: 'STRING', description: 'Opcional: fechamento:periodo, contabilizacao:lote, decisao:lancamento ou backup:escritorio.' },
+        competencia: { type: 'STRING', description: 'Opcional, AAAA-MM (vale para fechamento:periodo e backup:escritorio).' },
+        pessoa: { type: 'STRING', description: 'Opcional: nome ou login da pessoa ("Malba", "Nilva").' },
+        hoje: { type: 'BOOLEAN', description: 'true para só o que foi feito hoje.' },
+      } },
+    },
+    async executar(ctx, args) {
+      const qs: string[] = [];
+      if (args.cnpj) { const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'CNPJ inválido.' }; qs.push(`cnpj=${q(cnpj)}`); }
+      if (args.tipo) qs.push(`tipo=${q(String(args.tipo).slice(0, 40))}`);
+      if (args.competencia) { const c = competenciaDe(args.competencia); if (!c) return { erro: 'Competência inválida. Use AAAA-MM.' }; qs.push(`referencia=${q(c)}`); }
+      if (args.pessoa) qs.push(`pessoa=${q(String(args.pessoa).slice(0, 60))}`);
+      if (args.hoje === true) qs.push('dia=hoje');
+      const r = await ctx.chamarApi('GET', `/api/servico-feito${qs.length ? `?${qs.join('&')}` : ''}`);
+      if (!ok(r)) return erroApi(r);
+      const registros = (r.corpo?.registros || []) as Array<{ mensagem: string }>;
+      if (r.corpo?.indisponivel) return { erro: 'O registro de quem fez o quê está indisponível agora. Não afirme que ninguém fez; diga que não conseguiu conferir.' };
+      return registros.length ? { registros: registros.map((x) => x.mensagem) } : { registros: [], observacao: 'Nenhum registro encontrado. Isso não prova que ninguém fez: serviços anteriores ao registro podem não aparecer.' };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: {
       name: 'chamar_supervisor',
       description: 'Registra, para o dono do sistema ver e responder, uma pergunta ou pedido que você não conseguiu resolver com as ferramentas e telas que você tem (nenhuma ferramenta serve, e o MAPA DO SISTEMA também não tem onde isso se resolva). Use só depois de checar as duas coisas — nunca como primeira opção.',
       parameters: { type: 'OBJECT', properties: { pergunta: { type: 'STRING', description: 'O que o usuário pediu ou perguntou, resumido, em português, com o contexto necessário para o supervisor entender sem precisar perguntar de novo.' }, cnpj: { type: 'STRING', description: 'CNPJ da empresa envolvida, se houver.' } }, required: ['pergunta'] },
@@ -448,6 +480,7 @@ COMO TRABALHAR
 - Ações que alteram dados (contabilizar_prelancamentos, fechar_competencia, delegar_tarefa) NÃO são executadas por você: viram um cartão de confirmação. Depois de chamar uma ação, diga em uma frase o que ficou pronto para ele confirmar. Nunca diga que algo foi feito antes de ele confirmar.
 - PEDIR SERVIÇO À EQUIPE (delegar_tarefa): quando a contadora pedir algo como "peça para a Nilva conciliar o banco da empresa X", use delegar_tarefa com o nome da pessoa como foi dito, o serviço, a empresa (se disse) e o prazo (só se disse; converta para AAAA-MM-DD pela data de hoje). Vira cartão de confirmação; diga em uma frase para quem é o pedido e que ele só vale ao confirmar. Se a ferramenta disser que o nome é ambíguo ou não existe, pergunte UMA vez qual pessoa, sem escolher sozinha. Só a administradora do escritório pede para outra pessoa; funcionário comum só anota tarefa para si (sem destinatário). Isso funciona de qualquer tela. A pessoa recebe o pedido na tela de Tarefas da equipe.
 - Você não cria nem edita lançamentos manuais, plano de contas ou mapeamentos: isso é feito nas telas.
+- Antes de propor fechar o período ou contabilizar, se o usuário perguntar se alguém já fez, ou se vários colegas trabalham na empresa, use consultar_servico_feito. Se a ação for barrada porque outra pessoa (ou o robô) já fez, repasse a frase do sistema com o nome e a hora, sem tentar de novo; se o sistema avisar que alguém está fazendo agora, conte isso ao usuário e só prossiga se ele pedir de novo. Nunca invente quem fez.
 
 LIMITES (diga com clareza quando o pedido bater neles)
 - Folha, guias de FGTS/INSS e eSocial são do Departamento Pessoal; DAS e notas fiscais são do Fiscal. Não os faça aqui: consulte ou peça à Agente do outro sistema pelas ferramentas de comunicação.

@@ -21,6 +21,14 @@ export interface RelatorioBackupsContabil {
   emailsFalhos: number;
   atencao: boolean;
   resumo: string;
+  /** Escritórios em que uma pessoa já tinha gerado e conferido o backup do período: o robô não refez. */
+  pulados?: number;
+}
+
+/** Ganchos opcionais do anti-retrabalho (servicoFeito). Qualquer falha deles é ignorada: o backup nunca depende do registro. */
+export interface GanchosServicoFeito {
+  jaFeitoPorPessoa?: (tenantId: string, periodo: string) => Promise<boolean>;
+  aoGerar?: (tenantId: string, periodo: string) => Promise<void>;
 }
 
 export interface EscritorioParaConferirBackup { id: string; cnpjs: string[]; login?: string }
@@ -40,18 +48,30 @@ function textoEmailBackup(periodo: string): { assunto: string; texto: string } {
  * até sair certo.
  */
 export async function conferirBackupsEscritorios(
-  consultar: Consultar, escritorios: EscritorioParaConferirBackup[], agora: Date = new Date(),
+  consultar: Consultar, escritorios: EscritorioParaConferirBackup[], agora: Date = new Date(), ganchos: GanchosServicoFeito = {},
 ): Promise<RelatorioBackupsContabil> {
   const periodo = periodoDe(agora);
   const comEmpresa = escritorios.filter((e) => e.cnpjs.length > 0);
+  let pulados = 0;
   let emDia = 0; let gerados = 0; let falhas = 0; let emailsEnviados = 0; let emailsFalhos = 0;
   let ultimoErro: string | null = null;
   const podeEnviarEmail = emailConfigurado();
 
   for (const escritorio of comEmpresa) {
     try {
-      const resultado = await gerarBackupEscritorio(consultar, escritorio.id, periodo, agora);
-      if (resultado.motivo === 'gerado') gerados += 1; else emDia += 1;
+      // Se uma pessoa já gerou o backup deste período e ele está ok e conferido, o robô não refaz: usa o que existe.
+      let resultado: Awaited<ReturnType<typeof gerarBackupEscritorio>> | null = null;
+      try {
+        if (await ganchos.jaFeitoPorPessoa?.(escritorio.id, periodo)) {
+          const existente = (await listarBackupsEscritorio(consultar, escritorio.id)).find((b) => b.periodo === periodo);
+          if (existente && existente.status === 'ok' && existente.verificado) { resultado = { criado: false, motivo: 'ja_existe', registro: existente }; pulados += 1; }
+        }
+      } catch { resultado = null; }
+      resultado ??= await gerarBackupEscritorio(consultar, escritorio.id, periodo, agora);
+      if (resultado.motivo === 'gerado') {
+        gerados += 1;
+        try { await ganchos.aoGerar?.(escritorio.id, periodo); } catch { /* registro de quem fez nunca atrapalha o backup */ }
+      } else emDia += 1;
 
       if (podeEnviarEmail && escritorio.login) {
         const atual = resultado.registro
@@ -85,7 +105,8 @@ export async function conferirBackupsEscritorios(
         ? `Backup de ${periodo}: ${gerados} escritório(s) gerado(s) agora, ${emDia} já estavam em dia.${textoEmails}`
         : `Backup de ${periodo} em dia para os ${emDia} escritório(s) com empresa cadastrada.${textoEmails}`;
 
-  return { escritorios: comEmpresa.length, emDia, gerados, falhas, emailsEnviados, emailsFalhos, atencao, resumo };
+  const textoPulados = pulados > 0 ? ` ${pulados} já tinha(m) sido gerado(s) por uma pessoa (o robô não refez).` : '';
+  return { escritorios: comEmpresa.length, emDia, gerados, falhas, emailsEnviados, emailsFalhos, atencao, resumo: resumo + textoPulados, ...(pulados > 0 ? { pulados } : {}) };
 }
 
 /** Usado pela tela/rota: confirma se um escritório específico já tem o backup do período corrente. */

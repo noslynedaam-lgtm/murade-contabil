@@ -51,7 +51,7 @@ export const BackupsTab: React.FC = () => {
       const r = await fetch("/api/contabil/backups/gerar", { method: "POST", credentials: "include" });
       const d = await r.json();
       if (!r.ok || !d?.sucesso) throw new Error(d?.motivo || "Não foi possível gerar agora.");
-      setAviso(d.criadoAgora ? "Backup deste mês gerado e conferido agora." : "O backup deste mês já estava gerado e conferido.");
+      setAviso(d.criadoAgora ? "Backup deste mês gerado e conferido agora." : `O backup deste mês já estava gerado e conferido.${typeof d.jaFeito === "string" ? ` ${d.jaFeito}` : ""}`);
       await carregar();
     } catch (e: any) { setAviso(e?.message || "Não foi possível gerar o backup agora."); }
     finally { setGerando(false); }

@@ -1,3 +1,4 @@
+import { SeloServicoFeito } from "../AvisoServicoFeito";
 import { confirmarNaTela } from "../../utils/dialogoNaTela";
 import React, { useMemo, useState } from "react";
 import { AlertTriangle, ArrowUpDown, CheckCircle2, Download, Lock, RefreshCw } from "lucide-react";
@@ -139,7 +140,7 @@ export const BalanceteTab: React.FC<BalanceteTabProps> = ({ cnpj, competencia, l
 
       {geradoEm && <p role="status" className="text-xs text-slate-600">Resumo local atualizado em {new Date(geradoEm).toLocaleString("pt-BR")}.</p>}
       {feedbackExportacao && <p role="status" className="rounded-md border border-blue-200 bg-blue-50 p-2 text-xs text-blue-900">{feedbackExportacao}</p>}
-      {competenciaFechada && <p role="status" className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-xs text-emerald-950"><strong>Competência fechada e bloqueada no PostgreSQL.</strong> Os lançamentos, rascunhos e registros contábeis deste mês não podem ser alterados pelo sistema.</p>}
+      {competenciaFechada && <p role="status" className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-xs text-emerald-950"><strong>Competência fechada e bloqueada no PostgreSQL.</strong> Os lançamentos, rascunhos e registros contábeis deste mês não podem ser alterados pelo sistema.<span className="mt-1 block"><SeloServicoFeito cnpj={cnpj} tipo="fechamento:periodo" referencia={competenciaSelecionada} rotulo="Fechado" /></span></p>}
 
       <section className={`rounded-lg border p-3 ${equilibrado ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
         <div className="flex items-start gap-2">
