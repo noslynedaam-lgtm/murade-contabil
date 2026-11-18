@@ -1,5 +1,6 @@
 import React from "react";
 import { TabId } from "../types";
+import { ordenarMenu, useJeito } from "../utils/meuJeitoCliente";
 import {
   Plug,
   Building2,
@@ -22,6 +23,7 @@ import {
   ClipboardCheck,
   ShieldHalf,
   ListChecks,
+  SlidersHorizontal,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -31,7 +33,8 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendentesAprovacao = 0 }) => {
-  const navItems = [
+  const jeito = useJeito();
+  const navItemsPadrao = [
     {
       id: "inicio" as TabId,
       label: "Tela Inicial",
@@ -153,6 +156,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
       badgeColor: "bg-emerald-400/30 text-emerald-100",
     },
     {
+      id: "meu-jeito" as TabId,
+      label: "Meu jeito",
+      icon: SlidersHorizontal,
+      badge: "Pessoal",
+      badgeColor: "bg-white/20 text-white",
+    },
+    {
       id: "ia-premium" as TabId,
       label: "IA Murade Premium",
       icon: Sparkles,
@@ -160,6 +170,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
       badgeColor: "bg-amber-300 text-slate-950 font-bold",
     },
   ];
+
+  // "Meu jeito": as telas favoritas da pessoa (ou do escritório) vêm primeiro, na ordem escolhida.
+  const navItems = ordenarMenu(navItemsPadrao, jeito?.efetivo?.menuFavoritos);
 
   const copiarCodigo = () => {
     if (navigator?.clipboard?.writeText) {

@@ -11,9 +11,10 @@ export type DependenciasAtividade = {
   podeVer: (req: Request) => boolean;
 };
 
-const IGNORAR = [/^\/api\/auth\/(login|logout|session|status|bootstrap|redeem|tenants|atividade)/, /^\/api\/integracao\//, /^\/api\/health/, /^\/api\/robos/];
+const IGNORAR = [/^\/api\/auth\/(login|logout|session|status|bootstrap|redeem|tenants|atividade)/, /^\/api\/integracao\//, /^\/api\/health/, /^\/api\/robos/, /^\/api\/meu-jeito\/(abrir|observar|apresentacao)/];
 const ROTULOS: Array<[RegExp, string]> = [
   [/tarefas-equipe/, 'Movimentou tarefa da equipe'],
+  [/meu-jeito/, 'Mudou o próprio jeito de trabalhar'],
   [/auth\/team\/invite/, 'Convidou funcionário para a equipe'], [/auth\/team/, 'Alterou a equipe do escritório'],
   [/ai\/agente\/confirmar/, 'Confirmou uma ação sugerida pela IA'], [/ai\/agente\/recusar/, 'Recusou uma ação sugerida pela IA'],
   [/esocial/, 'Movimentou eSocial'], [/folha|payroll/, 'Alterou folha de pagamento'], [/funcionario|employee/, 'Alterou cadastro de funcionário'],

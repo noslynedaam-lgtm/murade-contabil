@@ -16,6 +16,7 @@ import { FERRAMENTAS_ENTRE_SISTEMAS, INSTRUCAO_ENTRE_SISTEMAS } from './ferramen
 import { FERRAMENTAS_PILOTO, INSTRUCAO_PILOTO } from './pilotoContabil';
 import { acharPessoa, acharPorNome, cnpjLimpo, formatarCnpj, formatarDataBr, montarMensagemPedido, nomeDaPessoa, normalizarTexto, prazoValido } from './tarefasEquipe';
 import { CHAVES_PREFERENCIA, falhou, PREFERENCIAS, descreverPreferencia, descreverReceita, detectarPedidoProtegido, idDaReceita, resolverTela, validarPreferencia, validarReceita } from './meuJeito';
+import { blocosDoAssunto, montarApresentacao, type SecaoApresentacao } from '../data/apresentacaoSistema';
 import { MODULOS_JEITO_PADRAO, PROTECOES_FIXAS, TEXTO_PROTECAO } from '../data/jeitoPadraoContabil';
 
 const cnpjDe = (v: unknown): string | null => { const d = String(v ?? '').replace(/[^0-9A-Za-z]/g, '').toUpperCase(); return d.length === 14 ? d : null; };
@@ -574,6 +575,33 @@ const FERRAMENTAS: Ferramenta[] = [
   },
   {
     tipo: 'leitura',
+    declaracao: { name: 'apresentar_sistema', description: 'Conta o que o Murade Contábil faz, a partir do texto FIXO e conferido com o código (sem IA): módulos, o que é automático (robôs e quando rodam), o que depende do contador, integrações e o que o sistema ainda não faz. Use para "o que o sistema faz?", "o que é automático?", "para que serve a tela X?", "o que o sistema não faz?". Informe secao (modulos, automatico, depende, integracoes ou limites) ou modulo (nome da tela). Sem parâmetros devolve só o índice. A apresentação completa em blocos falados, com pausa e "me mostra onde", é iniciada pela própria tela quando a pessoa diz "me conta tudo o que o sistema faz".', parameters: { type: 'OBJECT', properties: { secao: { type: 'STRING', description: 'modulos, automatico, depende, integracoes ou limites.' }, modulo: { type: 'STRING', description: 'Opcional: nome da tela do menu (ex.: Balancete).' } } } },
+    async executar(ctx, args) {
+      const robos = await ctx.chamarApi('GET', '/api/robos/status').catch(() => null);
+      const ehDono = Boolean(robos && ok(robos) && robos.corpo?.ehDono === true);
+      const dica = 'Conte com suas palavras, curto, só o que foi pedido, sem inventar nada além dos blocos. Se a pessoa quiser ouvir tudo em blocos com pausa, diga para ela falar: me conta tudo o que o sistema faz. Para mostrar onde fica algo, use mostrar_na_tela com a tela do bloco.';
+      if (String(args.modulo ?? '').trim()) {
+        const t = resolverTela(args.modulo); if (falhou(t)) return { erro: t.motivo };
+        return { blocos: blocosDoAssunto({ modulo: t.id }, ehDono).map((b) => ({ titulo: b.titulo, falar: b.falar, tela: b.tela })), instrucao: dica };
+      }
+      const secao = normalizarTexto(args.secao) as SecaoApresentacao;
+      if (['modulos', 'automatico', 'depende', 'integracoes', 'limites'].includes(secao)) return { blocos: blocosDoAssunto({ secao }, ehDono).map((b) => ({ titulo: b.titulo, falar: b.falar, tela: b.tela })), instrucao: dica };
+      return { indice: ['modulos (cada tela do menu)', 'automatico (os robôs e quando rodam)', 'depende (o que só acontece com o seu sim)', 'integracoes (o que chega do Fiscal e do DP e o que não é integrado)', 'limites (o que o sistema ainda não faz)'], totalDeBlocos: montarApresentacao(ehDono).length, instrucao: dica };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'perguntar_integracoes', description: 'Responde "o que é integrado?", "o que chega do Fiscal e do DP?", "como entra o pró-labore, as notas e a folha?", "com quem o Contábil NÃO é integrado?" com o texto FIXO e conferido com o código: o que chega de cada sistema, em que direção, o que chega como rascunho para conferir e o que não é integrado ou falta fazer manualmente. Sem IA e sem inventar.', parameters: { type: 'OBJECT', properties: { sistema: { type: 'STRING', description: 'Opcional: fiscal, dp ou fisco ia, para filtrar.' } } } },
+    async executar(_ctx, args) {
+      const s = normalizarTexto(args.sistema);
+      const todos = blocosDoAssunto({ secao: 'integracoes' }, false);
+      const filtrados = s.includes('fiscoia') || s.includes('fisco ia') ? [] : s.startsWith('fiscal') ? todos.filter((b) => b.id.startsWith('integracao-fiscal') || b.id === 'integracao-status') : s === 'dp' || s.startsWith('depart') ? todos.filter((b) => b.id.startsWith('integracao-dp') || b.id === 'integracao-status') : todos;
+      const naoIntegrado = blocosDoAssunto({ secao: 'limites' }, false).filter((b) => b.id === 'limite-fiscoia' || b.id === 'limite-orgaos');
+      return { blocos: [...filtrados, ...naoIntegrado].map((b) => ({ titulo: b.titulo, falar: b.falar, tela: b.tela })), instrucao: 'Responda curto, só com o que está nos blocos. Diga sempre o que chega como rascunho (a pessoa confere e aprova) e o que NÃO é integrado. Para mostrar onde, use mostrar_na_tela.' };
+    },
+  },
+  {
+    tipo: 'leitura',
     declaracao: {
       name: 'consultar_servico_feito',
       description: 'Diz quem do escritório (ou o robô) já fez ou está fazendo um serviço, e quando: fechamento de período, contabilização de pré-lançamentos, decisão de lançamento manual e backup mensal. Use para "a Malba já fechou o período da empresa X?" ou "o que a Nilva fez hoje?". Só enxerga o próprio escritório e as empresas do usuário. Use ANTES de propor fechar ou contabilizar quando o usuário perguntar se alguém já fez.',
@@ -646,6 +674,7 @@ COMO TRABALHAR
 - Você não grava lançamentos manuais, plano de contas ou mapeamentos: isso é feito nas telas. Você pode PREENCHER o formulário à vista com preencher_na_tela, e quem clica em gravar é o usuário.
 - Antes de propor fechar o período ou contabilizar, se o usuário perguntar se alguém já fez, ou se vários colegas trabalham na empresa, use consultar_servico_feito. Se a ação for barrada porque outra pessoa (ou o robô) já fez, repasse a frase do sistema com o nome e a hora, sem tentar de novo; se o sistema avisar que alguém está fazendo agora, conte isso ao usuário e só prossiga se ele pedir de novo. Nunca invente quem fez.
 - MEU JEITO: se a pessoa contar como prefere trabalhar (tela ao entrar, atalhos do menu, conversa mais curta ou detalhada, regra "ao abrir X, destacar Y"), use aprender_meu_jeito (vira cartão com o que você entendeu; só vale após o sim); para ver o que aprendeu, mostrar_meu_jeito; para voltar ao padrão em UMA coisa, esquecer_regra_do_jeito; para explicar o jeito padrão, explicar_jeito_padrao. O jeito nunca desliga proteções (confirmações, cálculos exatos, robôs, anti-duplicidade, SERPRO só manual, nada de apagar em lote): se pedirem isso, explique com gentileza e não chame a ferramenta.
+- APRESENTAÇÃO DO SISTEMA: para "o que o sistema faz", "o que é automático", "o que é integrado" ou "o que ele não faz", use apresentar_sistema ou perguntar_integracoes (texto fixo e conferido) e nunca invente; para "me mostra onde", use mostrar_na_tela.
 
 LIMITES (diga com clareza quando o pedido bater neles)
 - Folha, guias de FGTS/INSS e eSocial são do Departamento Pessoal; DAS e notas fiscais são do Fiscal. Não os faça aqui: consulte ou peça à Agente do outro sistema pelas ferramentas de comunicação.

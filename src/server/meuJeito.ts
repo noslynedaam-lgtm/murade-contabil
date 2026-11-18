@@ -10,11 +10,16 @@ import {
 // Não guarda conteúdo digitado, dado de empresa ou de lançamento: só nomes de telas, opções do catálogo e contagens de navegação.
 // Tudo é isolado por escritório (tenant) e por pessoa: nenhuma consulta sai sem tenant e usuário da sessão.
 
-export type SessaoJeito = { userId: string; login: string; tenantId?: string; escritorioDe?: string; administrador: boolean };
+export type SessaoJeito = { userId: string; login: string; tenantId?: string; escritorioDe?: string; administrador: boolean; donoSistema?: boolean };
 export type Consultar = (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number | null }>;
 
 export const TABELA_JEITO = 'contabil_meu_jeito';
 export const USUARIO_ESCRITORIO = '__escritorio__';
+/** Linha-marca de quando o "Meu jeito" entrou no ar: quem tem conta anterior a ela é "legado" (vê as boas-vindas só uma vez). Sem flag manual. */
+export const TENANT_SISTEMA = '__sistema__';
+export const USUARIO_IMPLANTACAO = '__implantacao__';
+/** Quantas aberturas um usuário legado já "cumpriu" no dia da implantação. */
+export const SESSOES_DO_LEGADO = 4;
 export const VERSAO_ESQUEMA = 1;
 /** Nova "sessão" = outro login OU mais de 2 horas sem abrir a Agente (a pessoa pode ficar conectada por meses no celular). */
 export const HORAS_ENTRE_SESSOES = 2;
@@ -50,7 +55,7 @@ export function detectarPedidoProtegido(texto: unknown): string | null {
   return PADROES_PROTEGIDOS.some((re) => re.test(t)) ? TEXTO_PROTECAO : null;
 }
 const CHAVE_PARECE_PROTECAO = /confirm|proteg|duplic|serpro|robo|calcul|exclu|apag|lote|obrig|lanc|fech|estorn|envi|pag|irrevers|seguranc|trava/;
-const VALOR_DESLIGA = /^(nenhuma?|nada|sem|off|desligad[oa]|desativad[oa]|nao|false|automatic[oa]|pular|dispensar)$/;
+const VALOR_DESLIGA = /^(nenhuma?|nada|sem( .*)?|off|desligad[oa]|desativad[oa]|nao|false|automatic[oa]|pular|dispensar)$/;
 
 // ---------------------------------------------------------------------------------------------
 // Catálogo FECHADO de preferências
@@ -82,7 +87,7 @@ const resolverOpcao = (v: unknown, opcoes: Array<{ valor: string; rotulo: string
 const listaDe = (v: unknown): unknown[] => (Array.isArray(v) ? v : typeof v === 'string' ? v.split(/\s*(?:,|;|\be\b|\n)\s*/i).filter(Boolean) : []);
 
 const OPCOES_NIVEL = [{ valor: 'curto', rotulo: 'Curto' }, { valor: 'detalhado', rotulo: 'Detalhado' }];
-const OPCOES_VELOCIDADE = [{ valor: 'calma', rotulo: 'Calma' }, { valor: 'normal', rotulo: 'Normal' }, { valor: 'rapida', rotulo: 'Rápida' }];
+const OPCOES_VELOCIDADE = [{ valor: 'devagar', rotulo: 'Devagar' }, { valor: 'normal', rotulo: 'Normal' }, { valor: 'rapido', rotulo: 'Rápido' }];
 const OPCOES_CONFIRMACAO = [{ valor: 'completa', rotulo: 'Completa (mostra todos os detalhes)' }, { valor: 'resumida', rotulo: 'Resumida (só o essencial)' }];
 const OPCOES_BOOL = [{ valor: 'sim', rotulo: 'Ligado' }, { valor: 'nao', rotulo: 'Desligado' }];
 
@@ -111,8 +116,8 @@ export const PREFERENCIAS: Record<string, DefinicaoPreferencia> = {
   },
   velocidadePiloto: {
     chave: 'velocidadePiloto', rotulo: 'Velocidade do piloto visível', descricao: 'O ritmo em que a Agente conduz a tela quando mostra algo à vista.', padrao: 'normal', escopoEscritorio: true, opcoes: OPCOES_VELOCIDADE,
-    validar: (v) => { const o = resolverOpcao(v, OPCOES_VELOCIDADE, { lenta: 'calma', devagar: 'calma', rapido: 'rapida', veloz: 'rapida' }); return o ? { ok: true, valor: o } : { ok: false, motivo: 'Escolha "calma", "normal" ou "rápida".' }; },
-    texto: (v) => (v === 'calma' ? 'calma' : v === 'rapida' ? 'rápida' : 'normal'),
+    validar: (v) => { const o = resolverOpcao(v, OPCOES_VELOCIDADE, { lenta: 'devagar', calma: 'devagar', calmo: 'devagar', rapida: 'rapido', veloz: 'rapido' }); return o ? { ok: true, valor: o } : { ok: false, motivo: 'Escolha "devagar", "normal" ou "rápido".' }; },
+    texto: (v) => (v === 'devagar' ? 'devagar' : v === 'rapido' ? 'rápido' : 'normal'),
   },
   confirmacaoNaoProtegida: {
     chave: 'confirmacaoNaoProtegida', rotulo: 'Cartão de confirmação (ações sem risco)', descricao: 'Só muda quanto detalhe o cartão mostra nas ações de baixo risco (pedir serviço à equipe, reprocessar a recepção). O cartão continua aparecendo e você continua confirmando; ações irreversíveis sempre mostram tudo.', padrao: 'completa', escopoEscritorio: false, opcoes: OPCOES_CONFIRMACAO,
@@ -341,11 +346,22 @@ export function criarServicoMeuJeito(consultar: Consultar, agora: () => Date = (
         atualizado_em timestamptz NOT NULL DEFAULT now(),
         PRIMARY KEY (tenant_id, user_id)
       );
+      ALTER TABLE ${TABELA_JEITO} ADD COLUMN IF NOT EXISTS legado boolean NOT NULL DEFAULT false;
+      ALTER TABLE ${TABELA_JEITO} ADD COLUMN IF NOT EXISTS apresentacao_oferecida_em timestamptz;
+      ALTER TABLE ${TABELA_JEITO} ADD COLUMN IF NOT EXISTS apresentacao_resposta text;
+      INSERT INTO ${TABELA_JEITO}(tenant_id,user_id) VALUES('${TENANT_SISTEMA}','${USUARIO_IMPLANTACAO}') ON CONFLICT (tenant_id,user_id) DO NOTHING;
     `).then(() => undefined).catch((e) => { pronta = null; throw e; });
     return pronta;
   };
-  const garantirLinha = async (tenant: string, user: string): Promise<void> => {
-    await consultar(`INSERT INTO ${TABELA_JEITO}(tenant_id,user_id) VALUES($1,$2) ON CONFLICT (tenant_id,user_id) DO NOTHING`, [tenant, user]);
+  const garantirLinha = async (tenant: string, user: string): Promise<boolean> => {
+    const r = await consultar(`INSERT INTO ${TABELA_JEITO}(tenant_id,user_id) VALUES($1,$2) ON CONFLICT (tenant_id,user_id) DO NOTHING RETURNING 1`, [tenant, user]);
+    const criada = r.rows.length > 0;
+    if (criada && user !== USUARIO_ESCRITORIO && tenant !== TENANT_SISTEMA) {
+      // Primeira vez que este usuário aparece: conta criada antes da implantação do "Meu jeito" = legado (decisão do servidor, vale em qualquer aparelho).
+      const l = await consultar(`SELECT (u.created_at < (SELECT atualizado_em FROM ${TABELA_JEITO} WHERE tenant_id=$2 AND user_id=$3)) AS legado FROM contabil_auth_users u WHERE u.id::text=$1`, [user, TENANT_SISTEMA, USUARIO_IMPLANTACAO]);
+      if (l.rows[0]?.legado === true) await consultar(`UPDATE ${TABELA_JEITO} SET legado=true, sessoes=$3 WHERE tenant_id=$1 AND user_id=$2`, [tenant, user, SESSOES_DO_LEGADO]);
+    }
+    return criada;
   };
   const lerLinha = async (tenant: string, user: string): Promise<Linha | null> => (await consultar(`SELECT * FROM ${TABELA_JEITO} WHERE tenant_id=$1 AND user_id=$2`, [tenant, user])).rows[0] ?? null;
 
@@ -414,9 +430,12 @@ export function criarServicoMeuJeito(consultar: Consultar, agora: () => Date = (
       `UPDATE ${TABELA_JEITO} SET sessoes=$3, ultima_sessao_hash=$4, ultima_abertura=$5, avisos='[]'::jsonb${mudouRec ? ', receitas=$6::jsonb' : ''} WHERE tenant_id=$1 AND user_id=$2`,
       mudouRec ? [tenant, sessao.userId, sessoes, hashSessao, t.toISOString(), JSON.stringify(rec)] : [tenant, sessao.userId, sessoes, hashSessao, t.toISOString()]);
     const visao = montarVisao(sessao, { ...linha, receitas: rec, sessoes }, await lerLinha(tenant, USUARIO_ESCRITORIO));
+    // A oferta da apresentação completa é feita UMA vez por pessoa (decidido aqui, no servidor, de forma atômica): nem outro aparelho repete.
+    let oferecer = false;
+    if (nova) oferecer = (await consultar(`UPDATE ${TABELA_JEITO} SET apresentacao_oferecida_em=$3 WHERE tenant_id=$1 AND user_id=$2 AND apresentacao_oferecida_em IS NULL RETURNING 1`, [tenant, sessao.userId, t.toISOString()])).rows.length > 0;
     return {
-      sessao: sessoes, novaSessao: nova,
-      boasVindas: nova ? textoBoasVindas(sessoes) : null,
+      sessao: sessoes, novaSessao: nova, legado: linha.legado === true, ehDono: sessao.donoSistema === true, oferecerApresentacao: oferecer,
+      boasVindas: nova ? textoBoasVindas(sessoes, linha.legado === true) : null,
       avisos: avisos.map((a) => String(a?.texto ?? '')).filter(Boolean).slice(0, 5),
       sugestao: visao.sugestoes[0] ? { id: visao.sugestoes[0].id, texto: visao.sugestoes[0].texto } : null,
       efetivo: visao.efetivo, receitasAtivas: receitasAtivas(visao),
@@ -486,6 +505,16 @@ export function criarServicoMeuJeito(consultar: Consultar, agora: () => Date = (
     return { aceitos: [...soma.values()].reduce((a, b) => a + b, 0), ignorado: false };
   }
 
+  /** "sim" / "não" / "depois" à oferta da apresentação: só registra; nunca volta a oferecer sozinha. */
+  async function responderApresentacao(sessao: SessaoJeito, resposta: unknown): Promise<void> {
+    await garantirTabelas();
+    const r = String(resposta ?? '');
+    if (!['sim', 'nao', 'depois'].includes(r)) throw new ErroJeito(400, 'Resposta inválida.');
+    const tenant = tenantDe(sessao);
+    await garantirLinha(tenant, sessao.userId);
+    await consultar(`UPDATE ${TABELA_JEITO} SET apresentacao_resposta=$3, apresentacao_oferecida_em=COALESCE(apresentacao_oferecida_em, now()) WHERE tenant_id=$1 AND user_id=$2`, [tenant, sessao.userId, r]);
+  }
+
   async function sugestaoPorId(sessao: SessaoJeito, id: unknown): Promise<Sugestao> {
     const tenant = tenantDe(sessao);
     const linha = await lerLinha(tenant, sessao.userId);
@@ -529,7 +558,7 @@ export function criarServicoMeuJeito(consultar: Consultar, agora: () => Date = (
   async function conferir() {
     await garantirTabelas();
     const t = agora();
-    const linhas = (await consultar(`SELECT * FROM ${TABELA_JEITO} ORDER BY tenant_id, user_id LIMIT 20000`)).rows;
+    const linhas = (await consultar(`SELECT * FROM ${TABELA_JEITO} WHERE tenant_id<>$1 ORDER BY tenant_id, user_id LIMIT 20000`, [TENANT_SISTEMA])).rows;
     let regras = 0; let novasObsoletas = 0; let voltaramAValer = 0; let avisosNovos = 0; let removidas = 0; let hashesLimpos = 0; let contagensLimpas = 0; let falhas = 0;
     const existentes = new Set((await consultar(`SELECT id::text AS id FROM contabil_auth_users`)).rows.map((r) => String(r.id)));
     for (const l of linhas) {
@@ -562,7 +591,7 @@ export function criarServicoMeuJeito(consultar: Consultar, agora: () => Date = (
     return { linhas: linhas.length, regras, novasObsoletas, voltaramAValer, avisosNovos, removidas, hashesLimpos, contagensLimpas, falhas, resumo };
   }
 
-  return { garantirTabelas, ler, abrir, salvarPreferencia, removerPreferencia, salvarReceita, removerReceita, observar, aceitarSugestao, dispensarSugestao, paraAgente, conferir };
+  return { garantirTabelas, ler, abrir, responderApresentacao, salvarPreferencia, removerPreferencia, salvarReceita, removerReceita, observar, aceitarSugestao, dispensarSugestao, paraAgente, conferir };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -593,6 +622,7 @@ export function registrarRotasMeuJeito(app: Express, d: DepsRotasJeito): void {
 
   app.get(base, d.exigirSessao, tratar(async (s, _req, res) => { res.json({ sucesso: true, jeito: await d.servico.ler(s) }); }));
   app.post(`${base}/abrir`, d.exigirOrigem, d.exigirSessao, tratar(async (s, req, res) => { res.json({ sucesso: true, ...(await d.servico.abrir(s, d.hashSessao(req))) }); }));
+  app.post(`${base}/apresentacao/resposta`, d.exigirOrigem, d.exigirSessao, tratar(async (s, req, res) => { await d.servico.responderApresentacao(s, corpo(req).resposta); res.json({ sucesso: true }); }));
   app.post(`${base}/observar`, d.exigirOrigem, d.exigirSessao, tratar(async (s, req, res) => { res.json({ sucesso: true, ...(await d.servico.observar(s, corpo(req).pares)) }); }));
   // Tudo por POST (a Agente IA só chama GET e POST nas rotas internas). Uma preferência ou uma regra por vez; não existe rota que apague tudo.
   app.post(`${base}/preferencias`, d.exigirOrigem, d.exigirSessao, tratar(async (s, req, res) => { const b = corpo(req); res.json({ sucesso: true, jeito: await d.servico.salvarPreferencia(s, { chave: b.chave, valor: b.valor, escopo: b.escopo }) }); }));

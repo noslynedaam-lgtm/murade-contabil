@@ -44,6 +44,9 @@ import { CheckCircle2, X } from "lucide-react";
 import { ContabilAccessGate, useContabilAuth } from "./components/ContabilAccessGate";
 import { AlertaRobosParados } from "./components/AlertaRobosParados";
 import { AvisoTarefasEquipe } from "./components/AvisoTarefasEquipe";
+import { MeuJeitoMotor } from "./components/MeuJeitoMotor";
+import { ApresentacaoSistema } from "./components/ApresentacaoSistema";
+import { MeuJeitoTab } from "./components/tabs/MeuJeitoTab";
 import { TarefasEquipeTab } from "./components/tabs/TarefasEquipeTab";
 import { CaixaPedirParaAlguem } from "./components/CaixaPedirParaAlguem";
 import { PilotoVisivel } from "./components/PilotoVisivel";
@@ -63,6 +66,7 @@ function AppWorkspace() {
   const workspaceSnapshotPersistidoRef = React.useRef<string | null>(null);
   const [assistenteAberta, setAssistenteAberta] = useState(false);
   const [tabAtiva, setTabAtiva] = useState<TabId>("inicio");
+  const [ehDonoSistema, setEhDonoSistema] = useState(false);
 
   // Assistente de voz (ref para abrir/falar de fora, ex.: quando a pessoa parece travada) + detector
   // de dificuldade: oferece ajuda sozinha quando percebe cliques repetidos no mesmo lugar, e guia
@@ -1098,6 +1102,7 @@ function AppWorkspace() {
 
               {tabAtiva === "backups" && <BackupsTab />}
               {tabAtiva === "tarefas-equipe" && <TarefasEquipeTab />}
+              {tabAtiva === "meu-jeito" && <MeuJeitoTab />}
               </ErroTela>
             </div>
 
@@ -1124,6 +1129,8 @@ function AppWorkspace() {
         }}
       />
       <AvisoTarefasEquipe onAbrir={() => setTabAtiva("tarefas-equipe")} />
+      <MeuJeitoMotor tabAtiva={tabAtiva} onNavegar={(tela) => setTabAtiva(tela as TabId)} assistenteRef={assistenteRef} onEhDono={setEhDonoSistema} />
+      <ApresentacaoSistema assistenteRef={assistenteRef} ehDono={ehDonoSistema} />
       <IAMuradModal
         ref={assistenteRef}
         isOpen={assistenteAberta}

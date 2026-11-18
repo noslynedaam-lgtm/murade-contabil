@@ -19,6 +19,8 @@ import { kitContabil } from "./src/server/agenteContabil";
 import { ArmazemPedidosMemoria, ArmazemPedidosPg, CentralDePedidos, tokenValido } from "./src/server/agentesEntreSistemas";
 import { criarAtividadeEscritorio } from './src/server/atividadeEscritorio';
 import { criarServicoTarefas, registrarRotasTarefasEquipe } from "./src/server/tarefasEquipe";
+import { criarServicoMeuJeito, registrarRotasMeuJeito, type SessaoJeito } from "./src/server/meuJeito";
+import { conferirApresentacao, resumoRelatorioApresentacao } from "./src/server/conferidorApresentacao";
 import type { SessaoContabil } from './src/server/authContabil';
 import { lerPerfilSaudacaoContabil, gravarNomeTratamentoContabil, marcarSaudadoHojeContabil } from "./src/server/authContabil";
 import { extrairNomeDaResposta, fraseDeSaudacao } from "./src/server/agenteSaudacao";
@@ -75,6 +77,9 @@ async function gerarComReserva(ai: GoogleGenAI, base: { contents: any; systemIns
   }
   throw ultimoErro;
 }
+
+/** Ações de baixo risco cujo cartão pode ser mais curto no "Meu jeito". O cartão continua aparecendo e a pessoa continua confirmando. */
+const CARTAO_PODE_SER_RESUMIDO = new Set(["delegar_tarefa", "reprocessar_recepcao"]);
 
 async function startServer() {
   const app = express();
@@ -1104,6 +1109,10 @@ const reconciliacaoRascunhosStatus: {
     };
   };
 
+  // Meu jeito: preferências de uso de cada pessoa (camada por cima do jeito padrão; nunca desliga proteção). Isolado por escritório e por pessoa.
+  const servicoMeuJeito = criarServicoMeuJeito((sql, params) => consultaBancoContabil(sql, params));
+  const sessaoMeuJeito = (req: express.Request): SessaoJeito | undefined => { const x = sessaoDaRequisicaoContabil(req); return x ? { userId: x.userId, login: x.login, tenantId: x.tenantId, escritorioDe: x.escritorioDe, administrador: x.administrador === true, donoSistema: x.donoSistema === true } : undefined; };
+
   const contextoAgenteIA = (req: express.Request): ContextoAgente | null => {
     const sessao = sessaoDaRequisicaoContabil(req);
     if (!sessao) return null;
@@ -1182,7 +1191,12 @@ const reconciliacaoRascunhosStatus: {
       : [];
     try {
       try { const sessao = sessaoDaRequisicaoContabil(req); if (sessao) ctx.nomeUsuario = (await lerPerfilSaudacaoContabil(sessao.userId)).nome || undefined; } catch { /* sem o nome a conversa segue normal */ }
-      return res.json({ sucesso: true, ...(await conversarAgenteIA(ctx, modeloGeminiAgente(), message, historico)) });
+      // Meu jeito: a Agente trabalha do jeito da pessoa (conversa curta ou detalhada; cartão resumido SÓ nas ações de baixo risco). Se falhar, segue no jeito padrão.
+      let confirmacaoResumida = false;
+      try { const sj = sessaoMeuJeito(req); if (sj) { const j = await servicoMeuJeito.paraAgente(sj); if (j.instrucao) ctx.kit = { ...ctx.kit, instrucao: ctx.kit.instrucao + j.instrucao }; confirmacaoResumida = j.confirmacaoResumida; } } catch { /* jeito indisponível: jeito padrão */ }
+      const resultado = await conversarAgenteIA(ctx, modeloGeminiAgente(), message, historico);
+      if (confirmacaoResumida) resultado.acoes = resultado.acoes.map((a) => (CARTAO_PODE_SER_RESUMIDO.has(a.ferramenta) && !a.irreversivel ? { ...a, descricao: a.descricao.slice(0, 1) } : a));
+      return res.json({ sucesso: true, ...resultado });
     } catch (error) {
       console.error("Falha na Agente IA do Contábil:", error instanceof Error ? error.message : error);
       return res.status(502).json({ error: "Não foi possível falar com o serviço de IA agora. Tente novamente." });
@@ -1428,6 +1442,29 @@ const reconciliacaoRascunhosStatus: {
   setTimeout(() => void rodarTarefasEquipe(), 150_000).unref();
   setInterval(() => void rodarTarefasEquipe(), 15 * 60_000).unref();
   registrarRotinaManual("tarefas_equipe", rodarTarefasEquipe);
+  // Meu jeito: rotas autenticadas e Robô Conferidor (diário): confere as regras guardadas contra o catálogo de hoje e limpa o que ficou velho.
+  registrarRotasMeuJeito(app, { servico: servicoMeuJeito, exigirSessao: exigirSessaoContabil, exigirOrigem: exigirOrigemNavegador, sessao: sessaoMeuJeito, hashSessao: hashSessaoContabil });
+  registrarRobo({ id: "meu_jeito", nome: "Robô Conferidor do Meu Jeito", posto: "conferidor", missao: "Conferir todo dia se as regras que a Agente aprendeu de cada pessoa ainda existem no sistema (regra obsoleta é pausada e a pessoa é avisada na próxima abertura) e limpar o que ficou velho: jeito de quem não existe mais, sessões paradas e contagens inválidas. Nunca apaga o jeito de quem ainda existe.", intervaloMs: 24 * 60 * 60_000 });
+  const rodarMeuJeito = () => bancoContabilConfigurado() ? executarRobo("meu_jeito", async () => {
+    const r = await servicoMeuJeito.conferir();
+    registrarResultadoRobo("meu_jeito", r.resumo);
+    if (r.falhas > 0) throw new Error(r.resumo);
+  }).catch((e) => console.error("Alerta do Robô Conferidor do Meu Jeito:", e?.message || e)) : undefined;
+  setTimeout(() => void rodarMeuJeito(), 190_000).unref();
+  setInterval(() => void rodarMeuJeito(), 24 * 60 * 60_000).unref();
+  registrarRotinaManual("meu_jeito", rodarMeuJeito);
+  // Apresentação falada do sistema: confere, só em leitura, se cada robô, rota de integração e tela ainda tem bloco e se nenhum bloco cita algo que não existe.
+  registrarRobo({ id: "apresentacao", nome: "Robô Conferidor da Apresentação", posto: "conferidor", missao: "Conferir todo dia, só em leitura, se a apresentação falada do sistema (módulos, robôs, integrações e limites) ainda bate com o código. Se um robô, tela ou integração novo ainda não tem bloco, avisa o dono do sistema aqui. Nunca altera nada.", intervaloMs: 24 * 60 * 60_000 });
+  const rodarApresentacao = () => executarRobo("apresentacao", async () => {
+    if (!fsSync.existsSync(path.join(process.cwd(), "server.ts"))) { registrarResultadoRobo("apresentacao", "Código-fonte indisponível neste ambiente: a conferência roda na compilação (npm test)."); definirAlertaRobo("apresentacao", null); return; }
+    const r = conferirApresentacao((c) => { try { return fsSync.readFileSync(path.join(process.cwd(), c), "utf8"); } catch { return null; } });
+    registrarResultadoRobo("apresentacao", resumoRelatorioApresentacao(r));
+    definirAlertaRobo("apresentacao", r.problemas.length ? { nivel: "aviso", texto: resumoRelatorioApresentacao(r) } : null);
+    if (r.problemas.length) throw new Error(resumoRelatorioApresentacao(r));
+  }).catch((e) => console.error("Alerta do Robô Conferidor da Apresentação:", e?.message || e));
+  setTimeout(() => void rodarApresentacao(), 200_000).unref();
+  setInterval(() => void rodarApresentacao(), 24 * 60 * 60_000).unref();
+  registrarRotinaManual("apresentacao", rodarApresentacao);
   registrarRobo({ id: "backups", nome: "Robô de Backups Mensais", posto: "conferidor", missao: "Conferir se cada escritório com empresa cadastrada já tem o backup cifrado do mês corrente, gerado e conferido (checksum e reabertura do zip); gera de novo sozinho quando falta ou falhou, sem precisar do dono. Mantém só o backup do mês corrente (o anterior é apagado) e avisa o escritório por e-mail quando fica pronto.", intervaloMs: 60 * 60_000 });
   const escritoriosParaBackup = async (): Promise<{ id: string; login: string; cnpjs: string[] }[]> => {
     const r = await consultaBancoContabil(

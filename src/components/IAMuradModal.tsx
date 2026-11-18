@@ -6,6 +6,7 @@ import { AcaoAgenteCartao, ChatMessage, EmpresaDados, LancamentoContabil } from 
 import type { AssistenteHandle } from "../types/assistenteHandle";
 import { aplicarIntencaoAoPiloto, intencaoDoTexto, pilotoAtivo } from "../utils/pilotoVisivel";
 import { enviarAoPiloto } from "./PilotoVisivel";
+import { tratarFraseDaApresentacao } from "../utils/apresentacaoCliente";
 
 interface IAMuradModalProps {
   isOpen?: boolean;
@@ -205,6 +206,8 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
       const r = intencao ? aplicarIntencaoAoPiloto(intencao) : null;
       if (r?.tratado) { if (!r.falado && r.resposta) responderComoIA(r.resposta); return; }
     }
+    // Apresentação falada do sistema: "o que o sistema faz?", "para", "continua", "pula esse bloco", "sim"/"agora não" à oferta. Sem IA.
+    if (tratarFraseDaApresentacao(texto)) return;
     // Primeira vez: a resposta é o nome da pessoa. O servidor grava no usuário (sem IA).
     if (aguardandoNomeRef.current) {
       try {
@@ -338,6 +341,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
     },
     perguntar: (texto: string) => enviarRef.current(texto),
     ocupado: () => gravandoVoz,
+    vozLigada: () => vozAtiva,
     parar: () => pararRef.current(),
   }));
 
@@ -367,6 +371,8 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
           const texto = limpar(bruto);
           if (!texto) continue;
           // "Para" / "espera": interrompe a fala e cancela o pedido em andamento.
+          // Apresentação falada: "para", "continua", "pula esse bloco" valem na voz, sem perguntar à IA.
+          if (ehFinal && tratarFraseDaApresentacao(texto)) { bufferFala = ""; window.clearTimeout(tempoEnvio); continue; }
           // Pedidos de volume e velocidade: "aumenta a voz", "fala mais rápido"...
           if (ehFinal) { const confirmacao = ajustarVoz(texto); if (confirmacao) { falarRef.current(confirmacao); continue; } }
           // Piloto Visível ativo: "cancela" / "para" cancelam o piloto (além de calar a voz).

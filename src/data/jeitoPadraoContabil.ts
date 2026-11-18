@@ -87,9 +87,10 @@ const DICAS = [
 ];
 
 /** Texto fixo (sem IA). Sessão 1: o jeito padrão e o convite. Sessões 2 a 5: lembrete curto. Depois: nada. */
-export function textoBoasVindas(sessao: number): string | null {
+export function textoBoasVindas(sessao: number, legado = false): string | null {
   if (!Number.isInteger(sessao) || sessao < 1 || sessao > SESSOES_COM_BOAS_VINDAS) return null;
-  if (sessao === 1) {
+  // Quem já usava o sistema antes do "Meu jeito" conta como já tendo passado por 4 aberturas: vê UMA vez, e com o texto completo.
+  if (sessao === 1 || legado) {
     return 'Boas-vindas ao Murade Contábil! Aqui funciona assim: o Fiscal e o DP mandam os dados, você confere em Revisar dados recebidos, aprova os lançamentos, acompanha o Balancete e fecha o mês na Gestão contábil. Mas cada contador trabalha de um jeito, e eu posso aprender o seu: é só me contar como prefere trabalhar, que eu salvo e passo a trabalhar sempre do seu jeito.';
   }
   return `Que bom ter você de volta! Lembre que eu posso aprender o seu jeito de trabalhar, ${DICAS[sessao - 2]}. Para ver o que eu já sei, diga: mostra meu jeito.`;
