@@ -14,6 +14,8 @@ import { conferirFechamento } from '../utils/fechamentoContabil';
 import { compararPeriodos, explicarVariacoes } from '../utils/analiseContabil';
 import { FERRAMENTAS_ENTRE_SISTEMAS, INSTRUCAO_ENTRE_SISTEMAS } from './ferramentasEntreSistemas';
 import { acharPessoa, acharPorNome, cnpjLimpo, formatarCnpj, formatarDataBr, montarMensagemPedido, nomeDaPessoa, normalizarTexto, prazoValido } from './tarefasEquipe';
+import { CHAVES_PREFERENCIA, falhou, PREFERENCIAS, descreverPreferencia, descreverReceita, detectarPedidoProtegido, idDaReceita, resolverTela, validarPreferencia, validarReceita } from './meuJeito';
+import { MODULOS_JEITO_PADRAO, PROTECOES_FIXAS, TEXTO_PROTECAO } from '../data/jeitoPadraoContabil';
 
 const cnpjDe = (v: unknown): string | null => { const d = String(v ?? '').replace(/[^0-9A-Za-z]/g, '').toUpperCase(); return d.length === 14 ? d : null; };
 const competenciaDe = (v: unknown): string | null => (typeof v === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(v.trim()) ? v.trim() : null);
@@ -408,6 +410,167 @@ const FERRAMENTAS: Ferramenta[] = [
       return { sucesso: true, mensagem: t?.origem === 'delegada' ? `Pedido registrado. ${t.destinatario?.nome} recebe: ${t.mensagem}.${aviso}` : `Tarefa anotada para você: ${t?.titulo || params.titulo}.` };
     },
   },
+  // ---------------------------------------------------------------- Meu jeito (cada pessoa trabalha de um jeito)
+  {
+    tipo: 'acao',
+    declaracao: {
+      name: 'aprender_meu_jeito',
+      description: 'Propõe SALVAR o jeito de trabalhar da pessoa (preferência de uso ou regra), depois que ela contou como prefere. Vira cartão de confirmação mostrando como você entendeu; só vale após o sim. tipo "preferencia": chave telaInicial (tela ao entrar), menuFavoritos (até 6 telas no topo do menu), nivelConversa (curto ou detalhado), velocidadePiloto (calma, normal ou rapida), confirmacaoNaoProtegida (completa ou resumida; só muda o detalhe do cartão, nunca tira a confirmação), observarUso (sim ou nao). tipo "regra": "ao entrar" ou "ao abrir uma tela", com até 3 passos em ordem: mostrar_atalho (botão para outra tela), destacar_secao (rolar até uma parte da tela aberta) ou perguntar_agente (consulta de leitura). tipo "sugestao": aceitar uma sugestão que mostrar_meu_jeito listou, usando o id dela. NUNCA use para desligar confirmação, proteção, robô, cálculo, anti-duplicidade ou regra do SERPRO, nem para apagar em lote: nesses casos explique com gentileza que o sistema mantém por segurança. Não guarda o que a pessoa digita nem dado de empresa ou lançamento.',
+      parameters: { type: 'OBJECT', properties: {
+        tipo: { type: 'STRING', description: 'preferencia, regra ou sugestao.' },
+        chave: { type: 'STRING', description: 'Só para preferencia: telaInicial, menuFavoritos, nivelConversa, velocidadePiloto, confirmacaoNaoProtegida ou observarUso.' },
+        valor: { type: 'STRING', description: 'Só para preferencia: o valor (nome da tela, lista de telas separadas por vírgula, curto/detalhado, calma/normal/rapida, completa/resumida, sim/nao).' },
+        escopo: { type: 'STRING', description: 'usuario (padrão: só para esta pessoa) ou escritorio (padrão de todo o escritório; só a administradora, e só quando ela pedir isso).' },
+        quando: { type: 'STRING', description: 'Só para regra: entrar (ao entrar no sistema) ou abrir_tela.' },
+        tela_quando: { type: 'STRING', description: 'Só para regra com quando=abrir_tela: o nome da tela que dispara a regra.' },
+        passos: { type: 'ARRAY', description: 'Só para regra: de 1 a 3 passos, na ordem em que a pessoa quer.', items: { type: 'OBJECT', properties: {
+          acao: { type: 'STRING', description: 'mostrar_atalho, destacar_secao ou perguntar_agente.' },
+          tela: { type: 'STRING', description: 'mostrar_atalho: a tela do atalho. destacar_secao: a tela aberta.' },
+          secao: { type: 'STRING', description: 'destacar_secao: o título da parte da tela (ex.: Balancete de verificação).' },
+          assunto: { type: 'STRING', description: 'perguntar_agente: pendencias, achados-conferidor, status-robos ou vencimentos.' },
+        } } },
+        sugestao_id: { type: 'STRING', description: 'Só para sugestao: o id que mostrar_meu_jeito devolveu.' },
+        como_a_pessoa_pediu: { type: 'STRING', description: 'A frase da pessoa, resumida. Serve só para checar se ela pediu algo que o sistema protege; nunca é guardada.' },
+      }, required: ['tipo'] },
+    },
+    async preparar(ctx, args) {
+      const pediu = detectarPedidoProtegido(args.como_a_pessoa_pediu);
+      if (pediu) return { erro: `${pediu} Explique isso com gentileza e não tente salvar de outro jeito; se não era isso que a pessoa pediu, peça para ela dizer de outro modo.` };
+      const tipo = normalizarTexto(args.tipo);
+      const jeito = await ctx.chamarApi('GET', '/api/meu-jeito');
+      if (!ok(jeito)) return erroApi(jeito);
+      const v = jeito.corpo?.jeito || {};
+      if (tipo === 'preferencia') {
+        const r = validarPreferencia(args.chave, args.valor);
+        if (falhou(r)) return { erro: r.protegido ? `${r.motivo} Explique isso com gentileza ao usuário.` : r.motivo };
+        const escopo = normalizarTexto(args.escopo) === 'escritorio' ? 'escritorio' : 'usuario';
+        if (escopo === 'escritorio') {
+          if (v.podeEditarEscritorio !== true) return { erro: 'Só a administradora do escritório muda o jeito padrão do escritório. Posso salvar só para esta pessoa.' };
+          if (!PREFERENCIAS[r.chave].escopoEscritorio) return { erro: `"${PREFERENCIAS[r.chave].rotulo}" é pessoal e não pode virar padrão do escritório.` };
+        }
+        const dito = descreverPreferencia(r.chave, r.valor);
+        return {
+          cnpj: '', params: { tipo: 'preferencia', chave: r.chave, valor: r.valor, escopo },
+          titulo: `Aprender o seu jeito: ${dito}`,
+          descricao: [`Entendi assim: ${dito}`, escopo === 'escritorio' ? 'Vira o padrão de todas as pessoas do escritório (quem tiver o próprio jeito continua com o dele).' : 'Vale só para você.', 'Você volta ao jeito padrão quando quiser, uma regra por vez, em Meu jeito.'],
+          resumo: `Meu jeito: ${dito}${escopo === 'escritorio' ? ' (escritório)' : ''}`.slice(0, 280),
+        };
+      }
+      if (tipo === 'regra') {
+        const quando = normalizarTexto(args.quando);
+        const gatilho = quando.startsWith('entr') ? { tipo: 'entrar_no_sistema' } : { tipo: 'abrir_tela', tela: args.tela_quando };
+        const acoes = (Array.isArray(args.passos) ? args.passos : []).slice(0, 6).map((p: any) => {
+          const o: Record<string, unknown> = { tipo: String(p?.acao ?? '').trim() };
+          if (p?.tela) o.tela = p.tela; if (p?.secao) o.secao = p.secao; if (p?.assunto) o.assunto = p.assunto;
+          return o;
+        });
+        const r = validarReceita({ gatilho, acoes });
+        if (falhou(r)) return { erro: r.protegido ? `${r.motivo} Explique isso com gentileza ao usuário.` : r.motivo };
+        const dito = descreverReceita(r);
+        const antiga = (v.receitas || []).find((x: any) => x.id === idDaReceita(r.gatilho) && !x.obsoleta);
+        return {
+          cnpj: '', params: { tipo: 'regra', gatilho: r.gatilho, acoes: r.acoes },
+          titulo: `Aprender uma regra: ${dito}`.slice(0, 160),
+          descricao: [`Entendi assim: ${dito}`, ...(antiga ? [`Isto troca a regra que você já tinha para este momento: ${antiga.descricao}`] : []), ...(r.acoes.some((a) => a.tipo === 'perguntar_agente') ? ['Perguntar à Agente usa crédito de IA a cada vez que a regra rodar.'] : []), 'Você remove ou muda a regra quando quiser, em Meu jeito. A regra nunca confirma nada por você.'],
+          resumo: `Meu jeito (regra): ${dito}`.slice(0, 280),
+        };
+      }
+      if (tipo === 'sugestao') {
+        const id = String(args.sugestao_id ?? '');
+        const s = (v.sugestoes || []).find((x: any) => x.id === id);
+        if (!s) return { erro: 'Essa sugestão não existe mais. Use mostrar_meu_jeito para ver as sugestões de agora.' };
+        return { cnpj: '', params: { tipo: 'sugestao', id }, titulo: 'Aceitar a sugestão de atalho', descricao: [s.texto, 'Só vale se você confirmar aqui.'], resumo: `Meu jeito: aceitar sugestão ${id}`.slice(0, 280) };
+      }
+      return { erro: 'Diga se é uma preferência, uma regra ou uma sugestão a aceitar.' };
+    },
+    async executar(ctx, params) {
+      let r;
+      if (params.tipo === 'preferencia') r = await ctx.chamarApi('POST', '/api/meu-jeito/preferencias', { chave: params.chave, valor: params.valor, escopo: params.escopo });
+      else if (params.tipo === 'regra') r = await ctx.chamarApi('POST', '/api/meu-jeito/receitas', { gatilho: params.gatilho, acoes: params.acoes });
+      else r = await ctx.chamarApi('POST', '/api/meu-jeito/sugestoes/aceitar', { id: params.id });
+      if (!ok(r)) return { sucesso: false, mensagem: erroApi(r).erro };
+      return { sucesso: true, mensagem: 'Pronto, salvei o seu jeito. A partir de agora eu trabalho assim com você.' };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'mostrar_meu_jeito', description: 'Mostra o que a Agente já aprendeu do jeito de trabalhar DESTA pessoa (preferências, regras e sugestões) e de onde vem cada valor (dela, do escritório ou do padrão do sistema). Use quando perguntarem "o que você aprendeu de mim?", "mostra meu jeito" ou antes de aceitar uma sugestão.', parameters: { type: 'OBJECT', properties: {} } },
+    async executar(ctx) {
+      const r = await ctx.chamarApi('GET', '/api/meu-jeito');
+      if (!ok(r)) return erroApi(r);
+      const j = r.corpo?.jeito || {};
+      const quem: Record<string, string> = { voce: 'definido por você', escritorio: 'padrão do escritório', padrao: 'jeito padrão do sistema' };
+      return {
+        preferencias: (j.preferencias || []).map((p: any) => ({ nome: p.rotulo, valor: p.valorTexto, origem: quem[p.origem] || p.origem })),
+        regras: (j.receitas || []).map((x: any) => ({ regra: x.descricao, situacao: x.obsoleta ? 'obsoleta (pausada: o sistema mudou)' : 'valendo' })),
+        sugestoes: (j.sugestoes || []).map((s: any) => ({ id: s.id, texto: s.texto })),
+        aberturasContadas: j.sessoes, podeMudarPadraoDoEscritorio: j.podeEditarEscritorio === true,
+        observacao: 'Só guardo preferências de uso; nada do que a pessoa digita nem dado de empresa ou lançamento. Sugestões só viram regra se a pessoa disser sim (use aprender_meu_jeito com tipo sugestao).',
+      };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: {
+      name: 'esquecer_regra_do_jeito',
+      description: 'Propõe VOLTAR AO JEITO PADRÃO em UMA coisa só: uma preferência (ex.: tela ao entrar) ou uma regra "ao abrir X". Vira cartão de confirmação. Uma por vez: se a pessoa pedir "apaga tudo", explique que o sistema desfaz uma regra por vez, para ninguém perder o que não queria, e pergunte qual.',
+      parameters: { type: 'OBJECT', properties: {
+        tipo: { type: 'STRING', description: 'preferencia ou regra.' },
+        chave: { type: 'STRING', description: 'Para preferencia: a chave (telaInicial, menuFavoritos, nivelConversa, velocidadePiloto, confirmacaoNaoProtegida, observarUso) ou o nome dela.' },
+        quando: { type: 'STRING', description: 'Para regra: entrar ou abrir_tela.' },
+        tela_quando: { type: 'STRING', description: 'Para regra com quando=abrir_tela: a tela.' },
+        escopo: { type: 'STRING', description: 'usuario (padrão) ou escritorio (só a administradora).' },
+      }, required: ['tipo'] },
+    },
+    async preparar(ctx, args) {
+      if (/\b(tudo|todas?|todos?)\b/.test(normalizarTexto(args.chave)) || /\b(tudo|todas?|todos?)\b/.test(normalizarTexto(args.tela_quando))) return { erro: 'O sistema desfaz uma regra por vez, para ninguém perder o que queria manter. Pergunte ao usuário qual delas.' };
+      const r = await ctx.chamarApi('GET', '/api/meu-jeito');
+      if (!ok(r)) return erroApi(r);
+      const j = r.corpo?.jeito || {};
+      const tipo = normalizarTexto(args.tipo);
+      const escopo = normalizarTexto(args.escopo) === 'escritorio' ? 'escritorio' : 'usuario';
+      if (tipo === 'preferencia') {
+        const alvo = CHAVES_PREFERENCIA.length ? acharPorNome(CHAVES_PREFERENCIA.map((k) => ({ k, rotulo: PREFERENCIAS[k].rotulo })), String(args.chave ?? ''), (x) => [x.k, x.rotulo]) : { tipo: 'nenhum' as const };
+        if (alvo.tipo !== 'unico') return { erro: `Qual preferência? ${CHAVES_PREFERENCIA.map((k) => PREFERENCIAS[k].rotulo).join('; ')}.` };
+        const k = alvo.item.k; const p = (j.preferencias || []).find((x: any) => x.chave === k);
+        if (escopo === 'escritorio') {
+          if (j.podeEditarEscritorio !== true) return { erro: 'Só a administradora do escritório muda o jeito padrão do escritório.' };
+          if (!p || p.valorEscritorio === null || p.valorEscritorio === undefined) return { erro: `O escritório não tem um padrão salvo para "${PREFERENCIAS[k].rotulo}".` };
+        } else if (!p || p.origem !== 'voce') return { erro: `Você não tem "${PREFERENCIAS[k].rotulo}" salvo no seu jeito; já está no ${p?.origem === 'escritorio' ? 'padrão do escritório' : 'jeito padrão do sistema'}.` };
+        return { cnpj: '', params: { tipo: 'preferencia', chave: k, escopo }, titulo: `Voltar ao jeito padrão: ${PREFERENCIAS[k].rotulo}`, descricao: [`Desfaz só isto: ${descreverPreferencia(k, escopo === 'escritorio' ? p.valorEscritorio : p.valor)}`, 'As outras coisas do seu jeito continuam como estão.'], resumo: `Meu jeito: voltar ao padrão em ${PREFERENCIAS[k].rotulo}`.slice(0, 280) };
+      }
+      if (tipo === 'regra') {
+        const quando = normalizarTexto(args.quando);
+        let id = 'entrar';
+        if (!quando.startsWith('entr')) { const t = resolverTela(args.tela_quando); if (falhou(t)) return { erro: t.motivo }; id = `abrir:${t.id}`; }
+        const regra = (j.receitas || []).find((x: any) => x.id === id);
+        if (!regra) return { erro: 'Você não tem uma regra salva para esse momento. Use mostrar_meu_jeito para ver as regras.' };
+        return { cnpj: '', params: { tipo: 'regra', id }, titulo: 'Voltar ao jeito padrão: remover uma regra', descricao: [`Remove só esta regra: ${regra.descricao}`, 'As outras regras e preferências continuam como estão.'], resumo: `Meu jeito: remover regra ${id}`.slice(0, 280) };
+      }
+      return { erro: 'Diga se é uma preferência ou uma regra.' };
+    },
+    async executar(ctx, params) {
+      const r = params.tipo === 'preferencia'
+        ? await ctx.chamarApi('POST', '/api/meu-jeito/preferencias/remover', { chave: params.chave, escopo: params.escopo })
+        : await ctx.chamarApi('POST', '/api/meu-jeito/receitas/remover', { id: params.id });
+      if (!ok(r)) return { sucesso: false, mensagem: erroApi(r).erro };
+      return { sucesso: true, mensagem: 'Pronto, voltei ao jeito padrão nessa parte. O resto do seu jeito continua igual.' };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'explicar_jeito_padrao', description: 'Explica como o sistema funciona por padrão (o jeito padrão de cada módulo), a partir de um arquivo fixo e verificado, sem gastar IA. Use quando pedirem "mostra como o sistema funciona" ou "para que serve a tela X". Informe o módulo para explicar só um.', parameters: { type: 'OBJECT', properties: { modulo: { type: 'STRING', description: 'Opcional: nome da tela do menu (ex.: Balancete). Vazio = todos os módulos.' } } } },
+    async executar(_ctx, args) {
+      const pedido = String(args.modulo ?? '').trim();
+      if (pedido) {
+        const t = resolverTela(pedido);
+        if (falhou(t)) return { erro: t.motivo };
+        const m = MODULOS_JEITO_PADRAO.find((x) => x.id === t.id)!;
+        return { modulo: m.rotulo, comoFunciona: m.resumo, observacao: 'Este é o jeito padrão do sistema; a pessoa pode ter o próprio jeito por cima (mostrar_meu_jeito).' };
+      }
+      return { modulos: MODULOS_JEITO_PADRAO.filter((m) => m.id !== 'meu-jeito').map((m) => ({ tela: m.rotulo, comoFunciona: m.resumo })), oQueNuncaMuda: PROTECOES_FIXAS, observacao: `${TEXTO_PROTECAO} Conte em poucas frases; não leia a lista inteira se a pessoa não pediu.` };
+    },
+  },
   {
     tipo: 'leitura',
     declaracao: {
@@ -481,6 +644,7 @@ COMO TRABALHAR
 - PEDIR SERVIÇO À EQUIPE (delegar_tarefa): quando a contadora pedir algo como "peça para a Nilva conciliar o banco da empresa X", use delegar_tarefa com o nome da pessoa como foi dito, o serviço, a empresa (se disse) e o prazo (só se disse; converta para AAAA-MM-DD pela data de hoje). Vira cartão de confirmação; diga em uma frase para quem é o pedido e que ele só vale ao confirmar. Se a ferramenta disser que o nome é ambíguo ou não existe, pergunte UMA vez qual pessoa, sem escolher sozinha. Só a administradora do escritório pede para outra pessoa; funcionário comum só anota tarefa para si (sem destinatário). Isso funciona de qualquer tela. A pessoa recebe o pedido na tela de Tarefas da equipe.
 - Você não cria nem edita lançamentos manuais, plano de contas ou mapeamentos: isso é feito nas telas.
 - Antes de propor fechar o período ou contabilizar, se o usuário perguntar se alguém já fez, ou se vários colegas trabalham na empresa, use consultar_servico_feito. Se a ação for barrada porque outra pessoa (ou o robô) já fez, repasse a frase do sistema com o nome e a hora, sem tentar de novo; se o sistema avisar que alguém está fazendo agora, conte isso ao usuário e só prossiga se ele pedir de novo. Nunca invente quem fez.
+- MEU JEITO: se a pessoa contar como prefere trabalhar (tela ao entrar, atalhos do menu, conversa mais curta ou detalhada, regra "ao abrir X, destacar Y"), use aprender_meu_jeito (vira cartão com o que você entendeu; só vale após o sim); para ver o que aprendeu, mostrar_meu_jeito; para voltar ao padrão em UMA coisa, esquecer_regra_do_jeito; para explicar o jeito padrão, explicar_jeito_padrao. O jeito nunca desliga proteções (confirmações, cálculos exatos, robôs, anti-duplicidade, SERPRO só manual, nada de apagar em lote): se pedirem isso, explique com gentileza e não chame a ferramenta.
 
 LIMITES (diga com clareza quando o pedido bater neles)
 - Folha, guias de FGTS/INSS e eSocial são do Departamento Pessoal; DAS e notas fiscais são do Fiscal. Não os faça aqui: consulte ou peça à Agente do outro sistema pelas ferramentas de comunicação.
