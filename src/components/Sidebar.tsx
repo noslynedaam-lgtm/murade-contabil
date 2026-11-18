@@ -21,6 +21,7 @@ import {
   Database,
   ClipboardCheck,
   ShieldHalf,
+  ListChecks,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -136,6 +137,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
       icon: Bot,
       badge: "Autônomo",
       badgeColor: "bg-amber-400/30 text-amber-200",
+    },
+    {
+      id: "tarefas-equipe" as TabId,
+      label: "Tarefas da equipe",
+      icon: ListChecks,
+      badge: "Pedidos",
+      badgeColor: "bg-sky-300 text-sky-950 font-bold",
     },
     {
       id: "backups" as TabId,

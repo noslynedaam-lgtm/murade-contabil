@@ -41,6 +41,9 @@ import { conectarEPuxarEmpresaMuradFiscal, conectarMuradDP } from "./services/in
 import { CheckCircle2, X } from "lucide-react";
 import { ContabilAccessGate, useContabilAuth } from "./components/ContabilAccessGate";
 import { AlertaRobosParados } from "./components/AlertaRobosParados";
+import { AvisoTarefasEquipe } from "./components/AvisoTarefasEquipe";
+import { TarefasEquipeTab } from "./components/tabs/TarefasEquipeTab";
+import { CaixaPedirParaAlguem } from "./components/CaixaPedirParaAlguem";
 
 export default function App() {
   return <ContabilAccessGate><AppWorkspace /></ContabilAccessGate>;
@@ -857,6 +860,9 @@ function AppWorkspace() {
             <div className="space-y-4 min-w-0">
               <ErroTela chave={String(tabAtiva)}>
               {tabAtiva === "inicio" && (
+                <CaixaPedirParaAlguem onEnviar={(frase) => { assistenteRef.current?.abrir(); assistenteRef.current?.perguntar(frase); }} />
+              )}
+              {tabAtiva === "inicio" && (
                 <InicioTab
                   empresa={empresa}
                   lancamentos={lancamentos}
@@ -1082,6 +1088,7 @@ function AppWorkspace() {
               )}
 
               {tabAtiva === "backups" && <BackupsTab />}
+              {tabAtiva === "tarefas-equipe" && <TarefasEquipeTab />}
               </ErroTela>
             </div>
 
@@ -1107,6 +1114,7 @@ function AppWorkspace() {
           showToast(`✅ Empresa '${emp.razaoSocial}' ativa e pronta para escrituração contábil!`);
         }}
       />
+      <AvisoTarefasEquipe onAbrir={() => setTabAtiva("tarefas-equipe")} />
       <IAMuradModal
         ref={assistenteRef}
         isOpen={assistenteAberta}

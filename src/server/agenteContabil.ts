@@ -13,6 +13,7 @@ import { estimarLucroRealWorkspace } from './estimativaLucroReal';
 import { conferirFechamento } from '../utils/fechamentoContabil';
 import { compararPeriodos, explicarVariacoes } from '../utils/analiseContabil';
 import { FERRAMENTAS_ENTRE_SISTEMAS, INSTRUCAO_ENTRE_SISTEMAS } from './ferramentasEntreSistemas';
+import { acharPessoa, acharPorNome, cnpjLimpo, formatarCnpj, formatarDataBr, montarMensagemPedido, nomeDaPessoa, normalizarTexto, prazoValido } from './tarefasEquipe';
 
 const cnpjDe = (v: unknown): string | null => { const d = String(v ?? '').replace(/[^0-9A-Za-z]/g, '').toUpperCase(); return d.length === 14 ? d : null; };
 const competenciaDe = (v: unknown): string | null => (typeof v === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(v.trim()) ? v.trim() : null);
@@ -337,6 +338,72 @@ const FERRAMENTAS: Ferramenta[] = [
     },
   },
   {
+    tipo: 'acao',
+    declaracao: {
+      name: 'delegar_tarefa',
+      description: 'Propõe PEDIR um serviço a uma pessoa da equipe do escritório (ex.: "peça para a Nilva conciliar o banco da empresa X"). Vira cartão de confirmação; ao confirmar, a pessoa recebe a mensagem pronta no topo da tela e na lista Pedidos da contadora, e quem pediu vê quando foi visto e concluído. Só a administradora do escritório pede para OUTRA pessoa; funcionário comum só cria tarefa para si (deixe o destinatário vazio). Se o nome for ambíguo ou não existir, a ferramenta avisa: pergunte ao usuário, nunca escolha por conta própria. Funciona igual por voz e por chat.',
+      parameters: { type: 'OBJECT', properties: {
+        destinatario: { type: 'STRING', description: 'Nome (ou parte do nome) ou usuário da pessoa da equipe que vai fazer o serviço, como o usuário falou. Vazio ou "para mim" = tarefa para o próprio usuário.' },
+        servico: { type: 'STRING', description: 'O serviço pedido, curto e no infinitivo, por exemplo "conciliar o banco".' },
+        empresa: { type: 'STRING', description: 'Opcional. CNPJ ou nome da empresa do escritório a que o serviço se refere.' },
+        prazo: { type: 'STRING', description: 'Opcional. Dia limite, só se o usuário disse, no formato AAAA-MM-DD (calcule a partir da data de hoje).' },
+      }, required: ['servico'] },
+    },
+    async preparar(ctx, args) {
+      const servico = String(args.servico || '').replace(/\s+/g, ' ').trim();
+      if (servico.length < 3 || servico.length > 200) return { erro: 'Diga qual é o serviço a pedir.' };
+      const eq = await ctx.chamarApi('GET', '/api/tarefas-equipe/equipe');
+      if (!ok(eq)) return erroApi(eq);
+      const equipe: Array<{ id: string; login: string; nome: string }> = eq.corpo?.equipe || [];
+      const pessoas = equipe.map((p) => ({ id: p.id, login: p.login, nome: p.nome === p.login ? null : p.nome }));
+      const eu = pessoas.find((p) => p.id === eq.corpo?.eu);
+      if (!eu) return { erro: 'Não consegui identificar o seu usuário neste escritório.' };
+      const falado = String(args.destinatario || '').trim();
+      const ehEu = !falado || /^(eu|mim|para mim|pra mim|eu mesm[oa]|mim mesm[oa]|para mim mesm[oa]|pra mim mesm[oa])$/.test(normalizarTexto(falado));
+      let alvo = eu;
+      if (!ehEu) {
+        const a = acharPessoa(pessoas, falado);
+        if (a.tipo === 'nenhum') return { erro: `Não encontrei "${falado}" na equipe deste escritório. Pessoas da equipe: ${pessoas.map((p) => nomeDaPessoa(p)).join(', ')}. Pergunte ao usuário a quem se refere; não escolha por conta própria.` };
+        if (a.tipo === 'ambiguo') return { erro: `Há mais de uma pessoa parecida com "${falado}": ${a.itens.map((p) => `${nomeDaPessoa(p)} (${p.login})`).join('; ')}. Pergunte ao usuário qual delas; não escolha por conta própria.` };
+        alvo = a.item;
+      }
+      if (alvo.id !== eu.id && eq.corpo?.podeDelegar !== true) return { erro: 'Somente a administradora do escritório pede serviço para outra pessoa. Você pode criar a tarefa só para você mesmo.' };
+      let cnpj: string | null = null; let empresaNome: string | null = null;
+      if (String(args.empresa || '').trim()) {
+        const lista = await ctx.chamarApi('GET', '/api/workspaces');
+        if (!ok(lista)) return erroApi(lista);
+        const empresas = (lista.corpo?.empresas || []).map((e: any) => ({ cnpj: String(e.cnpj || '').toUpperCase(), nome: String(e.razaoSocial || e.nomeFantasia || e.nome || ''), fantasia: String(e.nomeFantasia || '') }));
+        const c = cnpjLimpo(args.empresa);
+        const a = c ? (empresas.find((e: any) => e.cnpj === c) ? { tipo: 'unico' as const, item: empresas.find((e: any) => e.cnpj === c) } : { tipo: 'nenhum' as const }) : acharPorNome(empresas, String(args.empresa), (e: any) => [e.nome, e.fantasia]);
+        if (a.tipo === 'nenhum') return { erro: `Não encontrei a empresa "${args.empresa}" entre as empresas do escritório. Use listar_empresas e pergunte ao usuário qual é.` };
+        if (a.tipo === 'ambiguo') return { erro: `Há mais de uma empresa parecida com "${args.empresa}": ${a.itens.map((e: any) => `${e.nome} (${formatarCnpj(e.cnpj)})`).join('; ')}. Pergunte qual delas.` };
+        cnpj = (a as any).item.cnpj; empresaNome = (a as any).item.nome || null;
+      }
+      let prazo: string | null = null;
+      if (String(args.prazo || '').trim()) {
+        prazo = prazoValido(args.prazo);
+        if (!prazo) return { erro: 'Prazo inválido. Use o dia no formato AAAA-MM-DD.' };
+        if (prazo < ctx.hoje) return { erro: 'O prazo já passou. Peça ao usuário um dia de hoje em diante.' };
+      }
+      const rotuloEmpresa = cnpj ? (empresaNome || formatarCnpj(cnpj)) : null;
+      const pedinte = ctx.nomeUsuario || ctx.login;
+      const previa = alvo.id === eu.id ? `Tarefa sua: ${servico}${rotuloEmpresa ? ` — empresa ${rotuloEmpresa}` : ''}${prazo ? ` — prazo ${formatarDataBr(prazo)}` : ''}` : montarMensagemPedido({ destinatario: nomeDaPessoa(alvo), pedinte, servico, empresa: rotuloEmpresa, prazo });
+      return {
+        cnpj: cnpj || '', params: { destinatarioLogin: alvo.login, titulo: servico, cnpj: cnpj || '', prazo: prazo || '' },
+        titulo: alvo.id === eu.id ? `Anotar tarefa para você: ${servico}` : `Pedir a ${nomeDaPessoa(alvo)}: ${servico}`,
+        descricao: [`Para: ${nomeDaPessoa(alvo)} (${alvo.login})`, `Serviço: ${servico}`, ...(rotuloEmpresa ? [`Empresa: ${rotuloEmpresa}`] : []), ...(prazo ? [`Prazo: ${formatarDataBr(prazo)}`] : []), `Mensagem: ${previa}`],
+        resumo: `${alvo.id === eu.id ? 'Tarefa própria' : `Pedir a ${alvo.login}`}: ${servico}`.slice(0, 280),
+      };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', '/api/tarefas-equipe', { destinatarioLogin: params.destinatarioLogin, titulo: params.titulo, cnpj: params.cnpj || undefined, prazo: params.prazo || undefined });
+      if (!ok(r)) return { sucesso: false, mensagem: erroApi(r).erro };
+      const t = r.corpo?.tarefa;
+      const aviso = r.corpo?.avisado === false ? ' O aviso na tela falhou agora, mas o pedido está guardado e o robô avisa em seguida.' : '';
+      return { sucesso: true, mensagem: t?.origem === 'delegada' ? `Pedido registrado. ${t.destinatario?.nome} recebe: ${t.mensagem}.${aviso}` : `Tarefa anotada para você: ${t?.titulo || params.titulo}.` };
+    },
+  },
+  {
     tipo: 'leitura',
     declaracao: {
       name: 'chamar_supervisor',
@@ -371,14 +438,15 @@ COMO ENTENDER QUEM FALA
 - Conversa de rotina ("obrigado", "ok", "tchau") não precisa de consulta: responda em uma frase curta.
 
 MAPA DO SISTEMA (onde fica cada coisa no menu do Contábil)
-Tela Inicial; Cadastro de Empresa; Agenda e Lembretes; Obrigações e Gestão; Gestão contábil; Conexão Órgãos; Lançamentos; Aprovar lançamentos; Balancete; Livros Fiscais e ECD; Plano de Contas; Migração Contábil; Integrações; Revisar dados recebidos; Calculadora; Agentes e Robô; IA Murade.
+Tela Inicial (tem a caixinha "Pedir para alguém"); Cadastro de Empresa; Tarefas da equipe; Agenda e Lembretes; Obrigações e Gestão; Gestão contábil; Conexão Órgãos; Lançamentos; Aprovar lançamentos; Balancete; Livros Fiscais e ECD; Plano de Contas; Migração Contábil; Integrações; Revisar dados recebidos; Calculadora; Agentes e Robô; IA Murade.
 Quando perguntarem "onde eu faço X", diga o nome da tela do menu. Não invente telas que não estão nesta lista.
 
 COMO TRABALHAR
 - Para saber qualquer coisa do sistema (empresas, pendências de conferência, fechamentos, integrações, robôs), use as ferramentas de consulta. Nunca responda de memória sobre dados do cliente.
 - Para dúvidas de legislação, regra, alíquota ou prazo, use consultar_legislacao e repasse as fontes oficiais.
 - Se o usuário tem uma única empresa, use-a. Se há várias e ele não disse qual, pergunte. Se não disse a competência (mês), pergunte antes de agir.
-- Ações que alteram dados (contabilizar_prelancamentos, fechar_competencia) NÃO são executadas por você: viram um cartão de confirmação. Depois de chamar uma ação, diga em uma frase o que ficou pronto para ele confirmar. Nunca diga que algo foi feito antes de ele confirmar.
+- Ações que alteram dados (contabilizar_prelancamentos, fechar_competencia, delegar_tarefa) NÃO são executadas por você: viram um cartão de confirmação. Depois de chamar uma ação, diga em uma frase o que ficou pronto para ele confirmar. Nunca diga que algo foi feito antes de ele confirmar.
+- PEDIR SERVIÇO À EQUIPE (delegar_tarefa): quando a contadora pedir algo como "peça para a Nilva conciliar o banco da empresa X", use delegar_tarefa com o nome da pessoa como foi dito, o serviço, a empresa (se disse) e o prazo (só se disse; converta para AAAA-MM-DD pela data de hoje). Vira cartão de confirmação; diga em uma frase para quem é o pedido e que ele só vale ao confirmar. Se a ferramenta disser que o nome é ambíguo ou não existe, pergunte UMA vez qual pessoa, sem escolher sozinha. Só a administradora do escritório pede para outra pessoa; funcionário comum só anota tarefa para si (sem destinatário). Isso funciona de qualquer tela. A pessoa recebe o pedido na tela de Tarefas da equipe.
 - Você não cria nem edita lançamentos manuais, plano de contas ou mapeamentos: isso é feito nas telas.
 
 LIMITES (diga com clareza quando o pedido bater neles)

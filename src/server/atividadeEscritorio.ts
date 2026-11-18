@@ -13,6 +13,7 @@ export type DependenciasAtividade = {
 
 const IGNORAR = [/^\/api\/auth\/(login|logout|session|status|bootstrap|redeem|tenants|atividade)/, /^\/api\/integracao\//, /^\/api\/health/, /^\/api\/robos/];
 const ROTULOS: Array<[RegExp, string]> = [
+  [/tarefas-equipe/, 'Movimentou tarefa da equipe'],
   [/auth\/team\/invite/, 'Convidou funcionário para a equipe'], [/auth\/team/, 'Alterou a equipe do escritório'],
   [/ai\/agente\/confirmar/, 'Confirmou uma ação sugerida pela IA'], [/ai\/agente\/recusar/, 'Recusou uma ação sugerida pela IA'],
   [/esocial/, 'Movimentou eSocial'], [/folha|payroll/, 'Alterou folha de pagamento'], [/funcionario|employee/, 'Alterou cadastro de funcionário'],

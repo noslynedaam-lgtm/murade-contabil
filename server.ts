@@ -16,6 +16,7 @@ import { ArmazemAcoesPendentes, confirmarAcao as confirmarAcaoAgenteIA, conversa
 import { kitContabil } from "./src/server/agenteContabil";
 import { ArmazemPedidosMemoria, ArmazemPedidosPg, CentralDePedidos, tokenValido } from "./src/server/agentesEntreSistemas";
 import { criarAtividadeEscritorio } from './src/server/atividadeEscritorio';
+import { criarServicoTarefas, registrarRotasTarefasEquipe } from "./src/server/tarefasEquipe";
 import type { SessaoContabil } from './src/server/authContabil';
 import { lerPerfilSaudacaoContabil, gravarNomeTratamentoContabil, marcarSaudadoHojeContabil } from "./src/server/authContabil";
 import { extrairNomeDaResposta, fraseDeSaudacao } from "./src/server/agenteSaudacao";
@@ -1381,6 +1382,18 @@ const reconciliacaoRascunhosStatus: {
   }).catch((e) => console.error("Alerta do Robô Conferidor de Segurança do Login:", e?.message || e)) : undefined;
   setTimeout(() => void rodarSegurancaLogin(), 130_000).unref();
   setInterval(() => void rodarSegurancaLogin(), 2 * 60 * 60_000).unref();
+  // Tarefas da equipe: a administradora pede serviço a alguém da equipe (tela, chat ou voz da Agente IA). Isolado por escritório.
+  const servicoTarefasEquipe = criarServicoTarefas((sql, params) => consultaBancoContabil(sql, params));
+  registrarRotasTarefasEquipe(app, { servico: servicoTarefasEquipe, exigirSessao: exigirSessaoContabil, exigirOrigem: exigirOrigemNavegador, sessao: (req) => { const x = sessaoDaRequisicaoContabil(req); return x ? { userId: x.userId, login: x.login, tenantId: x.tenantId, escritorioDe: x.escritorioDe, administrador: x.administrador === true, cnpjs: x.cnpjs } : undefined; } });
+  registrarRobo({ id: "tarefas_equipe", nome: "Robô de Tarefas da Equipe", posto: "conferidor", missao: "Conferir os pedidos que a administradora fez à equipe: refaz o aviso que não chegou, lembra quem não abriu o pedido em mais de 2 horas úteis e avisa quem pediu e quem recebeu quando o prazo vence. Nunca altera, conclui nem apaga uma tarefa.", intervaloMs: 15 * 60_000 });
+  const rodarTarefasEquipe = () => bancoContabilConfigurado() ? executarRobo("tarefas_equipe", async () => {
+    const r = await servicoTarefasEquipe.conferir();
+    registrarResultadoRobo("tarefas_equipe", r.resumo);
+    if (r.falhas > 0) throw new Error(r.resumo);
+  }).catch((e) => console.error("Alerta do Robô de Tarefas da Equipe:", e?.message || e)) : undefined;
+  setTimeout(() => void rodarTarefasEquipe(), 150_000).unref();
+  setInterval(() => void rodarTarefasEquipe(), 15 * 60_000).unref();
+  registrarRotinaManual("tarefas_equipe", rodarTarefasEquipe);
   registrarRobo({ id: "backups", nome: "Robô de Backups Mensais", posto: "conferidor", missao: "Conferir se cada escritório com empresa cadastrada já tem o backup cifrado do mês corrente, gerado e conferido (checksum e reabertura do zip); gera de novo sozinho quando falta ou falhou, sem precisar do dono. Mantém só o backup do mês corrente (o anterior é apagado) e avisa o escritório por e-mail quando fica pronto.", intervaloMs: 60 * 60_000 });
   const escritoriosParaBackup = async (): Promise<{ id: string; login: string; cnpjs: string[] }[]> => {
     const r = await consultaBancoContabil(
