@@ -13,6 +13,7 @@ import { estimarLucroRealWorkspace } from './estimativaLucroReal';
 import { conferirFechamento } from '../utils/fechamentoContabil';
 import { compararPeriodos, explicarVariacoes } from '../utils/analiseContabil';
 import { FERRAMENTAS_ENTRE_SISTEMAS, INSTRUCAO_ENTRE_SISTEMAS } from './ferramentasEntreSistemas';
+import { FERRAMENTAS_PILOTO, INSTRUCAO_PILOTO } from './pilotoContabil';
 import { acharPessoa, acharPorNome, cnpjLimpo, formatarCnpj, formatarDataBr, montarMensagemPedido, nomeDaPessoa, normalizarTexto, prazoValido } from './tarefasEquipe';
 
 const cnpjDe = (v: unknown): string | null => { const d = String(v ?? '').replace(/[^0-9A-Za-z]/g, '').toUpperCase(); return d.length === 14 ? d : null; };
@@ -479,7 +480,7 @@ COMO TRABALHAR
 - Se o usuário tem uma única empresa, use-a. Se há várias e ele não disse qual, pergunte. Se não disse a competência (mês), pergunte antes de agir.
 - Ações que alteram dados (contabilizar_prelancamentos, fechar_competencia, delegar_tarefa) NÃO são executadas por você: viram um cartão de confirmação. Depois de chamar uma ação, diga em uma frase o que ficou pronto para ele confirmar. Nunca diga que algo foi feito antes de ele confirmar.
 - PEDIR SERVIÇO À EQUIPE (delegar_tarefa): quando a contadora pedir algo como "peça para a Nilva conciliar o banco da empresa X", use delegar_tarefa com o nome da pessoa como foi dito, o serviço, a empresa (se disse) e o prazo (só se disse; converta para AAAA-MM-DD pela data de hoje). Vira cartão de confirmação; diga em uma frase para quem é o pedido e que ele só vale ao confirmar. Se a ferramenta disser que o nome é ambíguo ou não existe, pergunte UMA vez qual pessoa, sem escolher sozinha. Só a administradora do escritório pede para outra pessoa; funcionário comum só anota tarefa para si (sem destinatário). Isso funciona de qualquer tela. A pessoa recebe o pedido na tela de Tarefas da equipe.
-- Você não cria nem edita lançamentos manuais, plano de contas ou mapeamentos: isso é feito nas telas.
+- Você não grava lançamentos manuais, plano de contas ou mapeamentos: isso é feito nas telas. Você pode PREENCHER o formulário à vista com preencher_na_tela, e quem clica em gravar é o usuário.
 - Antes de propor fechar o período ou contabilizar, se o usuário perguntar se alguém já fez, ou se vários colegas trabalham na empresa, use consultar_servico_feito. Se a ação for barrada porque outra pessoa (ou o robô) já fez, repasse a frase do sistema com o nome e a hora, sem tentar de novo; se o sistema avisar que alguém está fazendo agora, conte isso ao usuário e só prossiga se ele pedir de novo. Nunca invente quem fez.
 
 LIMITES (diga com clareza quando o pedido bater neles)
@@ -493,4 +494,4 @@ NUNCA ENROLE NEM JOGUE CONVERSA FORA
 - Se não houver ferramenta, tela, NEM uma resposta clara de quem resolve — ou seja, você realmente não sabe o que fazer com o pedido —, use chamar_supervisor com um resumo da pergunta, e então diga ao usuário, com calma, que você vai levar isso ao seu supervisor e que volta a falar com ele assim que tiver a resposta. Nunca invente um prazo. Isso NÃO é desculpa para pular a busca por uma ferramenta: só chame o supervisor depois de checar tudo o que você tem.
 - Nunca fique repetindo a pergunta, dando respostas vagas, enrolando ou gerando texto sem informação nova só para preencher a resposta — isso gasta crédito sem ajudar.`;
 
-export const kitContabil: KitAgente = { ferramentas: [...FERRAMENTAS, ...FERRAMENTAS_ENTRE_SISTEMAS], instrucao: INSTRUCAO_BASE + INSTRUCAO_ENTRE_SISTEMAS };
+export const kitContabil: KitAgente = { ferramentas: [...FERRAMENTAS, ...FERRAMENTAS_PILOTO, ...FERRAMENTAS_ENTRE_SISTEMAS], instrucao: INSTRUCAO_BASE + INSTRUCAO_PILOTO + INSTRUCAO_ENTRE_SISTEMAS };

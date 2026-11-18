@@ -47,7 +47,7 @@ export const GestaoContabilTab: React.FC<Props> = (p) => {
         <div className="mt-3 flex flex-wrap items-end gap-2">
           {aba("comparativo", "Comparativo e explicações")}{aba("centros", "Centros de custo")}{aba("imobilizado", "Ativo imobilizado")}{aba("extrato", "Extrato e conciliação")}{aba("provisoes", "Provisões")}{aba("dlpa", "Lucros acumulados (DLPA)")}{aba("fechamento", "Fechamento guiado")}
           <label className="ml-auto text-xs font-bold text-slate-700">Competência
-            <input type="month" value={periodo} onChange={(e) => setPeriodo(e.target.value)} className="ml-2 rounded-md border border-slate-300 px-2 py-1 text-sm font-medium" />
+            <input type="month" data-campo="gestao-periodo" value={periodo} onChange={(e) => setPeriodo(e.target.value)} className="ml-2 rounded-md border border-slate-300 px-2 py-1 text-sm font-medium" />
           </label>
         </div>
       </header>

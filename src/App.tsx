@@ -46,6 +46,8 @@ import { AlertaRobosParados } from "./components/AlertaRobosParados";
 import { AvisoTarefasEquipe } from "./components/AvisoTarefasEquipe";
 import { TarefasEquipeTab } from "./components/tabs/TarefasEquipeTab";
 import { CaixaPedirParaAlguem } from "./components/CaixaPedirParaAlguem";
+import { PilotoVisivel } from "./components/PilotoVisivel";
+import { IDS_DE_TELAS_CONTABIL } from "./data/mapaTelasContabil";
 
 export default function App() {
   return <ContabilAccessGate><AppWorkspace /></ContabilAccessGate>;
@@ -1135,6 +1137,16 @@ function AppWorkspace() {
         textoAlvo={dificuldadeAtual?.texto || ''}
         onAceitar={aceitarAjudaProativa}
         onRecusar={() => setDificuldadeAtual(null)}
+      />
+      <PilotoVisivel
+        tabAtiva={tabAtiva}
+        telasValidas={IDS_DE_TELAS_CONTABIL}
+        navegarPara={(tela) => setTabAtiva(tela as TabId)}
+        cnpjsPermitidos={auth.cnpjs}
+        empresaAtual={String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase()}
+        empresaPronta={dadosEmpresaCarregadosCnpj === String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase()}
+        selecionarEmpresa={escolherEmpresaPeloCnpj}
+        aoFalar={(t) => assistenteRef.current?.falar(t)}
       />
       <GuiaPassoAPasso
         passos={roteiroAtivo}

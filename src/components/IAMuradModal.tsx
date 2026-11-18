@@ -4,6 +4,8 @@ import { falarHumana, pararHumana, humanaFalando, ajustarVoz, bipRapido, prepara
 import { Mic, MicOff, Volume2, VolumeX, Send, Bot, Sparkles, X, RotateCcw } from "lucide-react";
 import { AcaoAgenteCartao, ChatMessage, EmpresaDados, LancamentoContabil } from "../types";
 import type { AssistenteHandle } from "../types/assistenteHandle";
+import { aplicarIntencaoAoPiloto, intencaoDoTexto, pilotoAtivo } from "../utils/pilotoVisivel";
+import { enviarAoPiloto } from "./PilotoVisivel";
 
 interface IAMuradModalProps {
   isOpen?: boolean;
@@ -197,6 +199,12 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
       if (minhaGeracao === geracaoRef.current) falarRef.current(ajusteVoz);
       return;
     }
+    // Piloto Visível: "pode continuar", "em segundo plano", "cancela", "pode confirmar" valem no texto e na voz, sem perguntar à IA.
+    if (pilotoAtivo()) {
+      const intencao = intencaoDoTexto(texto);
+      const r = intencao ? aplicarIntencaoAoPiloto(intencao) : null;
+      if (r?.tratado) { if (!r.falado && r.resposta) responderComoIA(r.resposta); return; }
+    }
     // Primeira vez: a resposta é o nome da pessoa. O servidor grava no usuário (sem IA).
     if (aguardandoNomeRef.current) {
       try {
@@ -233,12 +241,14 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
       }
       let respostaTexto: string = data.resposta;
       let acoes: AcaoAgenteCartao[] = [];
+      let pilotoResp: any = null;
       if (res.ok && !ehDuvida && typeof respostaTexto === "string" && respostaTexto.trim()) {
         acoes = Array.isArray(data.acoes)
           ? data.acoes
               .filter((a: any) => a && typeof a.id === "string" && typeof a.titulo === "string")
               .map((a: any) => ({ id: a.id, titulo: a.titulo, descricao: Array.isArray(a.descricao) ? a.descricao.map(String) : [], aviso: typeof a.aviso === "string" ? a.aviso : null, irreversivel: a.irreversivel === true, estado: "pendente" as const }))
           : [];
+        pilotoResp = data.piloto && typeof data.piloto === "object" ? data.piloto : null;
       } else if (res.status === 401 || res.status === 429) {
         throw new Error(data.error || "Não foi possível usar a agente agora.");
       } else {
@@ -269,6 +279,8 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
       falarTexto(respostaTexto);
       mostrarAviso(respostaTexto);
       if (acoes.length) onOpen?.();
+      // Piloto Visível: a tela passa a ser conduzida; a janela da conversa sai da frente (a menos que haja cartão para confirmar).
+      if (pilotoResp) { enviarAoPiloto(pilotoResp); if (!acoes.length && !("comando" in pilotoResp)) onClose(); }
     } catch (err) {
       const erroMsg: ChatMessage = {
         id: `msg-${Date.now() + 1}`,
@@ -357,6 +369,8 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
           // "Para" / "espera": interrompe a fala e cancela o pedido em andamento.
           // Pedidos de volume e velocidade: "aumenta a voz", "fala mais rápido"...
           if (ehFinal) { const confirmacao = ajustarVoz(texto); if (confirmacao) { falarRef.current(confirmacao); continue; } }
+          // Piloto Visível ativo: "cancela" / "para" cancelam o piloto (além de calar a voz).
+          if (ehFinal && pilotoAtivo() && intencaoDoTexto(texto) === "cancelar") { bufferFala = ""; window.clearTimeout(tempoEnvio); pararRef.current(); aplicarIntencaoAoPiloto("cancelar"); continue; }
           // Com a voz dela tocando, o microfone pega a fala dela junto: "para" no fim da frase também conta.
           if (COMANDO_PARAR.test(texto) || (humanaFalando() && texto.split(" ").length <= 4 && /(^| )(para|pare|espera|espere|calma|silencio|chega)( ja| agora| ai| por favor)?$/.test(texto))) { bufferFala = ""; window.clearTimeout(tempoEnvio); pararRef.current(); continue; }
           // A pessoa voltou a falar: segura a resposta até ela terminar.
@@ -416,7 +430,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
             <button type="button" onClick={(e) => { e.stopPropagation(); fecharAviso(); }} aria-label="Fechar o aviso" title="Fechar" className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-sm font-bold text-slate-700 hover:bg-slate-200">✕</button>
           </div>
         )}
-        <div className="fixed bottom-3 right-3 z-40 flex items-center gap-1.5" id="btn-ia-flutuante">
+        <div data-piloto-ignorar="1" className="fixed bottom-3 right-3 z-40 flex items-center gap-1.5" id="btn-ia-flutuante">
           <button
             type="button"
             onClick={() => onOpen?.()}
@@ -443,6 +457,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
 
   return (
     <div
+      data-piloto-ignorar="1"
       className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-4 animate-fade-in"
       onMouseDown={(e) => { if (e.target === e.currentTarget) { window.speechSynthesis?.cancel(); pararHumana(); onClose(); } }}
     >

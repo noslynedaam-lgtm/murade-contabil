@@ -9,6 +9,7 @@
 //  3. Os valores de mensagens (guias, folha) vêm do servidor, nunca do texto do modelo.
 //  4. Tudo que é proposto, confirmado, recusado ou falha fica registrado.
 import crypto from 'node:crypto';
+import { validarPlanoPiloto, type RespostaPiloto } from '../utils/pilotoVisivel';
 
 export type ChamarApi = (metodo: 'GET' | 'POST', caminho: string, corpo?: unknown) => Promise<{ status: number; corpo: any }>;
 
@@ -23,7 +24,7 @@ export interface RespostaModelo { texto: string; chamadas: ChamadaModelo[]; turn
 export type ModeloIA = (entrada: { instrucao: string; conteudos: any[]; declaracoes: DeclaracaoFerramenta[] }) => Promise<RespostaModelo>;
 
 export interface EventoAuditoria {
-  evento: 'proposta' | 'confirmada' | 'recusada' | 'falha' | 'whatsapp_preparado' | 'expirada' | 'duvida_sem_resposta';
+  evento: 'proposta' | 'confirmada' | 'recusada' | 'falha' | 'whatsapp_preparado' | 'expirada' | 'duvida_sem_resposta' | 'piloto';
   ferramenta: string;
   cnpj: string | null;
   resumo: string;
@@ -162,7 +163,8 @@ export interface KitAgente { ferramentas: Ferramenta[]; instrucao: string }
 // Conversa
 // ---------------------------------------------------------------------------------------------
 export interface TurnoHistorico { papel: 'usuario' | 'ia'; texto: string }
-export interface ResultadoConversa { resposta: string; acoes: AcaoParaTela[]; whatsapp: MensagemWhatsAppParaTela[] }
+/** `piloto`: roteiro para a tela mudar sozinha (Piloto Visível) ou comando (continuar, segundo_plano, cancelar). Ver src/utils/pilotoVisivel.ts. */
+export interface ResultadoConversa { resposta: string; acoes: AcaoParaTela[]; whatsapp: MensagemWhatsAppParaTela[]; piloto?: RespostaPiloto | null }
 
 function resultadoParaModelo(valor: unknown): Record<string, unknown> {
   const texto = JSON.stringify(valor ?? {});
@@ -221,11 +223,12 @@ export async function conversar(ctx: ContextoAgente, modelo: ModeloIA, mensagem:
 
   const acoes: AcaoParaTela[] = [];
   const whatsapp: MensagemWhatsAppParaTela[] = [];
+  let piloto: RespostaPiloto | null = null;
 
   for (let passo = 0; passo < MAX_PASSOS_MODELO; passo += 1) {
     const r = await modelo({ instrucao, conteudos, declaracoes });
     if (!r.chamadas.length) {
-      return { resposta: r.texto.trim() || 'Não consegui montar uma resposta. Pode repetir o pedido?', acoes, whatsapp };
+      return { resposta: r.texto.trim() || 'Não consegui montar uma resposta. Pode repetir o pedido?', acoes, whatsapp, piloto };
     }
     conteudos.push(r.turnoModelo ?? { role: 'model', parts: r.chamadas.map((c) => ({ functionCall: { name: c.nome, args: c.args } })) });
     const respostas: any[] = [];
@@ -235,7 +238,19 @@ export async function conversar(ctx: ContextoAgente, modelo: ModeloIA, mensagem:
       const args = chamada.args && typeof chamada.args === 'object' ? chamada.args : {};
       try {
         if (!ferramenta) resultado = { erro: `Ferramenta desconhecida: ${chamada.nome}.` };
-        else if (ferramenta.tipo === 'leitura') resultado = resultadoParaModelo(await ferramenta.executar(ctx, args));
+        else if (ferramenta.tipo === 'leitura') {
+          const bruto: any = await ferramenta.executar(ctx, args);
+          // Piloto Visível: o roteiro vai para a tela do usuário, não para o modelo.
+          if (bruto && typeof bruto === 'object' && bruto.piloto) {
+            const { piloto: p, ...resto } = bruto;
+            const valido = p && typeof p === 'object' && 'comando' in p ? (['continuar', 'segundo_plano', 'cancelar'].includes(p.comando) ? { comando: p.comando } : null) : (() => { const v = validarPlanoPiloto(p); return v.ok ? v.plano : null; })();
+            if (valido) {
+              piloto = valido as RespostaPiloto;
+              await auditar(ctx, { evento: 'piloto', ferramenta: chamada.nome, cnpj: cnpjDe((args as any).cnpj), resumo: 'comando' in (valido as any) ? `Comando do piloto: ${(valido as any).comando}` : `Piloto: ${(valido as any).titulo}` });
+            }
+            resultado = resultadoParaModelo(resto);
+          } else resultado = resultadoParaModelo(bruto);
+        }
         else if (ferramenta.tipo === 'mensagem') {
           const m = await ferramenta.executar(ctx, args);
           if ('erro' in m) resultado = m;
@@ -261,7 +276,7 @@ export async function conversar(ctx: ContextoAgente, modelo: ModeloIA, mensagem:
     }
     conteudos.push({ role: 'user', parts: respostas });
   }
-  return { resposta: 'Esse pedido ficou longo demais para eu resolver de uma vez. Pode dividir em partes menores?', acoes, whatsapp };
+  return { resposta: 'Esse pedido ficou longo demais para eu resolver de uma vez. Pode dividir em partes menores?', acoes, whatsapp, piloto };
 }
 
 export async function confirmarAcao(ctx: ContextoAgente, id: string): Promise<{ sucesso: boolean; mensagem: string; detalhes?: unknown }> {
