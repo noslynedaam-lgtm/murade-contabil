@@ -16,6 +16,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { EmpresaDados } from "../../types";
+import { useExclusaoDuasEtapas } from "../ConfirmaExclusaoDuasEtapas";
 
 interface CertificadoDigitalModalProps {
   empresa: EmpresaDados;
@@ -39,6 +40,17 @@ export const CertificadoDigitalModal: React.FC<CertificadoDigitalModalProps> = (
   onRemoverCertificado,
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const { pedir: pedirExclusao, dialogo: dialogoExclusao } = useExclusaoDuasEtapas();
+  const removerComDuasEtapas = async () => {
+    const nomeCert = empresa.certificadoNomeArquivo || "certificado digital";
+    const confirmou = await pedirExclusao({
+      titulo: "Remover o certificado digital?",
+      oQue: `o certificado ${nomeCert} da empresa ${empresa.razaoSocial || empresa.cnpj}`,
+      consequencias: ["O certificado deixa de ficar ligado a esta empresa.", "Para voltar a usar, será preciso enviar o arquivo e a senha de novo."],
+      rotuloFinal: "Sim, remover",
+    });
+    if (confirmou) onRemoverCertificado();
+  };
 
   // Estados locais do certificado
   const [arquivoSelecionado, setArquivoSelecionado] = useState<{
@@ -378,7 +390,7 @@ export const CertificadoDigitalModal: React.FC<CertificadoDigitalModalProps> = (
             {empresa.certificadoAtivo && (
               <button
                 type="button"
-                onClick={onRemoverCertificado}
+                onClick={() => void removerComDuasEtapas()}
                 className="text-xs text-rose-600 hover:text-rose-800 hover:bg-rose-50 px-3 py-2 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -416,6 +428,7 @@ export const CertificadoDigitalModal: React.FC<CertificadoDigitalModalProps> = (
           </div>
         </div>
       </div>
+      {dialogoExclusao}
     </div>
   );
 };

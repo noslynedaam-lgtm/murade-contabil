@@ -14,7 +14,7 @@ import { ASSUNTOS_AGENTE, IDS_TELAS_JEITO, MODULOS_JEITO_PADRAO, PERGUNTA_NOME, 
 import { BufferObservacao, efeitosDaRegra, ordenarMenu, regraDoGatilho, aplicarRitmoDoPiloto } from '../../src/utils/meuJeitoCliente';
 import { TocadorApresentacao, intencaoApresentacao, type Ambiente } from '../../src/utils/apresentacaoCliente';
 import { blocosDoAssunto, montarApresentacao, PERGUNTA_APRESENTACAO } from '../../src/data/apresentacaoSistema';
-import { ArmazemAcoesPendentes, confirmarAcao, conversar, type ChamarApi, type ContextoAgente, type ModeloIA } from '../../src/server/agenteMotor';
+import { ArmazemAcoesPendentes, avancarAcao, confirmarAcao, conversar, type ChamarApi, type ContextoAgente, type ModeloIA } from '../../src/server/agenteMotor';
 import { kitContabil } from '../../src/server/agenteContabil';
 
 const ler = (c: string) => readFileSync(c, 'utf8');
@@ -220,7 +220,12 @@ test('Agente: sugestão só vira regra com o cartão confirmado; esquecer é uma
   const tudo = montarAgente([{ chamadas: [{ nome: 'esquecer_regra_do_jeito', args: { tipo: 'preferencia', chave: 'tudo' } }] }, { texto: 'ok' }]);
   assert.equal((await conversar(tudo.ctx, tudo.modelo, 'x', [])).acoes.length, 0);
   const um = montarAgente([{ chamadas: [{ nome: 'esquecer_regra_do_jeito', args: { tipo: 'regra', quando: 'abrir_tela', tela_quando: 'balancete' } }] }, { texto: 'ok' }]);
-  const ru = await conversar(um.ctx, um.modelo, 'x', []); assert.equal(ru.acoes.length, 1); await confirmarAcao(um.ctx, ru.acoes[0].id);
+  const ru = await conversar(um.ctx, um.modelo, 'x', []); assert.equal(ru.acoes.length, 1);
+  // Remoção por voz = exclusão: duas confirmações. Sem a primeira, o servidor recusa e nada é chamado.
+  assert.equal(ru.acoes[0].duasEtapas, true);
+  const semEtapa1 = await confirmarAcao(um.ctx, ru.acoes[0].id); assert.equal(semEtapa1.sucesso, false); assert.equal(posts(um.chamadas).length, 0);
+  assert.equal((await avancarAcao(um.ctx, ru.acoes[0].id)).sucesso, true); assert.equal(posts(um.chamadas).length, 0);
+  assert.equal((await confirmarAcao(um.ctx, ru.acoes[0].id)).sucesso, true);
   assert.deepEqual(posts(um.chamadas)[0].slice(1), ['/api/meu-jeito/receitas/remover', { id: 'abrir:balancete' }]);
   const naoTem = montarAgente([{ chamadas: [{ nome: 'esquecer_regra_do_jeito', args: { tipo: 'preferencia', chave: 'Conversa da Agente' } }] }, { texto: 'ok' }]); // já está no padrão
   assert.equal((await conversar(naoTem.ctx, naoTem.modelo, 'x', [])).acoes.length, 0);

@@ -1,4 +1,5 @@
 import { confirmarNaTela } from "../../utils/dialogoNaTela";
+import { useExclusaoDuasEtapas } from "../ConfirmaExclusaoDuasEtapas";
 import React, { useMemo, useState } from "react";
 import { CentroCustoContabil, ContaPlano, EmpresaDados, LancamentoContabil, PreLancamentoContabil } from "../../types";
 import { compararPeriodos, explicarVariacoes, resultadoPorCentroCusto } from "../../utils/analiseContabil";
@@ -166,10 +167,11 @@ const Imobilizado: React.FC<Props & { periodo: string; analiticas: ContaPlano[] 
   const liquido = liquidoLancado(lancamentos, refDeprec);
   const diferenca = jaLancada ? quotas.total - liquido.centavos : 0;
   const ajustesNoMes = bens.filter((b) => quotaFoiAjustada(b, periodo)).length;
+  const { pedir: pedirExclusao, dialogo: dialogoExclusao } = useExclusaoDuasEtapas();
   const trocarBem = (novo: BemImobilizado) => onBens(bens.map((x) => (x.id === novo.id ? novo : x)));
   const recalcularMes = async () => {
     if (!ajustesNoMes) return setMsg("Recalculado: nenhuma quota deste mês estava ajustada à mão, tudo segue o cálculo automático.");
-    if (!(await confirmarNaTela(`${ajustesNoMes} bem(ns) têm a quota de ${periodo} ajustada manualmente. Recalcular vai voltar todas ao cálculo automático e descartar os valores que você digitou. Nenhum lançamento já feito é apagado. Continuar?`))) return;
+    if (!(await pedirExclusao({ titulo: "Descartar as quotas digitadas?", oQue: `as quotas de ${periodo} ajustadas à mão em ${ajustesNoMes} bem(ns)`, consequencias: ["Todas voltam ao cálculo automático da depreciação.", "Os valores que você digitou serão descartados.", "Nenhum lançamento já feito é apagado."], rotuloFinal: "Sim, descartar e recalcular" }))) return;
     onBens(bens.map((b) => removerAjusteQuota(b, periodo)));
     setMsg("Recalculado: as quotas do mês voltaram ao cálculo automático.");
   };
@@ -282,6 +284,7 @@ const Imobilizado: React.FC<Props & { periodo: string; analiticas: ContaPlano[] 
         {msg && <p className="mt-1 text-slate-800">{msg}</p>}
         <p className="mt-1 text-slate-600">Na baixa, a depreciação para no mês anterior ao da baixa. O ganho ou a perda é o valor da venda menos o valor contábil líquido.</p>
       </Cartao>
+      {dialogoExclusao}
     </>
   );
 };

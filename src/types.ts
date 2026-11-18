@@ -266,7 +266,11 @@ export interface AcaoAgenteCartao {
   descricao: string[];
   aviso: string | null;
   irreversivel: boolean;
-  estado: "pendente" | "executando" | "confirmada" | "falhou" | "recusada";
+  /** Exclusão: duas confirmações (Continuar, depois "Sim, excluir"). */
+  duasEtapas?: boolean;
+  /** Na segunda etapa o botão vermelho só vale depois de um instante (toque duplo nunca confirma). */
+  liberada?: boolean;
+  estado: "pendente" | "etapa2" | "executando" | "confirmada" | "falhou" | "recusada";
   resultado?: string;
 }
 

@@ -1,10 +1,9 @@
-import { confirmarNaTela } from "../../utils/dialogoNaTela";
+import { useExclusaoDuasEtapas } from "../ConfirmaExclusaoDuasEtapas";
 import React, { useState, useEffect } from "react";
 import {
   Calculator,
   Building2,
   Plus,
-  RotateCcw,
   Trash2,
   Copy,
   Check,
@@ -132,9 +131,15 @@ export const CalculadoraTab: React.FC<CalculadoraTabProps> = ({ empresaPadrao })
   };
 
   // Zerar histórico da empresa atual
+  const { pedir: pedirExclusao, dialogo: dialogoExclusao } = useExclusaoDuasEtapas();
   const zerarEmpresaAtual = async () => {
     if (!empresaAtual) return;
-    if (!await confirmarNaTela("ZERAR o histórico de cálculos desta empresa?\n\nOs cálculos salvos serão apagados. Esta ação não pode ser desfeita.")) return;
+    if (!await pedirExclusao({
+      titulo: "Zerar o histórico desta empresa?",
+      oQue: `o histórico de cálculos da empresa ${empresaAtual} (total acumulado ${formatarMoeda(historicoPorEmpresa[empresaAtual] || 0)})`,
+      consequencias: ["Os cálculos somados para esta empresa são apagados.", "Os de outras empresas continuam como estão."],
+      rotuloFinal: "Sim, zerar",
+    })) return;
     setHistoricoPorEmpresa((prev) => {
       const novo = { ...prev };
       delete novo[empresaAtual];
@@ -500,13 +505,6 @@ export const CalculadoraTab: React.FC<CalculadoraTabProps> = ({ empresaPadrao })
                 <span>Zerar Selecionada</span>
               </button>
 
-              <button
-                onClick={() => setHistoricoPorEmpresa({})}
-                className="py-2 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer border border-slate-200"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Limpar Tudo</span>
-              </button>
             </div>
           </div>
 
@@ -537,6 +535,7 @@ export const CalculadoraTab: React.FC<CalculadoraTabProps> = ({ empresaPadrao })
         </div>
       </div>
 
+      {dialogoExclusao}
     </div>
   );
 };

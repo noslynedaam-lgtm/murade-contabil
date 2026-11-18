@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { confirmarNaTela } from '../../utils/dialogoNaTela';
+import { useExclusaoDuasEtapas } from '../ConfirmaExclusaoDuasEtapas';
 import { useContabilAuth } from '../ContabilAccessGate';
 
 // Tarefas da equipe: "Pedidos para mim" (o que a contadora pediu) e "Que eu pedi" (acompanhar se foi visto e feito).
@@ -23,6 +23,7 @@ async function chamar(url: string, metodo = 'GET', corpo?: object) {
 
 export function TarefasEquipeTab() {
   const auth = useContabilAuth();
+  const { pedir, dialogo } = useExclusaoDuasEtapas();
   const [visao, setVisao] = useState<'para-mim' | 'que-pedi'>('para-mim');
   const [itens, setItens] = useState<Tarefa[]>([]);
   const [aberta, setAberta] = useState('');
@@ -52,8 +53,7 @@ export function TarefasEquipeTab() {
     if (abrindo && t.destinatario.login === auth.usuario && !t.vistoEm && !t.concluidaEm) await agir(`/api/tarefas-equipe/${t.id}/vista`);
   };
   const excluir = async (t: Tarefa) => {
-    if (!await confirmarNaTela(`EXCLUIR a tarefa "${t.titulo}"? Só esta tarefa será apagada.`)) return;
-    if (!await confirmarNaTela(`Segunda confirmação: EXCLUIR "${t.titulo}" de verdade? Não dá para desfazer.`)) return;
+    if (!await pedir({ titulo: 'Excluir esta tarefa?', oQue: `a tarefa "${t.titulo}" ${t.origem === 'delegada' ? ` (pedida a ${t.destinatario.login})` : ''}`, consequencias: ['Só esta tarefa é apagada; as outras continuam.', 'Quem recebeu o pedido deixa de vê-lo.'] })) return;
     await agir(`/api/tarefas-equipe/${t.id}`, 'DELETE');
   };
   const enviar = async (e: React.FormEvent) => {
@@ -140,6 +140,7 @@ export function TarefasEquipeTab() {
       {visao === 'para-mim' && abertas.some((t) => t.origem === 'propria') && <h3 className="pt-1 text-xs font-bold uppercase tracking-wide text-slate-500">Minhas tarefas</h3>}
       {visao === 'para-mim' && <div className="space-y-2">{abertas.filter((t) => t.origem === 'propria').map(cartao)}</div>}
       {feitas.length > 0 && <details className="pt-1"><summary className="cursor-pointer text-xs font-bold uppercase tracking-wide text-slate-500">Concluídas ({feitas.length})</summary><div className="mt-2 space-y-2">{feitas.map(cartao)}</div></details>}
+      {dialogo}
     </section>
   );
 }

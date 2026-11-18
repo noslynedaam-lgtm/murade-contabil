@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { confirmarNaTela } from '../../utils/dialogoNaTela';
+import { useExclusaoDuasEtapas } from '../ConfirmaExclusaoDuasEtapas';
 import { PROTECOES_FIXAS, rotuloDaTela } from '../../data/jeitoPadraoContabil';
 import { descreverReceita } from '../../server/meuJeito';
 import { pedirApresentacao } from '../../utils/apresentacaoCliente';
@@ -15,6 +16,7 @@ export function MeuJeitoTab() {
   const j = useJeito();
   const [msg, setMsg] = useState('');
   const [ocupado, setOcupado] = useState(false);
+  const { pedir: pedirExclusao, dialogo: dialogoExclusao } = useExclusaoDuasEtapas();
   const [novo, setNovo] = useState(false);
   const [quando, setQuando] = useState<'entrar_no_sistema' | 'abrir_tela'>('abrir_tela');
   const [telaQuando, setTelaQuando] = useState('');
@@ -34,11 +36,11 @@ export function MeuJeitoTab() {
 
   const salvarPref = (chave: string, valor: unknown, escopo: 'usuario' | 'escritorio' = 'usuario') => agir('/api/meu-jeito/preferencias', { chave, valor, escopo }, escopo === 'escritorio' ? 'Salvo como padrão do escritório.' : 'Salvo. Agora eu trabalho assim com você.');
   const voltarPref = async (chave: string, rotulo: string, escopo: 'usuario' | 'escritorio' = 'usuario') => {
-    if (!await confirmarNaTela(`Voltar ao jeito padrão em "${rotulo}"${escopo === 'escritorio' ? ' (para todo o escritório)' : ''}? Só esta parte será desfeita.`)) return;
+    if (!await pedirExclusao({ titulo: 'Voltar ao jeito padrão?', oQue: `o seu jeito salvo em "${rotulo}"${escopo === 'escritorio' ? ' (padrão de todo o escritório)' : ''}`, consequencias: ['Só esta parte volta ao jeito padrão do sistema.', 'As outras preferências e regras continuam como estão.'], rotuloFinal: 'Sim, voltar ao padrão', irreversivel: false, comoVoltar: 'Para ter de novo, será preciso configurar essa preferência outra vez.' })) return;
     await agir('/api/meu-jeito/preferencias/remover', { chave, escopo }, 'Pronto, voltei ao jeito padrão nessa parte.');
   };
   const removerRegra = async (id: string, descricao: string) => {
-    if (!await confirmarNaTela(`Voltar ao jeito padrão e remover esta regra?\n\n${descricao}\n\nAs outras regras ficam como estão.`)) return;
+    if (!await pedirExclusao({ titulo: 'Remover esta regra?', oQue: `a regra: ${descricao}`, consequencias: ['A regra é apagada e o sistema volta ao jeito padrão nessa parte.', 'As outras regras ficam como estão.'], rotuloFinal: 'Sim, remover a regra', irreversivel: false, comoVoltar: 'Para ter a regra de novo, será preciso criá-la outra vez.' })) return;
     await agir('/api/meu-jeito/receitas/remover', { id }, 'Regra removida.');
   };
   const salvarNome = async () => {
@@ -151,6 +153,7 @@ export function MeuJeitoTab() {
           </div>
         )}
       </section>
+      {dialogoExclusao}
     </div>
   );
 }

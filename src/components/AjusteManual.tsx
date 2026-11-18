@@ -1,5 +1,6 @@
 import React from "react";
 import { confirmarNaTela } from "../utils/dialogoNaTela";
+import { useExclusaoDuasEtapas } from "./ConfirmaExclusaoDuasEtapas";
 import { centavosParaTexto, contarAjustes, estaAjustado, paraCentavos, valorEfetivoCentavos } from "../utils/ajusteManual";
 
 const brl = (c: number) => (c / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -37,15 +38,17 @@ export const CampoAjustavel: React.FC<{
 /** Botão "Recalcular": os valores automáticos já são refeitos ao vivo; aqui só se descartam os ajustes manuais, com confirmação. */
 export const BotaoRecalcular: React.FC<{ ajustes: Record<string, string> | undefined; onDescartar: () => void; texto?: string }> = ({ ajustes, onDescartar, texto = "Recalcular tudo pela contabilidade" }) => {
   const [msg, setMsg] = React.useState("");
+  const { pedir: pedirExclusao, dialogo: dialogoExclusao } = useExclusaoDuasEtapas();
   const n = contarAjustes(ajustes);
   return (
     <span className="inline-flex flex-wrap items-center gap-2">
       <button type="button" className="rounded border border-violet-400 bg-white px-2 py-1 font-semibold" onClick={async () => {
         if (n === 0) { setMsg("Recalculado: nenhum valor estava ajustado à mão, tudo já segue a contabilidade."); return; }
-        if (await confirmarNaTela(`Há ${n} valor(es) ajustado(s) manualmente. Recalcular vai voltar todos ao valor automático da contabilidade e descartar o que você digitou. Continuar?`)) { onDescartar(); setMsg("Recalculado: todos os valores voltaram ao automático."); }
+        if (await pedirExclusao({ titulo: "Descartar os valores digitados?", oQue: `${n} valor(es) que você digitou à mão nesta tela`, consequencias: ["Todos voltam ao valor automático da contabilidade.", "O que você digitou será descartado."], rotuloFinal: "Sim, descartar e recalcular" })) { onDescartar(); setMsg("Recalculado: todos os valores voltaram ao automático."); }
       }}>{texto}</button>
       {n > 0 && <span className="text-[11px] text-violet-800">{n} valor(es) ajustado(s) manualmente</span>}
       {msg && <span role="status" className="text-[11px]">{msg}</span>}
+      {dialogoExclusao}
     </span>
   );
 };
