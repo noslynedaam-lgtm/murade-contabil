@@ -513,6 +513,7 @@ const FERRAMENTAS: Ferramenta[] = [
   },
   {
     tipo: 'acao',
+    exclusao: true, // remove algo salvo: o cartão pede duas confirmações (Continuar, depois "Sim, excluir")
     declaracao: {
       name: 'esquecer_regra_do_jeito',
       description: 'Propõe VOLTAR AO JEITO PADRÃO em UMA coisa só: uma preferência (ex.: tela ao entrar) ou uma regra "ao abrir X". Vira cartão de confirmação. Uma por vez: se a pessoa pedir "apaga tudo", explique que o sistema desfaz uma regra por vez, para ninguém perder o que não queria, e pergunte qual.',

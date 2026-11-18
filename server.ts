@@ -14,7 +14,7 @@ import { gravarResumoProLaboreDP } from "./src/server/dadosProLaboreStore";
 import { gravarEventoDP, lerEventosDP } from "./src/server/dadosDpEventosStore";
 import { registrarGestaoEquipe } from "./src/server/gestaoEquipe";
 import { prepararAuthContabil, configGestaoEquipeContabil, adicionarEmpresaAcessoContabil, adicionarEquipeContabil, bloquearEscritorioContabil, definirLimiteEscritorioContabil, convidarEquipeContabil, convidarEscritorioContabil, reenviarAcessoEscritorioContabil, listarEquipeContabil, listarEscritoriosContabil, removerEquipeContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, sessaoDaRequisicaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarCnpjsComOrigensSemMapeamentoContabil, aplicarMapeamentosPadraoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, manterConectadoContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil, importarCnpjsCompartilhados, auth2faEstadoContabil, auth2faIniciarContabil, auth2faAtivarContabil, auth2faDesativarContabil, auth2faRedefinirContabil, auth2faResumoContabil, resumoSegurancaContabil } from "./src/server/authContabil";
-import { ArmazemAcoesPendentes, confirmarAcao as confirmarAcaoAgenteIA, conversar as conversarAgenteIA, recusarAcao as recusarAcaoAgenteIA, type ChamarApi, type ContextoAgente, type ModeloIA } from "./src/server/agenteMotor";
+import { ArmazemAcoesPendentes, avancarAcao as avancarAcaoAgenteIA, confirmarAcao as confirmarAcaoAgenteIA, conversar as conversarAgenteIA, recusarAcao as recusarAcaoAgenteIA, type ChamarApi, type ContextoAgente, type ModeloIA } from "./src/server/agenteMotor";
 import { kitContabil } from "./src/server/agenteContabil";
 import { ArmazemPedidosMemoria, ArmazemPedidosPg, CentralDePedidos, tokenValido } from "./src/server/agentesEntreSistemas";
 import { criarAtividadeEscritorio } from './src/server/atividadeEscritorio';
@@ -1202,6 +1202,14 @@ const reconciliacaoRascunhosStatus: {
       console.error("Falha na Agente IA do Contábil:", error instanceof Error ? error.message : error);
       return res.status(502).json({ error: "Não foi possível falar com o serviço de IA agora. Tente novamente." });
     }
+  });
+  // Exclusão por voz: primeira confirmação (Continuar). A segunda (/confirmar) é recusada sem esta.
+  app.post("/api/ai/agente/continuar", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const ctx = contextoAgenteIA(req);
+    if (!ctx) return res.status(401).json({ sucesso: false, mensagem: "Entre novamente para continuar." });
+    const resultado = await avancarAcaoAgenteIA(ctx, String(req.body?.id || ""));
+    return res.status(resultado.sucesso ? 200 : 422).json(resultado);
   });
   app.post("/api/ai/agente/confirmar", exigirSessaoContabil, async (req, res) => {
     res.setHeader("Cache-Control", "no-store");

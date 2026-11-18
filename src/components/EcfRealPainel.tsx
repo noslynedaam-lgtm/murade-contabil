@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Calculator, Download, Plus, Trash2 } from "lucide-react";
 import { CampoAjustavel, BotaoRecalcular } from "./AjusteManual";
+import { useExclusaoDuasEtapas } from "./ConfirmaExclusaoDuasEtapas";
 import { valorEfetivoCentavos } from "../utils/ajusteManual";
 import { codigosIncentivo } from "../services/ecfIncentivosService";
 import { calcularLucroRealAnual, registrosLucroRealAnual, type LancamentoLalur } from "../services/ecfRealService";
@@ -34,6 +35,13 @@ export const EcfRealPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, resul
   const chave = `murade_ecf_real_${cnpj.replace(/\W/g, "")}_${ano}`;
   const vazio = () => ({ aliq: "1", prejuizo: "", baseNeg: "", adicoes: [] as Linha[], exclusoes: [] as Linha[], irrf: "", estimativaIr: "", csllRetida: "", estimativaCsll: "", incentivos: {} as Record<string, string>, ajustes: {} as Record<string, string> });
   const [f, setF] = useState(vazio);
+  const { pedir: pedirExclusao, dialogo: dialogoExclusao } = useExclusaoDuasEtapas();
+  const removerLinha = async (tipo: "adicoes" | "exclusoes", i: number, l: { codigo: string; descricao: string; valor: string }) => {
+    const nome = tipo === "adicoes" ? "adição" : "exclusão";
+    const quem = [l.codigo && `código ${l.codigo}`, l.descricao, l.valor && `valor ${l.valor}`].filter(Boolean).join(", ") || "sem dados preenchidos";
+    if (!await pedirExclusao({ titulo: `Remover esta linha de ${nome}?`, oQue: `a linha de ${nome} (${quem})`, consequencias: ["Só esta linha sai do cálculo do IRPJ e da CSLL.", "As outras linhas continuam como estão."], rotuloFinal: "Sim, remover a linha" })) return;
+    setF((a) => ({ ...a, [tipo]: a[tipo].filter((_, j) => j !== i) }));
+  };
   // Ajuste manual dos valores que vêm da contabilidade (res, irpj, csll): vence o automático até ser desfeito com confirmação.
   const resultadoContabilCentavos = valorEfetivoCentavos(resultadoAuto, f.ajustes?.res);
   const irpjContabilizadoCentavos = valorEfetivoCentavos(irpjAuto, f.ajustes?.irpj);
@@ -81,7 +89,7 @@ export const EcfRealPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, resul
           <input className="min-w-[10rem] flex-1 rounded border border-amber-300 px-1 py-1" placeholder="descrição (preenche sozinha para códigos comuns)" value={l.descricao} onChange={(e) => setLinha(tipo, i, { descricao: e.target.value })} />
           <input className="w-28 rounded border border-amber-300 px-1 py-1" inputMode="decimal" placeholder="valor" value={l.valor} onChange={(e) => setLinha(tipo, i, { valor: e.target.value })} />
           <label className="flex items-center gap-1"><input type="checkbox" checked={l.ambos} onChange={(e) => setLinha(tipo, i, { ambos: e.target.checked })} /> também na CSLL</label>
-          <button type="button" aria-label="Remover linha" onClick={() => setF((a) => ({ ...a, [tipo]: a[tipo].filter((_, j) => j !== i) }))}><Trash2 className="h-3.5 w-3.5" /></button>
+          <button type="button" aria-label="Remover linha" onClick={() => void removerLinha(tipo, i, l)}><Trash2 className="h-3.5 w-3.5" /></button>
         </div>
       ))}
       <button type="button" onClick={() => setF((a) => ({ ...a, [tipo]: [...a[tipo], vazioLinha()] }))} className="mt-1 inline-flex items-center gap-1 rounded border border-amber-400 bg-white px-2 py-1 font-semibold"><Plus className="h-3 w-3" /> Adicionar</button>
@@ -136,6 +144,7 @@ export const EcfRealPainel: React.FC<Props> = ({ empresaRegime, cnpj, ano, resul
       )}
       {calculo.r?.avisos.map((a, i) => <p key={i} className="mt-1 text-[11px]">• {a}</p>)}
       <button type="button" onClick={baixar} disabled={!calculo.r} className="mt-2 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold disabled:opacity-50"><Download className="h-3.5 w-3.5" /> Baixar registros M300, M350 e N (.txt)</button>
+      {dialogoExclusao}
     </div>
   );
 };

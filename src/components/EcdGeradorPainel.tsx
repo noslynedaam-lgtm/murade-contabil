@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Download, FileText } from "lucide-react";
 import { ContaPlano, EmpresaDados } from "../types";
 import { confirmarNaTela } from "../utils/dialogoNaTela";
+import { useExclusaoDuasEtapas } from "./ConfirmaExclusaoDuasEtapas";
 import { LancamentoValidado } from "../utils/livrosContabeis";
 import { codPlanRefECD, contasReferenciais, existeContaReferencialAnalitica, FONTE_PLANO_REFERENCIAL, regimeReferencial, sugerirMapeamento } from "../services/planoReferencialService";
 import { conferirBlocoL, registrosBlocoL } from "../services/ecfBlocoLService";
@@ -95,6 +96,7 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
     () => (regimeRef ? sugerirMapeamento(contas, regimeRef, naturezasContas as Map<string, string>, {}) : []),
     [contas, regimeRef, naturezasContas],
   );
+  const { pedir: pedirExclusao, dialogo: dialogoExclusao } = useExclusaoDuasEtapas();
   const refazerAutomatico = async () => {
     if (!onMapeamentoReferencial) return;
     const alvo = sugestoesTodas.filter((x) => x.confianca === "alta" && !manuais.includes(x.contaCodigo) && mapaRef[x.contaCodigo] !== x.candidatos[0].codigo);
@@ -205,7 +207,7 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
                         {(sug?.candidatos.length ? sug.candidatos : contasReferenciais(regimeRef, grupo).filter((r) => r.tipo === "A").slice(0, 40)).map((r) => <option key={r.codigo} value={r.codigo}>{r.codigo} — {r.descricao}</option>)}
                       </select>
                       <input className="w-40 rounded border border-amber-300 px-2 py-1" placeholder="ou digite o código" onBlur={(e) => { const v = e.target.value.trim(); if (v && existeContaReferencialAnalitica(regimeRef, v)) definirVinculo(c.codigo, v); e.target.value = ""; }} />
-                      <button type="button" className="rounded border border-amber-300 px-2 py-0.5" onClick={async () => { if (await confirmarNaTela(`Tirar o vínculo referencial da conta ${c.codigo}? Só o vínculo sai (a conta e os lançamentos ficam). Ela passa a aparecer como pendente e o automático não a vincula de novo sozinho.`)) definirVinculo(c.codigo, ""); }}>Tirar vínculo</button>
+                      <button type="button" className="rounded border border-amber-300 px-2 py-0.5" onClick={async () => { if (await pedirExclusao({ titulo: "Tirar o vínculo referencial?", oQue: `o vínculo referencial da conta ${c.codigo}`, consequencias: ["Só o vínculo sai: a conta e os lançamentos ficam como estão.", "A conta passa a aparecer como pendente e o automático não a vincula de novo sozinho."], rotuloFinal: "Sim, tirar o vínculo", irreversivel: false, comoVoltar: "Para ter o vínculo de novo, escolha o plano referencial dessa conta outra vez." })) definirVinculo(c.codigo, ""); }}>Tirar vínculo</button>
                     </div>
                   );
                 })}
@@ -280,6 +282,7 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
       )}
       <button type="button" onClick={baixar} disabled={!resultado.ok} className="mt-2 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-3.5 w-3.5" /> Baixar arquivo ECD (.txt, Latin-1)</button>
       {msg && <p role="status" className="mt-2 text-[11px]">{msg}</p>}
+      {dialogoExclusao}
     </div>
   );
 };

@@ -1,5 +1,6 @@
 import { confirmarNaTela } from "../utils/dialogoNaTela";
 import React, { useEffect, useState } from 'react';
+import { useExclusaoDuasEtapas } from './ConfirmaExclusaoDuasEtapas';
 
 // Só o dono do sistema vê este painel: contrata (convida), bloqueia e exclui escritórios.
 // Não mostra empresas nem documentos de nenhum escritório, apenas a contratação.
@@ -10,6 +11,7 @@ export function PainelEscritorios() {
   const [login, setLogin] = useState('');
   const [link, setLink] = useState('');
   const [msg, setMsg] = useState('');
+  const { pedir, dialogo } = useExclusaoDuasEtapas();
   const [conta, setConta] = useState<{ login: string; escritorio: boolean; ehVoce: boolean; empresas: number } | null>(null);
   const carregar = () => fetch('/api/auth/tenants', { credentials: 'include', cache: 'no-store' }).then((r) => r.json()).then((d) => setLista(Array.isArray(d.escritorios) ? d.escritorios : [])).catch(() => setLista([]));
   useEffect(() => { void carregar(); }, []);
@@ -31,7 +33,7 @@ export function PainelEscritorios() {
     }
   };
   const excluirConta = async (c: { login: string; empresas: number }) => {
-    if (!await confirmarNaTela(`EXCLUIR a conta ${c.login}? Ela tem acesso a ${c.empresas} empresa(s) e perde esse acesso. Não tem volta. Os dados das empresas não são apagados. Depois o e-mail fica livre para cadastrar de novo.`)) return;
+    if (!await pedir({ titulo: 'Excluir esta conta?', oQue: `a conta ${c.login}, que tem acesso a ${c.empresas} empresa(s)`, consequencias: ['A conta é apagada e perde o acesso a essas empresas.', 'Os dados das empresas não são apagados.', 'Depois o e-mail fica livre para cadastrar de novo.'] })) return;
     try { await chamar(`/api/auth/usuarios/${encodeURIComponent(c.login)}/excluir`, { confirmar: true }); setConta(null); setMsg(''); await convidar(); } catch (x) { setMsg(x instanceof Error ? x.message : 'Não foi possível excluir a conta.'); }
   };
   const reenviar = async (loginAlvo: string) => {
@@ -52,8 +54,7 @@ export function PainelEscritorios() {
     try { await chamar(`/api/auth/tenants/${encodeURIComponent(e.login)}/bloqueio`, { bloqueado: bloquear }); await carregar(); } catch (c) { setMsg(c instanceof Error ? c.message : 'Falha.'); }
   };
   const excluir = async (e: Escritorio) => {
-    if (!await confirmarNaTela(`EXCLUIR de vez o escritório ${e.login}? A conta do dono e de toda a equipe é apagada e não tem volta. O e-mail e os CNPJs ficam livres para cadastrar de novo.`)) return;
-    if (window.prompt(`Para confirmar, digite o usuário do escritório: ${e.login}`)?.trim().toLowerCase() !== e.login.toLowerCase()) { setMsg('Exclusão cancelada: o usuário digitado não confere.'); return; }
+    if (!await pedir({ titulo: 'Excluir o escritório inteiro?', oQue: `o escritório ${e.login} (${e.empresas} empresa(s) e ${e.usuarios + 1} usuário(s), contando o dono)`, consequencias: ['A conta do dono e de toda a equipe do escritório é apagada.', 'O e-mail e os CNPJs ficam livres para cadastrar de novo.', 'Não dá para recuperar depois.'] })) return;
     setMsg('');
     try { const d = await chamar(`/api/auth/tenants/${encodeURIComponent(e.login)}/excluir`, { confirmar: true }); setMsg(d.aviso || `Escritório ${e.login} excluído. O e-mail já pode ser cadastrado de novo.`); await carregar(); } catch (c) { setMsg(c instanceof Error ? c.message : 'Não foi possível excluir.'); }
   };
@@ -69,6 +70,7 @@ export function PainelEscritorios() {
       {msg && <p role="alert" className="mt-2 text-sm text-red-700">{msg}</p>}
       {conta && <div className="mt-2 rounded-lg border border-red-300 bg-red-50 p-3 text-sm">{conta.ehVoce ? <p>Esta é a sua própria conta; use outro e-mail para o escritório.</p> : conta.escritorio ? <><p>Este e-mail já é dono de um escritório. Para mandar o acesso de novo para ele, use o botão <strong>Reenviar</strong> na lista de escritórios abaixo (não apaga nada). Só use <strong>Excluir</strong> se quiser apagar o escritório inteiro.</p><button type="button" onClick={() => void reenviar(conta.login)} className="mt-2 rounded bg-slate-800 px-3 py-1.5 font-semibold text-white">Reenviar o acesso deste escritório</button></> : <><p>Esta conta já existe e tem acesso a <strong>{conta.empresas}</strong> empresa(s). Para cadastrar este e-mail como escritório, apague a conta antiga primeiro.</p><button type="button" onClick={() => void excluirConta(conta)} className="mt-2 rounded bg-red-700 px-3 py-1.5 font-semibold text-white">Excluir esta conta e liberar o e-mail</button></>}</div>}
       {lista.length > 0 && <div className="mt-3">{lista.map((e) => <div key={e.login} className="flex items-center justify-between border-t py-2 text-sm"><span>{e.login} <span className="text-slate-500">· {e.empresas} empresa(s) · {e.usuarios + 1} de {e.max_usuarios ?? 'sem limite'} usuário(s) {e.disabled && <strong className="text-red-700">· BLOQUEADO</strong>}</span></span><span className="flex gap-3"><button onClick={() => void definirLimite(e)} className="text-blue-800 hover:underline">Limite</button><button onClick={() => void reenviar(e.login)} className="text-blue-800 hover:underline" title="Gera um link novo: convite, se ele ainda não aceitou, ou nova senha, se já tem conta. Não apaga nada.">Reenviar</button><button onClick={() => void alternar(e)} className={e.disabled ? 'text-green-800 hover:underline' : 'text-red-700 hover:underline'}>{e.disabled ? 'Liberar' : 'Bloquear'}</button><button onClick={() => void excluir(e)} className="text-red-900 font-semibold hover:underline">Excluir</button></span></div>)}</div>}
+      {dialogo}
     </div>
   );
 }

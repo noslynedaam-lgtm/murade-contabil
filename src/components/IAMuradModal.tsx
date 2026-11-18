@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
+import { ATRASO_ETAPA2_MS, ROTULO_CANCELAR, ROTULO_CONTINUAR, ROTULO_FINAL_PADRAO, ROTULO_VOLTAR_ETAPA2, TITULO_ETAPA2, TITULO_ETAPA2_REFAZIVEL } from "../utils/exclusaoDuasEtapas";
 import { escolherVozPtBr } from "../utils/vozNatural";
 import { falarHumana, pararHumana, humanaFalando, ajustarVoz, bipRapido, prepararVoz, respostaRapida } from "../utils/vozHumana";
 import { Mic, MicOff, Volume2, VolumeX, Send, Bot, Sparkles, X, RotateCcw } from "lucide-react";
@@ -252,7 +253,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
         acoes = Array.isArray(data.acoes)
           ? data.acoes
               .filter((a: any) => a && typeof a.id === "string" && typeof a.titulo === "string")
-              .map((a: any) => ({ id: a.id, titulo: a.titulo, descricao: Array.isArray(a.descricao) ? a.descricao.map(String) : [], aviso: typeof a.aviso === "string" ? a.aviso : null, irreversivel: a.irreversivel === true, estado: "pendente" as const }))
+              .map((a: any) => ({ id: a.id, titulo: a.titulo, descricao: Array.isArray(a.descricao) ? a.descricao.map(String) : [], aviso: typeof a.aviso === "string" ? a.aviso : null, irreversivel: a.irreversivel === true, duasEtapas: a.duasEtapas === true, estado: "pendente" as const }))
           : [];
         pilotoResp = data.piloto && typeof data.piloto === "object" ? data.piloto : null;
       } else if (res.status === 401 || res.status === 429) {
@@ -321,6 +322,19 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
     } catch {
       atualizarAcao(acaoId, { estado: "falhou", resultado: "Sem resposta do servidor. Confira a tela antes de tentar de novo." });
       responderComoIA("Não consegui falar com o servidor. Confira a tela antes de tentar de novo.");
+    }
+  };
+  // Exclusão por voz: 1ª confirmação (Continuar). O servidor só aceita a 2ª ("Sim, excluir") depois desta.
+  const continuarExclusao = async (acaoId: string) => {
+    atualizarAcao(acaoId, { estado: "executando" });
+    try {
+      const response = await fetch("/api/ai/agente/continuar", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ id: acaoId }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.sucesso !== true) { atualizarAcao(acaoId, { estado: "falhou", resultado: typeof data.mensagem === "string" && data.mensagem ? data.mensagem : "Não foi possível continuar. Nada foi excluído." }); return; }
+      atualizarAcao(acaoId, { estado: "etapa2", liberada: false });
+      window.setTimeout(() => atualizarAcao(acaoId, { liberada: true }), ATRASO_ETAPA2_MS);
+    } catch {
+      atualizarAcao(acaoId, { estado: "falhou", resultado: "Sem resposta do servidor. Nada foi excluído." });
     }
   };
   const recusarAcao = async (acaoId: string) => {
@@ -558,7 +572,24 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
                     {a.descricao.map((d, i) => <div key={i} className="text-[11px] mt-0.5">{d}</div>)}
                     {a.aviso && <div className="text-[11px] mt-1 font-semibold text-amber-800">{a.aviso}</div>}
                     {a.irreversivel && <div className="text-[11px] mt-1 font-bold text-rose-700">Não dá para desfazer.</div>}
-                    {a.estado === "pendente" && (
+                    {a.estado === "pendente" && a.duasEtapas && (
+                      // Etapa 1 da exclusão: Cancelar em destaque; Continuar por último.
+                      <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                        <button type="button" onClick={() => recusarAcao(a.id)} className="min-h-11 bg-slate-900 text-white text-xs font-bold px-4 py-2 rounded-lg cursor-pointer">{ROTULO_CANCELAR}</button>
+                        <button type="button" onClick={() => continuarExclusao(a.id)} className="min-h-11 bg-white border-2 border-slate-300 text-slate-700 text-xs font-bold px-4 py-2 rounded-lg cursor-pointer">{ROTULO_CONTINUAR}</button>
+                      </div>
+                    )}
+                    {a.estado === "etapa2" && (
+                      // Etapa 2: botão vermelho PRIMEIRO (outro lugar), sem foco automático; ignora toque nos primeiros instantes.
+                      <div className="mt-2">
+                        <div className="text-xs font-bold text-rose-700">{a.irreversivel ? TITULO_ETAPA2 : TITULO_ETAPA2_REFAZIVEL}</div>
+                        <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                          <button type="button" disabled={!a.liberada} onClick={() => confirmarAcao(a.id)} className="min-h-11 bg-red-700 text-white text-xs font-bold px-4 py-2 rounded-lg cursor-pointer disabled:opacity-50">{ROTULO_FINAL_PADRAO}</button>
+                          <button type="button" onClick={() => recusarAcao(a.id)} className="min-h-11 bg-white border-2 border-slate-400 text-slate-800 text-xs font-bold px-4 py-2 rounded-lg cursor-pointer">{ROTULO_VOLTAR_ETAPA2}</button>
+                        </div>
+                      </div>
+                    )}
+                    {a.estado === "pendente" && !a.duasEtapas && (
                       <div className="mt-2 flex gap-2">
                         <button type="button" onClick={() => confirmarAcao(a.id)} className="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold px-3 py-1.5 rounded-lg cursor-pointer">Confirmar</button>
                         <button type="button" onClick={() => recusarAcao(a.id)} className="bg-white border border-slate-300 text-slate-700 text-[11px] font-semibold px-3 py-1.5 rounded-lg cursor-pointer">Cancelar</button>

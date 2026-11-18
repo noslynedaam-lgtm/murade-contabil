@@ -1,4 +1,4 @@
-import { confirmarNaTela } from "../../utils/dialogoNaTela";
+import { useExclusaoDuasEtapas } from "../ConfirmaExclusaoDuasEtapas";
 import React, { useState, useEffect, useRef } from "react";
 import {
   Zap,
@@ -125,8 +125,14 @@ export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
   };
 
   // Limpar / Zerar tudo
+  const { pedir: pedirExclusao, dialogo: dialogoExclusao } = useExclusaoDuasEtapas();
   const limparValores = async () => {
-    if (await confirmarNaTela("ZERAR todos os valores do Fluxo Prevítico?\n\nOs valores digitados serão apagados. Esta ação não pode ser desfeita.")) {
+    if (await pedirExclusao({
+      titulo: "Zerar os valores do Fluxo Prevítico?",
+      oQue: "os três valores digitados no Fluxo Prevítico (saldo atual, entradas previstas e saídas previstas)",
+      consequencias: ["Os valores digitados são apagados deste aparelho.", "Para ter de novo, será preciso digitar outra vez."],
+      rotuloFinal: "Sim, zerar",
+    })) {
       const zSaldo = "";
       const zEntradas = "";
       const zSaidas = "";
@@ -556,6 +562,7 @@ export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
           </div>
         </div>
       )}
+      {dialogoExclusao}
     </div>
   );
 };

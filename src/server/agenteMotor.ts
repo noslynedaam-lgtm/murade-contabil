@@ -38,6 +38,8 @@ export interface AcaoParaTela {
   descricao: string[];
   aviso: string | null;
   irreversivel: boolean;
+  /** Exclusão: o cartão pede DUAS confirmações (Continuar, depois "Sim, excluir"). O servidor recusa a segunda sem a primeira. */
+  duasEtapas: boolean;
   expiraEm: string;
 }
 
@@ -73,6 +75,9 @@ interface AcaoPendente {
   titulo: string;
   params: unknown;
   resumo: string;
+  /** Exclusão: só executa depois de avancar() (primeira confirmação) e então confirmarAcao() (segunda). */
+  duasEtapas: boolean;
+  etapa1Em: number | null;
   expiraEmMs: number;
 }
 
@@ -91,7 +96,7 @@ export class ArmazemAcoesPendentes {
     for (const [id, item] of this.itens) if (item.expiraEmMs <= t) this.itens.delete(id);
   }
 
-  criar(dados: Omit<AcaoPendente, 'id' | 'expiraEmMs'>): AcaoPendente {
+  criar(dados: Omit<AcaoPendente, 'id' | 'expiraEmMs' | 'etapa1Em'>): AcaoPendente {
     this.limpar();
     const daSessao = [...this.itens.values()].filter((item) => item.sessaoHash === dados.sessaoHash);
     if (daSessao.length >= MAX_PENDENTES_POR_SESSAO) {
@@ -99,9 +104,24 @@ export class ArmazemAcoesPendentes {
       const maisAntiga = daSessao.sort((a, b) => a.expiraEmMs - b.expiraEmMs)[0];
       this.itens.delete(maisAntiga.id);
     }
-    const item: AcaoPendente = { ...dados, id: crypto.randomBytes(12).toString('base64url'), expiraEmMs: this.agora() + VALIDADE_ACAO_MS };
+    const item: AcaoPendente = { ...dados, etapa1Em: null, id: crypto.randomBytes(12).toString('base64url'), expiraEmMs: this.agora() + VALIDADE_ACAO_MS };
     this.itens.set(item.id, item);
     return item;
+  }
+
+  /** Olha a ação sem retirá-la (para checar a etapa antes de executar). */
+  espiar(id: string, sessaoHash: string): AcaoPendente | null {
+    const item = this.itens.get(String(id || ''));
+    return item && item.sessaoHash === sessaoHash && item.expiraEmMs > this.agora() ? item : null;
+  }
+
+  /** Primeira confirmação de uma exclusão (botão Continuar do cartão). Não executa nada. */
+  avancar(id: string, sessaoHash: string): { ok: boolean; motivo?: string } {
+    const item = this.espiar(id, sessaoHash);
+    if (!item) return { ok: false, motivo: 'Ação não encontrada. Ela pode já ter sido confirmada, cancelada ou ter expirado.' };
+    if (!item.duasEtapas) return { ok: false, motivo: 'Esta ação não tem segunda etapa.' };
+    item.etapa1Em = this.agora();
+    return { ok: true };
   }
 
   /** Retira a ação do armazém (uso único). Devolve motivo quando não pode ser usada. */
@@ -149,6 +169,8 @@ export interface FerramentaAcao {
   /** Valida os argumentos e monta a proposta. Retorna texto de erro quando algo está faltando ou inválido. */
   preparar(ctx: ContextoAgente, args: Record<string, any>): Promise<PropostaAcao | { erro: string }>;
   executar(ctx: ContextoAgente, params: any): Promise<{ sucesso: boolean; mensagem: string; detalhes?: unknown }>;
+  /** true em TODA ferramenta que exclui, remove ou apaga algo: o cartão exige duas confirmações antes de executar. */
+  exclusao?: boolean;
 }
 export interface FerramentaMensagem {
   tipo: 'mensagem';
@@ -262,10 +284,10 @@ export async function conversar(ctx: ContextoAgente, modelo: ModeloIA, mensagem:
           const proposta = await ferramenta.preparar(ctx, args);
           if ('erro' in proposta) resultado = proposta;
           else {
-            const pendente = ctx.pendentes.criar({ sessaoHash: ctx.sessaoHash, login: ctx.login, ferramenta: chamada.nome, cnpj: proposta.cnpj, titulo: proposta.titulo, params: proposta.params, resumo: proposta.resumo });
-            acoes.push({ id: pendente.id, ferramenta: chamada.nome, titulo: proposta.titulo, descricao: proposta.descricao, aviso: proposta.aviso ?? null, irreversivel: proposta.irreversivel === true, expiraEm: new Date(pendente.expiraEmMs).toISOString() });
+            const pendente = ctx.pendentes.criar({ sessaoHash: ctx.sessaoHash, login: ctx.login, ferramenta: chamada.nome, cnpj: proposta.cnpj, titulo: proposta.titulo, params: proposta.params, resumo: proposta.resumo, duasEtapas: ferramenta.exclusao === true });
+            acoes.push({ id: pendente.id, ferramenta: chamada.nome, titulo: proposta.titulo, descricao: proposta.descricao, aviso: proposta.aviso ?? null, irreversivel: proposta.irreversivel === true, duasEtapas: pendente.duasEtapas, expiraEm: new Date(pendente.expiraEmMs).toISOString() });
             await auditar(ctx, { evento: 'proposta', ferramenta: chamada.nome, cnpj: proposta.cnpj, resumo: proposta.resumo });
-            resultado = { status: 'aguardando_confirmacao_do_usuario', instrucao: 'A ação AINDA NÃO foi executada. O usuário vê um cartão e precisa clicar em Confirmar.' };
+            resultado = { status: 'aguardando_confirmacao_do_usuario', instrucao: 'A ação AINDA NÃO foi executada. O usuário vê um cartão e precisa clicar em ' + (pendente.duasEtapas ? 'Continuar e, depois, em "Sim, excluir" (duas confirmações, porque é uma exclusão).' : 'Confirmar.') };
           }
         }
       } catch (erro: any) {
@@ -279,7 +301,18 @@ export async function conversar(ctx: ContextoAgente, modelo: ModeloIA, mensagem:
   return { resposta: 'Esse pedido ficou longo demais para eu resolver de uma vez. Pode dividir em partes menores?', acoes, whatsapp, piloto };
 }
 
+export const MENSAGEM_FALTA_ETAPA_1 = 'Falta a primeira confirmação desta exclusão. Toque em Continuar no cartão e depois confirme de novo. Nada foi excluído.';
+
+/** Primeira confirmação de uma exclusão pedida por voz. Só marca a etapa; quem executa é confirmarAcao. */
+export async function avancarAcao(ctx: ContextoAgente, id: string): Promise<{ sucesso: boolean; mensagem: string }> {
+  const r = ctx.pendentes.avancar(id, ctx.sessaoHash);
+  return r.ok ? { sucesso: true, mensagem: 'Última confirmação: toque em "Sim, excluir" para concluir ou em "Não, cancelar".' } : { sucesso: false, mensagem: r.motivo || 'Ação não encontrada.' };
+}
+
 export async function confirmarAcao(ctx: ContextoAgente, id: string): Promise<{ sucesso: boolean; mensagem: string; detalhes?: unknown }> {
+  const espiada = ctx.pendentes.espiar(id, ctx.sessaoHash);
+  // Exclusão sem a primeira confirmação: recusa SEM gastar a ação (a pessoa ainda pode continuar pelo cartão).
+  if (espiada?.duasEtapas && espiada.etapa1Em === null) return { sucesso: false, mensagem: MENSAGEM_FALTA_ETAPA_1 };
   const { item, motivo } = ctx.pendentes.retirar(id, ctx.sessaoHash);
   if (!item || motivo) {
     if (item) await auditar(ctx, { evento: 'expirada', ferramenta: item.ferramenta, cnpj: item.cnpj, resumo: item.resumo });

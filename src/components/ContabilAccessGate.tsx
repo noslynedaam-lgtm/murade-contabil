@@ -1,4 +1,4 @@
-import { confirmarNaTela } from "../utils/dialogoNaTela";
+import { useExclusaoDuasEtapas } from "./ConfirmaExclusaoDuasEtapas";
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { UserPlus, X, LogOut, KeyRound, ShieldCheck } from "lucide-react";
 import { SegurancaConta } from "./SegurancaConta";
@@ -24,6 +24,7 @@ const dadosDaSessao = (data: any): AuthData => ({ usuario: data.usuario, cnpjs: 
 
 export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [auth, setAuth] = useState<AuthData | null>(null);
+  const { pedir, dialogo } = useExclusaoDuasEtapas();
   const [status, setStatus] = useState<{ carregando: boolean; primeiroAcesso: boolean; configuracaoNecessaria: boolean; erro: string }>({ carregando: true, primeiroAcesso: false, configuracaoNecessaria: false, erro: "" });
   const [login, setLogin] = useState("");
   const [senha, setSenha] = useState("");
@@ -149,7 +150,7 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
     } catch (error) { setErroConvite(error instanceof Error ? error.message : "Falha ao criar convite."); }
   };
   const revogar = async (usuario: string) => {
-    if (!await confirmarNaTela(`Revogar o acesso de ${usuario} a ${cnpjUsuarios}? Os dados contábeis da empresa serão preservados.`)) return;
+    if (!await pedir({ titulo: 'Revogar o acesso?', oQue: `o acesso de ${usuario} à empresa ${cnpjUsuarios}`, consequencias: ['A pessoa deixa de ver esta empresa no sistema.', 'Os dados contábeis da empresa são preservados e a conta dela não é apagada.'], rotuloFinal: 'Sim, revogar o acesso', irreversivel: false, comoVoltar: 'Para devolver o acesso, gere um convite novo ou vincule a conta de novo.' })) return;
     const response = await fetch(`/api/auth/users/${encodeURIComponent(usuario)}?cnpj=${encodeURIComponent(cnpjUsuarios)}`, { method: "DELETE", credentials: "include" });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.sucesso !== true) { setErroConvite(data.motivo || "Não foi possível revogar o acesso."); return; }
@@ -175,6 +176,7 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
       {codigoConvite && <div className="mt-3 break-all rounded-lg border border-green-300 bg-green-50 p-3 text-sm"><strong>Link de convite (válido por 30 dias):</strong><p className="mt-1"><a className="font-semibold text-blue-800 underline" href={codigoConvite}>{codigoConvite}</a></p><button type="button" className="mt-2 rounded bg-green-800 px-3 py-1.5 font-semibold text-white" onClick={() => void navigator.clipboard.writeText(codigoConvite)}>Copiar link</button><a className="ml-2 mt-2 inline-block rounded bg-emerald-700 px-3 py-1.5 font-semibold text-white" href={`https://wa.me/?text=${encodeURIComponent(`Convite de acesso ao Murade Contábil (válido por 30 dias). Abra o link e crie sua senha: ${codigoConvite}`)}`} target="_blank" rel="noreferrer">Enviar pelo WhatsApp</a><p className="mt-1 text-xs">Envie o link em particular pelo WhatsApp. Ao abrir, a pessoa cria a própria senha.</p></div>}{erroConvite && <p role="alert" className="mt-3 text-sm text-red-700">{erroConvite}</p>}
       <div className="mt-5"><h3 className="mb-2 font-semibold">Acessos ativos</h3>{usuarios.map((user) => <div key={user.login} className="flex items-center justify-between border-t py-2 text-sm"><span>{user.login} <span className="text-slate-500">· {user.role}</span></span>{user.login !== auth.usuario && <button onClick={() => void revogar(user.login)} className="text-red-700 hover:underline">Revogar</button>}</div>)}</div>
     </section></div>}
+    {dialogo}
     {children}
   </AuthContext.Provider>;
 

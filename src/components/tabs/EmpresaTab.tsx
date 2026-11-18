@@ -33,6 +33,7 @@ import {
   Zap,
 } from "lucide-react";
 import { CertificadoDigitalModal } from "../modals/CertificadoDigitalModal";
+import { useExclusaoDuasEtapas } from "../ConfirmaExclusaoDuasEtapas";
 import { ModalConexaoMuradFiscal } from "../modals/ModalConexaoMuradFiscal";
 import { conectarEPuxarEmpresaMuradFiscal, conectarMuradDP } from "../../services/integracaoMuradService";
 import { baixarPacoteEmpresasMurade, lerPacoteEmpresasMurade } from "../../services/migracaoEmpresaService";
@@ -374,17 +375,25 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     showToast("Edição cancelada. Os campos foram limpos.");
   };
 
-  // Estado do Modal de Confirmação de Exclusão In-App (sem window.confirm)
-  const [empresaParaExcluir, setEmpresaParaExcluir] = useState<{ id: string; nome: string } | null>(null);
+  // Exclusão da empresa em DUAS ETAPAS (componente único do sistema); só depois da segunda confirmação a empresa é removida.
+  const { pedir: pedirExclusao, dialogo: dialogoExclusao } = useExclusaoDuasEtapas();
 
-  // Excluir empresa cadastrada — Abre modal in-app
-  const handleExcluirEmpresa = (empIdOuCnpj: string, empNome: string) => {
-    setEmpresaParaExcluir({ id: empIdOuCnpj, nome: empNome });
+  const handleExcluirEmpresa = async (empIdOuCnpj: string, empNome: string) => {
+    const alvo = empresasCadastradas.find((e) => (e.id || e.cnpj) === empIdOuCnpj || e.cnpj === empIdOuCnpj);
+    const cnpjAlvo = String(alvo?.cnpj || (empIdOuCnpj.length >= 14 ? empIdOuCnpj : "")).trim();
+    const confirmou = await pedirExclusao({
+      titulo: "Excluir esta empresa?",
+      oQue: `a empresa ${empNome}${cnpjAlvo && cnpjAlvo !== empNome ? ` (CNPJ ${cnpjAlvo})` : ""}`,
+      consequencias: [
+        "A empresa sai da lista deste sistema e o seu acesso a ela é removido.",
+        "Os dados contábeis já gravados no servidor não são apagados.",
+        "O CNPJ não fica bloqueado: depois dá para cadastrar a empresa de novo.",
+      ],
+    });
+    if (confirmou) await excluirEmpresaConfirmada(empIdOuCnpj, empNome);
   };
 
-  const confirmarExclusaoEmpresa = async () => {
-    if (!empresaParaExcluir) return;
-    const { id: empIdOuCnpj, nome: empNome } = empresaParaExcluir;
+  const excluirEmpresaConfirmada = async (empIdOuCnpj: string, empNome: string) => {
     const registro = empresasCadastradas.find((e) => (e.id || e.cnpj) === empIdOuCnpj || e.cnpj === empIdOuCnpj);
     const cnpj = String(registro?.cnpj || (empIdOuCnpj.length >= 14 ? empIdOuCnpj : "")).toUpperCase().replace(/[^A-Z0-9]/g, "");
     if (cnpj && onRemoverEmpresa && !await onRemoverEmpresa(cnpj)) return;
@@ -428,7 +437,6 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     if (modoEdicaoId === empIdOuCnpj) {
       limparFormulario();
     }
-    setEmpresaParaExcluir(null);
   };
 
   // Definir como empresa ativa
@@ -1652,45 +1660,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
         }}
       />
 
-      {/* Modal In-App de Confirmação para Excluir Empresa */}
-      {empresaParaExcluir && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 p-5 space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
-                <Trash2 className="w-5 h-5" />
-              </div>
-              <div>
-                <h4 className="text-base font-bold text-slate-900">
-                  Excluir Cadastro da Empresa?
-                </h4>
-                <p className="text-xs text-slate-500">Esta ação removerá a empresa do sistema.</p>
-              </div>
-            </div>
-
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-700">
-              <strong>Empresa:</strong> {empresaParaExcluir.nome}
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setEmpresaParaExcluir(null)}
-                className="py-2 px-3 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={confirmarExclusaoEmpresa}
-                className="py-2 px-4 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer shadow-xs"
-              >
-                Sim, Excluir Empresa
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {dialogoExclusao}
     </div>
   );
 };

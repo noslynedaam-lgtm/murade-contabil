@@ -21,6 +21,7 @@ import {
   CheckCheck,
 } from "lucide-react";
 import { LembreteItem, EmpresaDados } from "../../types";
+import { ConfirmaExclusaoDuasEtapas } from "../ConfirmaExclusaoDuasEtapas";
 
 // ==========================================================
 // 1. MODAL VISUALIZAR OBRIGAÇÃO (Ação "Ver")
@@ -423,45 +424,17 @@ export const ExcluirModal: React.FC<ExcluirModalProps> = ({
   item,
   onClose,
   onConfirmar,
-}) => {
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 p-6 text-xs space-y-4">
-        <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center mx-auto">
-          <Trash2 className="w-6 h-6" />
-        </div>
-
-        <div className="text-center space-y-1">
-          <h3 className="text-base font-bold text-slate-900">Excluir Lembrete Fiscal?</h3>
-          <p className="text-slate-600">
-            Tem certeza que deseja remover este lembrete da sua agenda de obrigações?
-          </p>
-        </div>
-
-        <div className="bg-rose-50 border border-rose-200 p-3 rounded-xl text-rose-900 font-medium">
-          <strong>{item.nome}</strong>
-          <div className="text-[11px] text-rose-700 mt-0.5">{item.data}</div>
-        </div>
-
-        <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={onConfirmar}
-            className="px-4 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition cursor-pointer shadow-xs flex items-center gap-1.5"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Sim, Excluir</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
+}) => (
+  // Exclusão em duas etapas (componente único do sistema): só depois da última confirmação o lembrete sai da agenda.
+  <ConfirmaExclusaoDuasEtapas
+    opcoes={{
+      titulo: "Excluir este lembrete fiscal?",
+      oQue: `o lembrete "${item.nome}" (${item.data})`,
+      consequencias: ["O lembrete sai da sua agenda de obrigações.", "Isso não cancela a obrigação em si: o vencimento oficial continua valendo."],
+    }}
+    aoResolver={(confirmou) => (confirmou ? onConfirmar() : onClose())}
+  />
+);
 
 // Ícone auxiliar
 function CpuIcon(props: React.SVGProps<SVGSVGElement>) {
