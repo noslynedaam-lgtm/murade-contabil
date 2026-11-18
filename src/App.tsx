@@ -11,6 +11,8 @@ import { Header } from "./components/Header";
 import { RobotSidebar } from "./components/RobotSidebar";
 import { FaixaEcd } from "./components/FaixaEcd";
 import { ErroTela } from "./components/ErroTela";
+import { AvisoServicoFeito } from "./components/AvisoServicoFeito";
+import { fetchComGuarda, tratarBloqueioServico } from "./utils/servicoFeitoCliente";
 import { InicioTab } from "./components/tabs/InicioTab";
 import { ConexoesTab } from "./components/tabs/ConexoesTab";
 import { EmpresaTab } from "./components/tabs/EmpresaTab";
@@ -610,11 +612,12 @@ function AppWorkspace() {
       return false;
     }
     try {
-      const response = await fetch(`/api/workspaces/${encodeURIComponent(empresaCnpj)}/contabilizar`, {
+      const response = await fetchComGuarda(`/api/workspaces/${encodeURIComponent(empresaCnpj)}/contabilizar`, {
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ referencias }),
       });
       const result = await response.json().catch(() => ({}));
+      if (tratarBloqueioServico(result)) return false;
       if (!response.ok || result.sucesso !== true || result.persistencia !== "postgresql" || !result.dados) {
         throw new Error(result.motivo || "O servidor não confirmou a aprovação contábil.");
       }
@@ -638,11 +641,12 @@ function AppWorkspace() {
       return false;
     }
     try {
-      const response = await fetch(`/api/workspaces/${encodeURIComponent(empresaCnpj)}/lancamentos-manuais/${encodeURIComponent(id)}/decisao`, {
+      const response = await fetchComGuarda(`/api/workspaces/${encodeURIComponent(empresaCnpj)}/lancamentos-manuais/${encodeURIComponent(id)}/decisao`, {
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ decisao, motivo }),
       });
       const result = await response.json().catch(() => ({}));
+      if (tratarBloqueioServico(result)) return false;
       if (!response.ok || result.sucesso !== true || result.persistencia !== "postgresql" || !result.dados) {
         throw new Error(result.motivo || "O servidor não confirmou a decisão do lançamento manual.");
       }
@@ -704,11 +708,12 @@ function AppWorkspace() {
       return false;
     }
     try {
-      const response = await fetch(`/api/workspaces/${encodeURIComponent(cnpj)}/fechamentos`, {
+      const response = await fetchComGuarda(`/api/workspaces/${encodeURIComponent(cnpj)}/fechamentos`, {
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ competencia }),
       });
       const result = await response.json().catch(() => ({}));
+      if (tratarBloqueioServico(result)) { setCompetenciasFechadas((atual) => result.codigo === "servico_ja_feito" ? Array.from(new Set([...atual, competencia])).sort() : atual); return false; }
       if (!response.ok || result.sucesso !== true) throw new Error(result.motivo || "O PostgreSQL não confirmou o fechamento.");
       if (Number.isSafeInteger(result.versao)) versoesWorkspaceRef.current.set(cnpj, result.versao);
       setCompetenciasFechadas((atual) => Array.from(new Set([...atual, competencia])).sort());
@@ -835,6 +840,8 @@ function AppWorkspace() {
           itensBusca={itensBusca}
           onLogout={auth.sair}
         />
+
+        <AvisoServicoFeito />
 
         {/* Notificação Toast — embaixo e centralizada, para nunca ficar atrás das barras fixas do topo */}
         {toastMessage && (

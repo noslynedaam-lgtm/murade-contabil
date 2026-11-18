@@ -31,6 +31,8 @@ import { gerarBackupEscritorio, listarBackupsEscritorio, baixarBackupEscritorio,
 import { gerarCandidatosRascunhosAutomaticos, mesclarRascunhosNoWorkspace, prepararRascunhosContabeisAutomaticos } from "./src/server/prepararRascunhosContabeis";
 import { respostaRapida } from "./src/server/respostasRapidas";
 import { omitirXmlOriginal, resumirCoberturaXmlFiscal } from "./src/server/coberturaXmlFiscal";
+import { montarServicoFeito } from "./src/server/servicoFeitoRotas";
+import { chaveServico, descreverRegistro, tenantDaSessao } from "./src/server/servicoFeito";
 
 dotenv.config();
 
@@ -136,6 +138,13 @@ const reconciliacaoRascunhosStatus: {
   const sessaoAtividade = (req: express.Request) => (req as express.Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
   const atividadeEquipe = criarAtividadeEscritorio({ consultar: consultaBancoContabil, tabela: "contabil_atividade_equipe", sessao: sessaoAtividade, podeVer: (req) => sessaoAtividade(req)?.administrador === true });
   app.use("/api", atividadeEquipe.registrar);
+  // Anti-retrabalho (quem já fez / quem está fazendo). Fail-open: se o registro falhar, o serviço segue normalmente.
+  const servicoFeito = montarServicoFeito({
+    consultar: (sql, params) => consultaBancoContabil(sql, params),
+    sessao: (req) => (req as express.Request & { sessaoContabil?: SessaoContabil }).sessaoContabil,
+    normalizarCnpj: normalizarCnpjAcesso,
+    cnpjValido: cnpjContabilValido,
+  });
 
   // Limite simples por IP para rotas públicas que consultam serviços externos.
   const usoPublico = new Map<string, { inicio: number; total: number }>();
@@ -222,7 +231,8 @@ const reconciliacaoRascunhosStatus: {
   app.get("/api/workspaces/:cnpj", exigirSessaoContabil, lerWorkspaceContabil);
   app.get("/api/workspaces/:cnpj/historico-aprovacoes", exigirSessaoContabil, listarHistoricoAprovacoesContabil);
   app.get("/api/workspaces/:cnpj/fechamentos", exigirSessaoContabil, listarFechamentosContabil);
-  app.post("/api/workspaces/:cnpj/fechamentos", exigirOrigemNavegador, exigirSessaoContabil, fecharCompetenciaContabil);
+  app.post("/api/workspaces/:cnpj/fechamentos", exigirOrigemNavegador, exigirSessaoContabil, servicoFeito.guardas.fechamento, fecharCompetenciaContabil);
+  servicoFeito.registrarRotas(app, exigirSessaoContabil);
   // Licença por empresa: cadastrada e gerenciada no Murade DP; aqui só se lê (servidor a servidor).
   app.get("/api/licenca", exigirSessaoContabil, async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
@@ -299,7 +309,7 @@ const reconciliacaoRascunhosStatus: {
     }
     await salvarWorkspaceContabil(req, res, { dadosPropostosPeloCliente: workspaceEnviado, permitirRascunhosServidor });
   });
-  app.post("/api/workspaces/:cnpj/contabilizar", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
+  app.post("/api/workspaces/:cnpj/contabilizar", exigirOrigemNavegador, exigirSessaoContabil, servicoFeito.guardas.contabilizacao, async (req, res) => {
     const cnpj = normalizarCnpjAcesso(req.params.cnpj);
     if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
     if (!Array.isArray(req.body?.referencias) || req.body.referencias.length < 1 || req.body.referencias.length > 500) return res.status(400).json({ sucesso: false, motivo: "Selecione de 1 a 500 rascunhos para conferência." });
@@ -311,7 +321,7 @@ const reconciliacaoRascunhosStatus: {
       return res.status(503).json({ sucesso: false, motivo: "Não foi possível revalidar os dados de origem. Nenhum lançamento foi contabilizado." });
     }
   });
-  app.post("/api/workspaces/:cnpj/lancamentos-manuais/:id/decisao", exigirOrigemNavegador, exigirSessaoContabil, (req, res) => {
+  app.post("/api/workspaces/:cnpj/lancamentos-manuais/:id/decisao", exigirOrigemNavegador, exigirSessaoContabil, servicoFeito.guardas.decisaoLancamento, (req, res) => {
     void decidirLancamentoManualContabil(req, res);
   });
   app.get("/api/revisao/origens", exigirSessaoContabil, async (req, res) => {
@@ -1276,7 +1286,15 @@ const reconciliacaoRascunhosStatus: {
       const agora = new Date();
       const resultado = await gerarBackupEscritorio((sql, params) => consultaBancoContabil(sql, params), String(sessao.tenantId), periodoDe(agora), agora);
       if (resultado.motivo === "sem_empresas") return res.status(400).json({ sucesso: false, motivo: "Cadastre ao menos uma empresa antes de gerar o backup." });
-      return res.json({ sucesso: true, criadoAgora: resultado.criado, registro: resultado.registro });
+      // Anti-retrabalho: guarda quem gerou; se já existia, diz quem fez (sem bloquear: gerar backup é idempotente).
+      let jaFeito: string | undefined;
+      try {
+        const def = { chave: chaveServico("backup:escritorio", null, periodoDe(agora)), tipo: "backup:escritorio", referencia: periodoDe(agora) };
+        const tenant = tenantDaSessao(sessao);
+        if (resultado.criado) await servicoFeito.servico.registrarSemErro(tenant, def, "concluido", { userId: sessao.userId, login: sessao.login, nome: await servicoFeito.nomeDe(sessao.userId).catch(() => null), origem: "pessoa" });
+        else { const anterior = await servicoFeito.servico.ler(tenant, def.chave); if (anterior?.estado === "concluido") jaFeito = descreverRegistro(anterior); }
+      } catch (e) { servicoFeito.servico.falhaLiberada("backup", e); }
+      return res.json({ sucesso: true, criadoAgora: resultado.criado, registro: resultado.registro, ...(jaFeito ? { jaFeito } : {}) });
     } catch (erro: any) {
       console.error("Falha ao gerar backup do escritório:", erro?.message || erro);
       return res.status(503).json({ sucesso: false, motivo: String(erro?.message || "Não foi possível gerar o backup agora.").slice(0, 200) });
@@ -1395,7 +1413,10 @@ const reconciliacaoRascunhosStatus: {
   const rodarConferidorBackups = () => bancoContabilConfigurado() ? executarRobo("backups", async () => {
     await prepararAuthContabil();
     const escritorios = await escritoriosParaBackup();
-    const r = await conferirBackupsEscritorios((sql, params) => consultaBancoContabil(sql, params), escritorios);
+    const r = await conferirBackupsEscritorios((sql, params) => consultaBancoContabil(sql, params), escritorios, new Date(), {
+      jaFeitoPorPessoa: async (tenantId, periodo) => Boolean(await servicoFeito.servico.jaConcluidoPorPessoa(tenantId, chaveServico("backup:escritorio", null, periodo))),
+      aoGerar: (tenantId, periodo) => servicoFeito.servico.registrarSemErro(tenantId, { chave: chaveServico("backup:escritorio", null, periodo), tipo: "backup:escritorio", referencia: periodo }, "concluido", { origem: "robo", login: "robo" }),
+    });
     registrarResultadoRobo("backups", r.resumo);
     if (r.atencao) console.warn(`Robô de Backups Mensais: ${r.resumo}`);
   }).catch((e) => console.error("Falha no Robô de Backups Mensais:", e?.message || e)) : undefined;
@@ -1429,6 +1450,15 @@ const reconciliacaoRascunhosStatus: {
   registrarRotinaManual("seguranca_login", rodarSegurancaLogin);
   registrarRotinaManual("backups", rodarConferidorBackups);
   registrarRotinaManual("backup_banco", rodarBackupBancoAgora);
+  // Robô Conferidor do Anti-retrabalho: vence "em andamento" esquecido, apaga registros com mais de 120 dias e relata bloqueios/avisos.
+  registrarRobo({ id: "servico_feito", nome: "Robô Conferidor de Serviço Feito", posto: "conferidor", missao: "Evitar retrabalho entre quem trabalha no mesmo escritório (e o robô): libera os \"estou fazendo\" esquecidos depois de 15 minutos, apaga registros com mais de 120 dias e relata quantas vezes avisou ou barrou um serviço repetido. Só mexe no próprio registro de quem fez o quê; nunca em lançamento, empresa ou nota.", intervaloMs: 15 * 60_000 });
+  const rodarServicoFeito = () => bancoContabilConfigurado() ? executarRobo("servico_feito", async () => {
+    registrarResultadoRobo("servico_feito", await servicoFeito.rodarConferidor());
+    definirAlertaRobo("servico_feito", servicoFeito.servico.contadores.liberadosPorFalha > 0 ? { nivel: "aviso", texto: `O registro de "quem já fez" falhou ${servicoFeito.servico.contadores.liberadosPorFalha} vez(es) desde que o servidor iniciou; os serviços foram liberados normalmente (sem aviso de duplicidade).` } : null);
+  }).catch((e) => console.error("Falha no Robô Conferidor de Serviço Feito:", e?.message || e)) : undefined;
+  setTimeout(() => void rodarServicoFeito(), 170_000).unref();
+  setInterval(() => void rodarServicoFeito(), 15 * 60_000).unref();
+  registrarRotinaManual("servico_feito", rodarServicoFeito);
 
   registrarRotaVozGemini(app, { obterIA: () => getAI(), autorizar: () => true, antes: [exigirSessaoContabil] });
   app.post("/api/ai/chat", exigirSessaoContabil, async (req, res) => {
