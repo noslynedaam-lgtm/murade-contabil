@@ -23,13 +23,21 @@ export function cnpjsValidosDoFiscal(lista: unknown, validar: (cnpj: string) => 
   return [...vistos.values()];
 }
 
-export async function buscarEmpresasDoFiscal(env: Record<string, string | undefined> = process.env, buscar: Buscar = fetch): Promise<{ ok: boolean; motivo?: string; empresas: any[] }> {
+/** CNPJs que o hub do Fiscal marcou como excluídos (lápide). Aceita lista de textos ou de objetos {cnpj}; o Fiscal pode mandar em `excluidas`, `lapides` ou `excluidos`. */
+export function cnpjsExcluidosNoFiscal(corpo: any): string[] {
+  const bruto = corpo?.excluidas ?? corpo?.lapides ?? corpo?.excluidos;
+  if (!Array.isArray(bruto)) return [];
+  const limpos = bruto.map((x: any) => String(typeof x === "string" ? x : x?.cnpj ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "")).filter((c) => c.length === 14);
+  return [...new Set(limpos)];
+}
+
+export async function buscarEmpresasDoFiscal(env: Record<string, string | undefined> = process.env, buscar: Buscar = fetch): Promise<{ ok: boolean; motivo?: string; empresas: any[]; excluidas?: string[] }> {
   const token = env.MURADE_INTEGRATION_TOKEN?.trim();
   if (!token) return { ok: false, motivo: "Token de integração (MURADE_INTEGRATION_TOKEN) não configurado neste sistema.", empresas: [] };
   try {
     const r = await buscar(`${urlDoSistema("fiscal", env)}/api/integracao/fiscal/empresas`, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30000) });
     if (!r.ok) return { ok: false, motivo: `O Murade Fiscal respondeu com erro (${r.status}).`, empresas: [] };
     const corpo: any = await r.json().catch(() => null);
-    return { ok: true, empresas: Array.isArray(corpo?.empresas) ? corpo.empresas : [] };
+    return { ok: true, empresas: Array.isArray(corpo?.empresas) ? corpo.empresas : [], excluidas: cnpjsExcluidosNoFiscal(corpo) };
   } catch { return { ok: false, motivo: "O Murade Fiscal não respondeu a tempo.", empresas: [] }; }
 }

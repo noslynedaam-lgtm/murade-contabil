@@ -290,6 +290,45 @@ const FERRAMENTAS: Ferramenta[] = [
   },
   {
     tipo: 'acao',
+    exclusao: true, // apaga uma empresa de todos os sistemas: o cartão pede duas confirmações (Continuar, depois "Sim, excluir")
+    declaracao: {
+      name: 'apagar_empresa',
+      description: 'Propõe EXCLUIR UMA empresa (acesso de todos os usuários, cadastro e área de trabalho no Contábil) e avisar o Fiscal para apagar também; o Fiscal avisa os outros sistemas. Uma empresa por vez, nunca em lote. Vira cartão de duas confirmações com nome e CNPJ; o CNPJ continua livre para cadastrar de novo e fechamentos e auditorias ficam guardados. Só proponha quando o usuário pedir expressamente; se o nome for ambíguo, pergunte qual.',
+      parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, empresa: { type: 'STRING', description: 'Opcional. Nome da empresa como o usuário falou, se não souber o CNPJ.' } }, required: [] },
+    },
+    async preparar(ctx, args) {
+      let cnpj = cnpjDe(args.cnpj);
+      let nome = '';
+      const emp = await ctx.chamarApi('GET', '/api/workspaces');
+      const itens: Array<{ cnpj: string; razaoSocial?: string; nomeFantasia?: string }> = ok(emp) ? (emp.corpo?.empresas || emp.corpo?.workspaces || []) : [];
+      if (!cnpj) {
+        const falado = normalizarTexto(String(args.empresa || ''));
+        if (!falado) return { erro: 'Diga qual empresa excluir (nome ou CNPJ). Pergunte ao usuário; não escolha por conta própria.' };
+        const achadas = itens.filter((e) => normalizarTexto(`${e.razaoSocial || ''} ${e.nomeFantasia || ''}`).includes(falado));
+        if (!achadas.length) return { erro: `Não encontrei "${args.empresa}" entre as empresas do escritório. Use listar_empresas e pergunte ao usuário qual é.` };
+        if (achadas.length > 1) return { erro: `Há mais de uma empresa parecida com "${args.empresa}": ${achadas.map((e) => `${e.razaoSocial || e.nomeFantasia} (${e.cnpj})`).join('; ')}. Pergunte ao usuário qual; não escolha por conta própria.` };
+        cnpj = cnpjDe(achadas[0].cnpj);
+      }
+      if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const achada = itens.find((e) => cnpjDe(e.cnpj) === cnpj);
+      nome = String(achada?.razaoSocial || achada?.nomeFantasia || '').trim();
+      return {
+        cnpj, params: { cnpj },
+        titulo: `Excluir a empresa ${nome ? `${nome} ` : ''}(CNPJ ${cnpj})`,
+        descricao: ['Sai o acesso de todos os usuários a esta empresa, o cadastro e a área de trabalho dela no Contábil.', 'O Fiscal é avisado e apaga também; ele avisa os outros sistemas.', 'Fechamentos de período e trilhas de auditoria continuam guardados.', 'O CNPJ não fica bloqueado: dá para cadastrar de novo depois.'],
+        aviso: 'Uma empresa por vez. Isso não pode ser desfeito pela tela.', irreversivel: true, resumo: `Excluir empresa ${cnpj}`,
+      };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('DELETE', `/api/auth/companies/${q(String(params.cnpj))}`);
+      if (!ok(r)) return { sucesso: false, mensagem: erroApi(r).erro };
+      const hub = r.corpo?.cascata;
+      const fiscal = hub?.avisado ? 'O Fiscal foi avisado.' : `O Fiscal não confirmou (${hub?.motivo || 'sem resposta'}); o Robô Conferidor de Empresas Excluídas avisa se algo sobrar.`;
+      return { sucesso: true, mensagem: `Empresa ${params.cnpj} excluída do Contábil. ${fiscal}` };
+    },
+  },
+  {
+    tipo: 'acao',
     declaracao: { name: 'trazer_empresas_do_fiscal', description: 'Propõe TRAZER para o Contábil as empresas cadastradas no Murade Fiscal que ainda não existem aqui. Não altera empresas já cadastradas, não leva certificado nem senha. Só o dono do sistema.', parameters: { type: 'OBJECT', properties: {}, required: [] } },
     async preparar() {
       return { params: {}, cnpj: '', titulo: 'Trazer as empresas do Fiscal para o Contábil', descricao: ['Cadastra no Contábil os CNPJs do Murade Fiscal que ainda não estão aqui, para ninguém cadastrar duas vezes.', 'Empresas já cadastradas não mudam.'], resumo: 'Trazer empresas do Fiscal' };
@@ -692,6 +731,7 @@ COMO TRABALHAR
 - PEDIR SERVIÇO À EQUIPE (delegar_tarefa): quando a contadora pedir algo como "peça para a Nilva conciliar o banco da empresa X", use delegar_tarefa com o nome da pessoa como foi dito, o serviço, a empresa (se disse) e o prazo (só se disse; converta para AAAA-MM-DD pela data de hoje). Vira cartão de confirmação; diga em uma frase para quem é o pedido e que ele só vale ao confirmar. Se a ferramenta disser que o nome é ambíguo ou não existe, pergunte UMA vez qual pessoa, sem escolher sozinha. Só a administradora do escritório pede para outra pessoa; funcionário comum só anota tarefa para si (sem destinatário). Isso funciona de qualquer tela. A pessoa recebe o pedido na tela de Tarefas da equipe.
 - Você não grava lançamentos manuais, plano de contas ou mapeamentos: isso é feito nas telas. Você pode PREENCHER o formulário à vista com preencher_na_tela, e quem clica em gravar é o usuário.
 - Antes de propor fechar o período ou contabilizar, se o usuário perguntar se alguém já fez, ou se vários colegas trabalham na empresa, use consultar_servico_feito. Se a ação for barrada porque outra pessoa (ou o robô) já fez, repasse a frase do sistema com o nome e a hora, sem tentar de novo; se o sistema avisar que alguém está fazendo agora, conte isso ao usuário e só prossiga se ele pedir de novo. Nunca invente quem fez.
+- EXCLUIR EMPRESA (apagar_empresa): só quando a pessoa pedir expressamente, UMA empresa por vez (nunca todas de uma vez: se pedirem em lote, explique que o sistema só apaga uma por vez, por segurança). Diga o nome e o CNPJ completos; vira cartão de duas confirmações e só vale depois das duas. Se o nome for ambíguo, pergunte qual. O CNPJ continua livre para cadastrar de novo.
 - MEU JEITO: se a pessoa contar como prefere trabalhar (tela ao entrar, atalhos do menu, conversa mais curta ou detalhada, regra "ao abrir X, destacar Y"), use aprender_meu_jeito (vira cartão com o que você entendeu; só vale após o sim); para ver o que aprendeu, mostrar_meu_jeito; para voltar ao padrão em UMA coisa, esquecer_regra_do_jeito; para explicar o jeito padrão, explicar_jeito_padrao; para mudar o nome pelo qual você chama a pessoa ("me chama de Ana", "mudar meu nome"), mudar_meu_nome (vira cartão). O jeito nunca desliga proteções (confirmações, cálculos exatos, robôs, anti-duplicidade, SERPRO só manual, nada de apagar em lote): se pedirem isso, explique com gentileza e não chame a ferramenta.
 - APRESENTAÇÃO DO SISTEMA: para "o que o sistema faz", "o que é automático", "o que é integrado" ou "o que ele não faz", use apresentar_sistema ou perguntar_integracoes (texto fixo e conferido) e nunca invente; para "me mostra onde", use mostrar_na_tela.
 

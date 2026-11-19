@@ -24,7 +24,8 @@ import { conferirApresentacao, resumoRelatorioApresentacao } from "./src/server/
 import type { SessaoContabil } from './src/server/authContabil';
 import { lerPerfilSaudacaoContabil, marcarSaudadoHojeContabil } from "./src/server/authContabil";
 import { extrairNomeDaResposta, fraseDeSaudacao } from "./src/server/agenteSaudacao";
-import { opcoesConexaoBancoContabil } from "./src/server/authContabil";
+import { opcoesConexaoBancoContabil, bancoTransacionalContabil } from "./src/server/authContabil";
+import { removerEmpresaCompleta, sobrasDeEmpresasExcluidas } from "./src/server/exclusaoEmpresaCascata";
 import { listarRegistroAgenteIAContabil, bancoContabilConfigurado, consultaBancoContabil, hashSessaoContabil, registrarAcaoAgenteIAContabil, listarDuvidasSemRespostaDonoSistemaContabil, resolverDuvidaSemRespostaDonoSistemaContabil } from "./src/server/authContabil";
 import { definirAlertaRobo, dispararRoboAgora, executarRobo, registrarResultadoRobo, registrarRobo, registrarRotinaManual, statusRobos } from "./src/server/robosStatus";
 import { criarServicoBackupBanco } from "./src/server/backupBanco/servico";
@@ -800,6 +801,27 @@ const reconciliacaoRascunhosStatus: {
     res.status(503).json({ error: "Cadastro compartilhado indisponível. Não há autenticação nem banco de dados configurados." });
   });
 
+  // Hub de exclusão: o Fiscal (ou outro sistema Murade) manda apagar UMA empresa daqui. Idempotente e sem bloquear o CNPJ para novo cadastro.
+  // Apaga acessos de todos os usuários, cadastro compartilhado, workspace e atividade da equipe; preserva fechamentos, auditorias e documentos de origem.
+  app.delete("/api/integracao/empresa/:cnpj", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Vary", "Authorization");
+    if (negarIntegracao(req, res)) return;
+    const cnpj = normalizarCnpjAcesso(req.params.cnpj);
+    if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
+    if (!bancoContabilConfigurado()) return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil." });
+    const por = typeof req.body?.por === "string" ? req.body.por.slice(0, 120) : undefined;
+    const origem = typeof req.body?.origem === "string" ? req.body.origem.slice(0, 40) : "integracao";
+    try {
+      await prepararAuthContabil();
+      const r = await removerEmpresaCompleta(bancoTransacionalContabil(), cnpj, { por, origem });
+      return res.json({ sucesso: true, cnpj: r.cnpj, apagados: r.apagados, preservados: r.preservados, jaNaoExistia: r.jaNaoExistia });
+    } catch (error) {
+      console.error("Falha ao excluir empresa por integração:", error);
+      return res.status(503).json({ sucesso: false, motivo: "Não foi possível excluir a empresa agora; nada foi apagado pela metade." });
+    }
+  });
+
   // API de Consulta CNPJ Real na Receita Federal (BrasilAPI + ReceitaWS como contingência)
   app.get("/api/receita/cnpj/:cnpj", async (req, res) => {
     const rawCnpj = (req.params.cnpj || "").replace(/\D/g, "");
@@ -1411,7 +1433,9 @@ const reconciliacaoRascunhosStatus: {
   const sincronizarEmpresasDoFiscal = async () => {
     const f = await buscarEmpresasDoFiscal();
     if (!f.ok) return { ok: false, motivo: f.motivo || "Fiscal indisponível.", criadas: [] as string[] };
-    const r = await importarCnpjsCompartilhados(cnpjsValidosDoFiscal(f.empresas, cnpjContabilValido));
+    // Empresa excluída (lápide no Fiscal) nunca é recriada pelo robô, mesmo que ainda apareça na lista.
+    const lapides = new Set(f.excluidas || []);
+    const r = await importarCnpjsCompartilhados(cnpjsValidosDoFiscal(f.empresas, cnpjContabilValido).filter((e) => !lapides.has(e.cnpj)));
     const motivo = `${r.criadas.length} empresa(s) nova(s) vinda(s) do Fiscal; ${r.jaExistiam} já existiam${r.semEscritorio.length ? `; ${r.semEscritorio.length} aguardam o escritório ter no Contábil um administrador com o mesmo login do Fiscal` : ""}${r.semDono ? "; sem administrador dono do sistema no Contábil" : ""}.`;
     return { ok: true, motivo, criadas: r.criadas };
   };
@@ -1423,6 +1447,20 @@ const reconciliacaoRascunhosStatus: {
     try { const r = await sincronizarEmpresasDoFiscal(); return res.status(r.ok ? 200 : 502).json({ sucesso: r.ok, ...r }); }
     catch (e: any) { return res.status(500).json({ sucesso: false, motivo: e?.message || "Falha ao importar." }); }
   });
+  // Robô Conferidor de Empresas Excluídas: se o Fiscal diz que uma empresa foi excluída (lápide) e ela ainda tem acesso, cadastro ou workspace aqui,
+  // avisa o dono no painel de Saúde dos robôs. Só lê: apagar é sempre uma empresa por vez, com confirmação de uma pessoa.
+  registrarRobo({ id: "empresas_excluidas", nome: "Robô Conferidor de Empresas Excluídas", posto: "conferidor", missao: "Conferir, só em leitura, se alguma empresa excluída no Murade Fiscal ainda sobrou no Contábil (acesso, cadastro ou workspace) e avisar o dono do sistema aqui. Nunca apaga nada sozinho: a exclusão é uma empresa por vez, com confirmação de uma pessoa, e nunca bloqueia o CNPJ para novo cadastro.", intervaloMs: 60 * 60_000 });
+  const rodarEmpresasExcluidas = () => bancoContabilConfigurado() ? executarRobo("empresas_excluidas", async () => {
+    await prepararAuthContabil();
+    const f = await buscarEmpresasDoFiscal();
+    if (!f.ok) { registrarResultadoRobo("empresas_excluidas", `Fiscal indisponível agora (${f.motivo || "sem resposta"}); confiro na próxima rodada.`); return; }
+    const sobras = await sobrasDeEmpresasExcluidas((sql, params) => consultaBancoContabil(sql, params), f.excluidas || []);
+    const texto = sobras.length ? `${sobras.length} empresa(s) excluída(s) no Fiscal ainda existem no Contábil: ${sobras.join(", ")}. Exclua uma por vez em Cadastro de Empresa (ou peça à Agente por voz).` : `Nenhuma sobra: ${(f.excluidas || []).length} empresa(s) excluída(s) no Fiscal conferida(s).`;
+    registrarResultadoRobo("empresas_excluidas", texto);
+    definirAlertaRobo("empresas_excluidas", sobras.length ? { nivel: "aviso", texto } : null);
+  }).catch((e) => console.error("Falha no Robô Conferidor de Empresas Excluídas:", e?.message || e)) : undefined;
+  setTimeout(() => void rodarEmpresasExcluidas(), 150_000).unref();
+  setInterval(() => void rodarEmpresasExcluidas(), 60 * 60_000).unref();
   registrarRobo({ id: "acessos", nome: "Robô Conferidor de Acessos", posto: "conferidor", missao: "Conferir se contas e escritórios excluídos ou bloqueados não deixaram acesso nem sessão aberta, mantendo os e-mails livres para novo cadastro.", intervaloMs: 60 * 60_000 });
   const rodarConferidorDeAcessos = () => bancoContabilConfigurado() ? executarRobo("acessos", async () => {
     await prepararAuthContabil();
@@ -1521,6 +1559,7 @@ const reconciliacaoRascunhosStatus: {
   registrarRotinaManual("mensageiro", () => executarRobo("mensageiro", () => centralDePedidos.reenviarPendentes()).catch((e) => console.error("Falha ao reenviar pedidos entre agentes:", e?.message || e)));
   registrarRotinaManual("conferidor", rodarConferidor);
   registrarRotinaManual("empresas_fiscal", rodarEmpresasFiscal);
+  registrarRotinaManual("empresas_excluidas", rodarEmpresasExcluidas);
   registrarRotinaManual("acessos", rodarConferidorDeAcessos);
   registrarRotinaManual("seguranca_login", rodarSegurancaLogin);
   registrarRotinaManual("backups", rodarConferidorBackups);

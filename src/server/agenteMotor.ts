@@ -11,7 +11,7 @@
 import crypto from 'node:crypto';
 import { validarPlanoPiloto, type RespostaPiloto } from '../utils/pilotoVisivel';
 
-export type ChamarApi = (metodo: 'GET' | 'POST', caminho: string, corpo?: unknown) => Promise<{ status: number; corpo: any }>;
+export type ChamarApi = (metodo: 'GET' | 'POST' | 'DELETE', caminho: string, corpo?: unknown) => Promise<{ status: number; corpo: any }>;
 
 export interface DeclaracaoFerramenta {
   name: string;

@@ -5,6 +5,7 @@ import { diaDeHoje } from "./agenteSaudacao";
 import type { NextFunction, Request, Response } from "express";
 import { Pool, type PoolClient } from "pg";
 import { gerarRelatoriosContabeis, normalizarDataContabil } from "../utils/livrosContabeis";
+import { avisarHubFiscal, removerEmpresaCompleta, type BancoTransacional } from './exclusaoEmpresaCascata';
 import {
   aparelhoConfiavel, cookieAparelho, criarAparelhoConfiavel, concluirAtivacao2fa, desativar2fa, estaBloqueado, iniciarAtivacao2fa, ler2fa, lerChaveMestra, lerCookie,
   limparFalhasDoAparelho, mensagemDoResumo, NOME_COOKIE_APARELHO, prepararSeguranca, registrarEvento, registrarFalha, resumirSeguranca, tem2faAtivo, verificarSegundoFator, type Consultar,
@@ -529,23 +530,45 @@ export async function revogarUsuarioEmpresaContabil(req: Request, res: Response)
   } catch (error) { console.error('Falha ao revogar acesso no Contábil:', error); res.status(503).json({ sucesso: false, motivo: 'Não foi possível revogar o acesso.' }); }
 }
 
+/** Banco do Contábil no formato que a exclusão completa usa (uma transação por empresa). */
+export function bancoTransacionalContabil(): BancoTransacional {
+  return {
+    consultar: (sql, params) => obterBanco().query(sql, params as any[]),
+    async transacao(fn) {
+      const client = await obterBanco().connect();
+      try {
+        await client.query("BEGIN");
+        const r = await fn((sql, params) => client.query(sql, params as any[]));
+        await client.query("COMMIT");
+        return r;
+      } catch (e) { await client.query("ROLLBACK").catch(() => undefined); throw e; }
+      finally { client.release(); }
+    },
+  };
+}
+
+/** DELETE /api/auth/companies/:cnpj — apaga UMA empresa de ponta a ponta (todos os usuários, cadastro compartilhado, workspace e atividade) e avisa o hub do Fiscal. */
 export async function removerEmpresaAcessoContabil(req: Request, res: Response): Promise<void> {
   const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
   const cnpj = normalizarCnpjAcesso(req.params.cnpj);
+  res.setHeader("Cache-Control", "no-store");
+  if (!cnpjContabilValido(cnpj)) { res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." }); return; }
   if (!sessao || !sessao.cnpjs.includes(cnpj)) { res.status(403).json({ sucesso: false, motivo: "Empresa fora do seu acesso." }); return; }
-  let client: PoolClient | undefined;
+  if (!sessao.administrador && !sessao.donoSistema && !usuarioPodeAdministrarCnpj(sessao, cnpj)) { res.status(403).json({ sucesso: false, motivo: "Somente o administrador desta empresa pode excluí-la." }); return; }
   try {
-    client = await obterBanco().connect();
-    await client.query("BEGIN");
-    await client.query("DELETE FROM contabil_auth_company_access WHERE user_id=$1 AND cnpj=$2", [sessao.userId, cnpj]);
-    await client.query("COMMIT");
-    res.setHeader("Cache-Control", "no-store");
-    res.json({ sucesso: true, cnpj, dadosPreservados: true });
+    await prepararAuthContabil();
+    if (!sessao.donoSistema) {
+      const meu = sessao.tenantId || sessao.escritorioDe || sessao.userId;
+      const outro = await obterBanco().query("SELECT 1 FROM contabil_auth_company_access a JOIN contabil_auth_users u ON u.id=a.user_id WHERE a.cnpj=$1 AND COALESCE(u.tenant_id,u.id)::text<>$2 LIMIT 1", [cnpj, meu]);
+      if (outro.rowCount) { res.status(409).json({ sucesso: false, motivo: "Esta empresa também está liberada para outro escritório. Peça ao dono do sistema para excluí-la." }); return; }
+    }
+    const local = await removerEmpresaCompleta(bancoTransacionalContabil(), cnpj, { por: sessao.login, origem: "contabil" });
+    const hub = await avisarHubFiscal(cnpj, sessao.login);
+    res.json({ sucesso: true, cnpj, dadosPreservados: true, apagados: local.apagados, preservados: local.preservados, cascata: hub });
   } catch (error) {
-    if (client) await client.query("ROLLBACK").catch(() => undefined);
-    console.error("Falha ao revogar acesso da empresa no Contábil:", error);
-    res.status(503).json({ sucesso: false, motivo: "Não foi possível remover o acesso da empresa." });
-  } finally { client?.release(); }
+    console.error("Falha ao excluir a empresa no Contábil:", error);
+    res.status(503).json({ sucesso: false, motivo: "Não foi possível excluir a empresa agora. Nada foi apagado pela metade: tente de novo." });
+  }
 }
 
 function loginValidoContabil(login: string): boolean { return login.length >= 3 && login.length <= 80 && /^[a-z0-9._@+-]+$/.test(login); }

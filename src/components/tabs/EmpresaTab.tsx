@@ -385,8 +385,9 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
       titulo: "Excluir esta empresa?",
       oQue: `a empresa ${empNome}${cnpjAlvo && cnpjAlvo !== empNome ? ` (CNPJ ${cnpjAlvo})` : ""}`,
       consequencias: [
-        "A empresa sai da lista deste sistema e o seu acesso a ela é removido.",
-        "Os dados contábeis já gravados no servidor não são apagados.",
+        "A empresa sai da lista, e o acesso de todos os usuários a ela é removido neste sistema.",
+        "O Fiscal é avisado e apaga a empresa também (e ele avisa os outros sistemas), para o robô não trazê-la de volta.",
+        "Fechamentos de período e trilhas de auditoria continuam guardados.",
         "O CNPJ não fica bloqueado: depois dá para cadastrar a empresa de novo.",
       ],
     });

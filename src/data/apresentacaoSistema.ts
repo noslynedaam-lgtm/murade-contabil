@@ -27,6 +27,7 @@ export const ROBOS_APRESENTACAO: RoboApresentacao[] = [
   { id: 'mensageiro', nome: 'Robô Mensageiro', intervaloMs: 60_000, faz: 'reenvia os pedidos entre as Agentes dos sistemas Murade que não chegaram ao destino.' },
   { id: 'conferidor', nome: 'Robô Conferidor', intervaloMs: 30 * 60_000, faz: 'confere todas as empresas: o que falta para fechar o mês, como aprovações, rascunhos do Fiscal e do DP, depreciação e partidas, e se a ECD do ano anterior já está pronta para você.' },
   { id: 'empresas_fiscal', nome: 'Robô de Empresas do Fiscal', intervaloMs: 60 * 60_000, faz: 'traz do Murade Fiscal as empresas que ainda não estão no Contábil, para a equipe não cadastrar duas vezes. Não altera o que já existe e não leva certificado nem senha.' },
+  { id: 'empresas_excluidas', nome: 'Robô Conferidor de Empresas Excluídas', intervaloMs: 60 * 60_000, soDono: true, faz: 'confere, só em leitura, se alguma empresa excluída no Fiscal ainda sobrou aqui no Contábil e avisa o dono. Ele nunca apaga nada sozinho: a exclusão é uma empresa por vez, com a sua confirmação.' },
   { id: 'acessos', nome: 'Robô Conferidor de Acessos', intervaloMs: 60 * 60_000, soDono: true, faz: 'confere se contas e escritórios excluídos ou bloqueados não deixaram acesso nem sessão aberta, mantendo os e-mails livres para novo cadastro.' },
   { id: 'seguranca_login', nome: 'Robô Conferidor de Segurança do Login', intervaloMs: 2 * 60 * 60_000, soDono: true, faz: 'confere, só em leitura, as últimas 24 horas do login e avisa quando algo foge do normal. Nunca bloqueia nem altera conta.' },
   { id: 'tarefas_equipe', nome: 'Robô de Tarefas da Equipe', intervaloMs: 15 * 60_000, faz: 'confere os pedidos feitos à equipe: refaz o aviso que não chegou, lembra quem não abriu o pedido em mais de 2 horas úteis e avisa quando o prazo vence. Nunca conclui nem apaga uma tarefa.' },
@@ -60,6 +61,11 @@ export const INTEGRACOES_APRESENTACAO: IntegracaoApresentacao[] = [
     id: 'fiscal-apuracoes', titulo: 'Do Fiscal: apurações de tributo', tela: 'revisao-origens',
     falar: 'O Fiscal também envia as apurações de tributo que a contadora já confirmou, como o DIFAL do ICMS e o IRPJ, a CSLL, o PIS e a COFINS do Lucro Presumido. O Contábil grava por empresa, tributo e competência.',
     rotas: ['POST /api/integracao/fiscal/apuracoes', 'GET /api/integracao/fiscal/apuracoes'],
+  },
+  {
+    id: 'empresa-excluida', titulo: 'Exclusão de empresa entre os sistemas',
+    falar: 'Quando uma empresa é excluída em um sistema Murade, a exclusão chega aos outros por uma rota autenticada, uma empresa por vez. No Contábil sai o acesso de todos os usuários, o cadastro compartilhado, a área de trabalho e o registro de atividade da empresa. Fechamentos de período, trilhas de auditoria e uma cópia da escrituração ficam guardados, e o CNPJ continua livre para cadastrar de novo.',
+    rotas: ['DELETE /api/integracao/empresa/:cnpj'],
   },
   {
     id: 'dp-folha', titulo: 'Do DP: folha de pagamento', tela: 'revisao-origens',
