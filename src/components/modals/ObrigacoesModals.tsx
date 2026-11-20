@@ -334,7 +334,7 @@ export const GerarGuiaModal: React.FC<GerarGuiaModalProps> = ({ item, empresa, o
 };
 
 // ==========================================================
-// 4. MODAL PREPARAR OBRIGAÇÃO (ECD / SPED indisponível)
+// 4. MODAL PREPARAR OBRIGAÇÃO (ECD: o arquivo é gerado em Livros Fiscais & ECD)
 // ==========================================================
 interface PrepararModalProps {
   item: LembreteItem;
@@ -347,12 +347,12 @@ export const PrepararModal: React.FC<PrepararModalProps> = ({ item, empresa, onC
   <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
     <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
       <div className="flex items-center justify-between bg-indigo-900 p-5 text-white">
-        <div><h3 className="text-base font-bold">Preparação SPED indisponível</h3><p className="text-xs text-indigo-200">{item.nome} · {empresa.razaoSocial || "empresa não informada"}</p></div>
+        <div><h3 className="text-base font-bold">Preparar ECD / SPED Contábil</h3><p className="text-xs text-indigo-200">{item.nome} · {empresa.razaoSocial || "empresa não informada"}</p></div>
         <button type="button" onClick={onClose} aria-label="Fechar"><X className="h-5 w-5" /></button>
       </div>
       <div className="space-y-3 p-6 text-sm">
-        <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950"><strong>Nenhum arquivo ou validação foi produzido.</strong><p className="mt-2">A geração de ECD/SPED e a validação pelo PVA não estão integradas. Não há blocos, hash ou arquivo pronto para transmissão.</p></div>
-        <p className="text-xs text-slate-600">Competência: {item.competencia || "não informada"}. A integração depende de dados contábeis persistidos, leiaute oficial e execução/validação no PVA.</p>
+        <div role="note" className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-950"><strong>O arquivo da ECD é gerado na tela Livros Fiscais &amp; ECD.</strong><p className="mt-2">Lá o gerador monta o TXT do leiaute 9 (Blocos 0, I, J e 9, com Balanço, DRE, encerramento do resultado, termo de encerramento e signatários) a partir dos lançamentos aprovados. A validação, a assinatura e a transmissão continuam sendo feitas por você no PGE da Receita; o Murade não transmite.</p></div>
+        <p className="text-xs text-slate-600">Competência: {item.competencia || "não informada"}. Antes de gerar, confira se não há pré-lançamentos pendentes e se o plano de contas está com natureza e plano referencial.</p>
       </div>
       <div className="flex justify-end border-t bg-slate-50 p-4"><button type="button" onClick={onClose} className="rounded-lg bg-slate-800 px-4 py-2 text-xs font-bold text-white">Fechar</button></div>
     </div>

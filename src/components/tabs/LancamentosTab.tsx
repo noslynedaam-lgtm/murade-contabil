@@ -137,7 +137,7 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
             <span className="text-xl">📝</span> Lançamentos contábeis registrados
           </h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            Exibe os registros locais desta empresa. As integrações automáticas com Fiscal e DP ainda não geram partidas contábeis.
+            Exibe os lançamentos desta empresa. O Fiscal e o DP já mandam os dados e o Robô Reconciliador prepara sozinho os pré-lançamentos; eles aparecem aqui depois que você aprova na tela Revisar dados recebidos.
           </p>
         </div>
 
@@ -154,32 +154,35 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
         <div className="flex flex-wrap gap-2">
           <button
             id="btn-importar-fiscal"
+            type="button"
             onClick={onImportarFiscal}
-            disabled
-            className="bg-slate-200 text-slate-600 text-xs font-bold px-3 py-2 rounded-lg transition flex items-center gap-1.5 cursor-not-allowed shadow-xs"
+            className="bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold px-3 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+            title="Abre a tela Revisar dados recebidos, onde ficam os pré-lançamentos que vieram do Fiscal"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>Fiscal: importação contábil indisponível</span>
+            <span>Rascunhos do Fiscal</span>
           </button>
 
           <button
             id="btn-importar-dp"
+            type="button"
             onClick={onImportarDP}
-            disabled
-            className="bg-slate-200 text-slate-600 text-xs font-bold px-3 py-2 rounded-lg transition flex items-center gap-1.5 cursor-not-allowed shadow-xs"
+            className="bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-300 text-xs font-bold px-3 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+            title="Abre a tela Revisar dados recebidos, onde ficam os pré-lançamentos que vieram do DP"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>DP: folha ainda não disponível</span>
+            <span>Rascunhos do DP</span>
           </button>
 
           <button
             id="btn-gerar-tudo"
+            type="button"
             onClick={onGerarTudo}
-            disabled
-            className="bg-slate-200 text-slate-600 text-xs font-bold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 cursor-not-allowed shadow-xs"
+            className="bg-slate-50 hover:bg-slate-100 text-slate-800 border border-slate-300 text-xs font-bold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+            title="Pede ao Robô Reconciliador para preparar agora os pré-lançamentos com o que o Fiscal e o DP já mandaram. Nada é aprovado sozinho."
           >
-            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-            <span>Automação contábil não habilitada</span>
+            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+            <span>Preparar rascunhos agora</span>
           </button>
         </div>
 

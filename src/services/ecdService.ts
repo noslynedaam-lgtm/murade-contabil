@@ -3,9 +3,9 @@
  *
  * Fonte dos campos e regras: "Manual de Orientação do Leiaute 9 da ECD" (RFB, jan/2026).
  * Escopo: livro Diário completo (IND_ESC = "G") com Bloco 0 (0000, 0001, 0990), Bloco I (I001, I010, I030, I050,
- * I051, I052, I100, I150, I155, I200, I250, I350, I355, I990), Bloco J (J001, J005, J100, J150, J900, J930, J990)
- * e Bloco 9. NÃO gera: DLPA/DMPL (J210), notas explicativas (J800), I012/I015. O arquivo gerado deve ser validado
- * no PGE do Sped Contábil antes de assinar e transmitir.
+ * I051, I052, I100, I150, I155, I200, I250, I350, I355, I990), Bloco J (J001, J005, J100, J150, J210/J215 quando
+ * houver DLPA/DMPL, J900, J930, J990) e Bloco 9. NÃO gera: notas explicativas (J800), I012/I015. O arquivo gerado deve
+ * ser validado no PGE do Sped Contábil antes de assinar e transmitir.
  */
 import { ContaPlano, EmpresaDados } from "../types";
 import { LancamentoValidado } from "../utils/livrosContabeis";

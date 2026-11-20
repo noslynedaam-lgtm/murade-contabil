@@ -702,19 +702,23 @@ function AppWorkspace() {
     showToast("Estorno enviado para aprovação; o lançamento original foi preservado.", "info");
   };
 
-  // 3. Importar do Fiscal
-  const handleImportarFiscal = () => {
-    showToast("Integração com o módulo Fiscal não configurada. Nenhum lançamento foi importado.", "info");
-  };
+  // 3/4. Rascunhos do Fiscal e do DP: chegam sozinhos pelo Robô Reconciliador; a conferência fica em "Revisar dados recebidos".
+  const handleImportarFiscal = () => setTabAtiva("revisao-origens");
+  const handleImportarDP = () => setTabAtiva("revisao-origens");
 
-  // 4. Importar do DP
-  const handleImportarDP = () => {
-    showToast("Integração com Departamento Pessoal não configurada. Nenhum lançamento foi importado.", "info");
-  };
-
-  // 5. Gerar Todos os Lançamentos Sozinho
-  const handleGerarTudo = () => {
-    showToast("Consolidação automática ainda não está disponível. Conecte e valide as fontes antes de gerar lançamentos.", "info");
+  // 5. Preparar agora (botão manual ao lado do robô): reprocessa a recepção desta empresa. Nunca aprova nada.
+  const handleGerarTudo = async () => {
+    const empresaCnpj = empresa.cnpj.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!empresaCnpj) { showToast("Escolha a empresa antes de preparar os rascunhos.", "info"); return; }
+    try {
+      const response = await fetchComGuarda(`/api/workspaces/${encodeURIComponent(empresaCnpj)}/reprocessar-recepcao`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: "{}" });
+      const result = await response.json().catch(() => ({}));
+      if (tratarBloqueioServico(result)) return;
+      showToast(String(result.mensagem || result.motivo || (response.ok ? "Recepção reprocessada." : "Não foi possível preparar agora.")), response.ok ? "success" : "info");
+      if (response.ok && (Number(result.criados) || Number(result.atualizados))) setTabAtiva("revisao-origens");
+    } catch {
+      showToast("Não foi possível preparar agora. O robô tenta sozinho a cada minuto.", "info");
+    }
   };
 
   // 6. Fechar Mês no Balancete
