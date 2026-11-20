@@ -194,7 +194,7 @@ test('CNPJ do escritório: cada escritório lê e grava só o seu; só o adminis
   assert.equal(cnpjValido('11.444.777/0001-61'), '11444777000161');
   assert.equal(cnpjValido('11444777000162'), null);
   const dados = new Map<string, string>();
-  const store = { ler: async (t: string) => dados.get(t) ?? null, gravar: async (t: string, c: string) => { dados.set(t, c); } } as unknown as StoreEscritorio;
+  const store = { ler: async (t: string) => dados.get(t) ?? null, lerOuDescobrir: async (t: string) => dados.get(t) ?? null, gravar: async (t: string, c: string) => { dados.set(t, c); } } as unknown as StoreEscritorio;
   const rotas = new Map<string, Function>();
   const app: any = { get: (p: string, ...h: Function[]) => rotas.set(`GET ${p}`, h[h.length - 1]), post: (p: string, ...h: Function[]) => rotas.set(`POST ${p}`, h[h.length - 1]) };
   const sessoes: Record<string, any> = { adminA: { tenantId: 'A', podeEditar: true }, equipeA: { tenantId: 'A', podeEditar: false }, adminB: { tenantId: 'B', podeEditar: true } };

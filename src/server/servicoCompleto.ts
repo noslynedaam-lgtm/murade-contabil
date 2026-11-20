@@ -53,7 +53,8 @@ export type ItemPreparo =
   | { tipo: 'reprocessar_recepcao'; etapa: string; descricao: string }
   | { tipo: 'lancamentos_padrao'; etapa: string; descricao: string; competencia: string }
   | { tipo: 'conciliacao'; etapa: string; descricao: string; contaBanco: string; fitids: string[] }
-  | { tipo: 'encerramento'; etapa: string; descricao: string; ano: number; contaDestino?: string };
+  | { tipo: 'encerramento'; etapa: string; descricao: string; ano: number; contaDestino?: string }
+  | { tipo: 'livro_caixa'; etapa: string; descricao: string; competencia: string };
 
 export interface Levantamento {
   roteiro: RoteiroServico;
@@ -178,7 +179,12 @@ export function levantarFechamentoMensal(e: EntradaFechamento): Levantamento {
   const rel = gerarRelatoriosContabeis(contas, lancamentos, c);
   etapas.push({ id: 'livros', titulo: 'Livro Diário e Razão', situacao: rel.doPeriodo.length ? 'feito' : 'contador', tela: 'livros', detalhe: rel.doPeriodo.length ? `${rel.doPeriodo.length} lançamento(s) aprovado(s) de ${mesAno(c)} já estão no Diário e no Razão (tela Livros Fiscais e ECD).` : `Ainda não há lançamento aprovado em ${mesAno(c)}: o Diário e o Razão do mês saem depois das aprovações.` });
   const caixa = situacaoLivroCaixaDoMes(dados, c);
-  if (caixa.situacao !== 'nao_se_aplica') etapas.push({ id: 'livro-caixa', titulo: 'Livro Caixa (Simples Nacional)', situacao: caixa.situacao === 'dispensado' || caixa.situacao === 'emitido' ? 'feito' : 'contador', tela: 'livros', detalhe: `${caixa.detalhe}${caixa.situacao === 'pode_emitir' || caixa.situacao === 'pendente' ? ' Depois das aprovações, registre o Livro Caixa (Livros → Livro Caixa).' : ''}`.slice(0, 400) });
+  const semPendencia = !pend.length && !lancamentos.some((l) => l?.statusManual === 'pendente_aprovacao' && normalizarDataContabil(String(l.data || ''))?.slice(0, 7) === c);
+  // Depois do OK (nada pendente no mês): a Agente continua e registra o Livro Caixa sozinha, pela rota de sempre.
+  if (caixa.situacao === 'pode_emitir' && semPendencia) {
+    preparo.push({ tipo: 'livro_caixa', etapa: 'livro-caixa', competencia: c, descricao: `Registrar o Livro Caixa de ${mesAno(c)} (nada pendente no mês).` });
+    etapas.push({ id: 'livro-caixa', titulo: 'Livro Caixa (Simples Nacional)', situacao: 'a_preparar', tela: 'livros', detalhe: caixa.detalhe.slice(0, 400) });
+  } else if (caixa.situacao !== 'nao_se_aplica') etapas.push({ id: 'livro-caixa', titulo: 'Livro Caixa (Simples Nacional)', situacao: caixa.situacao === 'dispensado' || caixa.situacao === 'emitido' ? 'feito' : 'contador', tela: 'livros', detalhe: `${caixa.detalhe}${caixa.situacao === 'pode_emitir' || caixa.situacao === 'pendente' ? ' Depois das aprovações, registre o Livro Caixa (Livros → Livro Caixa).' : ''}`.slice(0, 400) });
   passos.push(pTela('livros', 'Abrindo Livros Fiscais e ECD'));
   passos.push(pDestacarTexto('Livro Diário', `Diário de ${mesAno(c)}: ${rel.doPeriodo.length} lançamento(s) aprovado(s)`));
   passos.push(pDestacarTexto('Livro Razão', 'Razão do mês, conta por conta'));
@@ -372,7 +378,7 @@ export const servicosEmSegundoPlano = (): number => trabalhos.size;
 async function concluirPreparo(ctx: ContextoAgente, l: Levantamento): Promise<{ feitos: number; total: number; falhas: string[]; registrado: boolean }> {
   const resultados = await executarPreparo(ctx, l.cnpj, l.preparo);
   const etapas = etapasDepoisDoPreparo(l.etapas, resultados);
-  const registrado = await registrar(ctx, { ...l, etapas }, 'pronto_para_conferir');
+  const registrado = await registrar(ctx, { ...l, etapas }, estadoFinal(etapas));
   const falhas = resultados.filter((r) => !r.ok).map((r) => r.mensagem);
   try { await ctx.registrar({ evento: falhas.length === resultados.length && resultados.length ? 'falha' : 'confirmada', ferramenta: 'fazer_servico_completo', cnpj: l.cnpj, resumo: `Serviço completo: ${l.titulo}`.slice(0, 280), resultado: `${resultados.length - falhas.length} de ${resultados.length} preparo(s) feito(s) a pedido do contador.${falhas.length ? ` Falhas: ${falhas.join(' ')}` : ''}`.slice(0, 300) }); } catch { /* o histórico não trava o serviço */ }
   return { feitos: resultados.length - falhas.length, total: resultados.length, falhas, registrado };
@@ -386,10 +392,22 @@ function iniciarEmSegundoPlano(ctx: ContextoAgente, l: Levantamento): boolean {
   return true;
 }
 
-async function registrar(ctx: ContextoAgente, l: Levantamento, estado: 'em_andamento' | 'aguardando_preparo' | 'pronto_para_conferir'): Promise<boolean> {
+/**
+ * PONTO DE OK DO CONTADOR: quando o roteiro chega num passo que só o contador faz (aprovar, contabilizar, fechar, gerar o
+ * definitivo, confirmar o que o sistema não confere), o serviço para em "aguardando_ok": a tela mostra "Confira e dê o OK",
+ * a Agente lembra e, com o "Conferi, pode seguir", continua de onde parou (o levantamento é refeito e só segue o que falta).
+ */
+export function pontoDeOk(etapas: EtapaServico[]): string | null {
+  const doContador = etapas.filter((x) => x.situacao === 'contador');
+  if (!doContador.length) return null;
+  return `Confira e faça a sua parte: ${doContador.map((x) => x.titulo).join('; ')}. Quando terminar, toque em "Conferi, pode seguir".`.slice(0, 600);
+}
+const estadoFinal = (etapas: EtapaServico[]): 'aguardando_ok' | 'pronto_para_conferir' => (pontoDeOk(etapas) ? 'aguardando_ok' : 'pronto_para_conferir');
+
+async function registrar(ctx: ContextoAgente, l: Levantamento, estado: 'em_andamento' | 'aguardando_preparo' | 'aguardando_ok' | 'pronto_para_conferir'): Promise<boolean> {
   const resumo = l.etapas.filter((x) => x.situacao === 'contador' || x.situacao === 'falta_sistema' || x.situacao === 'aviso').map((x) => x.titulo).join(', ');
   try {
-    const r = await ctx.chamarApi('POST', '/api/servico-completo', { cnpj: l.cnpj, roteiro: l.roteiro, referencia: l.referencia, estado, titulo: l.titulo, resumo: resumo ? `Depende de você: ${resumo}.` : 'Tudo pronto: falta só a sua conferência.', etapas: l.etapas });
+    const r = await ctx.chamarApi('POST', '/api/servico-completo', { cnpj: l.cnpj, roteiro: l.roteiro, referencia: l.referencia, estado, titulo: l.titulo, resumo: resumo ? `Depende de você: ${resumo}.` : 'Tudo pronto: falta só a sua conferência.', etapas: l.etapas, ...(estado === 'aguardando_ok' ? { pontoOk: pontoDeOk(l.etapas) } : {}) });
     return ok(r);
   } catch { return false; }
 }
@@ -407,6 +425,7 @@ export async function executarPreparo(ctx: ContextoAgente, cnpj: string, itens: 
       if (item.tipo === 'reprocessar_recepcao') r = await ctx.chamarApi('POST', `/api/workspaces/${q(cnpj)}/reprocessar-recepcao`, {});
       else if (item.tipo === 'lancamentos_padrao') r = await ctx.chamarApi('POST', `/api/workspaces/${q(cnpj)}/lancamentos-padrao/preparar`, { competencia: item.competencia });
       else if (item.tipo === 'conciliacao') r = await ctx.chamarApi('POST', `/api/workspaces/${q(cnpj)}/extratos/aceitar-sugestoes`, { contaBanco: item.contaBanco, fitids: item.fitids });
+      else if (item.tipo === 'livro_caixa') r = await ctx.chamarApi('POST', `/api/workspaces/${q(cnpj)}/livro-caixa/registrar`, { de: item.competencia, ate: item.competencia });
       else r = await ctx.chamarApi('POST', `/api/workspaces/${q(cnpj)}/encerramento`, { ano: item.ano, contaDestino: item.contaDestino });
     } catch (e: any) { r = { status: 503, corpo: { motivo: 'Falha de comunicação.' } }; }
     saida.push(ok(r) ? { item, ok: true, mensagem: String(r.corpo?.mensagem || 'Feito.').slice(0, 300) } : { item, ok: false, mensagem: erroApi(r).erro });
@@ -506,7 +525,7 @@ export const FERRAMENTAS_SERVICO_COMPLETO: Ferramenta[] = [
       }
       // O pedido do contador é a autorização do serviço: o preparo (tudo pendente de aprovação, nada definitivo) começa já,
       // no servidor, e segue mesmo que ele saia da tela. Aprovar, contabilizar e fechar continuam só no clique dele.
-      const estado = l.preparo.length ? 'em_andamento' : 'pronto_para_conferir';
+      const estado = l.preparo.length ? 'em_andamento' : estadoFinal(l.etapas);
       const registrado = await registrar(ctx, l, estado);
       const jaRodando = l.preparo.length ? !iniciarEmSegundoPlano(ctx, l) : false;
       // Sem o registro, o painel "A conferir" não aparece: o piloto não tenta destacá-lo (senão pararia no meio).
@@ -525,7 +544,7 @@ export const FERRAMENTAS_SERVICO_COMPLETO: Ferramenta[] = [
           `Comece a resposta EXATAMENTE com: "${FRASE_INICIO}"`,
           plano ? 'A tela do contador já está mostrando o serviço, tela por tela, e para antes de aprovar ou fechar. Se ele mexer ou sair, o serviço segue no servidor.' : 'Não consegui montar a animação na tela; o serviço segue no servidor.',
           l.preparo.length ? 'O preparo já está rodando no servidor (não chame preparar_servico_completo). Quando terminar, a tela avisa "Seu pedido está pronto para você conferir", com o link para A conferir.' : 'Não havia nada a preparar: o resumo já está em "A conferir" (tela Aprovar lançamentos).',
-          'Depois da frase inicial, no máximo 2 frases curtas: o que depende do contador (aprovar, contabilizar, fechar, conferir) e o que o sistema ainda não faz (situacao falta_sistema). Nunca diga que aprovou, contabilizou ou fechou.',
+          'Quando o serviço chegar num passo que só o contador faz, a tela mostra "Confira e dê o OK"; com o OK eu continuo de onde parei. Depois da frase inicial, no máximo 2 frases curtas: o que depende do contador (aprovar, contabilizar, fechar, conferir) e o que o sistema ainda não faz (situacao falta_sistema). Nunca diga que aprovou, contabilizou ou fechou.',
         ].join(' '),
         ...(plano ? { piloto: plano } : {}),
       };
@@ -580,6 +599,7 @@ export const INSTRUCAO_SERVICO_COMPLETO = `
 
 SERVIÇO COMPLETO (você é o funcionário do contador)
 - Quando o contador pedir um serviço inteiro ("fecha o mês da empresa X", "concilia o banco", "lança o que veio do Fiscal e do DP", "faz a ECD", "encerra o resultado", "monta o balancete/DRE para o cliente") ou aceitar "quer que eu faça esse serviço para você?", chame fazer_servico_completo. Ela usa tudo o que o sistema já sabe; se faltar algo (a empresa, quando há várias), ela devolve UMA pergunta: faça só essa pergunta.
+- Quando o contador disser que conferiu e deu o OK ("conferi, pode seguir", "pode continuar o serviço"), chame fazer_servico_completo de novo com os mesmos dados: continua de onde parou.
 - Não pergunte o modo: o serviço começa com a tela aberta e o preparo (tudo pendente de aprovação) já roda no servidor, mesmo que ele saia da tela. Comece a resposta com a frase de falarAgora. No fim a tela avisa sozinha "Seu pedido está pronto para você conferir". Só use preparar_servico_completo (cartão) se ele pedir para confirmar antes. Nada é aprovado, contabilizado nem fechado por você: isso é sempre o clique do contador.
 - Se o contador pedir para fazer DIFERENTE do que a norma ou o sistema indica (outra conta, outro critério): explique em uma frase "pela norma X, o certo é assim" (fonte oficial; use consultar_legislacao se não tiver certeza) e pergunte se ele confirma. Confirmou: faça do jeito dele, passando decisao_do_contador (pedido, orientacao_do_sistema, fonte) e, se for a conta do encerramento, conta_destino. Fica registrado em "A conferir" e no histórico como decisão e responsabilidade do contador. Nunca trave por isso; só recuse o que for claramente ilegal.
 - Responda curto: o que ficou pronto, o que depende dele e o que o sistema ainda não faz. Para "o que você deixou pronto para mim?", use servicos_da_agente.`;

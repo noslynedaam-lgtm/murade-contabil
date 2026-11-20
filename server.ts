@@ -39,7 +39,7 @@ import { gerarCandidatosRascunhosAutomaticos, mesclarRascunhosNoWorkspace, prepa
 import { respostaRapida } from "./src/server/respostasRapidas";
 import { omitirXmlOriginal, resumirCoberturaXmlFiscal } from "./src/server/coberturaXmlFiscal";
 import { montarServicoFeito } from "./src/server/servicoFeitoRotas";
-import { criarStoreEscritorio, registrarRotasEscritorioConsultor } from "./src/server/escritorioConsultor";
+import { criarStoreEscritorio, preencherCnpjsDosEscritorios, registrarRotasEscritorioConsultor } from "./src/server/escritorioConsultor";
 import { criarStoreServicoCompleto, registrarRotasServicoCompleto, resumoRodadaServicos, rodarConferidorServicos, tenantServico, type ResultadoRodadaServicos } from "./src/server/servicoCompletoStore";
 import { chaveServico, descreverRegistro, tenantDaSessao } from "./src/server/servicoFeito";
 import { registrarRotasEscrituracao, roboConciliacao, roboEncerramento, roboLancamentosPadrao, roboLivroCaixa } from "./src/server/escrituracaoRotas";
@@ -155,6 +155,7 @@ const reconciliacaoRascunhosStatus: {
   app.use("/api", atividadeEquipe.registrar);
   // Anti-retrabalho (quem já fez / quem está fazendo). Fail-open: se o registro falhar, o serviço segue normalmente.
   const storeServicoCompleto = criarStoreServicoCompleto((sql, params) => consultaBancoContabil(sql, params));
+  const storeEscritorio = criarStoreEscritorio((sql, params) => consultaBancoContabil(sql, params));
   let ultimaRodadaServicos: ResultadoRodadaServicos | null = null;
   const servicoFeito = montarServicoFeito({
     consultar: (sql, params) => consultaBancoContabil(sql, params),
@@ -1309,7 +1310,7 @@ const reconciliacaoRascunhosStatus: {
   registrarRotasEscrituracao(app, { exigirOrigemNavegador, exigirSessaoContabil, consultar: (sql, params) => consultaBancoContabil(sql, params) });
   // CNPJ do escritório e liberação do adicional "Consultor Murade completo" (Consultor + serviço completo), por escritório.
   registrarRotasEscritorioConsultor(app, { exigirSessao: exigirSessaoContabil, exigirOrigem: exigirOrigemNavegador }, {
-    store: criarStoreEscritorio((sql, params) => consultaBancoContabil(sql, params)),
+    store: storeEscritorio,
     sessao: (req) => { const s = sessaoDaRequisicaoContabil(req); return s ? { tenantId: String(s.tenantId || s.escritorioDe || s.userId), podeEditar: s.administrador === true || s.donoSistema === true } : undefined; },
   });
   // Serviço completo da Agente ("fecha o mês", "faz a ECD"...): resumo em "A conferir" (tela Aprovar lançamentos) e "serviço feito".
@@ -1623,11 +1624,13 @@ const reconciliacaoRascunhosStatus: {
   registrarRotinaManual("servico_feito", rodarServicoFeito);
   // Robô Conferidor dos Serviços da Agente: roteiros parados (cartão de preparo não confirmado), esperando conferência há dias
   // e concluídos (competência fechada). Só mexe no próprio resumo do serviço; nunca em lançamento, empresa ou competência.
-  registrarRobo({ id: "servico_completo", nome: "Robô Conferidor dos Serviços da Agente", posto: "conferidor", missao: "Conferir a cada 2 horas os serviços completos que a Agente fez para o contador (fechamento do mês, ECD, encerramento, balancete para o cliente): marca como parado o que ficou sem a confirmação do preparo, lembra o que espera conferência há mais de 3 dias e dá como concluído o fechamento cuja competência o contador fechou. Nunca aprova, fecha nem lança nada.", ...(bancoContabilConfigurado() ? { intervaloMs: 2 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  registrarRobo({ id: "servico_completo", nome: "Robô Conferidor dos Serviços da Agente", posto: "conferidor", missao: "Conferir a cada 2 horas os serviços completos que a Agente fez para o contador (fechamento do mês, ECD, encerramento, balancete para o cliente): marca como parado o que ficou no meio, lembra o que espera o OK ou a conferência do contador há mais de 3 dias, dá como concluído o fechamento cuja competência o contador fechou e preenche o CNPJ do escritório pelo DP/Fisco IA quando o dono é o mesmo. Nunca aprova, fecha nem lança nada.", ...(bancoContabilConfigurado() ? { intervaloMs: 2 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
   const rodarServicosAgente = () => bancoContabilConfigurado() ? executarRobo("servico_completo", async () => {
     const r = await rodarConferidorServicos(storeServicoCompleto, (sql, params) => consultaBancoContabil(sql, params));
     ultimaRodadaServicos = r;
-    registrarResultadoRobo("servico_completo", resumoRodadaServicos(r));
+    // CNPJ do escritório (adicional Consultor Murade): preenche sozinho pelo DP/Fisco IA quando o dono é o mesmo; nunca sobrescreve.
+    const cnpjs = await preencherCnpjsDosEscritorios((sql, params) => consultaBancoContabil(sql, params), storeEscritorio).catch(() => ({ semCnpj: 0, preenchidos: 0 }));
+    registrarResultadoRobo("servico_completo", `${resumoRodadaServicos(r)} CNPJ do escritório: ${cnpjs.preenchidos} de ${cnpjs.semCnpj} escritório(s) sem CNPJ preenchido(s) pelo DP/Fisco IA.`);
     definirAlertaRobo("servico_completo", r.parados ? { nivel: "aviso", texto: `${r.parados} serviço(s) da Agente ficaram parados sem a confirmação do preparo; o contador vê em "A conferir" e pode pedir de novo.` } : null);
   }).catch((e) => console.error("Falha no Robô Conferidor dos Serviços da Agente:", e?.message || e)) : undefined;
   if (bancoContabilConfigurado()) {

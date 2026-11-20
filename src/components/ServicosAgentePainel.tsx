@@ -3,10 +3,11 @@
 // faz) e deixa o contador abrir a tela da etapa, marcar "Já conferi" ou pedir de novo. Aprovar e fechar continuam nos botões
 // de sempre: este painel não aprova nada.
 import React, { useCallback, useEffect, useState } from "react";
-import { ClipboardCheck, RotateCcw } from "lucide-react";
+import { Bell, ClipboardCheck, RotateCcw } from "lucide-react";
+import { darOkNoServidor, pedidoDeContinuar } from "../utils/servicoCompletoCliente";
 
 type Etapa = { id: string; titulo: string; situacao: string; detalhe: string; tela?: string };
-type Servico = { cnpj: string; roteiro: string; referencia: string; estado: string; titulo: string; resumo: string; etapas: Etapa[]; porNome: string | null; porLogin: string | null; atualizadoEm: string; aviso: string | null };
+type Servico = { cnpj: string; roteiro: string; referencia: string; estado: string; titulo: string; resumo: string; etapas: Etapa[]; porNome: string | null; porLogin: string | null; atualizadoEm: string; aviso: string | null; pontoOk?: string | null };
 
 const SELO: Record<string, { texto: string; cor: string }> = {
   feito: { texto: "pronto", cor: "bg-emerald-100 text-emerald-900" },
@@ -19,12 +20,11 @@ const SELO: Record<string, { texto: string; cor: string }> = {
 };
 const ESTADO: Record<string, string> = {
   em_andamento: "a Agente está fazendo (pode usar o sistema)",
+  aguardando_ok: "esperando você conferir e dar o OK",
+  ok_dado: "OK recebido: a Agente está continuando",
   aguardando_preparo: "esperando o seu sim no cartão da Agente",
   pronto_para_conferir: "pronto para você conferir",
   parado: "parado",
-};
-const PEDIDO: Record<string, string> = {
-  fechamento_mensal: "fecha o mês", ecd_ano: "faz a ECD do ano", encerramento_resultado: "encerra o resultado do ano", balancete_cliente: "monta o balancete e a DRE para o cliente",
 };
 
 export const ServicosAgentePainel: React.FC<{ cnpj: string; onNavegar?: (tela: string) => void; onPedirAgente?: (texto: string) => void }> = ({ cnpj, onNavegar, onPedirAgente }) => {
@@ -50,9 +50,12 @@ export const ServicosAgentePainel: React.FC<{ cnpj: string; onNavegar?: (tela: s
       if (r.ok) carregar();
     } catch { setMsg("Não consegui marcar agora. Tente de novo."); }
   };
-  const refazer = (s: Servico) => {
-    const ref = /^\d{4}-\d{2}$/.test(s.referencia) ? `competência ${s.referencia}` : `ano ${s.referencia}`;
-    onPedirAgente?.(`${PEDIDO[s.roteiro] || "faz o serviço"} da empresa de CNPJ ${s.cnpj}, ${ref}`);
+  const refazer = (s: Servico) => onPedirAgente?.(pedidoDeContinuar(s, false));
+  const darOk = async (s: Servico) => {
+    setMsg("");
+    const r = await darOkNoServidor(s);
+    setMsg(r.mensagem);
+    if (r.ok) { carregar(); onPedirAgente?.(pedidoDeContinuar(s, true)); }
   };
 
   if (!servicos.length && !lembretes.length) return null;
@@ -66,7 +69,8 @@ export const ServicosAgentePainel: React.FC<{ cnpj: string; onNavegar?: (tela: s
           return (
             <li key={chave} className="rounded-lg border border-indigo-100 bg-white p-3 text-xs">
               <button type="button" onClick={() => setAberto(aberto === chave ? null : chave)} className="w-full text-left" aria-expanded={aberto === chave}>
-                <div className="font-semibold text-slate-900">{s.titulo}</div>
+                <div className="flex items-center gap-1 font-semibold text-slate-900">{s.estado === "aguardando_ok" && <Bell size={14} className="text-amber-600" aria-label="Esperando o seu OK" />}{s.titulo}</div>
+                {s.estado === "aguardando_ok" && s.pontoOk && <div className="mt-0.5 font-semibold text-amber-900">{s.pontoOk}</div>}
                 <div className="text-slate-600">{ESTADO[s.estado] || s.estado}{s.porNome || s.porLogin ? ` · pedido por ${s.porNome || s.porLogin}` : ""} · {new Date(s.atualizadoEm).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</div>
                 {s.resumo && <div className="mt-0.5 text-slate-700">{s.resumo}</div>}
                 {s.aviso && <div className="mt-0.5 text-amber-900">{s.aviso}</div>}
@@ -83,6 +87,8 @@ export const ServicosAgentePainel: React.FC<{ cnpj: string; onNavegar?: (tela: s
                 </ul>
               )}
               <div className="mt-2 flex flex-wrap gap-2">
+                {s.estado === "aguardando_ok" && onPedirAgente && <button type="button" onClick={() => void darOk(s)} className="min-h-10 rounded-lg bg-emerald-700 px-3 text-xs font-bold text-white">Conferi, pode seguir</button>}
+                {s.estado === "aguardando_ok" && onNavegar && <button type="button" onClick={() => onNavegar((s.etapas.find((e) => e.situacao === "contador" && e.tela)?.tela) || "aprovacoes")} className="min-h-10 rounded-lg border border-amber-400 bg-white px-3 text-xs font-bold text-amber-900">Corrigir</button>}
                 {s.estado === "pronto_para_conferir" && <button type="button" onClick={() => void conferido(s)} className="min-h-10 rounded-lg bg-indigo-700 px-3 text-xs font-bold text-white">Já conferi</button>}
                 {(s.estado === "parado" || s.estado === "aguardando_preparo") && onPedirAgente && <button type="button" onClick={() => refazer(s)} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-indigo-300 bg-white px-3 text-xs font-bold text-indigo-900"><RotateCcw size={14} />Fazer de novo</button>}
               </div>

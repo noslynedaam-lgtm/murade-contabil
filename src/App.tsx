@@ -34,6 +34,7 @@ import { BackupsTab } from "./components/tabs/BackupsTab";
 import { IAMuradModal } from "./components/IAMuradModal";
 import { BalaoAjudaProativa } from "./components/BalaoAjudaProativa";
 import { AvisoServicoPronto } from "./components/AvisoServicoPronto";
+import { CartaoOkContador } from "./components/CartaoOkContador";
 import { ofertaDeServico, pedidoDaOferta } from "./utils/servicoCompletoCliente";
 import { GuiaPassoAPasso, type PassoGuia } from "./components/GuiaPassoAPasso";
 import { AssistenteProvider } from "./contexts/AssistenteContext";
@@ -1236,6 +1237,11 @@ function AppWorkspace() {
           assistenteRef.current?.abrir();
           assistenteRef.current?.perguntar(pedidoDaOferta(oferta, empresa));
         }}
+      />
+      <CartaoOkContador
+        onNavegar={(tela, cnpj) => { if (String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase() !== cnpj) escolherEmpresaPeloCnpj(cnpj); setTabAtiva(tela as TabId); }}
+        onFalar={(t) => assistenteRef.current?.falar(t)}
+        onPedirAgente={(texto) => { assistenteRef.current?.abrir(); assistenteRef.current?.perguntar(texto); }}
       />
       <AvisoServicoPronto
         onAbrir={(cnpj) => { if (String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase() !== cnpj) escolherEmpresaPeloCnpj(cnpj); setTabAtiva("aprovacoes"); }}

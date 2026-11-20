@@ -7,6 +7,8 @@
 //
 // Regras:
 //  - Isolado por escritório (tenant) e só para as empresas do acesso de quem chama.
+//  - aguardando_ok: o roteiro chegou num passo que só o contador faz (aprovar, fechar, gerar definitivo): a tela mostra
+//    "Confira e dê o OK" e a Agente lembra; ok_dado: ele tocou "Conferi, pode seguir" e a Agente continua de onde parou.
 //  - Estados: em_andamento (a Agente está preparando no servidor, em segundo plano) · aguardando_preparo (a Agente mostrou o cartão de preparo e falta o sim) → pronto_para_conferir (tudo preparado;
 //    falta o contador conferir/aprovar/fechar) → conferido (o contador marcou "Já conferi") ou concluido (o robô viu a
 //    competência fechada). "parado": o cartão de preparo não foi confirmado a tempo (o robô marca e avisa).
@@ -17,7 +19,7 @@ export type Consultar = (sql: string, params?: unknown[]) => Promise<{ rows: any
 
 export const ROTEIROS_SERVICO = ['fechamento_mensal', 'ecd_ano', 'encerramento_resultado', 'balancete_cliente'] as const;
 export type RoteiroServico = (typeof ROTEIROS_SERVICO)[number];
-export const ESTADOS_SERVICO = ['em_andamento', 'aguardando_preparo', 'pronto_para_conferir', 'parado', 'conferido', 'concluido'] as const;
+export const ESTADOS_SERVICO = ['em_andamento', 'aguardando_preparo', 'aguardando_ok', 'ok_dado', 'pronto_para_conferir', 'parado', 'conferido', 'concluido'] as const;
 export type EstadoServicoCompleto = (typeof ESTADOS_SERVICO)[number];
 /** feito: já está em dia · a_preparar: a Agente prepara no cartão · preparado: preparado (pendente de aprovação) · contador: depende do clique/conferência do contador · nada: não se aplica · falta_sistema: o sistema ainda não faz · aviso: algo a olhar. */
 export type SituacaoEtapa = 'feito' | 'a_preparar' | 'preparado' | 'contador' | 'nada' | 'falta_sistema' | 'aviso';
@@ -27,6 +29,8 @@ export interface RegistroServicoCompleto {
   tenantId: string; cnpj: string; roteiro: RoteiroServico; referencia: string; estado: EstadoServicoCompleto;
   titulo: string; resumo: string; etapas: EtapaServico[]; porLogin: string | null; porNome: string | null;
   criadoEm: string; atualizadoEm: string; aviso: string | null;
+  /** O que o contador precisa conferir/fazer antes do OK (estado aguardando_ok). */
+  pontoOk?: string | null; okEm?: string | null; okPor?: string | null;
 }
 
 export const TABELA_SERVICO_COMPLETO = 'contabil_servico_completo';
@@ -62,6 +66,7 @@ const deLinha = (l: any): RegistroServicoCompleto => ({
   titulo: String(l.titulo || ''), resumo: String(l.resumo || ''), etapas: sanearEtapas(typeof l.etapas === 'string' ? JSON.parse(l.etapas) : l.etapas),
   porLogin: l.por_login ?? null, porNome: l.por_nome ?? null,
   criadoEm: new Date(l.criado_em).toISOString(), atualizadoEm: new Date(l.atualizado_em).toISOString(), aviso: l.aviso ?? null,
+  pontoOk: l.ponto_ok ?? null, okEm: l.ok_em ? new Date(l.ok_em).toISOString() : null, okPor: l.ok_por ?? null,
 });
 
 export function criarStoreServicoCompleto(consultar: Consultar, opcoes: { agora?: () => Date } = {}) {
@@ -72,19 +77,21 @@ export function criarStoreServicoCompleto(consultar: Consultar, opcoes: { agora?
       tenant_id text NOT NULL, cnpj text NOT NULL, roteiro text NOT NULL, referencia text NOT NULL, estado text NOT NULL,
       titulo text NOT NULL DEFAULT '', resumo text NOT NULL DEFAULT '', etapas jsonb NOT NULL DEFAULT '[]'::jsonb,
       por_login text, por_nome text, criado_em timestamptz NOT NULL, atualizado_em timestamptz NOT NULL, aviso text,
-      PRIMARY KEY (tenant_id, cnpj, roteiro, referencia))`).then(() => undefined).catch((e) => { pronta = null; throw e; });
+      PRIMARY KEY (tenant_id, cnpj, roteiro, referencia))`)
+      .then(() => consultar(`ALTER TABLE ${TABELA_SERVICO_COMPLETO} ADD COLUMN IF NOT EXISTS ponto_ok text, ADD COLUMN IF NOT EXISTS ok_em timestamptz, ADD COLUMN IF NOT EXISTS ok_por text`))
+      .then(() => undefined).catch((e) => { pronta = null; throw e; });
     return pronta;
   };
 
-  async function gravar(r: Omit<RegistroServicoCompleto, 'criadoEm' | 'atualizadoEm' | 'aviso'>): Promise<void> {
+  async function gravar(r: Omit<RegistroServicoCompleto, 'criadoEm' | 'atualizadoEm' | 'aviso' | 'okEm' | 'okPor'>): Promise<void> {
     await garantirTabela();
     const t = agora();
     await consultar(
-      `INSERT INTO ${TABELA_SERVICO_COMPLETO}(tenant_id,cnpj,roteiro,referencia,estado,titulo,resumo,etapas,por_login,por_nome,criado_em,atualizado_em,aviso)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$11,NULL)
+      `INSERT INTO ${TABELA_SERVICO_COMPLETO}(tenant_id,cnpj,roteiro,referencia,estado,titulo,resumo,etapas,por_login,por_nome,criado_em,atualizado_em,aviso,ponto_ok)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$11,NULL,$12)
        ON CONFLICT (tenant_id,cnpj,roteiro,referencia) DO UPDATE SET estado=EXCLUDED.estado, titulo=EXCLUDED.titulo, resumo=EXCLUDED.resumo,
-         etapas=EXCLUDED.etapas, por_login=EXCLUDED.por_login, por_nome=EXCLUDED.por_nome, atualizado_em=EXCLUDED.atualizado_em, aviso=NULL`,
-      [r.tenantId, r.cnpj, r.roteiro, r.referencia, r.estado, txt(r.titulo, 160), txt(r.resumo, 600), JSON.stringify(sanearEtapas(r.etapas)), r.porLogin, r.porNome, t],
+         etapas=EXCLUDED.etapas, por_login=EXCLUDED.por_login, por_nome=EXCLUDED.por_nome, atualizado_em=EXCLUDED.atualizado_em, aviso=NULL, ponto_ok=EXCLUDED.ponto_ok`,
+      [r.tenantId, r.cnpj, r.roteiro, r.referencia, r.estado, txt(r.titulo, 160), txt(r.resumo, 600), JSON.stringify(sanearEtapas(r.etapas)), r.porLogin, r.porNome, t, r.estado === 'aguardando_ok' ? txt(r.pontoOk, 600) || null : null],
     );
   }
 
@@ -110,7 +117,7 @@ export function criarStoreServicoCompleto(consultar: Consultar, opcoes: { agora?
   /** Para o robô: todos os roteiros ainda abertos, de todos os escritórios. */
   async function abertos(): Promise<RegistroServicoCompleto[]> {
     await garantirTabela();
-    const r = await consultar(`SELECT * FROM ${TABELA_SERVICO_COMPLETO} WHERE estado IN ('em_andamento','aguardando_preparo','pronto_para_conferir','parado') ORDER BY atualizado_em LIMIT 2000`);
+    const r = await consultar(`SELECT * FROM ${TABELA_SERVICO_COMPLETO} WHERE estado IN ('em_andamento','aguardando_preparo','aguardando_ok','ok_dado','pronto_para_conferir','parado') ORDER BY atualizado_em LIMIT 2000`);
     return r.rows.map(deLinha);
   }
 
@@ -121,7 +128,14 @@ export function criarStoreServicoCompleto(consultar: Consultar, opcoes: { agora?
     return Number(r.rowCount || 0);
   }
 
-  return { garantirTabela, gravar, mudarEstado, listar, abertos, apagarAntigos, agora };
+  /** "Conferi, pode seguir": só vale para quem está esperando o OK. Devolve quantos registros mudaram (0 = não estava esperando). */
+  async function darOk(chave: { tenantId: string; cnpj: string; roteiro: string; referencia: string }, login: string): Promise<number> {
+    await garantirTabela();
+    const r = await consultar(`UPDATE ${TABELA_SERVICO_COMPLETO} SET estado='ok_dado', ok_em=$1, ok_por=$2, atualizado_em=$1, aviso=NULL WHERE tenant_id=$3 AND cnpj=$4 AND roteiro=$5 AND referencia=$6 AND estado='aguardando_ok'`, [agora(), login, chave.tenantId, chave.cnpj, chave.roteiro, chave.referencia]);
+    return Number(r.rowCount || 0);
+  }
+
+  return { garantirTabela, gravar, mudarEstado, listar, abertos, apagarAntigos, darOk, agora };
 }
 export type StoreServicoCompleto = ReturnType<typeof criarStoreServicoCompleto>;
 
@@ -139,6 +153,12 @@ export function avaliarRoteiro(r: Pick<RegistroServicoCompleto, 'roteiro' | 'ref
   }
   if (r.estado === 'aguardando_preparo' && idadeMs > MINUTOS_PARA_PARADO * 60_000) {
     return { acao: 'parado', aviso: 'O cartão de preparo não foi confirmado e expirou. Nada foi alterado. Peça de novo à Agente ("faz o serviço de novo") ou toque em "Fazer de novo".' };
+  }
+  if (r.estado === 'ok_dado' && idadeMs > MINUTOS_PARA_PARADO * 60_000) {
+    return { acao: 'parado', aviso: 'Você deu o OK, mas eu não consegui continuar (a conversa foi interrompida). Toque em "Fazer de novo" que eu sigo de onde parei.' };
+  }
+  if (r.estado === 'aguardando_ok' && idadeMs > DIAS_PARA_LEMBRETE * 86_400_000) {
+    return { acao: 'lembrar', aviso: `${r.titulo} está esperando você conferir e dar o OK há mais de ${DIAS_PARA_LEMBRETE} dias.` };
   }
   if (r.estado === 'pronto_para_conferir' && idadeMs > DIAS_PARA_LEMBRETE * 86_400_000) {
     return { acao: 'lembrar', aviso: `${r.titulo} está pronto para você conferir há mais de ${DIAS_PARA_LEMBRETE} dias.` };
@@ -194,6 +214,7 @@ export const tenantServico = (s: Pick<SessaoServicoCompleto, 'tenantId' | 'escri
 const paraJson = (r: RegistroServicoCompleto) => ({
   cnpj: r.cnpj, roteiro: r.roteiro, referencia: r.referencia, estado: r.estado, titulo: r.titulo, resumo: r.resumo, etapas: r.etapas,
   porLogin: r.porLogin, porNome: r.porNome, criadoEm: r.criadoEm, atualizadoEm: r.atualizadoEm, aviso: r.aviso,
+  pontoOk: r.pontoOk ?? null, okEm: r.okEm ?? null, okPor: r.okPor ?? null,
 });
 
 export function registrarRotasServicoCompleto(app: Express, mw: { exigirSessao: RequestHandler; exigirOrigem: RequestHandler }, deps: DepsRotasServicoCompleto): void {
@@ -232,17 +253,33 @@ export function registrarRotasServicoCompleto(app: Express, mw: { exigirSessao: 
     const referencia = referenciaValida(roteiro, req.body?.referencia);
     if (!referencia) { res.status(400).json({ sucesso: false, motivo: 'Referência inválida (competência AAAA-MM ou ano AAAA).' }); return; }
     const estado = String(req.body?.estado || '') as EstadoServicoCompleto;
-    if (estado !== 'em_andamento' && estado !== 'aguardando_preparo' && estado !== 'pronto_para_conferir') { res.status(400).json({ sucesso: false, motivo: 'Estado inválido.' }); return; }
+    if (!['em_andamento', 'aguardando_preparo', 'aguardando_ok', 'pronto_para_conferir'].includes(estado)) { res.status(400).json({ sucesso: false, motivo: 'Estado inválido.' }); return; }
     const titulo = txt(req.body?.titulo, 160);
     if (!titulo) { res.status(400).json({ sucesso: false, motivo: 'Falta o título do serviço.' }); return; }
     try {
       const nome = deps.nomeDe ? await deps.nomeDe(a.s.userId).catch(() => null) : null;
-      await deps.store.gravar({ tenantId: tenantServico(a.s), cnpj: a.cnpj, roteiro, referencia, estado, titulo, resumo: txt(req.body?.resumo, 600), etapas: sanearEtapas(req.body?.etapas), porLogin: a.s.login, porNome: nome });
-      if (estado === 'pronto_para_conferir' && deps.marcarServicoFeito) await deps.marcarServicoFeito(a.s, { cnpj: a.cnpj, roteiro, referencia, titulo }).catch(() => undefined);
-      res.json({ sucesso: true, mensagem: estado === 'pronto_para_conferir' ? 'Serviço registrado em "A conferir" (tela Aprovar lançamentos).' : estado === 'em_andamento' ? 'Serviço em andamento.' : 'Serviço registrado; falta confirmar o preparo.' });
+      await deps.store.gravar({ tenantId: tenantServico(a.s), cnpj: a.cnpj, roteiro, referencia, estado, titulo, resumo: txt(req.body?.resumo, 600), etapas: sanearEtapas(req.body?.etapas), porLogin: a.s.login, porNome: nome, pontoOk: txt(req.body?.pontoOk, 600) || null });
+      if ((estado === 'pronto_para_conferir' || estado === 'aguardando_ok') && deps.marcarServicoFeito) await deps.marcarServicoFeito(a.s, { cnpj: a.cnpj, roteiro, referencia, titulo }).catch(() => undefined);
+      res.json({ sucesso: true, mensagem: estado === 'aguardando_ok' ? 'Serviço esperando você conferir e dar o OK (A conferir).' : estado === 'pronto_para_conferir' ? 'Serviço registrado em "A conferir" (tela Aprovar lançamentos).' : estado === 'em_andamento' ? 'Serviço em andamento.' : 'Serviço registrado; falta confirmar o preparo.' });
     } catch (erro: any) {
       console.error('Falha ao registrar o serviço da Agente:', erro?.message || erro);
       res.status(503).json({ sucesso: false, motivo: 'Não consegui registrar o resumo do serviço agora. O que foi preparado continua valendo.' });
+    }
+  });
+
+  // "Conferi, pode seguir": o contador conferiu e fez a parte dele (aprovar/fechar continua no clique dele, na tela própria).
+  app.post('/api/servico-completo/ok', mw.exigirOrigem, mw.exigirSessao, async (req, res) => {
+    const a = acesso(req, res, req.body?.cnpj, true); if (!a) return;
+    const roteiro = String(req.body?.roteiro || '') as RoteiroServico;
+    const referencia = ROTEIROS_SERVICO.includes(roteiro) ? referenciaValida(roteiro, req.body?.referencia) : null;
+    if (!referencia) { res.status(400).json({ sucesso: false, motivo: 'Serviço inválido.' }); return; }
+    try {
+      const n = await deps.store.darOk({ tenantId: tenantServico(a.s), cnpj: a.cnpj, roteiro, referencia }, a.s.login);
+      if (!n) { res.status(409).json({ sucesso: false, motivo: 'Este serviço não está esperando o seu OK (talvez já tenha sido dado).' }); return; }
+      res.json({ sucesso: true, mensagem: 'OK recebido. A Agente continua de onde parou.' });
+    } catch (erro: any) {
+      console.error('Falha ao registrar o OK do contador:', erro?.message || erro);
+      res.status(503).json({ sucesso: false, motivo: 'Não consegui registrar o OK agora. Tente de novo.' });
     }
   });
 

@@ -26,10 +26,10 @@ export const AvisoServicoPronto: React.FC<{ onAbrir: (cnpj: string) => void; onF
       if (Date.now() - desde > ACOMPANHAR_MS) { desdeRef.current = null; return; }
       fetch("/api/servico-completo?limite=10", { credentials: "include", cache: "no-store" }).then((r) => r.json()).then((j) => {
         if (!j?.sucesso) return;
-        const novos: Pronto[] = (j.servicos || []).filter((s: any) => s.estado === "pronto_para_conferir" && Date.parse(s.atualizadoEm) >= desde && !avisadosRef.current.has(`${s.cnpj}|${s.roteiro}|${s.referencia}|${s.atualizadoEm}`));
+        const novos: Pronto[] = (j.servicos || []).filter((s: any) => (s.estado === "pronto_para_conferir" || s.estado === "aguardando_ok") && Date.parse(s.atualizadoEm) >= desde && !avisadosRef.current.has(`${s.cnpj}|${s.roteiro}|${s.referencia}|${s.atualizadoEm}`));
         if (!novos.length) return;
         for (const s of j.servicos || []) if (novos.includes(s)) avisadosRef.current.add(`${s.cnpj}|${s.roteiro}|${s.referencia}|${s.atualizadoEm}`);
-        const andando = (j.servicos || []).some((s: any) => s.estado === "em_andamento");
+        const andando = (j.servicos || []).some((s: any) => s.estado === "em_andamento" || s.estado === "ok_dado");
         if (!andando) desdeRef.current = null;
         setProntos((p) => [...p, ...novos.map((s) => ({ cnpj: s.cnpj, roteiro: s.roteiro, referencia: s.referencia, titulo: s.titulo }))].slice(-3));
         falarRef.current(`${FRASE_PRONTO} ${novos[0].titulo}. Está em A conferir, na tela Aprovar lançamentos.`);
@@ -40,7 +40,7 @@ export const AvisoServicoPronto: React.FC<{ onAbrir: (cnpj: string) => void; onF
 
   if (!prontos.length) return null;
   return (
-    <div role="status" data-piloto-ignorar="1" className="fixed bottom-20 left-3 z-[10000] w-[min(88vw,320px)] space-y-2">
+    <div role="status" data-piloto-ignorar="1" className="fixed bottom-44 left-3 z-[10000] w-[min(88vw,320px)] space-y-2">
       {prontos.map((p) => (
         <div key={`${p.cnpj}|${p.roteiro}|${p.referencia}`} className="rounded-xl border border-indigo-200 bg-white p-3 text-sm shadow-2xl">
           <div className="flex items-start gap-2">

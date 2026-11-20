@@ -134,7 +134,8 @@ test('pela Agente: começa com a tela aberta, prepara SOZINHA no servidor (segun
   assert.ok(posts.includes(`/api/workspaces/${CNPJ}/extratos/aceitar-sugestoes`));
   assert.ok(!posts.some((u) => /fechamentos|contabilizar|decisao/.test(u)), 'nunca fecha, contabiliza nem aprova');
   const final = chamadas.filter(([m, u]) => m === 'POST' && u === '/api/servico-completo').pop()!;
-  assert.equal(final[2].estado, 'pronto_para_conferir', 'a tela avisa "Seu pedido está pronto para você conferir"');
+  assert.equal(final[2].estado, 'aguardando_ok', 'chegou no passo do contador: "Confira e dê o OK"');
+  assert.match(final[2].pontoOk, /Aprovar e fechar a competência.*Conferi, pode seguir/);
   assert.ok(final[2].etapas.some((e: any) => e.situacao === 'preparado'));
   assert.ok(eventos.some((e) => e.evento === 'confirmada' && e.ferramenta === 'fazer_servico_completo'), 'fica no histórico da Agente');
   assert.equal(servicosEmSegundoPlano(), 0);
