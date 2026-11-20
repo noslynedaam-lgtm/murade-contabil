@@ -14,6 +14,8 @@ import { conferirFechamento } from '../utils/fechamentoContabil';
 import { compararPeriodos, explicarVariacoes } from '../utils/analiseContabil';
 import { FERRAMENTAS_ENTRE_SISTEMAS, INSTRUCAO_ENTRE_SISTEMAS } from './ferramentasEntreSistemas';
 import { FERRAMENTAS_PILOTO, INSTRUCAO_PILOTO } from './pilotoContabil';
+import { FERRAMENTAS_SERVICO_COMPLETO, INSTRUCAO_SERVICO_COMPLETO, liberacaoDoConsultor } from './servicoCompleto';
+import { consultorConfigurado, opcoesConsultorParaTeste, perguntarAoConsultor, regimeParaConsultor, registrarDecisaoNoConsultor, type ContextoEmpresaConsultor } from './consultorMurade';
 import { acharPessoa, acharPorNome, cnpjLimpo, formatarCnpj, formatarDataBr, montarMensagemPedido, nomeDaPessoa, normalizarTexto, prazoValido } from './tarefasEquipe';
 import { CHAVES_PREFERENCIA, falhou, PREFERENCIAS, descreverPreferencia, descreverReceita, detectarPedidoProtegido, idDaReceita, resolverTela, sanearNome, validarPreferencia, validarReceita } from './meuJeito';
 import { blocosDoAssunto, montarApresentacao, type SecaoApresentacao } from '../data/apresentacaoSistema';
@@ -188,13 +190,55 @@ const FERRAMENTAS: Ferramenta[] = [
   },
   {
     tipo: 'leitura',
-    declaracao: { name: 'consultar_legislacao', description: 'Responde dúvida contábil/tributária (SPED, ECD, ECF, ICMS, ISS, Simples, Reforma Tributária, prazos) pesquisando fontes oficiais.', parameters: { type: 'OBJECT', properties: { pergunta: { type: 'STRING', description: 'A dúvida completa, com competência, UF e município quando relevantes.' } }, required: ['pergunta'] } },
+    declaracao: { name: 'consultar_legislacao', description: 'Responde dúvida contábil/tributária (SPED, ECD, ECF, ICMS, ISS, Simples, Reforma Tributária, prazos, normas NBC/ITG) com o Consultor Murade: o que é certo, por quê, fontes oficiais e aviso de responsabilidade; pode sugerir uma ação que a Agente faz. Também use quando o contador quiser fazer diferente da norma, para trazer a orientação e a fonte.', parameters: { type: 'OBJECT', properties: { pergunta: { type: 'STRING', description: 'A dúvida completa, com competência, UF e município quando relevantes.' }, cnpj: { type: 'STRING', description: 'Opcional: CNPJ da empresa, para a resposta considerar regime, CNAE, UF, município e pendências do fechamento.' } }, required: ['pergunta'] } },
     async executar(ctx, args) {
       const pergunta = typeof args.pergunta === 'string' ? args.pergunta.trim().slice(0, 3900) : '';
       if (!pergunta) return { erro: 'Informe a pergunta.' };
+      // 1) Consultor Murade (quando configurado e no ar); 2) senão, a consulta de sempre.
+      // O Consultor é parte do adicional pago por escritório: só com a liberação (senão, a consulta de sempre).
+      const lib = consultorConfigurado(opcoesConsultorParaTeste.atual) ? await liberacaoDoConsultor(ctx) : { liberado: false, escritorio: null };
+      if (lib.liberado) {
+        let contextoEmpresa: ContextoEmpresaConsultor | undefined;
+        const cnpj = args.cnpj ? cnpjDe(args.cnpj) : null;
+        if (cnpj) {
+          const ws = await lerWorkspace(ctx, cnpj);
+          if (!('erro' in ws)) {
+            const e = (ws.dados.empresa || {}) as Record<string, any>;
+            const comp = (() => { const [a, m] = ctx.hoje.slice(0, 7).split('-').map(Number); return m === 1 ? `${a - 1}-12` : `${a}-${String(m - 1).padStart(2, '0')}`; })();
+            const conf = conferirFechamento({ competencia: comp, contas: ws.dados.contas || [], lancamentos: ws.dados.lancamentos || [], preLancamentos: ws.dados.preLancamentos || [], bens: ws.dados.bensImobilizado || [], confirmacoes: {} });
+            contextoEmpresa = { cnpj, razaoSocial: e.razaoSocial || undefined, regime: regimeParaConsultor(e.regime), cnaePrincipal: e.cnae || undefined, uf: e.uf || undefined, municipio: e.municipio || undefined, pendencias: conf.itens.filter((i) => i.tipo === 'automatico' && !i.ok && i.bloqueia).map((i) => `${mesAno(comp)}: ${i.titulo} — ${i.detalhe}`).slice(0, 6) };
+          }
+        }
+        const c = await perguntarAoConsultor({ pergunta, contextoEmpresa, ferramentasDisponiveis: ctx.kit.ferramentas.map((f) => ({ nome: f.declaracao.name, descricao: f.declaracao.description })), usuario: ctx.login, escritorio: lib.escritorio || undefined }, opcoesConsultorParaTeste.atual);
+        if (c) return {
+          fonte: 'Consultor Murade', resposta: c.resposta, fontesOficiais: c.fontes, confianca: c.confianca, encaminharContador: c.encaminharContador || undefined, motivoEncaminhamento: c.motivoEncaminhamento,
+          avisoResponsabilidade: c.avisoResponsabilidade, acoesSugeridas: c.acoesSugeridas.length ? c.acoesSugeridas : undefined, divergencia: c.divergencia, recusado: c.recusado,
+          instrucao: [
+            'Responda com a orientação, cite as fontes oficiais (título) e diga o aviso de responsabilidade em uma frase.',
+            c.acoesSugeridas.length ? 'Ofereça: "Quer que eu faça para você?". Com o sim, chame a ferramenta sugerida com os argumentos (para serviço inteiro use fazer_servico_completo).' : '',
+            c.divergencia ? 'Houve divergência: diga a orientação e a fonte em uma frase e pergunte se ele confirma fazer do jeito dele. Se confirmar e for um serviço completo, chame fazer_servico_completo com decisao_do_contador (pedido = escolha do contador, orientacao_do_sistema = orientação, fonte = título da fonte); fora do serviço completo, chame registrar_decisao_contador.' : '',
+            c.recusado ? 'O pedido foi recusado por ser ilegal: explique a base legal e não ofereça fazer.' : '',
+          ].filter(Boolean).join(' '),
+        };
+      }
       const r = await ctx.chamarApi('POST', '/api/ai/chat', { message: pergunta, module: 'contabil' });
       if (r.status < 200 || r.status >= 300 || typeof r.corpo?.reply !== 'string') return erroApi(r);
       return { resposta: r.corpo.reply, fontesOficiais: r.corpo.sources || [] };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'registrar_decisao_contador', description: 'Registra que o contador CONFIRMOU fazer diferente da orientação do Consultor/da norma (fora de um serviço completo; no serviço completo use decisao_do_contador em fazer_servico_completo). Vai para o registro de decisões do Consultor Murade e para o histórico da Agente: "decisão e responsabilidade do contador".', parameters: { type: 'OBJECT', properties: { pergunta: { type: 'STRING' }, orientacao: { type: 'STRING', description: 'A orientação dada (com a regra).' }, fonte_titulo: { type: 'STRING' }, fonte_url: { type: 'STRING', description: 'Link oficial da fonte, se houver.' }, escolha_do_contador: { type: 'STRING' }, cnpj: { type: 'STRING' } }, required: ['pergunta', 'orientacao', 'escolha_do_contador'] } },
+    async executar(ctx, args) {
+      const t = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+      const pergunta = t(args.pergunta, 500), orientacao = t(args.orientacao, 400), escolha = t(args.escolha_do_contador, 400);
+      if (!pergunta || !orientacao || !escolha) return { erro: 'Faltam a pergunta, a orientação ou a escolha do contador.' };
+      const fonte = args.fonte_url ? { titulo: t(args.fonte_titulo, 160) || t(args.fonte_url, 160), url: t(args.fonte_url, 500) } : undefined;
+      const lib = await liberacaoDoConsultor(ctx);
+      const noConsultor = lib.escritorio ? await registrarDecisaoNoConsultor({ escritorio: lib.escritorio, usuario: ctx.login, pergunta, orientacao, fonte, escolhaDoContador: escolha }, opcoesConsultorParaTeste.atual) : false;
+      const resumo = `Feito como o contador decidiu: ${escolha}. A orientação era: ${orientacao}${fonte ? ` (${fonte.titulo})` : ''}. Decisão e responsabilidade do contador.`;
+      try { await ctx.registrar({ evento: 'proposta', ferramenta: 'registrar_decisao_contador', cnpj: args.cnpj ? cnpjDe(args.cnpj) : null, resumo: resumo.slice(0, 280) }); } catch { /* histórico não trava */ }
+      return { registrado: true, noConsultor, instrucao: 'Diga em uma frase que ficou registrado que a orientação foi outra e que a decisão é dele, e siga com o pedido do jeito dele.' };
     },
   },
 
@@ -1003,7 +1047,7 @@ Quando perguntarem "onde eu faço X", diga o nome da tela do menu. Não invente 
 
 COMO TRABALHAR
 - Para saber qualquer coisa do sistema (empresas, pendências de conferência, fechamentos, integrações, robôs), use as ferramentas de consulta. Nunca responda de memória sobre dados do cliente.
-- Para dúvidas de legislação, regra, alíquota ou prazo, use consultar_legislacao e repasse as fontes oficiais.
+- Para dúvidas de legislação, regra, alíquota ou prazo, use consultar_legislacao (passe o CNPJ quando a dúvida for de uma empresa) e repasse as fontes oficiais e o aviso de responsabilidade. Se vier acoesSugeridas, ofereça "Quer que eu faça para você?".
 - Se o usuário tem uma única empresa, use-a. Se há várias e ele não disse qual, pergunte. Se não disse a competência (mês), pergunte antes de agir.
 - Ações que alteram dados (contabilizar_prelancamentos, fechar_competencia, delegar_tarefa) NÃO são executadas por você: viram um cartão de confirmação. Depois de chamar uma ação, diga em uma frase o que ficou pronto para ele confirmar. Nunca diga que algo foi feito antes de ele confirmar.
 - PEDIR SERVIÇO À EQUIPE (delegar_tarefa): quando a contadora pedir algo como "peça para a Nilva conciliar o banco da empresa X", use delegar_tarefa com o nome da pessoa como foi dito, o serviço, a empresa (se disse) e o prazo (só se disse; converta para AAAA-MM-DD pela data de hoje). Vira cartão de confirmação; diga em uma frase para quem é o pedido e que ele só vale ao confirmar. Se a ferramenta disser que o nome é ambíguo ou não existe, pergunte UMA vez qual pessoa, sem escolher sozinha. Só a administradora do escritório pede para outra pessoa; funcionário comum só anota tarefa para si (sem destinatário). Isso funciona de qualquer tela. A pessoa recebe o pedido na tela de Tarefas da equipe.
@@ -1025,4 +1069,4 @@ NUNCA ENROLE NEM JOGUE CONVERSA FORA
 - Se não houver ferramenta, tela, NEM uma resposta clara de quem resolve — ou seja, você realmente não sabe o que fazer com o pedido —, use chamar_supervisor com um resumo da pergunta, e então diga ao usuário, com calma, que você vai levar isso ao seu supervisor e que volta a falar com ele assim que tiver a resposta. Nunca invente um prazo. Isso NÃO é desculpa para pular a busca por uma ferramenta: só chame o supervisor depois de checar tudo o que você tem.
 - Nunca fique repetindo a pergunta, dando respostas vagas, enrolando ou gerando texto sem informação nova só para preencher a resposta — isso gasta crédito sem ajudar.`;
 
-export const kitContabil: KitAgente = { ferramentas: [...FERRAMENTAS, ...FERRAMENTAS_PILOTO, ...FERRAMENTAS_ENTRE_SISTEMAS], instrucao: INSTRUCAO_BASE + INSTRUCAO_PILOTO + INSTRUCAO_ENTRE_SISTEMAS };
+export const kitContabil: KitAgente = { ferramentas: [...FERRAMENTAS, ...FERRAMENTAS_SERVICO_COMPLETO, ...FERRAMENTAS_PILOTO, ...FERRAMENTAS_ENTRE_SISTEMAS], instrucao: INSTRUCAO_BASE + INSTRUCAO_SERVICO_COMPLETO + INSTRUCAO_PILOTO + INSTRUCAO_ENTRE_SISTEMAS };

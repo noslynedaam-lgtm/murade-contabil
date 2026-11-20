@@ -23,7 +23,7 @@ export const MODULOS_JEITO_PADRAO: TelaJeito[] = [
   { id: 'gestao-contabil', rotulo: 'Gestão contábil', resumo: 'Comparativos entre períodos, centros de custo, ativo imobilizado, extrato bancário e o fechamento guiado do mês.', arquivo: 'GestaoContabilTab' },
   { id: 'conexoes', rotulo: 'Conexão Órgãos', resumo: 'Mostra o estado das conexões com o Fiscal, o Departamento Pessoal e os órgãos públicos.', arquivo: 'ConexoesTab' },
   { id: 'lancamentos', rotulo: 'Lançamentos', resumo: 'Lançamentos por partida dobrada; os manuais só entram nos livros depois de aprovados.', arquivo: 'LancamentosTab' },
-  { id: 'aprovacoes', rotulo: 'Aprovar lançamentos', resumo: 'Aprovar ou rejeitar os lançamentos que aguardam decisão; a rejeição pede o motivo, que fica no histórico.', arquivo: 'AprovacoesTab' },
+  { id: 'aprovacoes', rotulo: 'Aprovar lançamentos', resumo: 'Aprovar ou rejeitar os lançamentos que aguardam decisão; a rejeição pede o motivo, que fica no histórico. No topo, em A conferir, ficam os serviços completos que a Agente preparou para você conferir.', arquivo: 'AprovacoesTab' },
   { id: 'balancete', rotulo: 'Balancete', resumo: 'Balancete local de verificação por competência, com exportação em CSV e o botão de fechar o mês.', arquivo: 'BalanceteTab' },
   { id: 'livros', rotulo: 'Livros Fiscais & ECD', resumo: 'Livro Diário, Livro Razão, Balancete, Balanço e DRE gerenciais como relatórios internos, mais a preparação da ECD.', arquivo: 'LivrosTab' },
   { id: 'plano-contas', rotulo: 'Plano de Contas', resumo: 'Plano de contas e saldos iniciais; os saldos geram partidas dobradas que aguardam aprovação.', arquivo: 'PlanoContasTab' },

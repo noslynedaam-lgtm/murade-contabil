@@ -290,6 +290,8 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
       if (acoes.length) onOpen?.();
       // Piloto Visível: a tela passa a ser conduzida; a janela da conversa sai da frente (a menos que haja cartão para confirmar).
       if (pilotoResp) { enviarAoPiloto(pilotoResp); if (!acoes.length && !("comando" in pilotoResp)) onClose(); }
+      // Serviço completo: o servidor segue trabalhando; o aviso "Seu pedido está pronto" passa a acompanhar o registro.
+      if (pilotoResp && typeof pilotoResp.titulo === "string" && pilotoResp.titulo.startsWith("Serviço completo:")) window.dispatchEvent(new CustomEvent("murade:servico-completo-iniciado"));
     } catch (err) {
       const erroMsg: ChatMessage = {
         id: `msg-${Date.now() + 1}`,

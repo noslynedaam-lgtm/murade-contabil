@@ -447,7 +447,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
           <p className="mt-1 text-xs text-slate-600">Diário e Razão são ordenados por data e recebem numeração sequencial interna no relatório. Isso não é número oficial do livro ou termo de abertura/encerramento. Pré-lançamentos pendentes não entram.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={imprimirPdf} disabled={!exportacaoLiberada} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"><Printer className="h-4 w-4" /> Imprimir / Salvar PDF</button>
+          <button type="button" data-campo="livros-pdf" onClick={imprimirPdf} disabled={!exportacaoLiberada} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"><Printer className="h-4 w-4" /> Imprimir / Salvar PDF</button>
           <button type="button" onClick={exportarExcel} disabled={!exportacaoLiberada} className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-900 disabled:cursor-not-allowed disabled:opacity-50"><FileSpreadsheet className="h-4 w-4" /> Exportar Excel</button>
         </div>
       </header>
@@ -565,7 +565,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div><h4 className="font-bold">Conferência prévia local da ECD</h4><p className="mt-1 text-[11px]">Verifica dados existentes no workspace desta empresa; o TXT é montado no gerador abaixo. Não confirma obrigatoriedade e não equivale à validação pelo PGE.</p></div>
             <label className="font-semibold">Ano-calendário
-              <input type="number" min="1900" max="2100" value={anoECD} onChange={(event) => setAnoECD(event.target.value)} className="ml-2 w-24 rounded border border-amber-300 px-2 py-1" />
+              <input type="number" data-campo="ecd-ano" min="1900" max="2100" value={anoECD} onChange={(event) => setAnoECD(event.target.value)} className="ml-2 w-24 rounded border border-amber-300 px-2 py-1" />
             </label>
           </div>
           <ul className="mt-3 grid gap-2 sm:grid-cols-2">

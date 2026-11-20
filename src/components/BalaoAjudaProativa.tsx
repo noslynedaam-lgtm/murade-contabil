@@ -10,9 +10,12 @@ interface BalaoAjudaProativaProps {
   textoAlvo: string;
   onAceitar: () => void;
   onRecusar: () => void;
+  /** Serviço completo que a Agente pode fazer sozinha nesta tela (ex.: "o fechamento do mês"). */
+  servico?: string;
+  onFazerServico?: () => void;
 }
 
-export const BalaoAjudaProativa: React.FC<BalaoAjudaProativaProps> = ({ visivel, textoAlvo, onAceitar, onRecusar }) => {
+export const BalaoAjudaProativa: React.FC<BalaoAjudaProativaProps> = ({ visivel, textoAlvo, onAceitar, onRecusar, servico, onFazerServico }) => {
   if (!visivel) return null;
   return (
     <div
@@ -25,6 +28,9 @@ export const BalaoAjudaProativa: React.FC<BalaoAjudaProativaProps> = ({ visivel,
           Posso te ajudar? Vi que você está tentando <strong>{textoAlvo || 'isso'}</strong> e não está conseguindo.
         </p>
       </div>
+      {servico && onFazerServico && (
+        <p className="mt-2 leading-snug">Quer que eu faça esse serviço para você? Eu faço <strong>{servico}</strong> inteiro e deixo pronto para você só conferir e aprovar.</p>
+      )}
       <div className="mt-2.5 flex items-center justify-end gap-2">
         <button
           type="button"
@@ -40,6 +46,15 @@ export const BalaoAjudaProativa: React.FC<BalaoAjudaProativaProps> = ({ visivel,
         >
           Sim, me ajuda
         </button>
+        {servico && onFazerServico && (
+          <button
+            type="button"
+            onClick={onFazerServico}
+            className="rounded-lg bg-indigo-700 px-3 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-indigo-800 cursor-pointer"
+          >
+            Sim, faça para mim
+          </button>
+        )}
       </div>
     </div>
   );

@@ -24,7 +24,12 @@ export interface PassoPiloto {
   via?: 'tela' | 'api';
   api?: { ferramenta: string; args?: Record<string, string | number | boolean> };
 }
-export interface PlanoPiloto { titulo: string; passos: PassoPiloto[] }
+export interface PlanoPiloto {
+  titulo: string; passos: PassoPiloto[];
+  /** Serviço completo da Agente: o trabalho de verdade roda no SERVIDOR. Se o contador mexer ou sair da tela, a animação só
+   * se recolhe (não pausa nem pede "continua") e a Agente avisa que segue em segundo plano. */
+  segundoPlanoAoInterferir?: boolean;
+}
 export type ComandoPiloto = 'continuar' | 'segundo_plano' | 'cancelar';
 /** O que a resposta da Agente pode trazer no campo `piloto`. */
 export type RespostaPiloto = PlanoPiloto | { comando: ComandoPiloto };
@@ -42,6 +47,7 @@ export const MSG_SEGUNDO_PLANO = 'Pode deixar, termino em segundo plano. Fique �
 export const MSG_SO_TELA = 'Esta etapa só dá para fazer na tela; me chame quando quiser que eu continue aqui.';
 export const MSG_CANCELADO = 'Cancelado. O que já foi preenchido continua na tela.';
 export const MSG_CONFIRMADO = 'Confirmado.';
+export const MSG_SERVICO_SEGUE = 'Pode usar o sistema à vontade: sigo trabalhando em segundo plano e te aviso quando o pedido estiver pronto para conferir.';
 
 const MAX_PASSOS = 40;
 const TELAS_SEGURAS = /^[a-z][a-z0-9-]{1,40}$/;
@@ -112,7 +118,7 @@ export function validarPlanoPiloto(entrada: unknown): { ok: true; plano: PlanoPi
     if (p.tipo === 'parar_no_botao' && i !== e.passos.length - 1) return { ok: false, motivo: 'Depois de parar no botão não pode haver mais passos.' };
   }
   for (const p of passos) if (p.tipo === 'navegar') { const a = analisarAlvo(p.alvo); if (a?.tipo === 'menu' && !TELAS_SEGURAS.test(a.tela)) return { ok: false, motivo: 'Tela inválida.' }; }
-  return { ok: true, plano: { titulo, passos } };
+  return { ok: true, plano: { titulo, passos, ...(e.segundoPlanoAoInterferir === true ? { segundoPlanoAoInterferir: true } : {}) } };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -288,6 +294,12 @@ export class PilotoExecutor {
   interferir(_origem: 'toque' | 'teclado' | 'rota'): void {
     if (this.estado !== 'rodando') return;
     this.interferencias += 1;
+    if (this.plano.segundoPlanoAoInterferir) {
+      // O servidor continua o serviço: a animação se recolhe sem pausar e a Agente avisa no fim.
+      this.usouBg = true; this.limparBotao(); this.amb.limparDestaque();
+      this.mudar('cancelar'); this.falar(MSG_SERVICO_SEGUE); this.concluir();
+      return;
+    }
     this.mudar('interferencia');
     this.amb.limparDestaque();
     this.falar(MSG_INTERFERENCIA);

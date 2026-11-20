@@ -33,6 +33,8 @@ import { RevisaoOrigensTab } from "./components/tabs/RevisaoOrigensTab";
 import { BackupsTab } from "./components/tabs/BackupsTab";
 import { IAMuradModal } from "./components/IAMuradModal";
 import { BalaoAjudaProativa } from "./components/BalaoAjudaProativa";
+import { AvisoServicoPronto } from "./components/AvisoServicoPronto";
+import { ofertaDeServico, pedidoDaOferta } from "./utils/servicoCompletoCliente";
 import { GuiaPassoAPasso, type PassoGuia } from "./components/GuiaPassoAPasso";
 import { AssistenteProvider } from "./contexts/AssistenteContext";
 import { useDetectorDificuldade, type DificuldadeDetectada } from "./hooks/useDetectorDificuldade";
@@ -75,6 +77,12 @@ function AppWorkspace() {
   const assistenteRef = React.useRef<AssistenteHandle | null>(null);
   const [dificuldadeAtual, setDificuldadeAtual] = useState<DificuldadeDetectada | null>(null);
   const [roteiroAtivo, setRoteiroAtivo] = useState<PassoGuia[] | null>(null);
+  // Adicional "Consultor Murade completo" (por escritório): só oferece "faça para mim" quando liberado. Falha = não liberado.
+  const [consultorLiberado, setConsultorLiberado] = useState(false);
+  React.useEffect(() => {
+    const conferir = () => fetch("/api/consultor/liberado", { credentials: "include", cache: "no-store" }).then((r) => r.json()).then((j) => setConsultorLiberado(j?.liberado === true)).catch(() => setConsultorLiberado(false));
+    void conferir(); const t = window.setInterval(conferir, 10 * 60_000); return () => window.clearInterval(t);
+  }, []);
   useDetectorDificuldade({
     ativo: !roteiroAtivo,
     onDificuldade: (d) => setDificuldadeAtual(d),
@@ -1075,6 +1083,9 @@ function AppWorkspace() {
                   empresaNome={empresa.razaoSocial || empresa.nomeFantasia || empresa.cnpj}
                   workspacePersistido={workspacePersistido}
                   onDecidirLancamentoManual={handleDecidirLancamentoManual}
+                  cnpj={empresa.cnpj}
+                  onNavegar={(tela) => setTabAtiva(tela as TabId)}
+                  onPedirAgente={(texto) => { assistenteRef.current?.abrir(); assistenteRef.current?.perguntar(texto); }}
                 />
               )}
 
@@ -1217,6 +1228,18 @@ function AppWorkspace() {
         textoAlvo={dificuldadeAtual?.texto || ''}
         onAceitar={aceitarAjudaProativa}
         onRecusar={() => setDificuldadeAtual(null)}
+        servico={dificuldadeAtual && consultorLiberado ? ofertaDeServico(tabAtiva, dificuldadeAtual.texto)?.rotulo : undefined}
+        onFazerServico={() => {
+          const oferta = dificuldadeAtual ? ofertaDeServico(tabAtiva, dificuldadeAtual.texto) : null;
+          setDificuldadeAtual(null);
+          if (!oferta) return;
+          assistenteRef.current?.abrir();
+          assistenteRef.current?.perguntar(pedidoDaOferta(oferta, empresa));
+        }}
+      />
+      <AvisoServicoPronto
+        onAbrir={(cnpj) => { if (String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase() !== cnpj) escolherEmpresaPeloCnpj(cnpj); setTabAtiva("aprovacoes"); }}
+        onFalar={(t) => assistenteRef.current?.falar(t)}
       />
       <PilotoVisivel
         tabAtiva={tabAtiva}

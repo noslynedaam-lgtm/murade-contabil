@@ -51,7 +51,10 @@ export const GestaoContabilTab: React.FC<Props> = (p) => {
         <h2 className="text-base font-bold text-slate-900">Gestão contábil</h2>
         <p className="mt-1 text-xs text-slate-600">Comparativos, centros de custo, ativo imobilizado, extrato bancário e fechamento guiado. Os números vêm dos lançamentos definitivos deste Contábil; lançamentos novos gerados aqui ficam pendentes de aprovação.</p>
         <div className="mt-3 flex flex-wrap items-end gap-2">
-          {aba("comparativo", "Comparativo e explicações")}{aba("centros", "Centros de custo")}{aba("imobilizado", "Ativo imobilizado")}{aba("extrato", "Extrato e conciliação")}{aba("provisoes", "Provisões")}{aba("dlpa", "Lucros acumulados (DLPA)")}{aba("fechamento", "Fechamento guiado")}
+          {aba("comparativo", "Comparativo e explicações")}{aba("centros", "Centros de custo")}<BotaoAba data-campo="gestao-aba-imobilizado" data-piloto-abrir="" ativo={secao === "imobilizado"} onClick={() => setSecao("imobilizado")}>Ativo imobilizado</BotaoAba>
+          <BotaoAba data-campo="gestao-aba-extrato" data-piloto-abrir="" ativo={secao === "extrato"} onClick={() => setSecao("extrato")}>Extrato e conciliação</BotaoAba>
+          {aba("provisoes", "Provisões")}{aba("dlpa", "Lucros acumulados (DLPA)")}
+          <BotaoAba data-campo="gestao-aba-fechamento" data-piloto-abrir="" ativo={secao === "fechamento"} onClick={() => setSecao("fechamento")}>Fechamento guiado</BotaoAba>
           <label className="ml-auto text-xs font-bold text-slate-700">Competência
             <input type="month" data-campo="gestao-periodo" value={periodo} onChange={(e) => setPeriodo(e.target.value)} className="ml-2 rounded-md border border-slate-300 px-2 py-1 text-sm font-medium" />
           </label>
@@ -71,6 +74,11 @@ export const GestaoContabilTab: React.FC<Props> = (p) => {
     </div>
   );
 };
+
+// Abas que o Piloto Visível abre sozinho (data-campo + data-piloto-abrir; ver src/data/mapaTelasContabil.ts).
+const BotaoAba: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { ativo: boolean; "data-campo": string; "data-piloto-abrir": string }> = ({ ativo, className: _c, children, ...resto }) => (
+  <button type="button" {...resto} className={`rounded-lg border px-3 py-1.5 text-xs font-bold ${ativo ? "border-blue-700 bg-blue-700 text-white" : "border-slate-300 bg-white text-slate-700"}`}>{children}</button>
+);
 
 const Cartao: React.FC<{ titulo: string; children: React.ReactNode }> = ({ titulo, children }) => (
   <section className="rounded-xl border border-slate-200 bg-white p-4 text-xs shadow-xs"><h3 className="mb-2 text-sm font-bold text-slate-900">{titulo}</h3>{children}</section>
@@ -284,7 +292,7 @@ const Imobilizado: React.FC<Props & { periodo: string; analiticas: ContaPlano[] 
         <div className="mt-2 flex flex-wrap items-end gap-2">
           <label className="grid gap-1">Conta de despesa de depreciação<select value={despesa} onChange={(e) => setDespesa(e.target.value)} className="rounded border px-2 py-1"><option value="">Escolha…</option>{analiticas.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} {c.descricao}</option>)}</select></label>
           <label className="grid gap-1">Conta de depreciação acumulada<select value={acumulada} onChange={(e) => setAcumulada(e.target.value)} className="rounded border px-2 py-1"><option value="">Escolha…</option>{analiticas.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} {c.descricao}</option>)}</select></label>
-          <button type="button" onClick={lancar} disabled={!quotas.total || jaLancada} className="rounded-md bg-emerald-700 px-3 py-1.5 font-bold text-white disabled:opacity-50">Lançar depreciação do mês</button>
+          <button type="button" data-campo="depreciacao-lancar" onClick={lancar} disabled={!quotas.total || jaLancada} className="rounded-md bg-emerald-700 px-3 py-1.5 font-bold text-white disabled:opacity-50">Lançar depreciação do mês</button>
         </div>
         {msg && <p className="mt-1 text-slate-800">{msg}</p>}
         <p className="mt-1 text-slate-600">Na baixa, a depreciação para no mês anterior ao da baixa. O ganho ou a perda é o valor da venda menos o valor contábil líquido.</p>
@@ -363,7 +371,7 @@ const Fechamento: React.FC<Props & { periodo: string }> = ({ contas, lancamentos
           </li>
         ))}
       </ul>
-      <button type="button" disabled={!r.podeFechar || fechada || !workspacePersistido} onClick={async () => { if (await confirmarNaTela(`Fechar a competência ${periodo}? O servidor vai bloquear alterações nesse mês.`)) await onFecharMes(periodo); }} className="mt-3 rounded-md bg-blue-700 px-4 py-2 font-bold text-white disabled:opacity-50">{fechada ? "Competência já fechada" : r.podeFechar ? "Fechar competência" : "Resolva os itens para fechar"}</button>
+      <button type="button" data-campo="fechamento-fechar" disabled={!r.podeFechar || fechada || !workspacePersistido} onClick={async () => { if (await confirmarNaTela(`Fechar a competência ${periodo}? O servidor vai bloquear alterações nesse mês.`)) await onFecharMes(periodo); }} className="mt-3 rounded-md bg-blue-700 px-4 py-2 font-bold text-white disabled:opacity-50">{fechada ? "Competência já fechada" : r.podeFechar ? "Fechar competência" : "Resolva os itens para fechar"}</button>
       <p className="mt-2 text-slate-600">Os itens automáticos vêm dos dados deste Contábil. Os itens "confirmação sua" o sistema não consegue verificar sozinho (banco, contas a pagar/receber, folha e impostos): você confirma depois de conferir. O servidor ainda aplica suas próprias validações no fechamento.</p>
     </Cartao>
   );

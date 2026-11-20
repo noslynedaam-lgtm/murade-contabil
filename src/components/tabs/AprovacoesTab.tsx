@@ -2,12 +2,17 @@ import { agruparPorLote } from "../../utils/escrituracaoAvancada";
 import React, { useState } from "react";
 import { CheckCircle2, XCircle } from "lucide-react";
 import type { LancamentoContabil } from "../../types";
+import { ServicosAgentePainel } from "../ServicosAgentePainel";
 
 interface AprovacoesTabProps {
   lancamentos: LancamentoContabil[];
   empresaNome: string;
   workspacePersistido: boolean;
   onDecidirLancamentoManual: (id: string, decisao: "aprovar" | "rejeitar", motivo?: string) => Promise<boolean>;
+  /** "A conferir": serviços completos que a Agente preparou para esta empresa. */
+  cnpj?: string;
+  onNavegar?: (tela: string) => void;
+  onPedirAgente?: (texto: string) => void;
 }
 
 const dinheiro = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -16,7 +21,7 @@ const dinheiro = (v: number) => v.toLocaleString("pt-BR", { style: "currency", c
 // (valor, contas, histórico, origem) e botões com área de toque confortável.
 // A decisão usa o mesmo caminho do servidor da aba Lançamentos: o servidor confere permissão e registra quem aprovou.
 // Aprovar pede um segundo toque no próprio cartão ("Confirmar"), para um toque sem querer nunca lançar nos livros.
-export const AprovacoesTab: React.FC<AprovacoesTabProps> = ({ lancamentos, empresaNome, workspacePersistido, onDecidirLancamentoManual }) => {
+export const AprovacoesTab: React.FC<AprovacoesTabProps> = ({ lancamentos, empresaNome, workspacePersistido, onDecidirLancamentoManual, cnpj, onNavegar, onPedirAgente }) => {
   const pendentes = lancamentos.filter((l) => l.statusManual === "pendente_aprovacao");
   // Lançamento com várias partidas aparece num cartão só: aprovar ou rejeitar vale para o lote inteiro (o servidor decide junto).
   const grupos = agruparPorLote<LancamentoContabil>(pendentes);
@@ -39,6 +44,7 @@ export const AprovacoesTab: React.FC<AprovacoesTabProps> = ({ lancamentos, empre
         <h1 className="text-lg font-bold text-slate-900">Aprovar lançamentos</h1>
         <p className="text-xs text-slate-600">{empresaNome} · {grupos.length ? `${grupos.length} aguardando sua decisão` : "nada aguardando aprovação"}</p>
       </div>
+      {cnpj && <ServicosAgentePainel cnpj={cnpj} onNavegar={onNavegar} onPedirAgente={onPedirAgente} />}
       {!workspacePersistido && (
         <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
           Os dados desta empresa ainda não foram confirmados no banco. Aguarde a gravação para aprovar ou rejeitar.
@@ -85,7 +91,7 @@ export const AprovacoesTab: React.FC<AprovacoesTabProps> = ({ lancamentos, empre
               </div>
             ) : (
               <div className="mt-3 flex gap-2">
-                <button type="button" disabled={!workspacePersistido} onClick={() => { setRejeitando(null); setAprovando(l.id); }} className="flex min-h-12 flex-1 items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 text-sm font-bold text-white disabled:opacity-40"><CheckCircle2 size={18} />Aprovar</button>
+                <button type="button" data-campo="aprovacao-aprovar" disabled={!workspacePersistido} onClick={() => { setRejeitando(null); setAprovando(l.id); }} className="flex min-h-12 flex-1 items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 text-sm font-bold text-white disabled:opacity-40"><CheckCircle2 size={18} />Aprovar</button>
                 <button type="button" disabled={!workspacePersistido} onClick={() => { setAprovando(null); setRejeitando(l.id); }} className="flex min-h-12 items-center justify-center gap-1 rounded-lg border border-rose-300 bg-white px-4 text-sm font-bold text-rose-800 disabled:opacity-40"><XCircle size={18} />Rejeitar</button>
               </div>
             )}

@@ -280,7 +280,7 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
           <button type="button" onClick={baixarBlocoL} className="mt-1 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-2 py-1 font-semibold"><Download className="h-3.5 w-3.5" /> Baixar conferência L100/L300 (.txt)</button>
         </div>
       )}
-      <button type="button" onClick={baixar} disabled={!resultado.ok} className="mt-2 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-3.5 w-3.5" /> Baixar arquivo ECD (.txt, Latin-1)</button>
+      <button type="button" data-campo="ecd-baixar" onClick={baixar} disabled={!resultado.ok} className="mt-2 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-3.5 w-3.5" /> Baixar arquivo ECD (.txt, Latin-1)</button>
       {msg && <p role="status" className="mt-2 text-[11px]">{msg}</p>}
       {dialogoExclusao}
     </div>

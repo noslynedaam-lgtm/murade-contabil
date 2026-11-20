@@ -58,6 +58,7 @@ const EMP = 'src/components/tabs/EmpresaTab.tsx';
 const PADROES = 'src/components/PadroesLancamentoPainel.tsx';
 const LIVRO_CAIXA = 'src/components/LivroCaixaEncerramento.tsx';
 const CONCILIACAO = 'src/components/ConciliacaoBancariaPainel.tsx';
+const GESTAO = 'src/components/tabs/GestaoContabilTab.tsx';
 
 export const CAMPOS_CONTABIL: CampoMapa[] = [
   // Lançamento manual (abre pelo botão "+ Lançamento Manual")
@@ -105,6 +106,17 @@ export const CAMPOS_CONTABIL: CampoMapa[] = [
   { chave: 'empresa-email', tela: 'empresa', rotulo: 'E-mail de contato', arquivo: EMP, tipo: 'texto' },
   { chave: 'empresa-responsavel', tela: 'empresa', rotulo: 'Responsável legal', arquivo: EMP, tipo: 'texto' },
   { chave: 'empresa-salvar', tela: 'empresa', rotulo: 'Salvar Empresa', arquivo: EMP, tipo: 'botao', final: 'salvar' },
+  // Serviço completo da Agente (src/server/servicoCompleto.ts): abas que o piloto abre e botões onde ele PARA (o clique é do contador).
+  { chave: 'gestao-aba-imobilizado', tela: 'gestao-contabil', rotulo: 'Aba Ativo imobilizado', arquivo: GESTAO, tipo: 'botao', abre: true },
+  { chave: 'gestao-aba-extrato', tela: 'gestao-contabil', rotulo: 'Aba Extrato e conciliação', arquivo: GESTAO, tipo: 'botao', abre: true },
+  { chave: 'gestao-aba-fechamento', tela: 'gestao-contabil', rotulo: 'Aba Fechamento guiado', arquivo: GESTAO, tipo: 'botao', abre: true },
+  { chave: 'depreciacao-lancar', tela: 'gestao-contabil', rotulo: 'Lançar depreciação do mês', arquivo: GESTAO, tipo: 'botao' },
+  { chave: 'fechamento-fechar', tela: 'gestao-contabil', rotulo: 'Fechar competência (Fechamento guiado)', arquivo: GESTAO, tipo: 'botao' },
+  { chave: 'aprovacao-aprovar', tela: 'aprovacoes', rotulo: 'Aprovar (primeiro lançamento da fila)', arquivo: 'src/components/tabs/AprovacoesTab.tsx', tipo: 'botao' },
+  { chave: 'balancete-exportar', tela: 'balancete', rotulo: 'Exportar CSV do balancete', arquivo: 'src/components/tabs/BalanceteTab.tsx', tipo: 'botao' },
+  { chave: 'livros-pdf', tela: 'livros', rotulo: 'Imprimir / PDF dos livros', arquivo: 'src/components/tabs/LivrosTab.tsx', tipo: 'botao' },
+  { chave: 'ecd-ano', tela: 'livros', rotulo: 'Ano-calendário da ECD', arquivo: 'src/components/tabs/LivrosTab.tsx', tipo: 'numero' },
+  { chave: 'ecd-baixar', tela: 'livros', rotulo: 'Baixar arquivo ECD', arquivo: 'src/components/EcdGeradorPainel.tsx', tipo: 'botao' },
   // Competência das telas com período
   { chave: 'balancete-competencia', tela: 'balancete', rotulo: 'Competência do balancete', arquivo: 'src/components/tabs/BalanceteTab.tsx', tipo: 'selecao' },
   { chave: 'gestao-periodo', tela: 'gestao-contabil', rotulo: 'Competência da gestão contábil', arquivo: 'src/components/tabs/GestaoContabilTab.tsx', tipo: 'selecao' },
@@ -132,6 +144,7 @@ export const SECOES_CONTABIL: SecaoMapa[] = [
   { chave: 'encerramento-resultado', tela: 'livros', texto: 'Encerramento do resultado', arquivo: 'src/components/tabs/LivrosTab.tsx' },
   { chave: 'lancamentos-padrao', tela: 'lancamentos', texto: 'Lançamentos padrão', arquivo: 'src/components/PadroesLancamentoPainel.tsx' },
   { chave: 'regras-conciliacao', tela: 'gestao-contabil', texto: 'Regras de conciliação', arquivo: 'src/components/ConciliacaoBancariaPainel.tsx' },
+  { chave: 'servicos-agente', tela: 'aprovacoes', texto: 'Serviços preparados pela Agente', arquivo: 'src/components/ServicosAgentePainel.tsx' },
 ];
 
 export const IDS_DE_TELAS_CONTABIL: ReadonlySet<string> = new Set(TELAS_CONTABIL.map((t) => t.id));

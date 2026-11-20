@@ -46,6 +46,7 @@ export const TIPOS_SERVICO: Record<string, { rotulo: string; feito: string; faze
   'contabilizacao:lote': { rotulo: 'a contabilização dos pré-lançamentos', feito: 'contabilizou', fazendo: 'contabilizando' },
   'decisao:lancamento': { rotulo: 'a decisão do lançamento manual', feito: 'decidiu', fazendo: 'decidindo' },
   'backup:escritorio': { rotulo: 'o backup mensal do escritório', feito: 'gerou', fazendo: 'gerando' },
+  'servico:completo': { rotulo: 'o serviço completo com a Agente', feito: 'deixou pronto para conferir', fazendo: 'preparando' },
 };
 const verbo = (tipo: string) => TIPOS_SERVICO[tipo] ?? { rotulo: 'este serviço', feito: 'fez', fazendo: 'fazendo' };
 

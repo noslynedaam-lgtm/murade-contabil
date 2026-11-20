@@ -181,7 +181,7 @@ export const BalanceteTab: React.FC<BalanceteTabProps> = ({ cnpj, competencia, l
       </div>
 
       <div className="flex flex-wrap justify-end gap-2">
-        <button type="button" onClick={exportarCsv} disabled={resumo.saldosIniciaisPendentes.length > 0 || resumo.lancamentosInvalidos > 0} className="flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
+        <button type="button" data-campo="balancete-exportar" onClick={exportarCsv} disabled={resumo.saldosIniciaisPendentes.length > 0 || resumo.lancamentosInvalidos > 0} className="flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
           <Download className="h-3.5 w-3.5" /> Exportar CSV local
         </button>
       </div>
