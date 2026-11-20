@@ -40,6 +40,7 @@ import { respostaRapida } from "./src/server/respostasRapidas";
 import { omitirXmlOriginal, resumirCoberturaXmlFiscal } from "./src/server/coberturaXmlFiscal";
 import { montarServicoFeito } from "./src/server/servicoFeitoRotas";
 import { criarStoreEscritorio, preencherCnpjsDosEscritorios, registrarRotasEscritorioConsultor } from "./src/server/escritorioConsultor";
+import { conferirCadastrosDosEscritorios, registrarRotaCadastroEscritorioContabil } from "./src/server/cadastroEscritorioContabil";
 import { criarStoreServicoCompleto, registrarRotasServicoCompleto, resumoRodadaServicos, rodarConferidorServicos, tenantServico, type ResultadoRodadaServicos } from "./src/server/servicoCompletoStore";
 import { chaveServico, descreverRegistro, tenantDaSessao } from "./src/server/servicoFeito";
 import { registrarRotasEscrituracao, roboConciliacao, roboEncerramento, roboLancamentosPadrao, roboLivroCaixa } from "./src/server/escrituracaoRotas";
@@ -1315,6 +1316,12 @@ const reconciliacaoRascunhosStatus: {
     store: storeEscritorio,
     sessao: (req) => { const s = sessaoDaRequisicaoContabil(req); return s ? { tenantId: String(s.tenantId || s.escritorioDe || s.userId), podeEditar: s.administrador === true || s.donoSistema === true } : undefined; },
   });
+  // Cadastro do escritório (o cadastro único é feito no DP): a Agente e a tela leem a situação daqui; o DP grava o CNPJ do escritório.
+  registrarRotaCadastroEscritorioContabil(app, exigirSessaoContabil, {
+    consultar: (sql, params) => consultaBancoContabil(sql, params),
+    sessao: (req) => { const s = sessaoDaRequisicaoContabil(req); return s ? { tenantId: String(s.tenantId || s.escritorioDe || s.userId) } : undefined; },
+    urlDP: () => (process.env.MURADE_DP_URL || "https://murade-dp.onrender.com").replace(/\/$/, ""),
+  });
   // Serviço completo da Agente ("fecha o mês", "faz a ECD"...): resumo em "A conferir" (tela Aprovar lançamentos) e "serviço feito".
   registrarRotasServicoCompleto(app, { exigirSessao: exigirSessaoContabil, exigirOrigem: exigirOrigemNavegador }, {
     store: storeServicoCompleto,
@@ -1669,7 +1676,8 @@ const reconciliacaoRascunhosStatus: {
     ultimaRodadaServicos = r;
     // CNPJ do escritório (adicional Consultor Murade): preenche sozinho pelo DP/Fisco IA quando o dono é o mesmo; nunca sobrescreve.
     const cnpjs = await preencherCnpjsDosEscritorios((sql, params) => consultaBancoContabil(sql, params), storeEscritorio).catch(() => ({ semCnpj: 0, preenchidos: 0 }));
-    registrarResultadoRobo("servico_completo", `${resumoRodadaServicos(r)} CNPJ do escritório: ${cnpjs.preenchidos} de ${cnpjs.semCnpj} escritório(s) sem CNPJ preenchido(s) pelo DP/Fisco IA.`);
+    const cadastro = await conferirCadastrosDosEscritorios((sql, params) => consultaBancoContabil(sql, params)).catch(() => null);
+    registrarResultadoRobo("servico_completo", `${resumoRodadaServicos(r)} CNPJ do escritório: ${cnpjs.preenchidos} de ${cnpjs.semCnpj} escritório(s) sem CNPJ preenchido(s) pelo DP/Fisco IA.${cadastro ? ` ${cadastro.texto}` : ""}`);
     definirAlertaRobo("servico_completo", r.parados ? { nivel: "aviso", texto: `${r.parados} serviço(s) da Agente ficaram parados sem a confirmação do preparo; o contador vê em "A conferir" e pode pedir de novo.` } : null);
   }).catch((e) => console.error("Falha no Robô Conferidor dos Serviços da Agente:", e?.message || e)) : undefined;
   if (bancoContabilConfigurado()) {
