@@ -60,6 +60,9 @@ export const SUGESTOES_CONTAS_POR_ORIGEM: Record<OrigemMapeadaContabil, RegraOri
   dp_desconto_adiantamento: [],
   // Consignado descontado: débito em salários a pagar; crédito na conta onde a empresa registra o consignado a repassar ao banco. Varia por plano; sem regra padrão.
   dp_desconto_consignado: [],
+  dp_desconto_emprestimo_empresa: [],
+  dp_desconto_convenio: [],
+  dp_desconto_outros_autorizados: [],
   // Provisões: a conta de despesa e a de passivo variam por plano (provisão de férias/13º a pagar, encargos sobre provisões); sem regra padrão.
   dp_provisao_ferias: [],
   dp_provisao_13: [],
