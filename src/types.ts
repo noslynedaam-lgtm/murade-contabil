@@ -8,6 +8,7 @@ export type TabId =
   | "aprovacoes"
   | "balancete"
   | "livros"
+  | "demonstracoes"
   | "plano-contas"
   | "calculadora"
   | "fluxo-previtico"
@@ -136,6 +137,14 @@ export interface EmpresaDados {
   };
   contaContrapartidaAberturaCodigo?: string;
   contasDisponibilidadesCodigo?: string[];
+  /** Classificação das contas para DFC, DMPL e índices escolhida pela contadora (código da conta → categoria). Sem escolha, vale a sugestão do sistema. */
+  classificacaoDemonstracoes?: Record<string, string>;
+  /** Notas explicativas por ano (modelo simples ME/EPP editado pela contadora). */
+  notasExplicativas?: Record<string, import("./utils/demonstracoesAvancadas").NotasExplicativas>;
+  /** ECF: Bloco Y (Y540/Y600) e Parte B do e-Lalur/e-Lacs por ano. */
+  ecfComplementos?: import("./services/ecfComplementosService").ComplementosEcf;
+  /** Entregas de ECD/ECF marcadas pela equipe (chave "ECD-2025", "ECF-2025"), para o painel do escritório. */
+  entregasSped?: Record<string, { entregueEm: string; recibo?: string; marcadoPor?: string }>;
 }
 
 export interface LancamentoContabil {

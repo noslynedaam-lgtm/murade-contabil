@@ -33,6 +33,7 @@ import { criarServicoBackupBanco } from "./src/server/backupBanco/servico";
 import { buscarEmpresasDoFiscal, cnpjsValidosDoFiscal } from "./src/server/empresasDoFiscal";
 import { resumoRelatorioAcessos, rodarConferidorAcessos } from "./src/server/conferidorAcessos";
 import { achadosEcdDoConferidor, rodarConferidorContabil } from "./src/server/conferidorContabil";
+import { registrarRotasDemonstracoes, rodarRoboDemonstracoes } from "./src/server/demonstracoesServidor";
 import { conferirBackupsEscritorios } from "./src/server/conferidorBackupsContabil";
 import { gerarBackupEscritorio, listarBackupsEscritorio, baixarBackupEscritorio, periodoDe } from "./src/services/backupEscritorioContabilService";
 import { gerarCandidatosRascunhosAutomaticos, mesclarRascunhosNoWorkspace, prepararRascunhosContabeisAutomaticos } from "./src/server/prepararRascunhosContabeis";
@@ -1711,6 +1712,27 @@ const reconciliacaoRascunhosStatus: {
     registrarRotinaManual("encerramento", rodarEncerramento);
     registrarRotinaManual("conciliacao", rodarConciliacao);
   }
+
+  // Demonstrações e relatórios (DFC, DMPL, notas, índices, relatório para o cliente, painel do escritório, ECF Y/Parte B).
+  registrarRobo({ id: "demonstracoes", nome: "Robô Conferidor das Demonstrações", posto: "conferidor", missao: "Conferir, só em leitura, as demonstrações do ano anterior de cada empresa: a DFC tem de fechar com a variação do caixa, a DMPL com o patrimônio líquido do balanço, contas com movimento precisam de classificação, as notas explicativas precisam existir e estar completas, e a Parte B da ECF precisa levar o saldo final de um ano para o seguinte. Põe o que achou no painel do escritório e na tela Demonstrações e relatórios. Nunca altera, lança nem transmite nada.", ...(bancoContabilConfigurado() ? { intervaloMs: 6 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  const rodarDemonstracoes = () => bancoContabilConfigurado() ? executarRobo("demonstracoes", async () => registrarResultadoRobo("demonstracoes", await rodarRoboDemonstracoes((sql, params) => consultaBancoContabil(sql, params)))).catch((e) => console.error("Falha no Robô das Demonstrações:", e?.message || e)) : undefined;
+  if (bancoContabilConfigurado()) {
+    setTimeout(() => void rodarDemonstracoes(), 230_000).unref(); setInterval(() => void rodarDemonstracoes(), 6 * 60 * 60_000).unref();
+    registrarRotinaManual("demonstracoes", rodarDemonstracoes);
+  }
+  registrarRotasDemonstracoes(app, { exigirSessao: exigirSessaoContabil, exigirOrigem: exigirOrigemNavegador }, {
+    consultar: (sql, params) => consultaBancoContabil(sql, params),
+    bancoConfigurado: () => bancoContabilConfigurado(),
+    sessao: (req) => {
+      const s = sessaoDaRequisicaoContabil(req);
+      if (!s) return undefined;
+      return { userId: s.userId, login: s.login, cnpjs: s.cnpjs.map(normalizarCnpjAcesso), podeEscrever: (c) => s.administrador || s.memberships.find((m) => normalizarCnpjAcesso(m.cnpj) === c)?.role !== "viewer" };
+    },
+    normalizarCnpj: (v) => normalizarCnpjAcesso(String(v ?? "")),
+    lerWorkspace: async (cnpj) => (await lerWorkspaceInternoContabil(cnpj)) as Record<string, any> | null,
+    alterarWorkspace: (cnpj, alterar) => alterarWorkspaceNoServidorContabil(cnpj, alterar),
+    dispararRobo: () => { const r = dispararRoboAgora("demonstracoes"); return "codigo" in r ? { ok: false, motivo: r.motivo } : { ok: true }; },
+  });
 
   registrarRotaVozGemini(app, { obterIA: () => getAI(), autorizar: () => true, antes: [exigirSessaoContabil] });
   app.post("/api/ai/chat", exigirSessaoContabil, async (req, res) => {

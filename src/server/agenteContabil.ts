@@ -16,6 +16,7 @@ import { FERRAMENTAS_ENTRE_SISTEMAS, INSTRUCAO_ENTRE_SISTEMAS } from './ferramen
 import { FERRAMENTAS_PILOTO, INSTRUCAO_PILOTO } from './pilotoContabil';
 import { FERRAMENTAS_SERVICO_COMPLETO, INSTRUCAO_SERVICO_COMPLETO, liberacaoDoConsultor } from './servicoCompleto';
 import { FERRAMENTAS_REVISOR, INSTRUCAO_REVISOR } from './revisorContabilAgente';
+import { FERRAMENTAS_DEMONSTRACOES, INSTRUCAO_DEMONSTRACOES } from './demonstracoesAgente';
 import { consultorConfigurado, opcoesConsultorParaTeste, perguntarAoConsultor, regimeParaConsultor, registrarDecisaoNoConsultor, type ContextoEmpresaConsultor } from './consultorMurade';
 import { acharPessoa, acharPorNome, cnpjLimpo, formatarCnpj, formatarDataBr, montarMensagemPedido, nomeDaPessoa, normalizarTexto, prazoValido } from './tarefasEquipe';
 import { CHAVES_PREFERENCIA, falhou, PREFERENCIAS, descreverPreferencia, descreverReceita, detectarPedidoProtegido, idDaReceita, resolverTela, sanearNome, validarPreferencia, validarReceita } from './meuJeito';
@@ -1043,7 +1044,7 @@ COMO ENTENDER QUEM FALA
 - Conversa de rotina ("obrigado", "ok", "tchau") não precisa de consulta: responda em uma frase curta.
 
 MAPA DO SISTEMA (onde fica cada coisa no menu do Contábil)
-Tela Inicial (tem a caixinha "Pedir para alguém"); Cadastro de Empresa; Tarefas da equipe; Agenda e Lembretes; Obrigações e Gestão; Gestão contábil; Conexão Órgãos; Lançamentos; Aprovar lançamentos; Balancete; Livros Fiscais e ECD; Plano de Contas; Migração Contábil; Integrações; Revisar dados recebidos; Calculadora; Agentes e Robô; IA Murade.
+Tela Inicial (tem a caixinha "Pedir para alguém"); Cadastro de Empresa; Tarefas da equipe; Agenda e Lembretes; Obrigações e Gestão; Gestão contábil; Conexão Órgãos; Lançamentos; Aprovar lançamentos; Balancete; Livros Fiscais e ECD; Demonstrações e relatórios (DFC, DMPL, notas explicativas, índices e gráficos, relatório para o cliente, Bloco Y e Parte B da ECF, painel do escritório); Plano de Contas; Migração Contábil; Integrações; Revisar dados recebidos; Calculadora; Agentes e Robô; IA Murade.
 Quando perguntarem "onde eu faço X", diga o nome da tela do menu. Não invente telas que não estão nesta lista.
 
 COMO TRABALHAR
@@ -1070,4 +1071,4 @@ NUNCA ENROLE NEM JOGUE CONVERSA FORA
 - Se não houver ferramenta, tela, NEM uma resposta clara de quem resolve — ou seja, você realmente não sabe o que fazer com o pedido —, use chamar_supervisor com um resumo da pergunta, e então diga ao usuário, com calma, que você vai levar isso ao seu supervisor e que volta a falar com ele assim que tiver a resposta. Nunca invente um prazo. Isso NÃO é desculpa para pular a busca por uma ferramenta: só chame o supervisor depois de checar tudo o que você tem.
 - Nunca fique repetindo a pergunta, dando respostas vagas, enrolando ou gerando texto sem informação nova só para preencher a resposta — isso gasta crédito sem ajudar.`;
 
-export const kitContabil: KitAgente = { ferramentas: [...FERRAMENTAS, ...FERRAMENTAS_SERVICO_COMPLETO, ...FERRAMENTAS_PILOTO, ...FERRAMENTAS_ENTRE_SISTEMAS, ...FERRAMENTAS_REVISOR], instrucao: INSTRUCAO_BASE + INSTRUCAO_SERVICO_COMPLETO + INSTRUCAO_PILOTO + INSTRUCAO_ENTRE_SISTEMAS + INSTRUCAO_REVISOR };
+export const kitContabil: KitAgente = { ferramentas: [...FERRAMENTAS, ...FERRAMENTAS_SERVICO_COMPLETO, ...FERRAMENTAS_PILOTO, ...FERRAMENTAS_ENTRE_SISTEMAS, ...FERRAMENTAS_REVISOR, ...FERRAMENTAS_DEMONSTRACOES], instrucao: INSTRUCAO_BASE + INSTRUCAO_SERVICO_COMPLETO + INSTRUCAO_PILOTO + INSTRUCAO_ENTRE_SISTEMAS + INSTRUCAO_REVISOR + INSTRUCAO_DEMONSTRACOES };

@@ -37,7 +37,7 @@ export const MigracaoContabilTab: React.FC<Props> = ({ empresa, contas, centrosC
   const [lendo, setLendo] = useState(false);
   const [persistindo, setPersistindo] = useState(false);
   const [mensagemPersistencia, setMensagemPersistencia] = useState("");
-  const [resultado, setResultado] = useState<{ contas: number; centros: number; lancamentos: number } | null>(null);
+  const [resultado, setResultado] = useState<{ contas: number; centros: number; lancamentos: number; ecd?: string } | null>(null);
   const [contasXml, setContasXml] = useState<Record<string, { debito: string; credito: string }>>({});
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -45,8 +45,16 @@ export const MigracaoContabilTab: React.FC<Props> = ({ empresa, contas, centrosC
     if (!leitura) return [];
     const erros: Array<{ arquivo: string; linha: number; motivo: string }> = [];
     const contasPorCodigo = new Map<string, ContaPlano>(contas.map((item) => [item.codigo, item]));
+    // ECD de outro sistema: conta do modelo ainda sem uso (sem lançamento e sem saldo) pode ser substituída pela da ECD,
+    // e conta igual que só ganha o saldo de abertura também passa. O resto continua bloqueado como conflito.
+    const usadas = new Set(lancamentos.flatMap((l) => [l.contaDebitoCodigo, l.contaCreditoCodigo]));
     for (const conta of leitura.contas) {
       const atual = contasPorCodigo.get(conta.codigo);
+      if (leitura.ecd && atual) {
+        const semUso = !usadas.has(atual.codigo) && !Number(atual.saldoInicial || 0);
+        const igualSemSaldo = atual.descricao === conta.descricao && atual.nivel === conta.nivel && atual.tipo === conta.tipo && atual.natureza === conta.natureza && !Number(atual.saldoInicial || 0);
+        if (semUso || igualSemSaldo) continue;
+      }
       const saldoDivergente = atual && ((atual.saldoInicial === undefined) !== (conta.saldoInicial === undefined) || (atual.saldoInicial !== undefined && conta.saldoInicial !== undefined && atual.saldoInicial !== conta.saldoInicial));
       if (atual && (atual.descricao !== conta.descricao || atual.nivel !== conta.nivel || atual.tipo !== conta.tipo || atual.natureza !== conta.natureza || saldoDivergente || atual.saldoInicialCompetencia !== conta.saldoInicialCompetencia)) {
         erros.push({ arquivo: "Plano de contas", linha: 0, motivo: `O código ${conta.codigo} já existe com outros dados. Resolva o conflito antes de importar para não substituir o cadastro atual.` });
@@ -76,6 +84,17 @@ export const MigracaoContabilTab: React.FC<Props> = ({ empresa, contas, centrosC
     if (!proposta || lancamentos.some((item) => item.documentoRef === proposta.documentoRef || item.id === proposta.id)) return [];
     return [proposta];
   }), [leitura?.documentosXml, contasXml, contasDisponiveis, empresa.cnpj, lancamentos]);
+  // Relatório da ECD: o que entra de novo, o que já existia e o que não entra (para não duplicar nada).
+  const relatorioEcd = useMemo(() => {
+    if (!leitura?.ecd) return null;
+    const chave = (item: LancamentoContabil) => [item.data, item.documentoRef || "", item.contaDebitoCodigo, item.contaCreditoCodigo, Number(item.valor).toFixed(2), item.historico].join("|");
+    const existentes = new Set(lancamentos.map(chave));
+    const jaExistiam = leitura.lancamentos.filter((l) => existentes.has(chave(l))).length;
+    const porCodigo = new Map<string, ContaPlano>(contas.map((c) => [c.codigo, c]));
+    const contasNovas = leitura.contas.filter((c) => !porCodigo.has(c.codigo)).length;
+    const contasIguais = leitura.contas.filter((c) => { const a = porCodigo.get(c.codigo); return a && a.descricao === c.descricao && a.nivel === c.nivel && a.tipo === c.tipo && a.natureza === c.natureza && Number(a.saldoInicial || 0) === Number(c.saldoInicial || 0); }).length;
+    return { ...leitura.ecd, contasNovas, contasIguais, contasAtualizadas: leitura.contas.length - contasNovas - contasIguais, partidasNovas: leitura.lancamentos.length - jaExistiam, jaExistiam };
+  }, [leitura, lancamentos, contas]);
   const xmlPendente = Boolean(leitura?.documentosXml.length && lancamentosXml.length !== leitura.documentosXml.length);
   const temErrosBloqueantes = Boolean(leitura && (leitura.erros.length > 0 || errosContasLancamento.length > 0 || errosConflitosExistentes.length > 0 || xmlPendente));
   const totalImportavel = (leitura?.contas.length || 0) + (leitura?.centrosCusto.length || 0) + lancamentosValidos.length + lancamentosXml.length;
@@ -124,7 +143,7 @@ export const MigracaoContabilTab: React.FC<Props> = ({ empresa, contas, centrosC
         setMensagemPersistencia("O banco não confirmou a gravação. Os dados não foram marcados como concluídos; revise os avisos e tente novamente após corrigir a pendência.");
         return;
       }
-      setResultado({ contas: leitura.contas.length, centros: leitura.centrosCusto.length, lancamentos: lancamentosValidos.length + lancamentosXml.length });
+      setResultado({ contas: leitura.contas.length, centros: leitura.centrosCusto.length, lancamentos: lancamentosValidos.length + lancamentosXml.length, ...(relatorioEcd ? { ecd: `ECD ${relatorioEcd.ano}: ${relatorioEcd.contasNovas} conta(s) nova(s), ${relatorioEcd.saldosAbertura} saldo(s) de abertura, ${relatorioEcd.partidasNovas} partida(s) nova(s) pendentes de aprovação e ${relatorioEcd.jaExistiam} que já existiam (não duplicadas).` } : {}) });
       setMensagemPersistencia("");
       setEtapa(4);
       onNotificar(`A gravação dos dados contábeis foi confirmada no PostgreSQL para esta empresa.`);
@@ -174,7 +193,7 @@ export const MigracaoContabilTab: React.FC<Props> = ({ empresa, contas, centrosC
             <span className="mt-1 block text-xs text-slate-500">{item.detalhe}</span>
           </button>)}
         </div>
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">A leitura reconhece cabeçalhos comuns de CSV/TXT. Também lê lançamentos TXT Alterdata nos modelos 1 e 2. Para plano de contas e centros de custo, exporte como arquivo delimitado com cabeçalho. Os demais layouts proprietários variam por versão e precisam ser exportados para CSV/TXT ou convertidos para pacote Murade.</div>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">A leitura reconhece cabeçalhos comuns de CSV/TXT. Também lê lançamentos TXT Alterdata nos modelos 1 e 2 e o arquivo TXT oficial da ECD (Sped Contábil) gerado por qualquer sistema (Alterdata, Domínio…): traz plano de contas, saldos de abertura, centros de custo e lançamentos do ano, sem duplicar. Para plano de contas e centros de custo, exporte como arquivo delimitado com cabeçalho. Os demais layouts proprietários variam por versão e precisam ser exportados para CSV/TXT ou convertidos para pacote Murade.</div>
         <div className="flex justify-end"><button type="button" onClick={() => setEtapa(2)} className="inline-flex items-center gap-2 rounded-lg bg-[#0F2B5B] px-4 py-2 text-xs font-bold text-white hover:bg-blue-900">Continuar <ArrowRight size={15} /></button></div>
       </section>}
 
@@ -196,6 +215,19 @@ export const MigracaoContabilTab: React.FC<Props> = ({ empresa, contas, centrosC
         <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-sm font-black uppercase tracking-wide text-slate-800">3. Validação e Relatório</h2><p className="mt-1 text-xs text-slate-500">Confira os registros antes de gravar. Conta ausente ou sintética bloqueia a importação; nenhuma linha inválida é descartada silenciosamente.</p></div><span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-800">{leitura.arquivosLidos.length} arquivo(s) lido(s)</span></div>
         <div className="grid gap-3 sm:grid-cols-3"><div className="rounded-lg border border-blue-100 bg-blue-50 p-3"><Database size={17} className="text-blue-700" /><strong className="mt-2 block text-xl text-blue-900">{leitura.contas.length}</strong><span className="text-xs text-blue-800">Contas no plano</span></div><div className="rounded-lg border border-purple-100 bg-purple-50 p-3"><Database size={17} className="text-purple-700" /><strong className="mt-2 block text-xl text-purple-900">{leitura.centrosCusto.length}</strong><span className="text-xs text-purple-800">Centros de custo</span></div><div className="rounded-lg border border-amber-100 bg-amber-50 p-3"><Database size={17} className="text-amber-700" /><strong className="mt-2 block text-xl text-amber-900">{lancamentosValidos.length + lancamentosXml.length}</strong><span className="text-xs text-amber-800">Lançamentos para aprovação</span></div></div>
         {lancamentosValidos.length > 0 && <div role="note" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950"><strong>Importação não aprova lançamentos.</strong> Cada lançamento será salvo como proposta pendente para conferência do contador. O sistema registra que veio da migração e a classificação declarada no arquivo, mas não importa nem inventa aprovações ou auditorias históricas. Enquanto pendente, não entra nos livros nem no balancete.</div>}
+        {relatorioEcd && <div data-campo="migracao-relatorio-ecd" className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-xs text-emerald-950">
+          <p className="font-bold">Relatório da ECD — {relatorioEcd.nome} ({relatorioEcd.cnpj}), {relatorioEcd.dtIni.split("-").reverse().join("/")} a {relatorioEcd.dtFin.split("-").reverse().join("/")}</p>
+          <ul className="mt-1 grid gap-0.5 sm:grid-cols-2">
+            <li>Contas no arquivo: <strong>{relatorioEcd.contas}</strong> ({relatorioEcd.analiticas} analíticas)</li>
+            <li>Contas novas: <strong>{relatorioEcd.contasNovas}</strong> · já existiam iguais: {relatorioEcd.contasIguais} · atualizadas: {relatorioEcd.contasAtualizadas}</li>
+            <li>Saldos de abertura ({relatorioEcd.competenciaAbertura.split("-").reverse().join("/")}): <strong>{relatorioEcd.saldosAbertura}</strong></li>
+            <li>Centros de custo: {relatorioEcd.centros}</li>
+            <li>Lançamentos da ECD: <strong>{relatorioEcd.lancamentosEcd}</strong> → {relatorioEcd.partidasGeradas} partida(s){relatorioEcd.encerramentos ? ` (${relatorioEcd.encerramentos} de encerramento)` : ""}</li>
+            <li>Partidas novas: <strong>{relatorioEcd.partidasNovas}</strong> · já estavam no sistema (não entram de novo): {relatorioEcd.jaExistiam}</li>
+            {relatorioEcd.recusados > 0 && <li className="text-rose-800">Lançamentos recusados (débito ≠ crédito ou conta inexistente): {relatorioEcd.recusados} — veja os avisos abaixo</li>}
+          </ul>
+          <p className="mt-1 text-[11px]">Só leitura do TXT oficial da ECD: o arquivo não é alterado nem transmitido. As partidas entram pendentes de aprovação (tela Aprovar lançamentos); os saldos de abertura ficam no Plano de Contas para conferir.</p>
+        </div>}
         {leitura.contas.length > 0 && <div className="overflow-x-auto rounded-lg border border-slate-200"><table className="w-full text-left text-xs"><thead className="bg-slate-100"><tr><th className="p-2">Código</th><th className="p-2">Descrição</th><th className="p-2">Nível</th><th className="p-2">Tipo</th><th className="p-2">Natureza</th></tr></thead><tbody>{leitura.contas.slice(0, 6).map((item) => <tr key={item.codigo} className="border-t border-slate-100"><td className="p-2 font-mono">{item.codigo}</td><td className="p-2">{item.descricao}</td><td className="p-2">{item.nivel}</td><td className="p-2">{item.tipo}</td><td className="p-2">{item.natureza}</td></tr>)}</tbody></table></div>}
         {leitura.documentosXml.length > 0 && <div className="space-y-2">
           <div role="note" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950"><strong>Prévia → proposta → aprovação.</strong> XML local não comprova autorização da SEFAZ. Para importar uma proposta resumida, indique duas contas analíticas. Só é habilitada quando a chave, data, total e campos de tributos necessários estão presentes e os tributos destacados são explicitamente zero. Se houver tributos, campo ausente ou outro componente fiscal, a nota permanece pendente de classificação detalhada; não estimamos partidas. Toda proposta importada fica pendente e só entra nos livros após aprovação do contador.</div>
@@ -213,7 +245,7 @@ export const MigracaoContabilTab: React.FC<Props> = ({ empresa, contas, centrosC
         <div className="flex flex-wrap justify-between gap-2"><button type="button" disabled={persistindo} onClick={() => setEtapa(2)} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 disabled:opacity-50"><ArrowLeft size={15} /> Voltar aos arquivos</button><button type="button" disabled={!totalImportavel || pacoteDeOutraEmpresa || persistindo || temErrosBloqueantes} onClick={() => void handleImportar()} className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{persistindo ? <><RefreshCw size={15} className="animate-spin" /> Gravando no PostgreSQL…</> : <>Importar {totalImportavel} registro(s) <ArrowRight size={15} /></>}</button></div>
       </section>}
 
-      {etapa === 4 && resultado && <section className="space-y-4 rounded-xl border border-emerald-200 bg-white p-6 text-center shadow-sm"><CheckCircle2 size={44} className="mx-auto text-emerald-600" /><h2 className="text-lg font-black text-emerald-900">Dados gravados no banco</h2><p className="text-sm text-slate-600">O PostgreSQL confirmou a gravação para {empresa.razaoSocial}. Isso confirma a persistência, não a aprovação contábil dos lançamentos.</p><div className="mx-auto grid max-w-xl grid-cols-3 gap-3 text-left"><div className="rounded-lg bg-blue-50 p-3"><strong className="block text-xl text-blue-900">{resultado.contas}</strong><span className="text-xs text-blue-800">Contas no arquivo</span></div><div className="rounded-lg bg-purple-50 p-3"><strong className="block text-xl text-purple-900">{resultado.centros}</strong><span className="text-xs text-purple-800">Centros no arquivo</span></div><div className="rounded-lg bg-amber-50 p-3"><strong className="block text-xl text-amber-900">{resultado.lancamentos}</strong><span className="text-xs text-amber-800">Lançamentos no arquivo</span></div></div><p className="text-xs text-slate-500">Novos lançamentos importados ficam identificados como propostas pendentes; registros que já existiam são preservados. Nenhuma aprovação histórica é presumida, e propostas pendentes não entram nos livros nem no balancete.</p><div className="flex justify-center gap-2"><button type="button" onClick={reiniciar} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700">Nova migração</button><button type="button" onClick={() => setEtapa(1)} className="rounded-lg bg-[#0F2B5B] px-4 py-2 text-xs font-bold text-white">Voltar ao início</button></div></section>}
+      {etapa === 4 && resultado && <section className="space-y-4 rounded-xl border border-emerald-200 bg-white p-6 text-center shadow-sm"><CheckCircle2 size={44} className="mx-auto text-emerald-600" /><h2 className="text-lg font-black text-emerald-900">Dados gravados no banco</h2><p className="text-sm text-slate-600">O PostgreSQL confirmou a gravação para {empresa.razaoSocial}. Isso confirma a persistência, não a aprovação contábil dos lançamentos.</p><div className="mx-auto grid max-w-xl grid-cols-3 gap-3 text-left"><div className="rounded-lg bg-blue-50 p-3"><strong className="block text-xl text-blue-900">{resultado.contas}</strong><span className="text-xs text-blue-800">Contas no arquivo</span></div><div className="rounded-lg bg-purple-50 p-3"><strong className="block text-xl text-purple-900">{resultado.centros}</strong><span className="text-xs text-purple-800">Centros no arquivo</span></div><div className="rounded-lg bg-amber-50 p-3"><strong className="block text-xl text-amber-900">{resultado.lancamentos}</strong><span className="text-xs text-amber-800">Lançamentos no arquivo</span></div></div>{resultado.ecd && <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-xs font-semibold text-emerald-900">{resultado.ecd}</p>}<p className="text-xs text-slate-500">Novos lançamentos importados ficam identificados como propostas pendentes; registros que já existiam são preservados. Nenhuma aprovação histórica é presumida, e propostas pendentes não entram nos livros nem no balancete.</p><div className="flex justify-center gap-2"><button type="button" onClick={reiniciar} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700">Nova migração</button><button type="button" onClick={() => setEtapa(1)} className="rounded-lg bg-[#0F2B5B] px-4 py-2 text-xs font-bold text-white">Voltar ao início</button></div></section>}
     </div>
   );
 };

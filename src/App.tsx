@@ -21,6 +21,7 @@ import { LancamentosTab } from "./components/tabs/LancamentosTab";
 import { AprovacoesTab } from "./components/tabs/AprovacoesTab";
 import { BalanceteTab } from "./components/tabs/BalanceteTab";
 import { LivrosTab } from "./components/tabs/LivrosTab";
+import { DemonstracoesTab } from "./components/tabs/DemonstracoesTab";
 import { PlanoContasTab } from "./components/tabs/PlanoContasTab";
 import { IntegracaoTab } from "./components/tabs/IntegracaoTab";
 import { AgenteTab } from "./components/tabs/AgenteTab";
@@ -506,6 +507,7 @@ function AppWorkspace() {
       ["aprovacoes", "Aprovar lançamentos", "aprovacao aprovar rejeitar pre-lancamentos pendentes"],
       ["balancete", "Balancete", "balancete verificacao saldo contas debito credito"],
       ["livros", "Livros Fiscais & ECD", "livro diario razao ecd balanco patrimonial dre demonstracao resultado"],
+      ["demonstracoes", "Demonstrações e relatórios", "dfc fluxo de caixa dmpl mutacoes patrimonio notas explicativas indices liquidez endividamento margem graficos relatorio cliente painel escritorio ecf y600 socios parte b lalur"],
       ["plano-contas", "Plano de Contas", "contas contabeis plano saldo inicial codigo natureza sintetica analitica"],
       ["migracao", "Migração Contábil", "importar migrar migracao alterdata dominio atron saldos plano de contas centro de custo exportar txt csv"],
       ["integracao", "Integrações", "fiscal dp integracao enviar receber"],
@@ -517,6 +519,9 @@ function AppWorkspace() {
     // Assuntos dentro das telas: abrem a tela e piscam o título da parte procurada.
     const assuntos: [TabId, string, string, string][] = [
       ["livros", "Livro Diário", "diario livro numeracao", "Livro Diário"],
+      ["demonstracoes", "DFC — Demonstração dos Fluxos de Caixa", "dfc fluxo caixa indireto direto operacional investimento financiamento", "Demonstração dos Fluxos de Caixa"],
+      ["demonstracoes", "Painel do escritório (fechamento, ECD e ECF)", "painel escritorio quem fechou pendencia ecd ecf entregar prazo", "Painel do escritório"],
+      ["migracao", "Importar ECD de outro sistema", "importar ecd sped contabil txt alterdata dominio saldos lancamentos", "Arquivos e Leitura"],
       ["livros", "Livro Razão", "razao livro contas", "Livro Razão"],
       ["livros", "Balanço Patrimonial", "balanco patrimonial ativo passivo patrimonio liquido", "Balanço Patrimonial"],
       ["livros", "DRE (Demonstração do Resultado)", "dre resultado exercicio lucro prejuizo receitas despesas", "DRE gerencial"],
@@ -1130,6 +1135,24 @@ function AppWorkspace() {
                   onDefinirContasDisponibilidades={(codigos) => setEmpresa((prev) => ({ ...prev, contasDisponibilidadesCodigo: codigos }))}
                   onMapeamentoReferencial={(mapa) => setEmpresa((prev) => ({ ...prev, mapeamentoReferencial: mapa }))}
                   onRota={executarRotaEscrituracao}
+                />
+              )}
+
+              {tabAtiva === "demonstracoes" && (
+                <DemonstracoesTab
+                  empresa={empresa}
+                  contas={contas}
+                  lancamentos={lancamentos}
+                  workspaceCarregado={Boolean(empresa.cnpj) && dadosEmpresaCarregadosCnpj === String(empresa.cnpj || "").toUpperCase().replace(/[^A-Z0-9]/g, "")}
+                  workspacePersistido={workspacePersistido}
+                  onAtualizarEmpresa={(parcial) => setEmpresa((prev) => ({ ...prev, ...parcial }))}
+                  onNavegar={(tela, cnpj) => { if (cnpj && String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase() !== cnpj) escolherEmpresaPeloCnpj(cnpj); setTabAtiva(tela as TabId); }}
+                  onDadosAtualizados={(cnpj, d, versao) => {
+                    // Entrega de ECD/ECF marcada no painel: só a parte do cadastro que o servidor gravou (sem sobrescrever o resto).
+                    if (String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase() !== cnpj) return;
+                    if (versao !== null) versoesWorkspaceRef.current.set(cnpj, versao);
+                    setEmpresa((prev) => ({ ...prev, entregasSped: d?.empresa?.entregasSped, notasExplicativas: d?.empresa?.notasExplicativas ?? prev.notasExplicativas }));
+                  }}
                 />
               )}
 

@@ -4,7 +4,8 @@
  * inclui o conteúdo calculado de M/N (Lucro Real) ou P (Lucro Presumido) e fecha com o Bloco 9 (9001, 9900, 9990, 9999).
  *
  * O que fica de fora de propósito: os blocos C, J, K e L são recuperados pelo programa da ECF a partir da ECD (a entrada deles é
- * facultativa); M010 (conta da Parte B), M305/M310 e os blocos X e Y não são montados — o arquivo informa como "sem dados" e o
+ * facultativa); a Parte B (M010, M305/M355, M410, M500) e o Bloco Y (Y540, Y600) entram quando a contadora os informa
+ * (src/services/ecfComplementosService.ts); M310 e o Bloco X não são montados — o arquivo informa como "sem dados" e o
  * robô lista a pendência. Os dados declaratórios S/N do 0020 dependem de quem conhece a empresa: só vão para o arquivo
  * depois que o contador confirmá-los.
  */
@@ -176,7 +177,10 @@ export function gerarArquivoEcf(p: ParametrosArquivoEcf): ResultadoArquivoEcf {
     todos.push(`|${b}990|${dados.length + 2}|`);
   }
   avisos.push("Blocos C, J, K e L: o programa da ECF recupera da ECD (importe a ECD no programa antes de validar).");
-  if (p.formaTrib === "1") avisos.push("Bloco M sem M010/M305/M310 (conta da Parte B e relacionamentos) e Blocos X e Y sem dados: complete no programa da ECF, se a empresa tiver esses fatos.");
+  const temParteB = (porBloco["M"] || []).some((r) => r.startsWith("|M010|"));
+  const temY = (porBloco["Y"] || []).length > 0;
+  if (p.formaTrib === "1" && !temParteB) avisos.push("Bloco M sem M010/M305/M410/M500 (Parte B): cadastre as contas da Parte B na tela Demonstrações e relatórios (aba ECF: Bloco Y e Parte B) ou complete no programa da ECF, se a empresa tiver esses fatos.");
+  avisos.push(temY ? "Bloco Y com Y540/Y600 informados na tela Demonstrações e relatórios; Bloco X sem dados." : "Blocos X e Y sem dados: informe os sócios (Y600) e, quando for o caso, a receita por estabelecimento (Y540) na tela Demonstrações e relatórios, ou complete no programa da ECF.");
 
   // Bloco 9
   const contagem = new Map<string, number>();

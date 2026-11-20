@@ -100,6 +100,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
       icon: BookOpen,
     },
     {
+      id: "demonstracoes" as TabId,
+      label: "Demonstrações e relatórios",
+      icon: BarChart3,
+      badge: "DFC · índices",
+      badgeColor: "bg-emerald-300 text-emerald-950 font-bold",
+    },
+    {
       id: "plano-contas" as TabId,
       label: "Plano de Contas",
       icon: FolderTree,

@@ -1,6 +1,7 @@
 import { ROTULOS_ORIGEM } from "../utils/origensContabeis";
 import type { CentroCustoContabil, ContaPlano, EmpresaDados, LancamentoContabil } from "../types";
 import { getTextContent, parseXml, type XmlElement } from "@f-o-t/xml";
+import { ehArquivoEcd, lerArquivoEcd, type ResumoImportacaoEcd } from "./ecdImportService";
 
 export type OrigemMigracaoContabil = "ALTERDATA" | "DOMINIO" | "ATRON" | "CSV";
 
@@ -61,6 +62,8 @@ export interface LeituraMigracaoContabil {
   arquivosLidos: string[];
   empresa?: { cnpj: string; razaoSocial: string };
   documentosXml: DocumentoXmlContabilPreview[];
+  /** Presente quando um dos arquivos é o TXT oficial da ECD (Sped Contábil) de outro sistema. */
+  ecd?: ResumoImportacaoEcd;
 }
 
 function descendentesXml(elemento: XmlElement, nome: string): XmlElement[] {
@@ -469,6 +472,18 @@ export async function lerArquivosContabeis(files: File[], origem: OrigemMigracao
       } catch { result.erros.push({ arquivo: file.name, linha: 0, motivo: "JSON inválido." }); }
       continue;
     }
+    if (ehArquivoEcd(text)) {
+      // TXT oficial da ECD (Alterdata, Domínio ou qualquer sistema): plano, centros, saldos de abertura e lançamentos do ano.
+      const ecd = lerArquivoEcd(text, cnpjAtivo);
+      result.erros.push(...ecd.erros.map((motivo) => ({ arquivo: file.name, linha: 0, motivo })));
+      result.avisos.push(...ecd.avisos.map((a) => `${file.name}: ${a}`));
+      if (ecd.resumo) {
+        result.ecd = ecd.resumo;
+        result.empresa = { cnpj: ecd.resumo.cnpj, razaoSocial: ecd.resumo.nome };
+        result.contas.push(...ecd.contas); result.centrosCusto.push(...ecd.centrosCusto); result.lancamentos.push(...ecd.lancamentos);
+      }
+      continue;
+    }
     if (!/\.(csv|txt)$/i.test(file.name)) { result.erros.push({ arquivo: file.name, linha: 0, motivo: "Formato não suportado. Use CSV, TXT delimitado, XML de NF-e ou pacote JSON Murade." }); continue; }
     if (origem === "ALTERDATA") {
       const alterdataEntries = parseAlterdataTextoContabil(parseDelimited(text), file.name, result.erros);
@@ -525,7 +540,7 @@ export async function lerArquivosContabeis(files: File[], origem: OrigemMigracao
     seenXmlKeys.add(item.chaveAcesso);
     return true;
   });
-  if (origem !== "CSV") result.avisos.push(`Origem selecionada: ${origem}. A leitura usa nomes de colunas reconhecidos; layouts proprietários precisam ser exportados como CSV/TXT com cabeçalho.`);
+  if (origem !== "CSV" && !result.ecd) result.avisos.push(`Origem selecionada: ${origem}. A leitura usa nomes de colunas reconhecidos; layouts proprietários precisam ser exportados como CSV/TXT com cabeçalho.`);
   return result;
 }
 

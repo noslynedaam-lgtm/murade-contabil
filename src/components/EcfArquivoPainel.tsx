@@ -3,6 +3,7 @@ import { Download, FileText } from "lucide-react";
 import type { EmpresaDados } from "../types";
 import { CAMPOS_0020, DESCRICAO_0020, comPeriodoAnual, gerarArquivoEcf, type Campo0020, type SN } from "../services/ecfArquivoService";
 import { ecdParaLatin1 } from "../services/ecdService";
+import { aplicarComplementosEcf } from "../services/ecfComplementosService";
 
 interface Props {
   empresa: EmpresaDados;
@@ -39,7 +40,9 @@ export const EcfArquivoPainel: React.FC<Props> = ({ empresa, ano, presumido, rea
     const registros = ehPresumido ? presumido
       : f.apuracao === "T" ? realTrimestral
       : [...estimativaMensal, ...comPeriodoAnual(ano, realAnual)];
-    return gerarArquivoEcf({
+    // Bloco Y (Y540/Y600) e Parte B (M010/M305/M410/M500) informados na tela Demonstrações e relatórios.
+    const comp = aplicarComplementosEcf(registros, empresa.ecfComplementos, ano, { cnpj, formaTrib: ehReal ? "1" : "5", formaApur: ehReal ? f.apuracao : "T" });
+    const r = gerarArquivoEcf({
       ano, cnpj, nome: empresa.razaoSocial,
       formaTrib: ehReal ? "1" : "5", formaApur: ehReal ? f.apuracao : "T", tipEscPre: ehPresumido ? f.escrituracao : undefined,
       mesBalRed: ehReal && f.apuracao === "A" ? "EEEEEEEEEEEE" : undefined,
@@ -56,8 +59,9 @@ export const EcfArquivoPainel: React.FC<Props> = ({ empresa, ano, presumido, rea
         { nome: empresa.responsavelNome || "", documento: empresa.responsavelCpf || "", qualificacao: qual, email: empresa.email || "", fone: soDigitos(empresa.telefone || empresa.whatsapp) },
         { nome: empresa.contadorNome || "", documento: empresa.contadorCpf || "", qualificacao: "900", crc: empresa.contadorCrc, email: empresa.contadorEmail || "", fone: soDigitos(empresa.contadorFone) },
       ],
-      registros,
+      registros: comp.registros,
     });
+    return comp.erros.length ? { ...r, ok: false, conteudo: "", erros: [...r.erros, ...comp.erros.map((e) => `Bloco Y / Parte B: ${e}`)], avisos: [...r.avisos, ...comp.avisos] } : { ...r, avisos: [...r.avisos, ...comp.avisos] };
   }, [empresa, ano, cnpj, ehReal, ehPresumido, f, presumido, realAnual, estimativaMensal, realTrimestral]);
 
   const baixar = () => {

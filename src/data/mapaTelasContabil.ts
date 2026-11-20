@@ -41,6 +41,7 @@ export const TELAS_CONTABIL: TelaMapa[] = [
   { id: 'aprovacoes', rotulo: 'Aprovar lançamentos' },
   { id: 'balancete', rotulo: 'Balancete', periodo: 'balancete-competencia' },
   { id: 'livros', rotulo: 'Livros Fiscais & ECD' },
+  { id: 'demonstracoes', rotulo: 'Demonstrações e relatórios', periodo: 'demonstracoes-competencia' },
   { id: 'plano-contas', rotulo: 'Plano de Contas' },
   { id: 'migracao', rotulo: 'Migração Contábil' },
   { id: 'integracao', rotulo: 'Integrações' },
@@ -60,6 +61,7 @@ const PADROES = 'src/components/PadroesLancamentoPainel.tsx';
 const LIVRO_CAIXA = 'src/components/LivroCaixaEncerramento.tsx';
 const CONCILIACAO = 'src/components/ConciliacaoBancariaPainel.tsx';
 const GESTAO = 'src/components/tabs/GestaoContabilTab.tsx';
+const DEMO = 'src/components/tabs/DemonstracoesTab.tsx';
 
 export const CAMPOS_CONTABIL: CampoMapa[] = [
   // Lançamento manual (abre pelo botão "+ Lançamento Manual")
@@ -122,6 +124,21 @@ export const CAMPOS_CONTABIL: CampoMapa[] = [
   { chave: 'revisor-competencia', tela: 'revisor', rotulo: 'Competência da revisão', arquivo: 'src/components/tabs/RevisorTab.tsx', tipo: 'texto' },
   { chave: 'revisor-revisar', tela: 'revisor', rotulo: 'Revisar todas as empresas', arquivo: 'src/components/tabs/RevisorTab.tsx', tipo: 'botao' },
   { chave: 'revisor-rodar-agora', tela: 'revisor', rotulo: 'Rodar agora (revisão geral)', arquivo: 'src/components/tabs/RevisorTab.tsx', tipo: 'botao' },
+  // Demonstrações e relatórios (DFC, DMPL, notas, índices, relatório para o cliente, classificação, ECF Y/Parte B, painel)
+  { chave: 'demonstracoes-competencia', tela: 'demonstracoes', rotulo: 'Competência das demonstrações', arquivo: DEMO, tipo: 'texto' },
+  { chave: 'demonstracoes-rodar-agora', tela: 'demonstracoes', rotulo: 'Rodar agora (conferência das demonstrações)', arquivo: DEMO, tipo: 'botao' },
+  { chave: 'dfc-metodo', tela: 'demonstracoes', rotulo: 'Método da DFC (indireto ou direto)', arquivo: DEMO, tipo: 'selecao' },
+  { chave: 'dfc-pdf', tela: 'demonstracoes', rotulo: 'PDF da DFC', arquivo: DEMO, tipo: 'botao' },
+  { chave: 'dmpl-ano', tela: 'demonstracoes', rotulo: 'Ano da DMPL', arquivo: DEMO, tipo: 'numero' },
+  { chave: 'notas-ano', tela: 'demonstracoes', rotulo: 'Ano das notas explicativas', arquivo: DEMO, tipo: 'numero' },
+  { chave: 'notas-norma', tela: 'demonstracoes', rotulo: 'Norma das notas (NBC TG 1002, 1001 ou 1000)', arquivo: DEMO, tipo: 'selecao' },
+  { chave: 'notas-gerar-modelo', tela: 'demonstracoes', rotulo: 'Gerar modelo das notas', arquivo: DEMO, tipo: 'botao' },
+  { chave: 'notas-salvar', tela: 'demonstracoes', rotulo: 'Salvar notas', arquivo: DEMO, tipo: 'botao' },
+  { chave: 'cliente-observacao', tela: 'demonstracoes', rotulo: 'Observações do contador no relatório do cliente', arquivo: DEMO, tipo: 'area' },
+  { chave: 'cliente-gerar-pdf', tela: 'demonstracoes', rotulo: 'Gerar PDF para o cliente', arquivo: DEMO, tipo: 'botao' },
+  { chave: 'classificacao-salvar', tela: 'demonstracoes', rotulo: 'Salvar classificação das contas', arquivo: DEMO, tipo: 'botao' },
+  { chave: 'ecf-y-ano', tela: 'demonstracoes', rotulo: 'Ano da ECF (Bloco Y e Parte B)', arquivo: DEMO, tipo: 'numero' },
+  { chave: 'ecf-y-salvar', tela: 'demonstracoes', rotulo: 'Salvar Bloco Y e Parte B', arquivo: DEMO, tipo: 'botao' },
   // Competência das telas com período
   { chave: 'balancete-competencia', tela: 'balancete', rotulo: 'Competência do balancete', arquivo: 'src/components/tabs/BalanceteTab.tsx', tipo: 'selecao' },
   { chave: 'gestao-periodo', tela: 'gestao-contabil', rotulo: 'Competência da gestão contábil', arquivo: 'src/components/tabs/GestaoContabilTab.tsx', tipo: 'selecao' },
@@ -149,6 +166,13 @@ export const SECOES_CONTABIL: SecaoMapa[] = [
   { chave: 'encerramento-resultado', tela: 'livros', texto: 'Encerramento do resultado', arquivo: 'src/components/tabs/LivrosTab.tsx' },
   { chave: 'lancamentos-padrao', tela: 'lancamentos', texto: 'Lançamentos padrão', arquivo: 'src/components/PadroesLancamentoPainel.tsx' },
   { chave: 'regras-conciliacao', tela: 'gestao-contabil', texto: 'Regras de conciliação', arquivo: 'src/components/ConciliacaoBancariaPainel.tsx' },
+  { chave: 'dfc', tela: 'demonstracoes', texto: 'Demonstração dos Fluxos de Caixa', arquivo: DEMO },
+  { chave: 'dmpl', tela: 'demonstracoes', texto: 'Demonstração das Mutações do Patrimônio Líquido', arquivo: DEMO },
+  { chave: 'notas-explicativas', tela: 'demonstracoes', texto: 'Notas explicativas', arquivo: DEMO },
+  { chave: 'indices-graficos', tela: 'demonstracoes', texto: 'Índices e gráficos', arquivo: DEMO },
+  { chave: 'relatorio-cliente', tela: 'demonstracoes', texto: 'Relatório para o cliente', arquivo: DEMO },
+  { chave: 'painel-escritorio', tela: 'demonstracoes', texto: 'Painel do escritório', arquivo: DEMO },
+  { chave: 'relatorio-ecd-importada', tela: 'migracao', texto: 'Relatório da ECD', arquivo: 'src/components/tabs/MigracaoContabilTab.tsx' },
   { chave: 'servicos-agente', tela: 'aprovacoes', texto: 'Serviços preparados pela Agente', arquivo: 'src/components/ServicosAgentePainel.tsx' },
 ];
 
