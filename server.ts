@@ -14,6 +14,7 @@ import { gravarResumoProLaboreDP } from "./src/server/dadosProLaboreStore";
 import { gravarEventoDP, lerEventosDP } from "./src/server/dadosDpEventosStore";
 import { registrarGestaoEquipe } from "./src/server/gestaoEquipe";
 import { prepararAuthContabil, configGestaoEquipeContabil, adicionarEmpresaAcessoContabil, adicionarEquipeContabil, bloquearEscritorioContabil, definirLimiteEscritorioContabil, convidarEquipeContabil, convidarEscritorioContabil, reenviarAcessoEscritorioContabil, listarEquipeContabil, listarEscritoriosContabil, removerEquipeContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, sessaoDaRequisicaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarCnpjsComOrigensSemMapeamentoContabil, aplicarMapeamentosPadraoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, manterConectadoContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil, importarCnpjsCompartilhados, auth2faEstadoContabil, auth2faIniciarContabil, auth2faAtivarContabil, auth2faDesativarContabil, auth2faRedefinirContabil, auth2faResumoContabil, resumoSegurancaContabil } from "./src/server/authContabil";
+import { ArmazemDeEtapas, chaveDeEtapas, prepararPedido, limitarPedido, avisoDeTextoCortado } from "./src/server/agenteEtapas";
 import { ArmazemAcoesPendentes, avancarAcao as avancarAcaoAgenteIA, confirmarAcao as confirmarAcaoAgenteIA, conversar as conversarAgenteIA, recusarAcao as recusarAcaoAgenteIA, type ChamarApi, type ContextoAgente, type ModeloIA } from "./src/server/agenteMotor";
 import { kitContabil } from "./src/server/agenteContabil";
 import { ArmazemPedidosMemoria, ArmazemPedidosPg, CentralDePedidos, tokenValido } from "./src/server/agentesEntreSistemas";
@@ -144,6 +145,8 @@ const reconciliacaoRascunhosStatus: {
   // Só o workspace da empresa e o recebimento de documentos fiscais precisam de corpo grande.
   // O analisador específico vem primeiro: o geral não relê um corpo já lido.
   app.use(["/api/workspaces", "/api/integracao/fiscal/documentos", "/api/integracao/fiscal/apuracoes"], express.json({ limit: "20mb" }));
+  // Agente IA: corpo maior para nunca recusar texto longo (até 500.000 caracteres + histórico; o servidor corta e avisa).
+  app.use(["/api/ai/agente", "/api/ai/chat"], express.json({ limit: "25mb" }));
   app.use(express.json({ limit: "2mb" }));
   const sessaoAtividade = (req: express.Request) => (req as express.Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
   const atividadeEquipe = criarAtividadeEscritorio({ consultar: consultaBancoContabil, tabela: "contabil_atividade_equipe", sessao: sessaoAtividade, podeVer: (req) => sessaoAtividade(req)?.administrador === true });
@@ -1201,13 +1204,15 @@ const reconciliacaoRascunhosStatus: {
     } catch (error) { console.error("Falha ao gravar o nome da Agente IA do Contábil:", error instanceof Error ? error.message : error); return res.status(503).json({ sucesso: false, mensagem: "Não consegui gravar o nome agora." }); }
   });
 
+  // Pedidos longos por etapas: texto completo guardado na memória, por escritório/usuário/sessão, por algumas horas.
+  const etapasAgenteIA = new ArmazemDeEtapas();
   app.post("/api/ai/agente", exigirSessaoContabil, async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     const ctx = contextoAgenteIA(req);
     if (!ctx) return res.status(401).json({ error: "Entre novamente para continuar." });
     const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
     if (!message) return res.status(400).json({ error: "Digite seu pedido." });
-    if (message.length > 30000) return res.status(413).json({ error: "O pedido deve ter até 30.000 caracteres. Para texto maior, anexe o arquivo." });
+    // Nunca recusa por tamanho: até 500.000 caracteres; acima disso lê o começo e avisa. Texto longo vai por etapas.
     if (!getAI()) return res.status(503).json({ error: "Agente indisponível: configure GEMINI_API_KEY no servidor." });
     if (!limiteUsoAgenteIA(ctx.sessaoHash)) return res.status(429).json({ error: "Muitos pedidos em pouco tempo. Aguarde alguns minutos." });
     const historico = Array.isArray(req.body?.historico)
@@ -1218,7 +1223,9 @@ const reconciliacaoRascunhosStatus: {
       // Meu jeito: a Agente trabalha do jeito da pessoa (conversa curta ou detalhada; cartão resumido SÓ nas ações de baixo risco). Se falhar, segue no jeito padrão.
       let confirmacaoResumida = false;
       try { const sj = sessaoMeuJeito(req); if (sj) { const j = await servicoMeuJeito.paraAgente(sj); if (j.instrucao) ctx.kit = { ...ctx.kit, instrucao: ctx.kit.instrucao + j.instrucao }; confirmacaoResumida = j.confirmacaoResumida; } } catch { /* jeito indisponível: jeito padrão */ }
-      const resultado = await conversarAgenteIA(ctx, modeloGeminiAgente(), message, historico);
+      const pedido = prepararPedido(etapasAgenteIA, chaveDeEtapas("contabil", sessaoDaRequisicaoContabil(req)?.tenantId, ctx.login, ctx.sessaoHash), message);
+      const conversa = await conversarAgenteIA(ctx, modeloGeminiAgente(), pedido.mensagem, historico);
+      const resultado = { ...conversa, ...pedido.concluir(conversa.resposta) };
       if (confirmacaoResumida) resultado.acoes = resultado.acoes.map((a) => (CARTAO_PODE_SER_RESUMIDO.has(a.ferramenta) && !a.irreversivel ? { ...a, descricao: a.descricao.slice(0, 1) } : a));
       return res.json({ sucesso: true, ...resultado });
     } catch (error) {
@@ -1612,18 +1619,20 @@ const reconciliacaoRascunhosStatus: {
 
   registrarRotaVozGemini(app, { obterIA: () => getAI(), autorizar: () => true, antes: [exigirSessaoContabil] });
   app.post("/api/ai/chat", exigirSessaoContabil, async (req, res) => {
-    const { message, context, module: requestedModule } = req.body;
+    const { context, module: requestedModule } = req.body;
     const moduleName = requestedModule === "fiscal" || requestedModule === "dp" ? requestedModule : "contabil";
 
-    if (typeof message !== "string" || !message.trim()) {
+    if (typeof req.body?.message !== "string" || !req.body.message.trim()) {
       return res.status(400).json({ error: "Mensagem não fornecida." });
     }
-    if (message.length > 30000) return res.status(413).json({ error: "Mensagem excede o limite de 30.000 caracteres. Para texto maior, anexe o arquivo." });
+    // Nunca recusa por tamanho: lê até 500.000 caracteres e avisa na resposta se o resto ficou de fora.
+    const limitada = limitarPedido(req.body.message);
+    const message = limitada.texto;
 
     const ai = getAI();
 
     // Contexto base de especialista contábil brasileiro
-    const systemInstruction = `Você é a Assistente Murade, trabalhando no módulo ${moduleName === "dp" ? "Departamento Pessoal" : moduleName === "fiscal" ? "Fiscal" : "Contábil"}, para profissionais brasileiros. Responda em português do Brasil, com tom calmo, direto e prático. Para legislação, prazos, alíquotas, obrigações, tabelas e procedimentos sujeitos a mudança, pesquise informações atuais pela ferramenta de busca. Baseie conclusões legais apenas em fontes oficiais brasileiras: Receita Federal, Portal SPED, eSocial, SEFAZ, Planalto e prefeituras/portais oficiais. Não use páginas comerciais como autoridade legal. Explique a causa provável e a solução em etapas. Não invente dados de empresas, trabalhadores, folha, saldos, transmissões, integrações, alíquotas ou prazos; peça UF, município, regime e competência quando necessário. Não afirme que uma ação foi executada ou que uma conexão existe sem confirmação. Se não localizar fonte oficial atual ou não puder confirmar, diga claramente que ainda vai verificar e identifique o órgão que deve ser consultado. Respostas são orientação informativa, não substituem conferência do contador responsável.`;
+    const systemInstruction = `Você é a Assistente Murade, trabalhando no módulo ${moduleName === "dp" ? "Departamento Pessoal" : moduleName === "fiscal" ? "Fiscal" : "Contábil"}, para profissionais brasileiros. Responda em português do Brasil, com tom calmo, direto e prático. Para legislação, prazos, alíquotas, obrigações, tabelas e procedimentos sujeitos a mudança, pesquise informações atuais pela ferramenta de busca. Baseie conclusões legais apenas em fontes oficiais brasileiras: Receita Federal, Portal SPED, eSocial, SEFAZ, Planalto e prefeituras/portais oficiais. Não use páginas comerciais como autoridade legal. Explique a causa provável e a solução em etapas. Não invente dados de empresas, trabalhadores, folha, saldos, transmissões, integrações, alíquotas ou prazos; peça UF, município, regime e competência quando necessário. Não afirme que uma ação foi executada ou que uma conexão existe sem confirmação. Se não localizar fonte oficial atual ou não puder confirmar, diga claramente que ainda vai verificar e identifique o órgão que deve ser consultado. Respostas são orientação informativa, não substituem conferência do contador responsável. Nunca diga que a pergunta é grande ou longa demais: se vierem várias perguntas, liste-as numa linha curta, responda a primeira e termine com "Próximo: 2) … — quer que eu siga?".`;
 
     const rapida = respostaRapida(message);
     if (rapida) return res.json({ reply: rapida.reply, sources: rapida.sources, searched: false, rapida: true });
@@ -1649,7 +1658,7 @@ const reconciliacaoRascunhosStatus: {
         const reply = requiresOfficialSource && sources.length === 0
           ? "Ainda não consegui confirmar uma fonte oficial atual para essa pergunta. Para evitar passar regra, valor ou prazo incorreto, confira o órgão oficial responsável. Informe a competência e, quando aplicável, UF, município, regime ou código do erro para eu refazer a busca."
           : response.text;
-        return res.json({ reply, sources, searched: Boolean(response.candidates?.[0]?.groundingMetadata) });
+        return res.json({ reply: limitada.cortado ? `${reply}\n\n${avisoDeTextoCortado(limitada.tamanhoOriginal)}` : reply, sources, searched: Boolean(response.candidates?.[0]?.groundingMetadata), ...(limitada.cortado ? { textoCortado: true } : {}) });
     } catch (err: any) {
       console.error("Erro na chamada Gemini:", err);
       return res.status(502).json({ error: "A IA está com muita procura agora e não respondeu a tempo. Tente de novo em alguns segundos." });
