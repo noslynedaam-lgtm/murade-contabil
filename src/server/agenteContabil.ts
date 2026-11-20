@@ -698,6 +698,284 @@ const FERRAMENTAS: Ferramenta[] = [
       await ctx.registrar({ evento: 'duvida_sem_resposta', ferramenta: 'chamar_supervisor', cnpj: cnpjDe(args.cnpj), resumo: pergunta });
       return { status: 'registrado', instrucao: 'Diga ao usuário, em uma frase calma: você não sabe resolver isso aqui, vai levar a pergunta ao seu supervisor, e assim que tiver a resposta volta a falar com ele. Não invente prazo.' };
     },
+  },  // ---------------------------------------------------------------- escrituração avançada (levantamento 20/11/2026)
+  {
+    tipo: 'acao',
+    declaracao: { name: 'lancar_varias_partidas', description: 'Propõe um LANÇAMENTO COM VÁRIAS PARTIDAS: 1 débito para vários créditos (forma 1xN) ou vários débitos para 1 crédito (Nx1). Ex.: "debita banco 10 mil e credita clientes 6 mil e receita 4 mil". O total tem que fechar; vira cartão e, depois do sim, o lançamento fica pendente de aprovação (tela Aprovar lançamentos). Use os códigos das contas analíticas (consulte o plano se precisar).', parameters: { type: 'OBJECT', properties: {
+      cnpj: props.cnpj, data: { type: 'STRING', description: 'Data DD/MM/AAAA.' }, historico: { type: 'STRING', description: 'Histórico do lançamento.' },
+      forma: { type: 'STRING', description: '1xN (uma conta a débito, várias a crédito) ou Nx1 (várias a débito, uma a crédito).' },
+      conta_unica: { type: 'STRING', description: 'Código da conta do lado único (a débito no 1xN, a crédito no Nx1).' },
+      total: { type: 'STRING', description: 'Total do lado único, ex.: 10.000,00.' },
+      partidas: { type: 'ARRAY', description: 'Contas do outro lado com o valor de cada uma.', items: { type: 'OBJECT', properties: { conta: { type: 'STRING' }, valor: { type: 'STRING', description: 'Ex.: 6.000,00' } } } },
+    }, required: ['cnpj', 'data', 'historico', 'forma', 'conta_unica', 'total', 'partidas'] } },
+    async preparar(_ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const forma = String(args.forma || '').toLowerCase().replace(/\s/g, '') === 'nx1' ? 'Nx1' : String(args.forma || '').toLowerCase().replace(/\s/g, '') === '1xn' ? '1xN' : '';
+      if (!forma) return { erro: 'Diga se é 1 débito para vários créditos (1xN) ou vários débitos para 1 crédito (Nx1).' };
+      const partidas = Array.isArray(args.partidas) ? args.partidas.map((p: any) => ({ conta: String(p?.conta || '').trim(), valor: String(p?.valor ?? '') })) : [];
+      if (!partidas.length) return { erro: 'Diga as contas do outro lado e o valor de cada uma.' };
+      const centavos = (v: string) => { const t = v.replace(/\s|R\$/g, ''); const n = Number(t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t); return Number.isFinite(n) ? Math.round(n * 100) : NaN; };
+      const total = centavos(String(args.total ?? ''));
+      const soma = partidas.reduce((t: number, p: any) => t + centavos(p.valor), 0);
+      if (!Number.isFinite(total) || !Number.isFinite(soma)) return { erro: 'Algum valor não ficou claro. Use o formato 1.234,56.' };
+      if (total !== soma) return { erro: `O total não fecha: ${reais(total / 100)} de um lado e ${reais(soma / 100)} do outro. Confira os valores com a pessoa.` };
+      const lado = forma === '1xN' ? ['Débito', 'Crédito'] : ['Crédito', 'Débito'];
+      return { cnpj, params: { cnpj, data: String(args.data || ''), historico: String(args.historico || ''), forma, contaUnica: String(args.conta_unica || ''), total: String(args.total), partidas }, titulo: `Lançamento com ${partidas.length} partida(s)`, descricao: [`Empresa ${cnpj} · data ${args.data}`, `${lado[0]}: ${args.conta_unica} — ${reais(total / 100)}`, ...partidas.map((p: any) => `${lado[1]}: ${p.conta} — ${reais(centavos(p.valor) / 100)}`), `Histórico: ${args.historico}`, 'Depois do sim, fica pendente de aprovação: não entra nos livros antes disso.'], resumo: `Lançamento com várias partidas ${cnpj}` };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', `/api/workspaces/${q(String(params.cnpj))}/lancamentos-compostos`, params);
+      return ok(r) ? { sucesso: true, mensagem: String(r.corpo?.mensagem || 'Enviado para aprovação.') } : { sucesso: false, mensagem: erroApi(r).erro };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'listar_padroes_da_empresa', description: 'Mostra os históricos padrão, os lançamentos padrão (recorrentes, como aluguel e honorários) e as regras de conciliação bancária cadastrados na empresa.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj }, required: ['cnpj'] } },
+    async executar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const ws = await lerWorkspace(ctx, cnpj); if ('erro' in ws) return ws;
+      const d = ws.dados;
+      return {
+        historicosPadrao: (d.historicosPadrao || []).map((h: any) => ({ id: h.id, codigo: h.codigo, texto: h.texto })),
+        lancamentosPadrao: (d.lancamentosPadrao || []).map((p: any) => ({ id: p.id, nome: p.nome, ativo: p.ativo, dia: p.dia, forma: p.forma, contaUnica: p.contaUnica, total: reais((p.partidas || []).reduce((t: number, x: any) => t + Number(x.valorCentavos || 0), 0) / 100), inicio: p.inicio, fim: p.fim || null })),
+        regrasConciliacao: (d.regrasConciliacao || []).map((r: any) => ({ id: r.id, quandoTiver: r.contem, conta: r.contaCodigo, sentido: r.sentido, ativo: r.ativo })),
+      };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'cadastrar_historico_padrao', description: 'Propõe cadastrar um HISTÓRICO PADRÃO na empresa (código curto + texto). O texto aceita {mes} (MM/AAAA), {competencia} e {ano}. Vira cartão de confirmação.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, codigo: { type: 'STRING', description: 'Código curto, ex.: ALUG.' }, texto: { type: 'STRING', description: 'Texto, ex.: Aluguel do mês {mes}.' } }, required: ['cnpj', 'codigo', 'texto'] } },
+    async preparar(_ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const codigo = String(args.codigo || '').trim().toUpperCase(); const texto = String(args.texto || '').trim();
+      if (!/^[A-Z0-9._-]{1,12}$/.test(codigo) || !texto) return { erro: 'Diga um código curto (até 12 letras/números) e o texto do histórico.' };
+      return { cnpj, params: { cnpj, codigo, texto }, titulo: `Cadastrar histórico padrão ${codigo}`, descricao: [`Empresa ${cnpj}`, `Texto: ${texto}`], resumo: `Histórico padrão ${codigo} em ${cnpj}` };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', `/api/workspaces/${q(String(params.cnpj))}/historicos-padrao`, { codigo: params.codigo, texto: params.texto });
+      return ok(r) ? { sucesso: true, mensagem: String(r.corpo?.mensagem || 'Cadastrado.') } : { sucesso: false, mensagem: erroApi(r).erro };
+    },
+  },
+  {
+    tipo: 'acao',
+    exclusao: true,
+    declaracao: { name: 'remover_historico_padrao', description: 'Propõe REMOVER UM histórico padrão da empresa (pelo código). Lançamentos que já usaram o texto não mudam. Cartão de duas confirmações. Use listar_padroes_da_empresa para achar o código.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, codigo: { type: 'STRING' } }, required: ['cnpj', 'codigo'] } },
+    async preparar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const ws = await lerWorkspace(ctx, cnpj); if (ws.erro !== undefined) return { erro: ws.erro };
+      const h = (ws.dados.historicosPadrao || []).find((x: any) => String(x.codigo).toUpperCase() === String(args.codigo || '').trim().toUpperCase());
+      if (!h) return { erro: 'Não achei esse histórico padrão. Use listar_padroes_da_empresa.' };
+      return { cnpj, params: { cnpj, id: h.id }, titulo: `Remover o histórico padrão ${h.codigo}`, descricao: [`Texto: ${h.texto}`, 'Só este histórico; os lançamentos já feitos não mudam.'], aviso: 'Um por vez.', resumo: `Remover histórico ${h.codigo} de ${cnpj}` };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('DELETE', `/api/workspaces/${q(String(params.cnpj))}/historicos-padrao/${q(String(params.id))}`);
+      return ok(r) ? { sucesso: true, mensagem: String(r.corpo?.mensagem || 'Removido.') } : { sucesso: false, mensagem: erroApi(r).erro };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'cadastrar_lancamento_padrao', description: 'Propõe cadastrar um LANÇAMENTO PADRÃO (recorrente), ex.: aluguel todo dia 10, honorários todo dia 5. O Robô dos Lançamentos Padrão prepara todo mês como pré-lançamento para aprovação. Aceita 1xN ou Nx1 como lancar_varias_partidas. Vira cartão.', parameters: { type: 'OBJECT', properties: {
+      cnpj: props.cnpj, nome: { type: 'STRING' }, dia: { type: 'NUMBER', description: 'Dia do mês (1 a 31).' }, historico: { type: 'STRING', description: 'Aceita {mes}.' },
+      forma: { type: 'STRING', description: '1xN ou Nx1.' }, conta_unica: { type: 'STRING' }, inicio: props.competencia, fim: { type: 'STRING', description: 'Opcional, AAAA-MM.' },
+      partidas: { type: 'ARRAY', items: { type: 'OBJECT', properties: { conta: { type: 'STRING' }, valor: { type: 'STRING' } } } },
+    }, required: ['cnpj', 'nome', 'dia', 'historico', 'forma', 'conta_unica', 'inicio', 'partidas'] } },
+    async preparar(_ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const inicio = competenciaDe(args.inicio); if (!inicio) return { erro: 'Diga a competência de início (AAAA-MM).' };
+      const forma = /^n\s*x\s*1$/i.test(String(args.forma || '').trim()) ? 'Nx1' : '1xN';
+      const partidas = Array.isArray(args.partidas) ? args.partidas.map((p: any) => ({ conta: String(p?.conta || '').trim(), valor: String(p?.valor ?? '') })) : [];
+      if (!partidas.length) return { erro: 'Diga as contas e os valores.' };
+      return { cnpj, params: { cnpj, nome: String(args.nome || ''), dia: Number(args.dia), historico: String(args.historico || ''), forma, contaUnica: String(args.conta_unica || ''), inicio, fim: args.fim ? competenciaDe(args.fim) : undefined, partidas }, titulo: `Lançamento padrão: ${args.nome}`, descricao: [`Empresa ${cnpj} · todo dia ${args.dia} a partir de ${mesAno(inicio)}`, `${forma === '1xN' ? 'Débito' : 'Crédito'}: ${args.conta_unica}`, ...partidas.map((p: any) => `${forma === '1xN' ? 'Crédito' : 'Débito'}: ${p.conta} — ${p.valor}`), `Histórico: ${args.historico}`, 'O robô prepara todo mês para aprovação; nada entra nos livros sem o seu sim.'], resumo: `Lançamento padrão ${args.nome} em ${cnpj}` };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', `/api/workspaces/${q(String(params.cnpj))}/lancamentos-padrao`, params);
+      return ok(r) ? { sucesso: true, mensagem: String(r.corpo?.mensagem || 'Cadastrado.') } : { sucesso: false, mensagem: erroApi(r).erro };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'ligar_desligar_lancamento_padrao', description: 'Propõe PAUSAR ou LIGAR de novo um lançamento padrão (recorrente) da empresa. Use listar_padroes_da_empresa para achar o nome.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, nome: { type: 'STRING' }, ligar: { type: 'BOOLEAN', description: 'true liga, false pausa.' } }, required: ['cnpj', 'nome', 'ligar'] } },
+    async preparar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const ws = await lerWorkspace(ctx, cnpj); if (ws.erro !== undefined) return { erro: ws.erro };
+      const a = acharPorNome(ws.dados.lancamentosPadrao || [], String(args.nome || ''), (p: any) => [p.nome]);
+      if (a.tipo !== 'unico') return { erro: a.tipo === 'nenhum' ? 'Não achei esse lançamento padrão.' : 'Há mais de um parecido; pergunte qual.' };
+      const p: any = a.item;
+      return { cnpj, params: { cnpj, id: p.id, ativo: args.ligar === true }, titulo: `${args.ligar === true ? 'Ligar' : 'Pausar'} o lançamento padrão ${p.nome}`, descricao: [args.ligar === true ? 'O robô volta a preparar todo mês.' : 'O robô para de preparar até você ligar de novo; nada é apagado.'], resumo: `${args.ligar === true ? 'Ligar' : 'Pausar'} ${p.nome}` };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', `/api/workspaces/${q(String(params.cnpj))}/lancamentos-padrao/${q(String(params.id))}/ativo`, { ativo: params.ativo });
+      return ok(r) ? { sucesso: true, mensagem: String(r.corpo?.mensagem || 'Feito.') } : { sucesso: false, mensagem: erroApi(r).erro };
+    },
+  },
+  {
+    tipo: 'acao',
+    exclusao: true,
+    declaracao: { name: 'remover_lancamento_padrao', description: 'Propõe REMOVER UM lançamento padrão (recorrente) da empresa. Os pré-lançamentos já preparados continuam. Cartão de duas confirmações. Para só parar por um tempo, prefira ligar_desligar_lancamento_padrao.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, nome: { type: 'STRING' } }, required: ['cnpj', 'nome'] } },
+    async preparar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const ws = await lerWorkspace(ctx, cnpj); if (ws.erro !== undefined) return { erro: ws.erro };
+      const a = acharPorNome(ws.dados.lancamentosPadrao || [], String(args.nome || ''), (p: any) => [p.nome]);
+      if (a.tipo !== 'unico') return { erro: a.tipo === 'nenhum' ? 'Não achei esse lançamento padrão.' : 'Há mais de um parecido; pergunte qual.' };
+      const p: any = a.item;
+      return { cnpj, params: { cnpj, id: p.id }, titulo: `Remover o lançamento padrão ${p.nome}`, descricao: ['Só este; os lançamentos já preparados ou aprovados continuam.'], aviso: 'Um por vez.', resumo: `Remover lançamento padrão ${p.nome}` };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('DELETE', `/api/workspaces/${q(String(params.cnpj))}/lancamentos-padrao/${q(String(params.id))}`);
+      return ok(r) ? { sucesso: true, mensagem: String(r.corpo?.mensagem || 'Removido.') } : { sucesso: false, mensagem: erroApi(r).erro };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'preparar_lancamentos_padrao', description: 'Propõe preparar AGORA (sem esperar o robô) os lançamentos padrão de UMA competência da empresa, como pré-lançamentos para aprovação. Não duplica o que já foi preparado.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, competencia: props.competencia }, required: ['cnpj', 'competencia'] } },
+    async preparar(_ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); const c = competenciaDe(args.competencia);
+      if (!cnpj || !c) return { erro: 'Informe CNPJ e competência (AAAA-MM).' };
+      return { cnpj, params: { cnpj, competencia: c }, titulo: `Preparar os lançamentos padrão de ${mesAno(c)}`, descricao: [`Empresa ${cnpj}`, 'Ficam pendentes de aprovação; o que já foi preparado não se repete.'], resumo: `Preparar recorrentes ${cnpj} ${c}` };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', `/api/workspaces/${q(String(params.cnpj))}/lancamentos-padrao/preparar`, { competencia: params.competencia });
+      return ok(r) ? { sucesso: true, mensagem: String(r.corpo?.mensagem || 'Feito.') } : { sucesso: false, mensagem: erroApi(r).erro };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'consultar_encerramento', description: 'Mostra o encerramento do resultado do ano da empresa: prévia (lucro ou prejuízo e as contas de resultado que serão zeradas contra Lucros ou Prejuízos Acumulados) e se já existe encerramento gravado, pendente ou estornado.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, ano: { type: 'NUMBER' } }, required: ['cnpj', 'ano'] } },
+    async executar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const r = await ctx.chamarApi('GET', `/api/workspaces/${q(cnpj)}/encerramento?ano=${q(String(Number(args.ano)))}`);
+      if (!ok(r)) return erroApi(r);
+      const p = r.corpo?.previa;
+      return { ano: r.corpo?.ano, contaDestino: r.corpo?.contaDestino, resultado: p ? `${p.resultadoCentavos >= 0 ? 'lucro' : 'prejuízo'} de ${reais(Math.abs(p.resultadoCentavos) / 100)}` : null, contas: p ? p.partidas.length : 0, motivo: r.corpo?.motivo, gravados: r.corpo?.gravados };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'preparar_encerramento', description: 'Propõe PREPARAR o encerramento do resultado do ano (zera as contas de resultado contra a conta de Lucros ou Prejuízos Acumulados, em 31/12). Fica pendente de aprovação e pode ser estornado. Use consultar_encerramento antes para dizer o resultado.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, ano: { type: 'NUMBER' }, conta_destino: { type: 'STRING', description: 'Opcional: código da conta do PL; sem ela, usa Lucros ou Prejuízos Acumulados do plano.' } }, required: ['cnpj', 'ano'] } },
+    async preparar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); const ano = Number(args.ano);
+      if (!cnpj || !Number.isInteger(ano)) return { erro: 'Informe CNPJ e ano.' };
+      const r = await ctx.chamarApi('GET', `/api/workspaces/${q(cnpj)}/encerramento?ano=${ano}${args.conta_destino ? `&contaDestino=${q(String(args.conta_destino))}` : ''}`);
+      if (!ok(r)) return erroApi(r);
+      if (!r.corpo?.previa) return { erro: String(r.corpo?.motivo || 'Não há o que encerrar.') };
+      const p = r.corpo.previa;
+      return { cnpj, params: { cnpj, ano, contaDestino: r.corpo.contaDestino }, titulo: `Encerrar o resultado de ${ano}`, descricao: [`Empresa ${cnpj}`, `${p.resultadoCentavos >= 0 ? 'Lucro' : 'Prejuízo'} de ${reais(Math.abs(p.resultadoCentavos) / 100)} vai para a conta ${r.corpo.contaDestino}.`, `${p.partidas.length} conta(s) de resultado zeradas em 31/12/${ano}.`, 'Fica pendente de aprovação; dá para estornar depois.'], resumo: `Encerramento ${ano} ${cnpj}` };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', `/api/workspaces/${q(String(params.cnpj))}/encerramento`, { ano: params.ano, contaDestino: params.contaDestino });
+      return ok(r) ? { sucesso: true, mensagem: String(r.corpo?.mensagem || 'Preparado.') } : { sucesso: false, mensagem: erroApi(r).erro };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'estornar_encerramento', description: 'Propõe ESTORNAR o encerramento do resultado de um ano já aprovado (partidas invertidas na mesma data, pendentes de aprovação). O original fica no histórico. Use quando lançaram algo no ano depois do encerramento.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, ano: { type: 'NUMBER' } }, required: ['cnpj', 'ano'] } },
+    async preparar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); const ano = Number(args.ano);
+      if (!cnpj || !Number.isInteger(ano)) return { erro: 'Informe CNPJ e ano.' };
+      const r = await ctx.chamarApi('GET', `/api/workspaces/${q(cnpj)}/encerramento?ano=${ano}`);
+      if (!ok(r)) return erroApi(r);
+      const lote = r.corpo?.gravados?.ativos?.[0];
+      if (!lote?.loteId) return { erro: `Não há encerramento aprovado de ${ano} para estornar.` };
+      return { cnpj, params: { cnpj, loteId: lote.loteId }, titulo: `Estornar o encerramento de ${ano}`, descricao: [`Empresa ${cnpj}`, `${lote.partidas} partida(s) invertidas em 31/12/${ano}, pendentes de aprovação.`, 'O encerramento original continua no histórico.'], resumo: `Estornar encerramento ${ano} ${cnpj}` };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', `/api/workspaces/${q(String(params.cnpj))}/lotes/${q(String(params.loteId))}/estornar`, {});
+      return ok(r) ? { sucesso: true, mensagem: String(r.corpo?.mensagem || 'Estorno enviado para aprovação.') } : { sucesso: false, mensagem: erroApi(r).erro };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'consultar_livro_caixa', description: 'Mostra o Livro Caixa da empresa (Simples Nacional) de uma competência ou período: saldo inicial, entradas, saídas, saldo final e se o mês está dispensado (tem Diário e Razão), emitido ou pendente.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, de: props.competencia, ate: { type: 'STRING', description: 'Opcional, AAAA-MM.' } }, required: ['cnpj', 'de'] } },
+    async executar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); const de = competenciaDe(args.de); const ate = args.ate ? competenciaDe(args.ate) : de;
+      if (!cnpj || !de || !ate) return { erro: 'Informe CNPJ e competência (AAAA-MM).' };
+      const r = await ctx.chamarApi('GET', `/api/workspaces/${q(cnpj)}/livro-caixa?de=${q(de)}&ate=${q(ate)}`);
+      if (!ok(r)) return erroApi(r);
+      const l = r.corpo?.livro;
+      return { disponivel: l?.disponivel, motivo: l?.motivo, saldoInicial: l?.disponivel ? reais(l.saldoInicialCentavos / 100) : null, entradas: l?.disponivel ? reais(l.entradasCentavos / 100) : null, saidas: l?.disponivel ? reais(l.saidasCentavos / 100) : null, saldoFinal: l?.disponivel ? reais(l.saldoFinalCentavos / 100) : null, situacoes: r.corpo?.situacoes };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'emitir_livro_caixa', description: 'Propõe REGISTRAR o Livro Caixa como emitido nas competências do período (empresa do Simples). O PDF/Excel com os termos de abertura e encerramento sai na tela Livros Fiscais e ECD, aba Livro Caixa.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, de: props.competencia, ate: { type: 'STRING', description: 'Opcional, AAAA-MM.' } }, required: ['cnpj', 'de'] } },
+    async preparar(_ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); const de = competenciaDe(args.de); const ate = args.ate ? competenciaDe(args.ate) : de;
+      if (!cnpj || !de || !ate) return { erro: 'Informe CNPJ e competência (AAAA-MM).' };
+      return { cnpj, params: { cnpj, de, ate }, titulo: `Registrar o Livro Caixa de ${mesAno(de)}${ate !== de ? ` a ${mesAno(ate)}` : ''}`, descricao: [`Empresa ${cnpj}`, 'Competência fechada não muda.'], resumo: `Livro Caixa ${cnpj} ${de}-${ate}` };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', `/api/workspaces/${q(String(params.cnpj))}/livro-caixa/registrar`, { de: params.de, ate: params.ate });
+      return ok(r) ? { sucesso: true, mensagem: String(r.corpo?.mensagem || 'Registrado.') } : { sucesso: false, mensagem: erroApi(r).erro };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'consultar_conciliacao_bancaria', description: 'Mostra o extrato bancário guardado da empresa: por conta do banco, quantos movimentos estão pendentes, conciliados, lançados e com sugestão do robô. Com conta_banco e competência, lista os pendentes com a sugestão.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, conta_banco: { type: 'STRING' }, competencia: props.competencia }, required: ['cnpj'] } },
+    async executar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const c = args.competencia ? competenciaDe(args.competencia) : null;
+      const r = await ctx.chamarApi('GET', `/api/workspaces/${q(cnpj)}/extratos${args.conta_banco ? `?contaBanco=${q(String(args.conta_banco))}${c ? `&competencia=${q(c)}` : ''}` : ''}`);
+      if (!ok(r)) return erroApi(r);
+      const pend = (r.corpo?.movimentos || []).filter((m: any) => m.situacao === 'pendente');
+      return { resumo: r.corpo?.resumo, pendentes: pend.slice(0, 20).map((m: any) => ({ data: formatarDataBr(m.dataISO), valor: reais(m.valorCentavos / 100), historico: m.memo, sugestao: m.sugestaoLancamentoId ? 'conciliar com lançamento aprovado' : m.sugestaoConta ? `lançar na conta ${m.sugestaoConta}` : null, motivo: m.sugestaoMotivo })), totalPendentes: pend.length };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'aceitar_sugestoes_conciliacao', description: 'Propõe ACEITAR as sugestões do Robô da Conciliação de UMA conta de banco numa competência: concilia os movimentos que casam com lançamento aprovado e cria, pendentes de aprovação, os lançamentos dos que têm conta sugerida. Movimento sem sugestão fica pendente.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, conta_banco: { type: 'STRING' }, competencia: props.competencia }, required: ['cnpj', 'conta_banco', 'competencia'] } },
+    async preparar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); const c = competenciaDe(args.competencia);
+      if (!cnpj || !c) return { erro: 'Informe CNPJ, conta do banco e competência.' };
+      const r = await ctx.chamarApi('GET', `/api/workspaces/${q(cnpj)}/extratos?contaBanco=${q(String(args.conta_banco))}&competencia=${q(c)}`);
+      if (!ok(r)) return erroApi(r);
+      const com = (r.corpo?.movimentos || []).filter((m: any) => m.situacao === 'pendente' && (m.sugestaoLancamentoId || m.sugestaoConta));
+      if (!com.length) return { erro: 'Não há sugestão do robô para aceitar nesse mês. Ele roda a cada hora; ou crie uma regra de conciliação.' };
+      const conc = com.filter((m: any) => m.sugestaoLancamentoId).length;
+      return { cnpj, params: { cnpj, contaBanco: String(args.conta_banco), fitids: com.map((m: any) => m.fitid) }, titulo: `Aceitar ${com.length} sugestão(ões) da conciliação de ${mesAno(c)}`, descricao: [`Conta do banco ${args.conta_banco}`, `${conc} conciliação(ões) com lançamento já aprovado.`, `${com.length - conc} lançamento(s) novo(s), pendentes de aprovação.`], resumo: `Aceitar sugestões conciliação ${cnpj} ${c}` };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', `/api/workspaces/${q(String(params.cnpj))}/extratos/aceitar-sugestoes`, { contaBanco: params.contaBanco, fitids: params.fitids });
+      return ok(r) ? { sucesso: true, mensagem: String(r.corpo?.mensagem || 'Feito.') } : { sucesso: false, mensagem: erroApi(r).erro };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'criar_regra_conciliacao', description: 'Propõe criar uma REGRA de conciliação bancária: quando o histórico do extrato tiver o texto, o robô sugere a conta. Ex.: "quando tiver TARIFA, usar despesas bancárias". Vira cartão.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, texto: { type: 'STRING', description: 'Texto que aparece no histórico do extrato (3 a 80 caracteres).' }, conta: { type: 'STRING', description: 'Código da conta analítica.' }, sentido: { type: 'STRING', description: 'entrada, saida ou ambos.' } }, required: ['cnpj', 'texto', 'conta'] } },
+    async preparar(_ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const texto = String(args.texto || '').trim(); const conta = String(args.conta || '').trim();
+      const sentido = ['entrada', 'saida', 'ambos'].includes(normalizarTexto(args.sentido)) ? normalizarTexto(args.sentido) : 'ambos';
+      if (texto.length < 3 || !conta) return { erro: 'Diga o texto (pelo menos 3 letras) e a conta.' };
+      return { cnpj, params: { cnpj, contem: texto, contaCodigo: conta, sentido }, titulo: 'Criar regra de conciliação', descricao: [`Quando o histórico tiver "${texto}", sugerir a conta ${conta} (${sentido}).`, 'O robô só sugere; você aprova.'], resumo: `Regra conciliação ${texto} → ${conta}` };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', `/api/workspaces/${q(String(params.cnpj))}/regras-conciliacao`, { contem: params.contem, contaCodigo: params.contaCodigo, sentido: params.sentido });
+      return ok(r) ? { sucesso: true, mensagem: String(r.corpo?.mensagem || 'Regra criada.') } : { sucesso: false, mensagem: erroApi(r).erro };
+    },
+  },
+  {
+    tipo: 'acao',
+    exclusao: true,
+    declaracao: { name: 'remover_regra_conciliacao', description: 'Propõe REMOVER UMA regra de conciliação bancária (pelo texto). Cartão de duas confirmações. Use listar_padroes_da_empresa para ver as regras.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, texto: { type: 'STRING' } }, required: ['cnpj', 'texto'] } },
+    async preparar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const ws = await lerWorkspace(ctx, cnpj); if (ws.erro !== undefined) return { erro: ws.erro };
+      const regras = (ws.dados.regrasConciliacao || []).filter((r: any) => normalizarTexto(r.contem) === normalizarTexto(args.texto));
+      if (regras.length !== 1) return { erro: regras.length ? 'Há mais de uma regra com esse texto; pergunte qual (sentido).' : 'Não achei essa regra.' };
+      return { cnpj, params: { cnpj, id: regras[0].id }, titulo: `Remover a regra "${regras[0].contem}"`, descricao: [`Conta ${regras[0].contaCodigo} (${regras[0].sentido}).`, 'Só esta regra.'], aviso: 'Uma por vez.', resumo: `Remover regra ${regras[0].contem}` };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('DELETE', `/api/workspaces/${q(String(params.cnpj))}/regras-conciliacao/${q(String(params.id))}`);
+      return ok(r) ? { sucesso: true, mensagem: String(r.corpo?.mensagem || 'Removida.') } : { sucesso: false, mensagem: erroApi(r).erro };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'achados_escrituracao', description: 'Mostra o que os robôs da escrituração acharam nas empresas do usuário: Livro Caixa do Simples pendente, encerramento do resultado faltando ou desatualizado, extrato sem conciliar e lançamento padrão com problema.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj } } },
+    async executar(ctx, args) {
+      const cnpj = args.cnpj ? cnpjDe(args.cnpj) : null;
+      const r = await ctx.chamarApi('GET', `/api/escrituracao/achados${cnpj ? `?cnpj=${q(cnpj)}` : ''}`);
+      return ok(r) ? { achados: r.corpo?.achados || [], observacao: (r.corpo?.achados || []).length ? undefined : 'Nenhum achado (ou os robôs ainda não rodaram).' } : erroApi(r);
+    },
   },
 ];
 
@@ -729,7 +1007,8 @@ COMO TRABALHAR
 - Se o usuário tem uma única empresa, use-a. Se há várias e ele não disse qual, pergunte. Se não disse a competência (mês), pergunte antes de agir.
 - Ações que alteram dados (contabilizar_prelancamentos, fechar_competencia, delegar_tarefa) NÃO são executadas por você: viram um cartão de confirmação. Depois de chamar uma ação, diga em uma frase o que ficou pronto para ele confirmar. Nunca diga que algo foi feito antes de ele confirmar.
 - PEDIR SERVIÇO À EQUIPE (delegar_tarefa): quando a contadora pedir algo como "peça para a Nilva conciliar o banco da empresa X", use delegar_tarefa com o nome da pessoa como foi dito, o serviço, a empresa (se disse) e o prazo (só se disse; converta para AAAA-MM-DD pela data de hoje). Vira cartão de confirmação; diga em uma frase para quem é o pedido e que ele só vale ao confirmar. Se a ferramenta disser que o nome é ambíguo ou não existe, pergunte UMA vez qual pessoa, sem escolher sozinha. Só a administradora do escritório pede para outra pessoa; funcionário comum só anota tarefa para si (sem destinatário). Isso funciona de qualquer tela. A pessoa recebe o pedido na tela de Tarefas da equipe.
-- Você não grava lançamentos manuais, plano de contas ou mapeamentos: isso é feito nas telas. Você pode PREENCHER o formulário à vista com preencher_na_tela, e quem clica em gravar é o usuário.
+- LANÇAMENTO COM VÁRIAS PARTIDAS (lancar_varias_partidas), LANÇAMENTO PADRÃO (cadastrar_lancamento_padrao, ligar_desligar_lancamento_padrao, preparar_lancamentos_padrao), HISTÓRICO PADRÃO, ENCERRAMENTO DO RESULTADO (consultar_encerramento, preparar_encerramento, estornar_encerramento), LIVRO CAIXA DO SIMPLES (consultar_livro_caixa, emitir_livro_caixa) e CONCILIAÇÃO BANCÁRIA (consultar_conciliacao_bancaria, aceitar_sugestoes_conciliacao, criar_regra_conciliacao): use as ferramentas próprias; todas viram cartão e o que é lançamento continua pendente de aprovação depois do sim. Para o que os robôs dessas rotinas acharam, use achados_escrituracao.
+- Fora disso, você não grava lançamentos manuais, plano de contas ou mapeamentos: isso é feito nas telas. Você pode PREENCHER o formulário à vista com preencher_na_tela, e quem clica em gravar é o usuário.
 - Antes de propor fechar o período ou contabilizar, se o usuário perguntar se alguém já fez, ou se vários colegas trabalham na empresa, use consultar_servico_feito. Se a ação for barrada porque outra pessoa (ou o robô) já fez, repasse a frase do sistema com o nome e a hora, sem tentar de novo; se o sistema avisar que alguém está fazendo agora, conte isso ao usuário e só prossiga se ele pedir de novo. Nunca invente quem fez.
 - EXCLUIR EMPRESA (apagar_empresa): só quando a pessoa pedir expressamente, UMA empresa por vez (nunca todas de uma vez: se pedirem em lote, explique que o sistema só apaga uma por vez, por segurança). Diga o nome e o CNPJ completos; vira cartão de duas confirmações e só vale depois das duas. Se o nome for ambíguo, pergunte qual. O CNPJ continua livre para cadastrar de novo.
 - MEU JEITO: se a pessoa contar como prefere trabalhar (tela ao entrar, atalhos do menu, conversa mais curta ou detalhada, regra "ao abrir X, destacar Y"), use aprender_meu_jeito (vira cartão com o que você entendeu; só vale após o sim); para ver o que aprendeu, mostrar_meu_jeito; para voltar ao padrão em UMA coisa, esquecer_regra_do_jeito; para explicar o jeito padrão, explicar_jeito_padrao; para mudar o nome pelo qual você chama a pessoa ("me chama de Ana", "mudar meu nome"), mudar_meu_nome (vira cartão). O jeito nunca desliga proteções (confirmações, cálculos exatos, robôs, anti-duplicidade, SERPRO só manual, nada de apagar em lote): se pedirem isso, explique com gentileza e não chame a ferramenta.

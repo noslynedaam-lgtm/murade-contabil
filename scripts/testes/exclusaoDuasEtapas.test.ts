@@ -113,6 +113,7 @@ export const EXCECOES: Excecao[] = [
   { regra: 'FUNC', caminho: 'src/components/tabs/GestaoContabilTab.tsx', contem: 'descartar', motivo: 'Só é chamada pelo BotaoRecalcular depois das duas etapas.' },
   { regra: 'FUNC', caminho: 'src/services/backupEscritorioContabilService.ts', contem: 'removerCamposCertificado', motivo: 'Função pura que tira os campos de certificado do backup antes de gravar; não é clique de ninguém.' },
   { regra: 'FUNC', caminho: 'src/utils/imobilizado.ts', contem: 'removerAjusteQuota', motivo: 'Função pura de cálculo (devolve o bem sem o ajuste); não é clique.' },
+  { regra: 'API', caminho: 'src/types.ts', contem: 'export type MetodoRota', motivo: 'Só o tipo dos métodos das rotas da escrituração; quem chama a exclusão é a tela, sempre depois do pedir() das duas etapas.' },
   { regra: 'CONFIRMAR', caminho: 'src/components/AjusteManual.tsx', contem: 'Voltar este valor ao automático', motivo: 'Reverte UM valor digitado ao valor automático, que continua na tela; nada do sistema é apagado.' },
   { regra: 'CONFIRMAR', caminho: 'src/components/tabs/GestaoContabilTab.tsx', contem: 'ao cálculo automático (', motivo: 'Reverte UMA quota digitada ao cálculo automático, que continua na tela; nada do sistema é apagado.' },
   { regra: 'CONFIRMAR', caminho: 'src/components/tabs/GestaoContabilTab.tsx', contem: 'não são apagados', motivo: 'O texto só avisa que nenhum lançamento é apagado ao salvar o bem.' },

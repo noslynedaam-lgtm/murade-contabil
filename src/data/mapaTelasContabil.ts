@@ -55,6 +55,9 @@ export const TELAS_CONTABIL: TelaMapa[] = [
 const LANC = 'src/components/tabs/LancamentosTab.tsx';
 const PLANO = 'src/components/tabs/PlanoContasTab.tsx';
 const EMP = 'src/components/tabs/EmpresaTab.tsx';
+const PADROES = 'src/components/PadroesLancamentoPainel.tsx';
+const LIVRO_CAIXA = 'src/components/LivroCaixaEncerramento.tsx';
+const CONCILIACAO = 'src/components/ConciliacaoBancariaPainel.tsx';
 
 export const CAMPOS_CONTABIL: CampoMapa[] = [
   // Lançamento manual (abre pelo botão "+ Lançamento Manual")
@@ -65,6 +68,21 @@ export const CAMPOS_CONTABIL: CampoMapa[] = [
   { chave: 'lancamento-credito-codigo', tela: 'lancamentos', rotulo: 'Conta a crédito (código)', arquivo: LANC, tipo: 'texto' },
   { chave: 'lancamento-historico', tela: 'lancamentos', rotulo: 'Histórico da operação', arquivo: LANC, tipo: 'area' },
   { chave: 'lancamento-gravar', tela: 'lancamentos', rotulo: 'Gravar Lançamento', arquivo: LANC, tipo: 'botao', final: 'salvar' },
+  { chave: 'lancamento-forma', tela: 'lancamentos', rotulo: 'Forma do lançamento (1x1, 1 débito x vários créditos, vários débitos x 1 crédito)', arquivo: LANC, tipo: 'selecao' },
+  { chave: 'lancamento-historico-padrao', tela: 'lancamentos', rotulo: 'Usar um histórico padrão', arquivo: LANC, tipo: 'selecao' },
+  // Históricos e lançamentos padrão (recorrentes), na mesma tela de Lançamentos (quadro recolhível)
+  { chave: 'historico-padrao-codigo', tela: 'lancamentos', rotulo: 'Código do histórico padrão', arquivo: PADROES, tipo: 'texto' },
+  { chave: 'historico-padrao-texto', tela: 'lancamentos', rotulo: 'Texto do histórico padrão', arquivo: PADROES, tipo: 'texto' },
+  { chave: 'padrao-nome', tela: 'lancamentos', rotulo: 'Nome do lançamento padrão', arquivo: PADROES, tipo: 'texto' },
+  { chave: 'padrao-dia', tela: 'lancamentos', rotulo: 'Dia do mês do lançamento padrão', arquivo: PADROES, tipo: 'numero' },
+  { chave: 'padrao-gravar', tela: 'lancamentos', rotulo: 'Cadastrar lançamento padrão', arquivo: PADROES, tipo: 'botao' },
+  // Livros: Livro Caixa do Simples e encerramento do resultado
+  { chave: 'livro-caixa-de', tela: 'livros', rotulo: 'Livro Caixa: competência inicial', arquivo: LIVRO_CAIXA, tipo: 'texto' },
+  { chave: 'encerramento-ano', tela: 'livros', rotulo: 'Encerramento do resultado: ano', arquivo: LIVRO_CAIXA, tipo: 'numero' },
+  // Gestão contábil: extrato e conciliação
+  { chave: 'extrato-conta', tela: 'gestao-contabil', rotulo: 'Conta do extrato no plano', arquivo: CONCILIACAO, tipo: 'selecao' },
+  { chave: 'conciliacao-aceitar', tela: 'gestao-contabil', rotulo: 'Aceitar sugestões dos marcados', arquivo: CONCILIACAO, tipo: 'botao' },
+  { chave: 'regra-texto', tela: 'gestao-contabil', rotulo: 'Regra de conciliação: quando o histórico tiver', arquivo: CONCILIACAO, tipo: 'texto' },
   // Plano de contas (abre pelo botão "+ Nova Conta na Sequência")
   { chave: 'btn-nova-conta', tela: 'plano-contas', rotulo: '+ Nova Conta na Sequência', arquivo: PLANO, tipo: 'botao', abre: true, porId: true },
   { chave: 'conta-pai', tela: 'plano-contas', rotulo: 'Conta pai / grupo', arquivo: PLANO, tipo: 'selecao' },
@@ -110,6 +128,10 @@ export const SECOES_CONTABIL: SecaoMapa[] = [
   { chave: 'conferencia-tributos', tela: 'revisao-origens', texto: 'Conferência de tributos', arquivo: 'src/components/tabs/RevisaoOrigensTab.tsx' },
   { chave: 'manuais-estornos', tela: 'revisao-origens', texto: 'Lançamentos manuais e estornos', arquivo: 'src/components/tabs/RevisaoOrigensTab.tsx' },
   { chave: 'trilha-auditoria', tela: 'revisao-origens', texto: 'trilha de auditoria', arquivo: 'src/components/tabs/RevisaoOrigensTab.tsx' },
+  { chave: 'livro-caixa', tela: 'livros', texto: 'Livro Caixa (Simples)', arquivo: 'src/components/tabs/LivrosTab.tsx' },
+  { chave: 'encerramento-resultado', tela: 'livros', texto: 'Encerramento do resultado', arquivo: 'src/components/tabs/LivrosTab.tsx' },
+  { chave: 'lancamentos-padrao', tela: 'lancamentos', texto: 'Lançamentos padrão', arquivo: 'src/components/PadroesLancamentoPainel.tsx' },
+  { chave: 'regras-conciliacao', tela: 'gestao-contabil', texto: 'Regras de conciliação', arquivo: 'src/components/ConciliacaoBancariaPainel.tsx' },
 ];
 
 export const IDS_DE_TELAS_CONTABIL: ReadonlySet<string> = new Set(TELAS_CONTABIL.map((t) => t.id));

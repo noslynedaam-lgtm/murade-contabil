@@ -303,7 +303,11 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
 
   // ---------- Lançamentos do ano ----------
   const prefixoAno = String(ano);
-  const doAno = entrada.lancamentos
+  // Encerramento do resultado gravado no sistema (e seus estornos) para ESTE ano: não entra como lançamento "N" nem nos
+  // saldos; o I200 tipo "E" continua sendo montado abaixo a partir dos saldos e é conferido contra o gravado (sem duplicar).
+  const encerramentoGravadoAno = entrada.lancamentos.filter((l) => l.original.tipoEspecial === "encerramento" && l.dataISO.slice(0, 4) === prefixoAno);
+  const lancamentosBase = encerramentoGravadoAno.length ? entrada.lancamentos.filter((l) => !(l.original.tipoEspecial === "encerramento" && l.dataISO.slice(0, 4) === prefixoAno)) : entrada.lancamentos;
+  const doAno = lancamentosBase
     .filter((l) => l.dataISO.slice(0, 4) === prefixoAno)
     .slice()
     .sort((a, b) => a.dataISO.localeCompare(b.dataISO) || String(a.original.documentoRef || a.original.id).localeCompare(String(b.original.documentoRef || b.original.id)) || a.original.id.localeCompare(b.original.id));
@@ -377,7 +381,7 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
     atual.deb += d; atual.cred += c;
     m.set(mes, atual);
   };
-  for (const l of entrada.lancamentos) {
+  for (const l of lancamentosBase) {
     if (l.dataISO.slice(0, 4) > prefixoAno) continue;
     acumularMov(l.debito.codigo, l.dataISO.slice(0, 7), l.valorCentavos, 0);
     acumularMov(l.credito.codigo, l.dataISO.slice(0, 7), 0, l.valorCentavos);
@@ -430,6 +434,22 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
     else if (resultadoLiquido < 0) encerramento.push({ cod: contaDestino.codigo, valor: -resultadoLiquido, dc: "C" });
   }
   const fechando = encerramento.length > 0 && !!contaDestino;
+  if (encerramentoGravadoAno.length) {
+    const gravado = new Map<string, number>(); // conta -> débito − crédito (estornos aprovados se anulam)
+    for (const l of encerramentoGravadoAno) {
+      gravado.set(l.debito.codigo, (gravado.get(l.debito.codigo) || 0) + l.valorCentavos);
+      gravado.set(l.credito.codigo, (gravado.get(l.credito.codigo) || 0) - l.valorCentavos);
+    }
+    for (const [cod, v] of [...gravado]) if (v === 0) gravado.delete(cod);
+    if (gravado.size) {
+      const calculado = new Map<string, number>();
+      if (fechando) for (const e of encerramento) calculado.set(e.cod, (calculado.get(e.cod) || 0) + (e.dc === "D" ? e.valor : -e.valor));
+      const contasComparadas = new Set([...gravado.keys(), ...calculado.keys()]);
+      const diferentes = [...contasComparadas].filter((cod) => (gravado.get(cod) || 0) !== (calculado.get(cod) || 0));
+      if (diferentes.length) erros.push(`O encerramento do resultado gravado no sistema para ${ano} não bate com os saldos atuais das contas de resultado (contas ${diferentes.slice(0, 8).join(", ")}${diferentes.length > 8 ? "…" : ""}). Houve lançamento depois do encerramento ou a conta de destino é outra: estorne o encerramento gravado e gere de novo.`);
+      else avisos.push(`O encerramento do resultado gravado no sistema em 31/12/${ano} confere com o lançamento de encerramento (I200 tipo E) desta ECD.`);
+    }
+  }
   const ajuste = (c: ContaPlano) => (natureza.get(c.codigo) === "04" ? -(anterior.get(c.codigo) || 0) : 0) + (contaDestino && c.codigo === contaDestino.codigo ? offsetDestino : 0);
   /** Débito e crédito do encerramento que incidem na conta em dezembro. */
   const movEncerramento = (c: ContaPlano) => {
@@ -584,20 +604,39 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
     }
   }
   let partidas = 0;
-  doAno.forEach((l, i) => {
+  // Lançamento com várias partidas (mesmo loteId e mesma data): um único I200 com todas as partidas I250.
+  const gruposAno: LancamentoValidado[][] = [];
+  const indiceLote = new Map<string, number>();
+  for (const l of doAno) {
+    const chave = l.original.loteId ? `${l.original.loteId}|${l.dataISO}` : "";
+    if (chave && indiceLote.has(chave)) { gruposAno[indiceLote.get(chave)!].push(l); continue; }
+    if (chave) indiceLote.set(chave, gruposAno.length);
+    gruposAno.push([l]);
+  }
+  gruposAno.forEach((grupo, i) => {
     const num = String(i + 1);
-    bI.push(reg("I200", num, dataBR(l.dataISO), valorBR(l.valorCentavos), "N", ""));
-    const hist = textoECD(l.original.historico);
-    const cd = l.original.centroCustoDebitoCodigo || l.original.centroCustoCodigo || "";
-    const cc = l.original.centroCustoCreditoCodigo || l.original.centroCustoCodigo || "";
-    bI.push(reg("I250", l.debito.codigo, cd, valorBR(l.valorCentavos), "D", textoECD(l.original.documentoRef, 255), "", hist, ""));
-    bI.push(reg("I250", l.credito.codigo, cc, valorBR(l.valorCentavos), "C", textoECD(l.original.documentoRef, 255), "", hist, ""));
-    partidas += 2;
+    const total = grupo.reduce((t, l) => t + l.valorCentavos, 0);
+    bI.push(reg("I200", num, dataBR(grupo[0].dataISO), valorBR(total), "N", ""));
+    // Partidas iguais (conta, centro de custo, lado, documento e histórico) são somadas numa linha só.
+    const linhas = new Map<string, { conta: string; cc: string; valor: number; dc: "D" | "C"; doc: string; hist: string }>();
+    const somar = (conta: string, cc: string, valor: number, dc: "D" | "C", doc: string, hist: string) => {
+      const k = [conta, cc, dc, doc, hist].join("\u0000");
+      const atual = linhas.get(k);
+      if (atual) atual.valor += valor; else linhas.set(k, { conta, cc, valor, dc, doc, hist });
+    };
+    for (const l of grupo) {
+      const hist = textoECD(l.original.historico);
+      const doc = textoECD(l.original.documentoRef, 255);
+      somar(l.debito.codigo, l.original.centroCustoDebitoCodigo || l.original.centroCustoCodigo || "", l.valorCentavos, "D", doc, hist);
+      somar(l.credito.codigo, l.original.centroCustoCreditoCodigo || l.original.centroCustoCodigo || "", l.valorCentavos, "C", doc, hist);
+    }
+    const ordenadas = [...linhas.values()].sort((a, b) => (a.dc === b.dc ? 0 : a.dc === "D" ? -1 : 1));
+    for (const x of ordenadas) { bI.push(reg("I250", x.conta, x.cc, valorBR(x.valor), x.dc, x.doc, "", x.hist, "")); partidas++; }
   });
   if (fechando) {
     const totalD = encerramento.filter((e) => e.dc === "D").reduce((a, e) => a + e.valor, 0);
     const histEnc = "ENCERRAMENTO DAS CONTAS DE RESULTADO DO EXERCICIO";
-    bI.push(reg("I200", String(doAno.length + 1), `3112${ano}`, valorBR(totalD), "E", ""));
+    bI.push(reg("I200", String(gruposAno.length + 1), `3112${ano}`, valorBR(totalD), "E", ""));
     for (const e of encerramento) { bI.push(reg("I250", e.cod, "", valorBR(e.valor), e.dc, "", "", histEnc, "")); partidas++; }
     bI.push(reg("I350", `3112${ano}`));
     for (const c of analiticasResultado) {
@@ -685,7 +724,7 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
     avisos,
     pendenciasNatureza,
     conteudo,
-    resumo: { linhas: total, contas: contas.length, lancamentos: doAno.length + (fechando ? 1 : 0), partidas, meses: mesesComSaldo },
+    resumo: { linhas: total, contas: contas.length, lancamentos: gruposAno.length + (fechando ? 1 : 0), partidas, meses: mesesComSaldo },
     contasPL,
     contaResultadoUsada: contaDestino?.codigo,
     demonstracoes: { ativo: totalAtivo, passivoPL: totalPassivoPL, resultadoExercicio: resultadoLiquido },

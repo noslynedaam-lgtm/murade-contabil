@@ -5,7 +5,7 @@ import { conferirFechamento } from "./utils/fechamentoContabil";
 import { GestaoContabilTab } from "./components/tabs/GestaoContabilTab";
 import type { ItemBusca } from "./components/BuscaGlobal";
 import { destacarCampo } from "./utils/destacarCampo";
-import { TabId, OrgaoConectado, EmpresaDados, LancamentoContabil, ContaPlano, LivroContabil, LembreteItem, CentroCustoContabil, MapeamentoOrigemContabil, PreLancamentoContabil } from "./types";
+import { TabId, OrgaoConectado, EmpresaDados, LancamentoContabil, ContaPlano, LivroContabil, LembreteItem, CentroCustoContabil, MapeamentoOrigemContabil, PreLancamentoContabil, HistoricoPadrao, LancamentoPadrao, RegraConciliacao, MetodoRota } from "./types";
 import { initialEmpresa, orgaosIniciais, planoContasPadrao } from "./data/mockData";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
@@ -128,6 +128,9 @@ function AppWorkspace() {
   const [livros, setLivros] = useState<LivroContabil[]>([]);
   const [competenciasFechadas, setCompetenciasFechadas] = useState<string[]>([]);
   const [lembretes, setLembretes] = useState<LembreteItem[]>([]);
+  const [historicosPadrao, setHistoricosPadrao] = useState<HistoricoPadrao[]>([]);
+  const [lancamentosPadrao, setLancamentosPadrao] = useState<LancamentoPadrao[]>([]);
+  const [regrasConciliacao, setRegrasConciliacao] = useState<RegraConciliacao[]>([]);
   const [dadosEmpresaCarregadosCnpj, setDadosEmpresaCarregadosCnpj] = useState("");
   const [workspacePersistido, setWorkspacePersistido] = useState(false);
   const [tentativaOnline, setTentativaOnline] = useState(0);
@@ -162,6 +165,9 @@ function AppWorkspace() {
       setLivros([]);
       setCompetenciasFechadas([]);
       setLembretes([]);
+      setHistoricosPadrao([]);
+      setLancamentosPadrao([]);
+      setRegrasConciliacao([]);
     };
 
     // Não permita que o conjunto da empresa anterior permaneça visível enquanto
@@ -206,6 +212,9 @@ function AppWorkspace() {
                 : item) : [],
             livros: Array.isArray(dados?.livros) ? dados.livros : [],
             lembretes: Array.isArray(dados?.lembretes) ? dados.lembretes : [],
+            historicosPadrao: Array.isArray(dados?.historicosPadrao) ? dados.historicosPadrao : [],
+            lancamentosPadrao: Array.isArray(dados?.lancamentosPadrao) ? dados.lancamentosPadrao : [],
+            regrasConciliacao: Array.isArray(dados?.regrasConciliacao) ? dados.regrasConciliacao : [],
           };
           const migracao = await fetch(`/api/workspaces/${encodeURIComponent(cnpj)}`, {
             method: "PUT", credentials: "include", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ dados, versaoAnterior: null }),
@@ -229,6 +238,9 @@ function AppWorkspace() {
         setLancamentos(Array.isArray(dados.lancamentos) ? dados.lancamentos : []);
         setLivros(Array.isArray(dados.livros) ? dados.livros : []);
         setLembretes(Array.isArray(dados.lembretes) ? dados.lembretes : []);
+        setHistoricosPadrao(Array.isArray(dados.historicosPadrao) ? dados.historicosPadrao : []);
+        setLancamentosPadrao(Array.isArray(dados.lancamentosPadrao) ? dados.lancamentosPadrao : []);
+        setRegrasConciliacao(Array.isArray(dados.regrasConciliacao) ? dados.regrasConciliacao : []);
         setCompetenciasFechadas(Array.isArray(dadosFechamentos.fechamentos) ? dadosFechamentos.fechamentos.map((item: { competencia?: unknown }) => String(item.competencia || "")) : []);
         setDadosEmpresaCarregadosCnpj(cnpj);
         setWorkspacePersistido(true);
@@ -248,7 +260,7 @@ function AppWorkspace() {
     // antigo no CNPJ novo durante a troca de empresa.
     if (!cnpj || dadosEmpresaCarregadosCnpj !== cnpj) return;
     if (!auth.cnpjs.includes(cnpj)) return;
-    const dados = { empresa: { ...empresa, certificadoAtivo: false, certificadoNomeArquivo: undefined }, contas, centrosCusto, bensImobilizado, mapeamentosOrigem, preLancamentos, lancamentos, livros, lembretes };
+    const dados = { empresa: { ...empresa, certificadoAtivo: false, certificadoNomeArquivo: undefined }, contas, centrosCusto, bensImobilizado, mapeamentosOrigem, preLancamentos, lancamentos, livros, lembretes, historicosPadrao, lancamentosPadrao, regrasConciliacao };
     if (workspaceSnapshotPersistidoRef.current === JSON.stringify(dados)) {
       workspaceSnapshotPersistidoRef.current = null;
       return;
@@ -266,7 +278,7 @@ function AppWorkspace() {
       workspaceTimerRef.current = null;
       void flushWorkspaceRef.current();
     }, 600);
-  }, [empresa, dadosEmpresaCarregadosCnpj, contas, centrosCusto, bensImobilizado, mapeamentosOrigem, preLancamentos, lancamentos, livros, lembretes, auth.cnpjs.join(","), tentativaOnline]);
+  }, [empresa, dadosEmpresaCarregadosCnpj, contas, centrosCusto, bensImobilizado, mapeamentosOrigem, preLancamentos, lancamentos, livros, lembretes, historicosPadrao, lancamentosPadrao, regrasConciliacao, auth.cnpjs.join(","), tentativaOnline]);
 
   React.useEffect(() => {
     const analiticas = new Set(contas.filter((conta) => conta.tipo === "analitica").map((conta) => conta.codigo));
@@ -304,11 +316,15 @@ function AppWorkspace() {
       empresa: { ...empresa, certificadoAtivo: false, certificadoNomeArquivo: undefined },
       contas: novasContas,
       centrosCusto: novosCentros,
+      bensImobilizado,
       mapeamentosOrigem,
       preLancamentos,
       lancamentos: novosLancamentos,
       livros,
       lembretes,
+      historicosPadrao,
+      lancamentosPadrao,
+      regrasConciliacao,
     };
     try {
       const response = await fetch(`/api/workspaces/${encodeURIComponent(cnpj)}`, {
@@ -495,6 +511,11 @@ function AppWorkspace() {
       ["livros", "Fluxo de Caixa interno", "fluxo caixa demonstracao", "Fluxo de Caixa"],
       ["livros", "Autenticação da ECD", "ecd autenticacao junta comercial termo", "Autenticação oficial da ECD"],
       ["livros", "Conferência prévia da ECD", "ecd conferencia previa sped contabil", "Conferência prévia"],
+      ["livros", "Livro Caixa (Simples Nacional)", "livro caixa simples nacional movimentacao financeira bancaria termo abertura encerramento", "Livro Caixa (Simples)"],
+      ["livros", "Encerramento do resultado", "encerramento zeramento apuracao resultado lucros prejuizos acumulados", "Encerramento do resultado"],
+      ["lancamentos", "Lançamento com várias partidas", "varias partidas multiplas lote rateio um debito varios creditos", "Forma do lançamento"],
+      ["lancamentos", "Lançamentos e históricos padrão", "lancamento padrao recorrente aluguel honorario historico padrao", "Lançamentos padrão"],
+      ["gestao-contabil", "Conciliação bancária e regras", "conciliacao bancaria extrato csv excel xlsx ofx regra sugestao", "Regras de conciliação"],
       ["balancete", "Balancete de verificação", "balancete verificacao", "Balancete local"],
       ["plano-contas", "Saldos iniciais (partidas dobradas)", "saldo inicial abertura partida dobrada", "Partidas dobradas dos saldos iniciais"],
       ["revisao-origens", "Conciliação Fiscal/DP → Contábil", "conciliacao fiscal dp contabil", "Conciliação Fiscal/DP"],
@@ -674,6 +695,40 @@ function AppWorkspace() {
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Falha ao registrar a decisão no servidor.", "info");
       return false;
+    }
+  };
+
+  /** Rotas da escrituração avançada (várias partidas, padrões, encerramento, Livro Caixa, conciliação): grava no servidor e traz os dados atualizados. */
+  const executarRotaEscrituracao = async (metodo: MetodoRota, caminho: string, corpo?: unknown): Promise<{ ok: boolean; corpo: any }> => {
+    const empresaCnpj = empresa.cnpj.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!empresaCnpj) return { ok: false, corpo: { motivo: "Escolha a empresa." } };
+    if (metodo !== "GET" && !(await flushWorkspaceRef.current())) {
+      showToast("As alterações anteriores ainda não foram confirmadas no banco. Aguarde e tente de novo.", "info");
+      return { ok: false, corpo: { motivo: "Gravação anterior pendente." } };
+    }
+    try {
+      const response = await fetchComGuarda(`/api/workspaces/${encodeURIComponent(empresaCnpj)}/${caminho}`, {
+        method: metodo, credentials: "include", cache: "no-store",
+        headers: { Accept: "application/json", ...(metodo === "POST" ? { "Content-Type": "application/json" } : {}) },
+        ...(metodo === "POST" ? { body: JSON.stringify(corpo ?? {}) } : {}),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (tratarBloqueioServico(result)) return { ok: false, corpo: result };
+      if (!response.ok || result.sucesso === false) { if (metodo !== "GET") showToast(String(result.motivo || "O servidor não confirmou."), "info"); return { ok: false, corpo: result }; }
+      if (result.dados && typeof result.dados === "object") {
+        const d = result.dados;
+        if (Number.isSafeInteger(Number(result.versao))) versoesWorkspaceRef.current.set(empresaCnpj, Number(result.versao));
+        setLancamentos(Array.isArray(d.lancamentos) ? d.lancamentos : []);
+        setLivros(Array.isArray(d.livros) ? d.livros : []);
+        setHistoricosPadrao(Array.isArray(d.historicosPadrao) ? d.historicosPadrao : []);
+        setLancamentosPadrao(Array.isArray(d.lancamentosPadrao) ? d.lancamentosPadrao : []);
+        setRegrasConciliacao(Array.isArray(d.regrasConciliacao) ? d.regrasConciliacao : []);
+      }
+      if (metodo !== "GET" && result.mensagem) showToast(String(result.mensagem), "success");
+      return { ok: true, corpo: result };
+    } catch {
+      if (metodo !== "GET") showToast("Não foi possível falar com o servidor agora.", "info");
+      return { ok: false, corpo: { motivo: "Sem conexão com o servidor." } };
     }
   };
 
@@ -989,6 +1044,8 @@ function AppWorkspace() {
                   workspacePersistido={workspacePersistido}
                   confirmacoes={confirmacoesFechamento}
                   onConfirmacoes={setConfirmacoesFechamento}
+                  onRota={executarRotaEscrituracao}
+                  regrasConciliacao={regrasConciliacao}
                 />
               )}
 
@@ -1006,6 +1063,9 @@ function AppWorkspace() {
                   onEstornarLancamento={handleEstornarLancamento}
                   workspacePersistido={workspacePersistido}
                   onDecidirLancamentoManual={handleDecidirLancamentoManual}
+                  historicosPadrao={historicosPadrao}
+                  lancamentosPadrao={lancamentosPadrao}
+                  onRota={executarRotaEscrituracao}
                 />
               )}
 
@@ -1043,6 +1103,7 @@ function AppWorkspace() {
                   livros={livros}
                   onDefinirContasDisponibilidades={(codigos) => setEmpresa((prev) => ({ ...prev, contasDisponibilidadesCodigo: codigos }))}
                   onMapeamentoReferencial={(mapa) => setEmpresa((prev) => ({ ...prev, mapeamentoReferencial: mapa }))}
+                  onRota={executarRotaEscrituracao}
                 />
               )}
 

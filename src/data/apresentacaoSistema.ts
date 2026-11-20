@@ -37,6 +37,10 @@ export const ROBOS_APRESENTACAO: RoboApresentacao[] = [
   { id: 'servico_feito', nome: 'Robô Conferidor de Serviço Feito', intervaloMs: 15 * 60_000, faz: 'evita retrabalho entre quem trabalha na mesma empresa: libera os "estou fazendo" esquecidos depois de 15 minutos e apaga registros com mais de 120 dias.' },
   { id: 'meu_jeito', nome: 'Robô Conferidor do Meu Jeito', intervaloMs: 24 * 60 * 60_000, faz: 'confere se as regras que a Agente aprendeu de cada pessoa ainda existem no sistema (se não, pausa a regra e avisa na próxima abertura), se o nome pelo qual ela te chama está certo e igual em todo lugar, e limpa o que ficou velho. Nunca apaga o seu jeito.' },
   { id: 'apresentacao', nome: 'Robô Conferidor da Apresentação', intervaloMs: 24 * 60 * 60_000, soDono: true, faz: 'confere se esta apresentação ainda bate com o código e avisa o dono se algo novo ainda não tem bloco.' },
+  { id: 'lancamentos_padrao', nome: 'Robô dos Lançamentos Padrão', intervaloMs: 60 * 60_000, faz: 'prepara todo mês os lançamentos padrão que você cadastrou, como aluguel e honorários, como pré-lançamento para você aprovar. Nunca prepara duas vezes o mesmo mês e nunca mexe em mês fechado.' },
+  { id: 'livro_caixa', nome: 'Robô do Livro Caixa (Simples)', intervaloMs: 2 * 60 * 60_000, faz: 'confere as empresas do Simples no mês anterior: quem tem Diário e Razão está dispensado do Livro Caixa; sem lançamento no mês, ele emite sozinho o Livro Caixa sem movimento e avisa quando falta marcar as contas de caixa ou o saldo inicial.' },
+  { id: 'encerramento', nome: 'Robô do Encerramento do Resultado', intervaloMs: 6 * 60 * 60_000, faz: 'confere se o resultado do ano anterior foi encerrado no sistema e se o encerramento ainda bate com as contas; quando janeiro a novembro estão fechados, prepara o encerramento para você aprovar.' },
+  { id: 'conciliacao', nome: 'Robô da Conciliação Bancária', intervaloMs: 60 * 60_000, faz: 'olha o extrato guardado de cada empresa e sugere o lançamento que casa ou a conta pela regra do escritório. Só sugere: conciliar e lançar é sempre você.' },
 ];
 
 export function falarIntervalo(ms: number | null): string {
@@ -59,7 +63,7 @@ export const INTEGRACOES_APRESENTACAO: IntegracaoApresentacao[] = [
   },
   {
     id: 'fiscal-apuracoes', titulo: 'Do Fiscal: apurações de tributo', tela: 'revisao-origens',
-    falar: 'O Fiscal também envia as apurações de tributo que a contadora já confirmou, como o DIFAL do ICMS e o IRPJ, a CSLL, o PIS e a COFINS do Lucro Presumido. O Contábil grava por empresa, tributo e competência.',
+    falar: 'O Fiscal também envia as apurações de tributo que a contadora já confirmou, como o DIFAL do ICMS, o IRPJ, a CSLL, o PIS e a COFINS do Lucro Presumido e o DAS do Simples (provisão e pagamento). O Contábil grava por empresa, tributo e competência e prepara os pré-lançamentos para você aprovar.',
     rotas: ['POST /api/integracao/fiscal/apuracoes', 'GET /api/integracao/fiscal/apuracoes'],
   },
   {

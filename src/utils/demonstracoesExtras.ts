@@ -40,6 +40,8 @@ export function gerarDlpa(contas: ContaPlano[], lancamentos: LancamentoContabil[
   let avisoEncerramento = false;
   for (const item of relAnt.validos) {
     if (item.dataISO < inicioAno || item.dataISO > fimAno) continue;
+    // O encerramento gravado do próprio ano leva o resultado para lucros acumulados: ele já está em resultadoExercicio.
+    if (item.original.tipoEspecial === "encerramento") continue;
     const deb = codigos.has(item.debito.codigo), cre = codigos.has(item.credito.codigo);
     if (!deb && !cre) continue;
     const contra = cre ? item.debito : item.credito;

@@ -28,6 +28,9 @@ export const ORIGENS = [
   { id: "fiscal_csll_presumido", rotulo: "Fiscal — CSLL Presumido" },
   { id: "fiscal_pis_presumido", rotulo: "Fiscal — PIS Presumido" },
   { id: "fiscal_cofins_presumido", rotulo: "Fiscal — COFINS Presumido" },
+  { id: "fiscal_das_simples", rotulo: "Fiscal — DAS Simples (provisão)" },
+  { id: "fiscal_das_simples_pago", rotulo: "Fiscal — DAS Simples (pagamento)" },
+  { id: "fiscal_das_simples_encargos", rotulo: "Fiscal — DAS Simples (multa e juros)" },
 ] as const;
 
 export type IdOrigem = (typeof ORIGENS)[number]["id"];
@@ -46,7 +49,14 @@ export const ORIGEM_POR_TRIBUTO: Record<string, IdOrigem> = {
   CSLL_PRESUMIDO: "fiscal_csll_presumido",
   PIS_PRESUMIDO: "fiscal_pis_presumido",
   COFINS_PRESUMIDO: "fiscal_cofins_presumido",
+  // DAS do Simples Nacional vindo do Fiscal pela mesma rota das apurações: provisão (competência do DAS) e pagamento (mês do pagamento).
+  // A multa e os juros de um pagamento em atraso não são um tributo à parte: saem do próprio DAS_SIMPLES_PAGO (valor pago − principal)
+  // e usam a origem fiscal_das_simples_encargos, com a referência terminada em ":ENCARGOS" (ver origemDaReferencia).
+  DAS_SIMPLES: "fiscal_das_simples",
+  DAS_SIMPLES_PAGO: "fiscal_das_simples_pago",
 };
+/** Sufixo da referência da parte de multa e juros de um DAS pago em atraso. */
+export const SUFIXO_ENCARGOS_DAS = "ENCARGOS";
 
 // ---------------------------------------------------------------- folha mensal do DP
 /** Campos da folha agregada que viram partida. `classificado` = desconto/provento que explica a diferença entre bruto e líquido. */
@@ -136,6 +146,9 @@ export function origemDaReferencia(referencia: string): OrigemDaReferencia | nul
   }
   if (!COMP.test(p[2])) return null;
   if ((p[3] === "Entrada" || p[3] === "Saida") && p.length >= 5 && p[4]) return monta(p[3] === "Entrada" ? "fiscal_entrada" : "fiscal_saida", p[2]);
-  if (p[3] === "APURACAO" && p.length >= 6 && p[5]) return monta(ORIGEM_POR_TRIBUTO[p[4]], p[2]);
+  if (p[3] === "APURACAO" && p.length >= 6 && p[5]) {
+    if (p[4] === "DAS_SIMPLES_PAGO" && p.length >= 7 && p[p.length - 1] === SUFIXO_ENCARGOS_DAS) return monta("fiscal_das_simples_encargos", p[2]);
+    return monta(ORIGEM_POR_TRIBUTO[p[4]], p[2]);
+  }
   return null;
 }

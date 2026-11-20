@@ -1,3 +1,4 @@
+import type { RotaEscrituracao } from "../../types";
 import React, { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, BookOpen, Download, ExternalLink, FileSpreadsheet, Printer } from "lucide-react";
 import { EcdGeradorPainel } from "../EcdGeradorPainel";
@@ -9,12 +10,14 @@ import { EcfArquivoPainel } from "../EcfArquivoPainel";
 import { ContaPlano, EmpresaDados, LancamentoContabil, LivroContabil, PreLancamentoContabil } from "../../types";
 import {
   dataLegivelContabil,
-  converterCentavos,
   gerarRelatoriosContabeis,
   gerarWorkbookExcel,
   moedaContabil,
   PeriodoContabil,
 } from "../../utils/livrosContabeis";
+import { calcularFluxoCaixaInterno, contasDisponibilidadesDaEmpresa } from "../../utils/livroCaixa";
+import { ehEncerramento, semEncerramento } from "../../utils/escrituracaoAvancada";
+import { EncerramentoPainel, LivroCaixaPainel } from "../LivroCaixaEncerramento";
 
 interface LivrosTabProps {
   empresa: EmpresaDados;
@@ -26,9 +29,10 @@ interface LivrosTabProps {
   livros: LivroContabil[];
   onDefinirContasDisponibilidades: (codigos: string[]) => void;
   onMapeamentoReferencial?: (mapa: Record<string, string>) => void;
+  onRota?: RotaEscrituracao;
 }
 
-type LivroVisivel = "diario" | "razao" | "balancete" | "dre" | "balanco" | "fluxo-caixa";
+type LivroVisivel = "diario" | "razao" | "balancete" | "dre" | "balanco" | "fluxo-caixa" | "livro-caixa" | "encerramento";
 
 function competenciaInicial(valor: string): string {
   if (/^\d{4}-(0[1-9]|1[0-2])$/.test(valor || "")) return valor;
@@ -81,6 +85,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
   livros,
   onDefinirContasDisponibilidades,
   onMapeamentoReferencial,
+  onRota,
 }) => {
   const [periodo, setPeriodo] = useState<PeriodoContabil>(() => competenciaInicial(empresa.competencia));
   const [livroVisivel, setLivroVisivel] = useState<LivroVisivel>("diario");
@@ -91,6 +96,11 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
 
   const relatorios = useMemo(
     () => gerarRelatoriosContabeis(contas, workspaceCarregado ? lancamentos : [], periodo),
+    [contas, lancamentos, periodo, workspaceCarregado],
+  );
+  // DRE e cálculos de resultado: sem o encerramento gravado (ele zera as contas de resultado e não é receita nem despesa).
+  const relatoriosResultado = useMemo(
+    () => gerarRelatoriosContabeis(contas, workspaceCarregado ? semEncerramento(lancamentos) : [], periodo),
     [contas, lancamentos, periodo, workspaceCarregado],
   );
   const relatoriosECD = useMemo(
@@ -107,7 +117,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
   if (competenciaEmpresa !== "todos" && !competenciasDisponiveis.includes(competenciaEmpresa)) competenciasDisponiveis.push(competenciaEmpresa);
   competenciasDisponiveis.sort((a, b) => b.localeCompare(a));
 
-  const lancamentosAnoECD = relatoriosECD.validos.filter((item) => item.dataISO.slice(0, 4) === anoECD);
+  const lancamentosAnoECD = relatoriosECD.validos.filter((item) => item.dataISO.slice(0, 4) === anoECD && !ehEncerramento(item.original));
   const invalidosAnoECD = relatoriosECD.invalidos.filter((item) => {
     const data = String(item.data || "");
     return data.startsWith(`${anoECD}-`) || data.endsWith(`/${anoECD}`);
@@ -218,7 +228,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
     for (const conta of contas.filter((item) => item.tipo === "analitica" && ["receita", "despesa"].includes(grupoDemonstracao(item, contas) || ""))) {
       porConta.set(conta.codigo, { conta, debito: 0, credito: 0 });
     }
-    for (const item of relatorios.doPeriodo) {
+    for (const item of relatoriosResultado.doPeriodo) {
       const debito = porConta.get(item.debito.codigo);
       const credito = porConta.get(item.credito.codigo);
       if (debito) debito.debito += item.valorCentavos;
@@ -229,20 +239,21 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
     const totalReceitas = receitas.reduce((soma, item) => soma + item.credito - item.debito, 0);
     const totalDespesas = despesas.reduce((soma, item) => soma + item.debito - item.credito, 0);
     return { receitas, despesas, totalReceitas, totalDespesas, resultado: totalReceitas - totalDespesas };
-  }, [contas, relatorios.doPeriodo]);
+  }, [contas, relatoriosResultado.doPeriodo]);
 
   const contasPatrimoniais = relatorios.balancete.filter((item) => item.conta.tipo === "analitica"
     && ["ativo", "passivo", "patrimonio"].includes(grupoDemonstracao(item.conta, contas) || "")
     && (item.saldoDevedorCentavos || item.saldoCredorCentavos || item.debitoPeriodoCentavos || item.creditoPeriodoCentavos));
-  const contasSemClassificacaoDRE = relatorios.balancete.filter((item) => item.conta.tipo === "analitica"
+  const contasSemClassificacaoDRE = relatoriosResultado.balancete.filter((item) => item.conta.tipo === "analitica"
     && grupoDemonstracao(item.conta, contas) === null
     && (item.debitoPeriodoCentavos || item.creditoPeriodoCentavos));
   const contasSemClassificacaoBalanco = relatorios.balancete.filter((item) => item.conta.tipo === "analitica"
     && grupoDemonstracao(item.conta, contas) === null
     && (item.saldoDevedorCentavos || item.saldoCredorCentavos));
+  const encerradoNoPeriodo = relatorios.doPeriodo.some((item) => ehEncerramento(item.original));
   const contasResultadoNaoEncerradasBalanco = relatorios.balancete.filter((item) => item.conta.tipo === "analitica"
     && ["receita", "despesa"].includes(grupoDemonstracao(item.conta, contas) || "")
-    && (item.saldoDevedorCentavos || item.saldoCredorCentavos || item.debitoPeriodoCentavos || item.creditoPeriodoCentavos));
+    && (item.saldoDevedorCentavos || item.saldoCredorCentavos || (!encerradoNoPeriodo && (item.debitoPeriodoCentavos || item.creditoPeriodoCentavos))));
   const totalAtivo = contasPatrimoniais.filter((item) => grupoDemonstracao(item.conta, contas) === "ativo").reduce((soma, item) => soma + item.saldoDevedorCentavos - item.saldoCredorCentavos, 0);
   const totalPassivo = contasPatrimoniais.filter((item) => grupoDemonstracao(item.conta, contas) === "passivo").reduce((soma, item) => soma + item.saldoCredorCentavos - item.saldoDevedorCentavos, 0);
   const totalPatrimonio = contasPatrimoniais.filter((item) => grupoDemonstracao(item.conta, contas) === "patrimonio").reduce((soma, item) => soma + item.saldoCredorCentavos - item.saldoDevedorCentavos, 0);
@@ -264,53 +275,8 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
       ? "Saldos devedores e credores iguais na conferência local"
       : `Divergência interna de ${moedaContabil(diferencaBalanceteCentavos)} entre saldos devedores e credores`;
 
-  const contasDisponibilidades = useMemo(() => {
-    const codigos = new Set(empresa.contasDisponibilidadesCodigo || []);
-    return contas.filter((conta) => conta.tipo === "analitica" && conta.natureza === "D" && codigos.has(conta.codigo));
-  }, [contas, empresa.contasDisponibilidadesCodigo]);
-  const fluxoCaixa = useMemo(() => {
-    type Linha = { dataISO: string; conta: string; contraparte: string; historico: string; referencia: string; entrada: number; saida: number };
-    const indisponivel = (motivo: string) => ({ disponivel: false, motivo, saldoInicialCentavos: 0, entradasCentavos: 0, saidasCentavos: 0, saldoFinalCentavos: 0, linhas: [] as Linha[] });
-    if (periodo === "todos") return indisponivel("Selecione uma competência específica para conferir o fluxo de caixa.");
-    if (!contasDisponibilidades.length) return indisponivel("Marque as contas analíticas de Caixa e Bancos usadas por esta empresa.");
-    const codigos = new Set(contasDisponibilidades.map((conta) => conta.codigo));
-    const semAbertura = contasDisponibilidades.filter((conta) => {
-      const saldo = converterCentavos(conta.saldoInicial ?? NaN);
-      return saldo === null || !/^\d{4}-(0[1-9]|1[0-2])$/.test(String(conta.saldoInicialCompetencia || "")) || String(conta.saldoInicialCompetencia) > periodo;
-    });
-    if (semAbertura.length) return indisponivel(`Informe e confirme o saldo inicial e a competência-base de: ${semAbertura.map((conta) => `${conta.codigo} ${conta.descricao}`).join(", ")}.`);
-    const lancamentosAberturaAusentes = contasDisponibilidades.filter((conta) => conta.saldoInicialConvertidoEm
-      && !relatorios.validos.some((item) => item.original.saldoInicialContaCodigo === conta.codigo));
-    if (lancamentosAberturaAusentes.length) return indisponivel(`Abertura marcada como convertida sem lançamento aprovado para: ${lancamentosAberturaAusentes.map((conta) => conta.codigo).join(", ")}.`);
-    let saldoInicialCentavos = 0;
-    for (const conta of contasDisponibilidades) {
-      const saldo = converterCentavos(conta.saldoInicial ?? 0) || 0;
-      if (!conta.saldoInicialConvertidoEm) saldoInicialCentavos += saldo;
-    }
-    const linhas: Linha[] = [];
-    const processarMovimentoDisponibilidade = (item: typeof relatorios.validos[number], codigoCaixa: string, debitoCaixa: boolean) => {
-      const competencia = item.dataISO.slice(0, 7);
-      const contaCaixa = contasDisponibilidades.find((conta) => conta.codigo === codigoCaixa)!;
-      const competenciaBase = String(contaCaixa.saldoInicialCompetencia || "");
-      if (competencia < competenciaBase || competencia > periodo) return;
-      const delta = debitoCaixa ? item.valorCentavos : -item.valorCentavos;
-      if (item.original.saldoInicialContaCodigo) {
-        saldoInicialCentavos += delta;
-        return;
-      }
-      if (competencia < periodo) { saldoInicialCentavos += delta; return; }
-      const contraparte = debitoCaixa ? item.credito : item.debito;
-      linhas.push({ dataISO: item.dataISO, conta: codigoCaixa, contraparte: `${contraparte.codigo} — ${contraparte.descricao}`, historico: item.original.historico, referencia: String(item.original.documentoRef || item.original.id), entrada: Math.max(0, delta), saida: Math.max(0, -delta) });
-    };
-    for (const item of relatorios.validos) {
-      if (codigos.has(item.debito.codigo)) processarMovimentoDisponibilidade(item, item.debito.codigo, true);
-      if (codigos.has(item.credito.codigo)) processarMovimentoDisponibilidade(item, item.credito.codigo, false);
-    }
-    linhas.sort((a, b) => a.dataISO.localeCompare(b.dataISO) || a.referencia.localeCompare(b.referencia));
-    const entradasCentavos = linhas.reduce((soma, item) => soma + item.entrada, 0);
-    const saidasCentavos = linhas.reduce((soma, item) => soma + item.saida, 0);
-    return { disponivel: true, motivo: "Valores derivados de lançamentos definitivos e contas de disponibilidades explicitamente selecionadas.", saldoInicialCentavos, entradasCentavos, saidasCentavos, saldoFinalCentavos: saldoInicialCentavos + entradasCentavos - saidasCentavos, linhas };
-  }, [contasDisponibilidades, periodo, relatorios.validos]);
+  const contasDisponibilidades = useMemo(() => contasDisponibilidadesDaEmpresa(contas, empresa.contasDisponibilidadesCodigo), [contas, empresa.contasDisponibilidadesCodigo]);
+  const fluxoCaixa = useMemo(() => calcularFluxoCaixaInterno(contasDisponibilidades, relatorios.validos, periodo), [contasDisponibilidades, periodo, relatorios.validos]);
   const saldoContabilDisponibilidadesCentavos = contasDisponibilidades.reduce((total, conta) => {
     const linha = relatorios.balancete.find((item) => item.conta.codigo === conta.codigo);
     return total + (linha?.saldoDevedorCentavos || 0) - (linha?.saldoCredorCentavos || 0);
@@ -507,7 +473,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
       {aviso && <p role="status" className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">{aviso}</p>}
 
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Livros contábeis">
-        {([ ["diario", "Livro Diário"], ["razao", "Livro Razão"], ["balancete", "Balancete"], ["dre", "DRE gerencial"], ["balanco", "Balanço gerencial"], ["fluxo-caixa", "Fluxo de caixa interno"] ] as const).map(([id, nome]) => (
+        {([ ["diario", "Livro Diário"], ["razao", "Livro Razão"], ["balancete", "Balancete"], ["dre", "DRE gerencial"], ["balanco", "Balanço gerencial"], ["fluxo-caixa", "Fluxo de caixa interno"], ["livro-caixa", "Livro Caixa (Simples)"], ["encerramento", "Encerramento do resultado"] ] as const).map(([id, nome]) => (
           <button key={id} type="button" role="tab" aria-selected={livroVisivel === id} onClick={() => setLivroVisivel(id)} className={`rounded-lg px-3 py-2 text-xs font-bold ${livroVisivel === id ? "bg-slate-900 text-white" : "border border-slate-200 bg-white text-slate-700"}`}>{nome}</button>
         ))}
       </div>
@@ -553,7 +519,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
             <p className="mt-1 text-[11px] text-amber-900">Esses movimentos não entram no resultado até que a classificação seja revisada. O sistema não deduz a natureza da conta.</p>
             <table className="mt-2 w-full min-w-[560px] text-left text-xs"><thead><tr><th className="py-1">Conta</th><th>Descrição</th><th className="text-right">Débito</th><th className="text-right">Crédito</th></tr></thead><tbody>{contasSemClassificacaoDRE.map((item) => <tr key={`dre-pendente-${item.conta.codigo}`} className="border-t border-amber-200"><td className="py-1 font-mono">{item.conta.codigo}</td><td>{item.conta.descricao || "Nome não informado"}</td><td className="text-right">{moedaContabil(item.debitoPeriodoCentavos)}</td><td className="text-right">{moedaContabil(item.creditoPeriodoCentavos)}</td></tr>)}{!contasSemClassificacaoDRE.length && <tr><td colSpan={4} className="py-2 text-amber-900">Nenhuma conta com movimento não classificado no período.</td></tr>}</tbody></table>
           </div>
-        <DemonstracaoReferencialPainel empresa={empresa} balancete={relatorios.balancete} qual="dre" /></div>}
+        <DemonstracaoReferencialPainel empresa={empresa} balancete={relatoriosResultado.balancete} qual="dre" /></div>}
 
         {livroVisivel === "balanco" && <div className="p-3">
           <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950">Balanço gerencial classifica Ativo, Passivo e Patrimônio Líquido pelas descrições das contas e dos grupos superiores, independentemente do código. Saldos de contas sem descrição reconhecível ficam fora deste resumo. Contas de receita e despesa também não são transferidas automaticamente para o patrimônio líquido: {contasResultadoNaoEncerradasBalanco.length} conta(s) de resultado têm movimento/saldo e exigem conferência do encerramento. Nenhum encerramento ou ajuste é criado aqui.</p>
@@ -566,6 +532,9 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
             <table className="mt-2 w-full min-w-[560px] text-left text-xs"><thead><tr><th className="py-1">Conta</th><th>Descrição</th><th className="text-right">Saldo devedor</th><th className="text-right">Saldo credor</th></tr></thead><tbody>{contasSemClassificacaoBalanco.map((item) => <tr key={`bp-pendente-${item.conta.codigo}`} className="border-t border-amber-200"><td className="py-1 font-mono">{item.conta.codigo}</td><td>{item.conta.descricao || "Nome não informado"}</td><td className="text-right">{moedaContabil(item.saldoDevedorCentavos)}</td><td className="text-right">{moedaContabil(item.saldoCredorCentavos)}</td></tr>)}{!contasSemClassificacaoBalanco.length && <tr><td colSpan={4} className="py-2 text-amber-900">Nenhum saldo sem classificação reconhecida.</td></tr>}</tbody></table>
           </div>
         <DemonstracaoReferencialPainel empresa={empresa} balancete={relatorios.balancete} qual="balanco" /></div>}
+
+        {livroVisivel === "livro-caixa" && <LivroCaixaPainel empresa={empresa} contas={contas} lancamentos={workspaceCarregado ? lancamentos : []} livros={livros} competenciaInicial={periodo === "todos" ? new Date().toISOString().slice(0, 7) : periodo} podeGravar={workspacePersistido} onRota={onRota} />}
+        {livroVisivel === "encerramento" && <EncerramentoPainel contas={contas} lancamentos={workspaceCarregado ? lancamentos : []} podeGravar={workspacePersistido} onRota={onRota} />}
 
         {livroVisivel === "fluxo-caixa" && <div className="space-y-3 p-3">
           <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-950"><strong>Relatório interno de movimentação de caixa e bancos.</strong> Marque as contas analíticas de disponibilidades da empresa. O sistema usa somente lançamentos definitivos e saldo inicial com competência-base confirmada; não estima saldo ausente nem classifica os fluxos em operacionais, investimentos ou financiamentos.</div>

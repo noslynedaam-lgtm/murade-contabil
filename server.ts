@@ -39,6 +39,7 @@ import { respostaRapida } from "./src/server/respostasRapidas";
 import { omitirXmlOriginal, resumirCoberturaXmlFiscal } from "./src/server/coberturaXmlFiscal";
 import { montarServicoFeito } from "./src/server/servicoFeitoRotas";
 import { chaveServico, descreverRegistro, tenantDaSessao } from "./src/server/servicoFeito";
+import { registrarRotasEscrituracao, roboConciliacao, roboEncerramento, roboLancamentosPadrao, roboLivroCaixa } from "./src/server/escrituracaoRotas";
 
 dotenv.config();
 
@@ -1293,6 +1294,8 @@ const reconciliacaoRascunhosStatus: {
     console.log(`[Robôs] rodada manual de "${id}" pedida por ${sessao.login}`);
     return res.json({ sucesso: true, mensagem: "Robô disparado. O resultado aparece no painel em instantes." });
   });
+  // Escrituração avançada: várias partidas, histórico e lançamento padrão, encerramento, Livro Caixa e conciliação bancária.
+  registrarRotasEscrituracao(app, { exigirOrigemNavegador, exigirSessaoContabil, consultar: (sql, params) => consultaBancoContabil(sql, params) });
   // Reprocessar a recepção de UMA empresa (botão manual ao lado da retentativa automática de 60 s do Robô Reconciliador):
   // reaplica os mapeamentos padrão e prepara de novo os rascunhos com o que o Fiscal e o DP já mandaram. Idempotente; não aprova nada.
   app.post("/api/workspaces/:cnpj/reprocessar-recepcao", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
@@ -1585,6 +1588,27 @@ const reconciliacaoRascunhosStatus: {
   setTimeout(() => void rodarServicoFeito(), 170_000).unref();
   setInterval(() => void rodarServicoFeito(), 15 * 60_000).unref();
   registrarRotinaManual("servico_feito", rodarServicoFeito);
+
+  // Robôs da escrituração avançada (todos os escritórios, empresa por empresa; nunca aprovam nada sozinhos).
+  const consultarEscrituracao = (sql: string, params?: unknown[]) => consultaBancoContabil(sql, params);
+  registrarRobo({ id: "lancamentos_padrao", nome: "Robô dos Lançamentos Padrão", posto: "calculador", missao: "Preparar todo mês, como pré-lançamento pendente de aprovação, os lançamentos padrão (recorrentes) que cada empresa cadastrou, como aluguel e honorários. Nunca prepara duas vezes a mesma competência, nunca mexe em mês fechado e nunca aprova.", ...(bancoContabilConfigurado() ? { intervaloMs: 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  const rodarLancamentosPadrao = () => bancoContabilConfigurado() ? executarRobo("lancamentos_padrao", async () => registrarResultadoRobo("lancamentos_padrao", await roboLancamentosPadrao())).catch((e) => console.error("Falha no Robô dos Lançamentos Padrão:", e?.message || e)) : undefined;
+  registrarRobo({ id: "livro_caixa", nome: "Robô do Livro Caixa (Simples)", posto: "conferidor", missao: "Conferir as empresas do Simples Nacional no mês anterior: com escrituração contábil (Diário e Razão) o Livro Caixa é dispensado (Res. CGSN 140/2018, art. 63, § 3º); sem lançamento no mês, emite sozinho o Livro Caixa sem movimento quando as contas de Caixa/Bancos e o saldo inicial estão confirmados, e avisa quando falta algo.", ...(bancoContabilConfigurado() ? { intervaloMs: 2 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  const rodarLivroCaixa = () => bancoContabilConfigurado() ? executarRobo("livro_caixa", async () => registrarResultadoRobo("livro_caixa", await roboLivroCaixa(consultarEscrituracao))).catch((e) => console.error("Falha no Robô do Livro Caixa:", e?.message || e)) : undefined;
+  registrarRobo({ id: "encerramento", nome: "Robô do Encerramento do Resultado", posto: "conferidor", missao: "Conferir o encerramento do resultado do ano anterior em cada empresa: avisa quando falta ou quando o encerramento gravado não bate mais com as contas de resultado, e prepara o encerramento para aprovação quando janeiro a novembro já estão fechados. Nunca aprova nem estorna sozinho.", ...(bancoContabilConfigurado() ? { intervaloMs: 6 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  const rodarEncerramento = () => bancoContabilConfigurado() ? executarRobo("encerramento", async () => registrarResultadoRobo("encerramento", await roboEncerramento(consultarEscrituracao))).catch((e) => console.error("Falha no Robô do Encerramento:", e?.message || e)) : undefined;
+  registrarRobo({ id: "conciliacao", nome: "Robô da Conciliação Bancária", posto: "conferidor", missao: "Olhar o extrato guardado de cada empresa e sugerir, para cada movimento sem conciliação, o lançamento aprovado que casa (mesmo sentido e valor) ou a conta pela regra do escritório (quando o histórico tiver o texto) ou pelo histórico. Só grava sugestão: conciliar e lançar é sempre uma pessoa.", ...(bancoContabilConfigurado() ? { intervaloMs: 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  const rodarConciliacao = () => bancoContabilConfigurado() ? executarRobo("conciliacao", async () => registrarResultadoRobo("conciliacao", await roboConciliacao(consultarEscrituracao))).catch((e) => console.error("Falha no Robô da Conciliação:", e?.message || e)) : undefined;
+  if (bancoContabilConfigurado()) {
+    setTimeout(() => void rodarLancamentosPadrao(), 150_000).unref(); setInterval(() => void rodarLancamentosPadrao(), 60 * 60_000).unref();
+    setTimeout(() => void rodarLivroCaixa(), 170_000).unref(); setInterval(() => void rodarLivroCaixa(), 2 * 60 * 60_000).unref();
+    setTimeout(() => void rodarEncerramento(), 190_000).unref(); setInterval(() => void rodarEncerramento(), 6 * 60 * 60_000).unref();
+    setTimeout(() => void rodarConciliacao(), 210_000).unref(); setInterval(() => void rodarConciliacao(), 60 * 60_000).unref();
+    registrarRotinaManual("lancamentos_padrao", rodarLancamentosPadrao);
+    registrarRotinaManual("livro_caixa", rodarLivroCaixa);
+    registrarRotinaManual("encerramento", rodarEncerramento);
+    registrarRotinaManual("conciliacao", rodarConciliacao);
+  }
 
   registrarRotaVozGemini(app, { obterIA: () => getAI(), autorizar: () => true, antes: [exigirSessaoContabil] });
   app.post("/api/ai/chat", exigirSessaoContabil, async (req, res) => {

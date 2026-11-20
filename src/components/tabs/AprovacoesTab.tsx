@@ -1,3 +1,4 @@
+import { agruparPorLote } from "../../utils/escrituracaoAvancada";
 import React, { useState } from "react";
 import { CheckCircle2, XCircle } from "lucide-react";
 import type { LancamentoContabil } from "../../types";
@@ -17,6 +18,8 @@ const dinheiro = (v: number) => v.toLocaleString("pt-BR", { style: "currency", c
 // Aprovar pede um segundo toque no próprio cartão ("Confirmar"), para um toque sem querer nunca lançar nos livros.
 export const AprovacoesTab: React.FC<AprovacoesTabProps> = ({ lancamentos, empresaNome, workspacePersistido, onDecidirLancamentoManual }) => {
   const pendentes = lancamentos.filter((l) => l.statusManual === "pendente_aprovacao");
+  // Lançamento com várias partidas aparece num cartão só: aprovar ou rejeitar vale para o lote inteiro (o servidor decide junto).
+  const grupos = agruparPorLote<LancamentoContabil>(pendentes);
   const [aprovando, setAprovando] = useState<string | null>(null);
   const [rejeitando, setRejeitando] = useState<string | null>(null);
   const [motivo, setMotivo] = useState("");
@@ -34,7 +37,7 @@ export const AprovacoesTab: React.FC<AprovacoesTabProps> = ({ lancamentos, empre
     <div className="mx-auto max-w-2xl space-y-4 p-4 sm:p-6">
       <div>
         <h1 className="text-lg font-bold text-slate-900">Aprovar lançamentos</h1>
-        <p className="text-xs text-slate-600">{empresaNome} · {pendentes.length ? `${pendentes.length} aguardando sua decisão` : "nada aguardando aprovação"}</p>
+        <p className="text-xs text-slate-600">{empresaNome} · {grupos.length ? `${grupos.length} aguardando sua decisão` : "nada aguardando aprovação"}</p>
       </div>
       {!workspacePersistido && (
         <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
@@ -48,24 +51,24 @@ export const AprovacoesTab: React.FC<AprovacoesTabProps> = ({ lancamentos, empre
         </div>
       )}
       <ul className="space-y-3">
-        {pendentes.map((l) => (
+        {grupos.map((grupo) => { const l = grupo[0]; const total = grupo.reduce((t, x) => t + x.valor, 0); const varias = grupo.length > 1; return (
           <li key={l.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-xs text-slate-500">{l.data} · {l.origem}{l.estornoDe ? " · estorno" : ""}</div>
+                <div className="text-xs text-slate-500">{l.data} · {l.origem}{l.estornoDe ? " · estorno" : ""}{varias ? ` · ${grupo.length} partidas (decididas juntas)` : ""}{l.tipoEspecial === "encerramento" ? " · encerramento do resultado" : ""}{l.recorrenteDe ? " · lançamento padrão" : ""}</div>
                 <div className="mt-0.5 break-words text-sm font-semibold text-slate-900">{l.historico}</div>
                 {l.documentoRef && <div className="mt-0.5 break-all font-mono text-[10px] text-slate-400">Ref: {l.documentoRef}</div>}
               </div>
-              <div className="shrink-0 text-right text-lg font-black text-slate-900">{dinheiro(l.valor)}</div>
+              <div className="shrink-0 text-right text-lg font-black text-slate-900">{dinheiro(total)}</div>
             </div>
-            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-              <div className="rounded-lg bg-rose-50 p-2"><div className="font-bold text-rose-800">Débito</div><div className="font-mono">{l.contaDebitoCodigo}</div><div className="text-slate-600">{l.contaDebitoNome}</div></div>
-              <div className="rounded-lg bg-emerald-50 p-2"><div className="font-bold text-emerald-800">Crédito</div><div className="font-mono">{l.contaCreditoCodigo}</div><div className="text-slate-600">{l.contaCreditoNome}</div></div>
-            </div>
+            {grupo.map((x) => <div key={x.id} className="mt-2 grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-lg bg-rose-50 p-2"><div className="font-bold text-rose-800">Débito{varias ? ` · ${dinheiro(x.valor)}` : ""}</div><div className="font-mono">{x.contaDebitoCodigo}</div><div className="text-slate-600">{x.contaDebitoNome}</div></div>
+              <div className="rounded-lg bg-emerald-50 p-2"><div className="font-bold text-emerald-800">Crédito{varias ? ` · ${dinheiro(x.valor)}` : ""}</div><div className="font-mono">{x.contaCreditoCodigo}</div><div className="text-slate-600">{x.contaCreditoNome}</div></div>
+            </div>)}
 
             {aprovando === l.id ? (
               <div className="mt-3 space-y-2 rounded-lg border border-emerald-300 bg-emerald-50 p-3">
-                <p className="text-xs text-emerald-950">Confirma aprovar <strong>{dinheiro(l.valor)}</strong> (débito {l.contaDebitoCodigo}, crédito {l.contaCreditoCodigo})? Ele entra nos livros e relatórios, com o seu nome no registro.</p>
+                <p className="text-xs text-emerald-950">{varias ? <>Confirma aprovar as <strong>{grupo.length} partidas</strong>, total <strong>{dinheiro(total)}</strong>? Todas entram juntas nos livros e relatórios, com o seu nome no registro.</> : <>Confirma aprovar <strong>{dinheiro(l.valor)}</strong> (débito {l.contaDebitoCodigo}, crédito {l.contaCreditoCodigo})? Ele entra nos livros e relatórios, com o seu nome no registro.</>}</p>
                 <div className="flex gap-2">
                   <button type="button" disabled={ocupado || !workspacePersistido} onClick={() => void decidir(l.id, "aprovar")} className="min-h-11 flex-1 rounded-lg bg-emerald-700 px-3 text-sm font-bold text-white disabled:opacity-40">Sim, aprovar</button>
                   <button type="button" disabled={ocupado} onClick={() => setAprovando(null)} className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm">Cancelar</button>
@@ -87,7 +90,7 @@ export const AprovacoesTab: React.FC<AprovacoesTabProps> = ({ lancamentos, empre
               </div>
             )}
           </li>
-        ))}
+        );})}
       </ul>
     </div>
   );

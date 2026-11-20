@@ -24,7 +24,7 @@ export type ResultadoPeriodo = { contas: ResultadoConta[]; receitas: number; des
 
 // Resultado do mês (YYYY-MM) a partir dos lançamentos definitivos válidos. Receita = créditos − débitos; despesa = débitos − créditos.
 export function resultadoDoPeriodo(contas: ContaPlano[], lancamentos: LancamentoContabil[], periodo: string): ResultadoPeriodo {
-  const rel = gerarRelatoriosContabeis(contas, lancamentos, periodo);
+  const rel = gerarRelatoriosContabeis(contas, lancamentos.filter((l) => l?.tipoEspecial !== "encerramento"), periodo);
   const mapa = new Map<string, ResultadoConta>();
   const grupos = new Map<string, "receita" | "despesa" | null>();
   const grupoDe = (c: ContaPlano) => { if (!grupos.has(c.codigo)) { const g = grupoDemonstracao(c, contas); grupos.set(c.codigo, g === "receita" || g === "despesa" ? g : null); } return grupos.get(c.codigo)!; };

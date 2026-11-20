@@ -1,5 +1,5 @@
 import type { OrigemMapeadaContabil } from "../types";
-import { ROTULO_PARA_ID, ID_PARA_ROTULO, ORIGEM_POR_TRIBUTO as ORIGEM_POR_TRIBUTO_ID, ITENS_FOLHA_DP, conciliarResumoFolhaDP } from "../utils/origensContabeis";
+import { ROTULO_PARA_ID, ID_PARA_ROTULO, ORIGEM_POR_TRIBUTO as ORIGEM_POR_TRIBUTO_ID, ITENS_FOLHA_DP, SUFIXO_ENCARGOS_DAS, conciliarResumoFolhaDP } from "../utils/origensContabeis";
 import { lerDocumentosFiscais, fiscalStoreConfigurado } from "./documentosFiscaisStore";
 import { lerApuracoesFiscais, apuracoesStoreConfigurado, type ApuracaoFiscalArmazenada } from "./apuracoesFiscaisStore";
 import { lerResumosDP, dpStoreConfigurado } from "./dadosDpStore";
@@ -111,10 +111,45 @@ const HISTORICO_POR_TRIBUTO: Record<string, string> = {
   CSLL_PRESUMIDO: "CSLL do Lucro Presumido (trimestre) confirmado no Fiscal",
   PIS_PRESUMIDO: "PIS do Lucro Presumido (mês) confirmado no Fiscal",
   COFINS_PRESUMIDO: "COFINS do Lucro Presumido (mês) confirmado no Fiscal",
+  DAS_SIMPLES: "DAS do Simples Nacional (provisão do período) confirmado no Fiscal",
+  DAS_SIMPLES_PAGO: "Pagamento do DAS do Simples Nacional confirmado no Fiscal",
+};
+
+const mapeamentoValido = (mapeamentos: Registro[], idOrigem: string, analiticas: Set<unknown>) => {
+  const m = mapeamentos.find((item) => item.origem === idOrigem);
+  return m && analiticas.has(m.contaDebitoCodigo) && analiticas.has(m.contaCreditoCodigo) && m.contaDebitoCodigo !== m.contaCreditoCodigo ? m : null;
 };
 
 /**
- * Apurações de tributo (DIFAL, IRPJ/CSLL, PIS/COFINS do Lucro Presumido) já confirmadas pela
+ * Data do pré-lançamento da apuração. Provisão do DAS: último dia do período de apuração. Pagamento do DAS: a data do pagamento,
+ * que o Fiscal manda na versão de origem ("pago:AAAA-MM-DD:<valor>"), se cair no mês do pagamento. As demais apurações seguem no dia 1º.
+ */
+export function dataDaApuracao(apuracao: Pick<ApuracaoFiscalArmazenada, "tributo" | "competencia" | "versaoOrigem">): string {
+  if (apuracao.tributo === "DAS_SIMPLES") {
+    const [a, m] = apuracao.competencia.split("-").map(Number);
+    return `${apuracao.competencia}-${String(new Date(Date.UTC(a, m, 0)).getUTCDate()).padStart(2, "0")}`;
+  }
+  if (apuracao.tributo === "DAS_SIMPLES_PAGO") {
+    const d = /^pago:(\d{4}-\d{2}-\d{2}):/.exec(String(apuracao.versaoOrigem || ""))?.[1];
+    if (d && d.slice(0, 7) === apuracao.competencia && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d) return d;
+  }
+  return `${apuracao.competencia}-01`;
+}
+
+/**
+ * Pagamento do DAS: o valor pago pode trazer multa e juros. Quando o Fiscal informa o principal (baseCentavos) e ele é menor que o
+ * valor pago, o principal baixa o "Simples a recolher" e a diferença (multa + juros) vai para a origem própria de encargos.
+ * Sem o principal, vai o valor pago inteiro. Tudo ou nada: com encargos e sem conta de encargos mapeada, o pagamento não sai pela metade.
+ */
+export function partesDoPagamentoDas(valorPagoCentavos: number, principalCentavos: number | null): Array<{ parte: "principal" | "encargos"; centavos: number }> {
+  if (principalCentavos !== null && Number.isSafeInteger(principalCentavos) && principalCentavos > 0 && principalCentavos < valorPagoCentavos) {
+    return [{ parte: "principal", centavos: principalCentavos }, { parte: "encargos", centavos: valorPagoCentavos - principalCentavos }];
+  }
+  return [{ parte: "principal", centavos: valorPagoCentavos }];
+}
+
+/**
+ * Apurações de tributo (DIFAL, IRPJ/CSLL, PIS/COFINS do Lucro Presumido, DAS do Simples) já confirmadas pela
  * contadora no Fiscal — ver apuracoesFiscaisStore.ts. Diferente das notas fiscais, aqui não há
  * documento para reler: o valor já vem fechado e só falta o mapeamento de contas desta empresa.
  * Só entra apuração com situação "confirmado" (o store já filtra isso na gravação; a conferência
@@ -123,25 +158,40 @@ const HISTORICO_POR_TRIBUTO: Record<string, string> = {
 export function gerarRascunhosApuracoes(cnpj: string, apuracoes: ApuracaoFiscalArmazenada[], contas: Registro[], mapeamentos: Registro[], agora: string): RascunhoAutomaticoContabil[] {
   const contasAnaliticas = new Set(contas.filter((conta) => conta?.tipo === "analitica").map((conta) => conta.codigo));
   const candidatos: RascunhoAutomaticoContabil[] = [];
+  const reais = (c: number) => Math.round((c / 100 + Number.EPSILON) * 100) / 100;
   for (const apuracao of apuracoes) {
     if (apuracao.situacao !== "confirmado") continue;
     const origem = ORIGEM_POR_TRIBUTO[apuracao.tributo];
     if (!origem) continue;
     const valor = valorNumerico(apuracao.valorCentavos);
     if (valor === null || valor <= 0 || !/^\d{4}-(0[1-9]|1[0-2])$/.test(apuracao.competencia)) continue;
-    const mapping = mapeamentos.find((item) => item.origem === mapeamentosOrigem[origem]);
-    if (!mapping || !contasAnaliticas.has(mapping.contaDebitoCodigo) || !contasAnaliticas.has(mapping.contaCreditoCodigo)
-      || mapping.contaDebitoCodigo === mapping.contaCreditoCodigo) continue;
+    const mapping = mapeamentoValido(mapeamentos, mapeamentosOrigem[origem], contasAnaliticas);
+    if (!mapping) continue;
     const referencia = `FISCAL:${cnpj}:${apuracao.competencia}:APURACAO:${apuracao.tributo}:${apuracao.referencia}`;
+    const base = { competencia: apuracao.competencia, data: dataDaApuracao(apuracao), criadoEm: agora };
+    if (apuracao.tributo === "DAS_SIMPLES_PAGO") {
+      const partes = partesDoPagamentoDas(valor, valorNumerico(apuracao.baseCentavos));
+      const mapEnc = mapeamentoValido(mapeamentos, "fiscal_das_simples_encargos", contasAnaliticas);
+      if (partes.length > 1 && !mapEnc) continue; // não lança o pagamento pela metade
+      for (const p of partes) {
+        const ref = p.parte === "principal" ? referencia : `${referencia}:${SUFIXO_ENCARGOS_DAS}`;
+        const m = p.parte === "principal" ? mapping : mapEnc!;
+        candidatos.push({ id: ref, referenciaOrigem: ref, ...base, origem: p.parte === "principal" ? origem : ID_PARA_ROTULO.fiscal_das_simples_encargos,
+          contaDebitoCodigo: String(m.contaDebitoCodigo), contaCreditoCodigo: String(m.contaCreditoCodigo), valor: reais(p.centavos),
+          historico: p.parte === "principal"
+            ? `${HISTORICO_POR_TRIBUTO.DAS_SIMPLES_PAGO}${partes.length === 1 && apuracao.baseCentavos == null ? " (valor pago; o Fiscal não informou o principal)" : ""} — pré-lançamento para conferência`
+            : "Multa e juros do DAS do Simples Nacional pagos em atraso — pré-lançamento para conferência" });
+      }
+      continue;
+    }
     candidatos.push({
       id: referencia,
       referenciaOrigem: referencia,
-      competencia: apuracao.competencia,
-      data: `${apuracao.competencia}-01`,
+      ...base,
       origem,
       contaDebitoCodigo: String(mapping.contaDebitoCodigo),
       contaCreditoCodigo: String(mapping.contaCreditoCodigo),
-      valor: Math.round((valor / 100 + Number.EPSILON) * 100) / 100,
+      valor: reais(valor),
       historico: `${HISTORICO_POR_TRIBUTO[apuracao.tributo] || apuracao.tributo} — pré-lançamento para conferência`,
       criadoEm: agora,
     });

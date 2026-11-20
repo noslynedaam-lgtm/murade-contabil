@@ -1,7 +1,9 @@
+import type { RotaEscrituracao } from "../../types";
 import { confirmarNaTela } from "../../utils/dialogoNaTela";
 import { useExclusaoDuasEtapas } from "../ConfirmaExclusaoDuasEtapas";
 import React, { useMemo, useState } from "react";
-import { CentroCustoContabil, ContaPlano, EmpresaDados, LancamentoContabil, PreLancamentoContabil } from "../../types";
+import { CentroCustoContabil, ContaPlano, EmpresaDados, LancamentoContabil, PreLancamentoContabil, RegraConciliacao } from "../../types";
+import { ConciliacaoBancariaPainel } from "../ConciliacaoBancariaPainel";
 import { compararPeriodos, explicarVariacoes, resultadoPorCentroCusto } from "../../utils/analiseContabil";
 import { BemImobilizado, definirAjusteQuota, depreciacaoAcumulada, filialAtual, quotaAutomatica, quotaDoMes, quotaFoiAjustada, removerAjusteQuota, resultadoDaBaixa, totalQuotasDoMes, validarBem, valorContabilLiquido } from "../../utils/imobilizado";
 import { centavosParaTexto, liquidoLancado, montarComplemento, paraCentavos, valorEfetivoCentavos } from "../../utils/ajusteManual";
@@ -26,6 +28,9 @@ interface Props {
   workspacePersistido: boolean;
   confirmacoes: Record<string, Record<string, boolean>>;
   onConfirmacoes: (v: Record<string, Record<string, boolean>>) => void;
+  /** Rotas do servidor (extrato guardado, conciliação em lote e regras). Sem elas, a tela usa a conciliação antiga só na tela. */
+  onRota?: RotaEscrituracao;
+  regrasConciliacao?: RegraConciliacao[];
 }
 
 type Secao = "comparativo" | "centros" | "imobilizado" | "extrato" | "provisoes" | "dlpa" | "fechamento";
@@ -57,7 +62,7 @@ export const GestaoContabilTab: React.FC<Props> = (p) => {
           {secao === "comparativo" && <Comparativo {...p} periodo={periodo} />}
           {secao === "centros" && <Centros {...p} periodo={periodo} />}
           {secao === "imobilizado" && <Imobilizado {...p} periodo={periodo} analiticas={analiticas} />}
-          {secao === "extrato" && <Extrato {...p} analiticas={analiticas} periodo={periodo} />}
+          {secao === "extrato" && (p.onRota ? <ConciliacaoBancariaPainel contas={p.contas} lancamentos={p.lancamentos} regras={p.regrasConciliacao || []} periodo={periodo} podeGravar={p.workspacePersistido} onRota={p.onRota} /> : <Extrato {...p} analiticas={analiticas} periodo={periodo} />)}
           {secao === "provisoes" && <Provisoes {...p} analiticas={analiticas} periodo={periodo} />}
           {secao === "dlpa" && <Dlpa {...p} periodo={periodo} />}
           {secao === "fechamento" && <Fechamento {...p} periodo={periodo} />}

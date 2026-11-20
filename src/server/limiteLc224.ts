@@ -1,6 +1,7 @@
 // Situação do limite de R$ 1.250.000 por trimestre da LC 224/25 (Lucro Presumido), a partir da receita da contabilidade.
 import { situacaoLimiteLc224 } from '../services/ecfPresumidoService';
 import { gerarRelatoriosContabeis } from '../utils/livrosContabeis';
+import { semEncerramento } from '../utils/escrituracaoAvancada';
 import { grupoDemonstracao } from '../utils/analiseContabil';
 
 export function limiteLc224Workspace(payload: Record<string, any>, ano: number) {
@@ -8,7 +9,7 @@ export function limiteLc224Workspace(payload: Record<string, any>, ano: number) 
   const lancamentos = Array.isArray(payload?.lancamentos) ? payload.lancamentos : [];
   if (!contas.length) return { erro: 'Plano de contas vazio.' };
   const tri = [0, 0, 0, 0];
-  for (const l of gerarRelatoriosContabeis(contas, lancamentos, 'todos').validos) {
+  for (const l of gerarRelatoriosContabeis(contas, semEncerramento(lancamentos), 'todos').validos) {
     if (l.dataISO.slice(0, 4) !== String(ano)) continue;
     const q = Math.floor((Number(l.dataISO.slice(5, 7)) - 1) / 3);
     for (const [conta, sinal] of [[l.credito, 1], [l.debito, -1]] as const) {

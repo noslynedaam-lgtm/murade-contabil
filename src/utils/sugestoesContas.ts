@@ -77,6 +77,11 @@ export const SUGESTOES_CONTAS_POR_ORIGEM: Record<OrigemMapeadaContabil, RegraOri
   fiscal_csll_presumido: [],
   fiscal_pis_presumido: [],
   fiscal_cofins_presumido: [],
+  // DAS do Simples: o plano padrão não tem conta "Simples Nacional a recolher"; a conta do banco que paga varia por empresa.
+  // Mapeamento só manual (tela Revisar dados recebidos), nunca chutado.
+  fiscal_das_simples: [],
+  fiscal_das_simples_pago: [],
+  fiscal_das_simples_encargos: [],
 };
 
 /** Mantido por compatibilidade: primeira regra de cada origem (plano simples/Ferragista). */

@@ -45,6 +45,9 @@ const origensMapeaveis: Array<{ id: OrigemMapeadaContabil; titulo: string; descr
   { id: "fiscal_csll_presumido", titulo: "CSLL do Lucro Presumido (trimestral)", descricao: "Débito: Despesas Tributárias ou Provisão para CSLL (resultado); Crédito: CSLL a Recolher (passivo circulante)." },
   { id: "fiscal_pis_presumido", titulo: "PIS do Lucro Presumido (mensal, cumulativo)", descricao: "Débito: PIS sobre Faturamento, como dedução da receita bruta (resultado); Crédito: PIS a Recolher (passivo circulante). Regime cumulativo: não há crédito nas compras." },
   { id: "fiscal_cofins_presumido", titulo: "COFINS do Lucro Presumido (mensal, cumulativo)", descricao: "Débito: COFINS sobre Faturamento, como dedução da receita bruta (resultado); Crédito: COFINS a Recolher (passivo circulante). Regime cumulativo: não há crédito nas compras." },
+  { id: "fiscal_das_simples", titulo: "DAS do Simples Nacional — provisão (mês da apuração)", descricao: "Débito: Simples Nacional sobre faturamento, como dedução da receita bruta (resultado); Crédito: Simples Nacional a Recolher (passivo circulante). Lançado no último dia do período de apuração, com o valor do DAS que a contadora confirmou no Fiscal (sem multa e juros)." },
+  { id: "fiscal_das_simples_pago", titulo: "DAS do Simples Nacional — pagamento", descricao: "Débito: Simples Nacional a Recolher (baixa a provisão); Crédito: Banco ou Caixa que pagou. Lançado na data do pagamento, com o valor principal do DAS (quando o Fiscal informa o principal; sem ele, vai o valor pago inteiro)." },
+  { id: "fiscal_das_simples_encargos", titulo: "DAS do Simples Nacional — multa e juros pagos em atraso", descricao: "Débito: despesa de multa e juros sobre tributos (resultado); Crédito: o mesmo Banco ou Caixa do pagamento. Só aparece quando o DAS foi pago com acréscimos." },
 ];
 
 /** O cadastro pode trazer o regime com sufixo de fonte (ex.: "Simples Nacional (opção cadastral informada pela fonte)"). */

@@ -159,6 +159,47 @@ export interface LancamentoContabil {
   /** Import source is descriptive only; it is not proof of historical approval. */
   sistemaMigracao?: "ALTERDATA" | "DOMINIO" | "ATRON" | "CSV";
   classificacaoDeclaradaArquivo?: string;
+  /** Lançamento com várias partidas (1 débito x N créditos ou N x 1): cada par fica num registro e todos têm o mesmo loteId. Aprovar/rejeitar vale para o lote inteiro. */
+  loteId?: string;
+  /** Encerramento do resultado do exercício gravado no sistema (contas de resultado contra a conta de lucros/prejuízos). Fica fora da DRE. */
+  tipoEspecial?: "encerramento";
+  /** Lançamento padrão (recorrente) que gerou este pré-lançamento. */
+  recorrenteDe?: string;
+}
+
+/** Histórico padrão cadastrável por empresa. Aceita {mes} (MM/AAAA), {competencia} (AAAA-MM) e {ano}. */
+export interface HistoricoPadrao {
+  id: string;
+  codigo: string;
+  texto: string;
+}
+
+/** Lançamento padrão (recorrente): o robô prepara todo mês como pré-lançamento para aprovação. */
+export interface LancamentoPadrao {
+  id: string;
+  nome: string;
+  ativo: boolean;
+  /** Dia do mês do lançamento (1 a 31; em meses mais curtos vale o último dia). */
+  dia: number;
+  historico: string;
+  /** "1xN": a conta única é debitada e as partidas creditadas; "Nx1": as partidas são debitadas e a conta única creditada. */
+  forma: "1xN" | "Nx1";
+  contaUnica: string;
+  partidas: Array<{ conta: string; valorCentavos: number }>;
+  /** Primeira competência (AAAA-MM) em que o robô prepara. */
+  inicio: string;
+  /** Última competência (AAAA-MM), opcional. */
+  fim?: string;
+  criadoEm: string;
+}
+
+/** Regra de conciliação bancária: quando o histórico do extrato tiver o texto, sugere a conta. */
+export interface RegraConciliacao {
+  id: string;
+  contem: string;
+  contaCodigo: string;
+  sentido: "entrada" | "saida" | "ambos";
+  ativo: boolean;
 }
 
 export interface CentroCustoContabil {
@@ -204,7 +245,10 @@ export type OrigemMapeadaContabil =
   | "fiscal_irpj_presumido"
   | "fiscal_csll_presumido"
   | "fiscal_pis_presumido"
-  | "fiscal_cofins_presumido";
+  | "fiscal_cofins_presumido"
+  | "fiscal_das_simples"
+  | "fiscal_das_simples_pago"
+  | "fiscal_das_simples_encargos";
 
 export interface MapeamentoOrigemContabil {
   origem: OrigemMapeadaContabil;
@@ -218,7 +262,7 @@ export interface PreLancamentoContabil {
   referenciaOrigem: string;
   competencia: string;
   data: string;
-  origem: "DP — Folha" | "DP — INSS" | "DP — INSS patronal" | "DP — IRRF" | "DP — FGTS" | "DP — Multa FGTS rescisória" | "DP — Salário-família" | "DP — Faltas e DSR" | "DP — Desconto de vale-transporte" | "DP — Pensão alimentícia" | "DP — Adiantamento" | "DP — Provisão de férias" | "DP — Provisão de 13º" | "DP — Encargos sobre provisões" | "DP — Férias" | "Fiscal — Entrada" | "Fiscal — Saída" | "Fiscal — DIFAL (uso/consumo)" | "Fiscal — DIFAL (ativo imobilizado)" | "Fiscal — IRPJ Presumido" | "Fiscal — CSLL Presumido" | "Fiscal — PIS Presumido" | "Fiscal — COFINS Presumido";
+  origem: "DP — Folha" | "DP — INSS" | "DP — INSS patronal" | "DP — IRRF" | "DP — FGTS" | "DP — Multa FGTS rescisória" | "DP — Salário-família" | "DP — Faltas e DSR" | "DP — Desconto de vale-transporte" | "DP — Pensão alimentícia" | "DP — Adiantamento" | "DP — Provisão de férias" | "DP — Provisão de 13º" | "DP — Encargos sobre provisões" | "DP — Férias" | "Fiscal — Entrada" | "Fiscal — Saída" | "Fiscal — DIFAL (uso/consumo)" | "Fiscal — DIFAL (ativo imobilizado)" | "Fiscal — IRPJ Presumido" | "Fiscal — CSLL Presumido" | "Fiscal — PIS Presumido" | "Fiscal — COFINS Presumido" | "Fiscal — DAS Simples (provisão)" | "Fiscal — DAS Simples (pagamento)" | "Fiscal — DAS Simples (multa e juros)";
   contaDebitoCodigo: string;
   contaCreditoCodigo: string;
   valor: number;
@@ -308,3 +352,7 @@ export interface LembreteItem {
   protocolo?: string;
   observacoes?: string;
 }
+
+/** Função que chama as rotas da escrituração avançada no servidor. Exclusão (método de apagar) só depois do pedir() das duas etapas, na tela. */
+export type MetodoRota = "GET" | "POST" | "DELETE";
+export type RotaEscrituracao = (metodo: MetodoRota, caminho: string, corpo?: unknown) => Promise<{ ok: boolean; corpo: any }>;

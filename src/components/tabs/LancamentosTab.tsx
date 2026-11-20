@@ -1,6 +1,10 @@
+import type { RotaEscrituracao } from "../../types";
 import { confirmarNaTela } from "../../utils/dialogoNaTela";
 import React, { useState, useMemo } from "react";
-import { LancamentoContabil, ContaPlano } from "../../types";
+import { LancamentoContabil, ContaPlano, HistoricoPadrao, LancamentoPadrao } from "../../types";
+import { PadroesLancamentoPainel } from "../PadroesLancamentoPainel";
+import { aplicarHistoricoPadrao, textoParaCentavos } from "../../utils/escrituracaoAvancada";
+import { moedaContabil } from "../../utils/livrosContabeis";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -28,6 +32,9 @@ interface LancamentosTabProps {
   onEstornarLancamento: (id: string) => void;
   workspacePersistido: boolean;
   onDecidirLancamentoManual: (id: string, decisao: "aprovar" | "rejeitar", motivo?: string) => Promise<boolean>;
+  historicosPadrao?: HistoricoPadrao[];
+  lancamentosPadrao?: LancamentoPadrao[];
+  onRota?: RotaEscrituracao;
 }
 
 export const LancamentosTab: React.FC<LancamentosTabProps> = ({
@@ -41,6 +48,9 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
   onEstornarLancamento,
   workspacePersistido,
   onDecidirLancamentoManual,
+  historicosPadrao = [],
+  lancamentosPadrao = [],
+  onRota,
 }) => {
   const [modalNovo, setModalNovo] = useState(false);
   const [filtroOrigem, setFiltroOrigem] = useState<string>("todos");
@@ -61,9 +71,23 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
   const [histLan, setHistLan] = useState("");
   const [centroLan, setCentroLan] = useState("");
   const [erroNovo, setErroNovo] = useState("");
+  // Lançamento com várias partidas: 1 débito x N créditos ou N débitos x 1 crédito (o total tem que fechar).
+  const [formaLan, setFormaLan] = useState<"simples" | "1xN" | "Nx1">("simples");
+  const [contaUnica, setContaUnica] = useState("");
+  const [linhasLan, setLinhasLan] = useState<Array<{ conta: string; valor: string }>>([{ conta: "", valor: "" }, { conta: "", valor: "" }]);
   const limparRascunhoManual = () => {
     setDataLan(""); setDebitoCod(""); setDebitoNome(""); setCreditoCod(""); setCreditoNome(""); setValorLan(""); setHistLan(""); setCentroLan(""); setErroNovo("");
+    setFormaLan("simples"); setContaUnica(""); setLinhasLan([{ conta: "", valor: "" }, { conta: "", valor: "" }]);
   };
+  const somaLinhasCentavos = linhasLan.reduce((t, l) => t + (textoParaCentavos(l.valor) || 0), 0);
+  const totalInformadoCentavos = textoParaCentavos(valorLan);
+  const usarHistoricoPadrao = (id: string) => {
+    const h = historicosPadrao.find((x) => x.id === id);
+    if (!h) return;
+    const iso = normalizarDataContabil(dataLan);
+    setHistLan(aplicarHistoricoPadrao(h.texto, iso ? iso.slice(0, 7) : new Date().toISOString().slice(0, 7)));
+  };
+  const tamanhoLote = (loteId?: string) => (loteId ? lancamentos.filter((x) => x.loteId === loteId).length : 1);
 
   // Atualizar conta a débito a partir da seleção no plano de contas sequencial
   const handleSelecionarDebito = (codigo: string) => {
@@ -92,8 +116,20 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
     return !Number.isFinite(l.valor) || l.valor <= 0 || !debito || !credito || debito.tipo !== "analitica" || credito.tipo !== "analitica";
   }).length;
 
-  const handleSalvarNovo = (e: React.FormEvent) => {
+  const handleSalvarNovo = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (formaLan !== "simples") {
+      if (!onRota) { setErroNovo("Lançamento com várias partidas indisponível nesta tela."); return; }
+      if (!normalizarDataContabil(dataLan)) { setErroNovo("Informe uma data real no formato DD/MM/AAAA."); return; }
+      if (totalInformadoCentavos === null || totalInformadoCentavos <= 0) { setErroNovo("Informe o total do lado único (ex.: 10.000,00)."); return; }
+      if (totalInformadoCentavos !== somaLinhasCentavos) { setErroNovo(`O total não fecha: ${moedaContabil(totalInformadoCentavos)} de um lado e ${moedaContabil(somaLinhasCentavos)} nas partidas (diferença ${moedaContabil(totalInformadoCentavos - somaLinhasCentavos)}).`); return; }
+      if (!histLan.trim()) { setErroNovo("Informe o histórico do lançamento."); return; }
+      const r = await onRota("POST", "lancamentos-compostos", { data: dataLan, historico: histLan, forma: formaLan, contaUnica, totalCentavos: totalInformadoCentavos, total: valorLan, partidas: linhasLan.map((l) => ({ conta: l.conta, valorCentavos: textoParaCentavos(l.valor) })), ...(centroLan ? { centroCustoCodigo: centroLan } : {}) });
+      if (!r.ok) { setErroNovo(String(r.corpo?.motivo || "O servidor não aceitou o lançamento.")); return; }
+      limparRascunhoManual();
+      setModalNovo(false);
+      return;
+    }
     const val = parseFloat(valorLan) || 0;
     const dataISO = normalizarDataContabil(dataLan);
     const debito = contas.find((conta) => conta.codigo === debitoCod && conta.tipo === "analitica");
@@ -269,6 +305,9 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                     {l.origem}
                   </span>
                   {manualPendente && <span className="ml-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">Aguardando aprovação</span>}
+                  {l.loteId && <span className="ml-1 inline-block rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold text-sky-900" title="Lançamento com várias partidas: aprovar, rejeitar e estornar valem para todas juntas">Várias partidas ({tamanhoLote(l.loteId)})</span>}
+                  {l.tipoEspecial === "encerramento" && <span className="ml-1 inline-block rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-bold text-fuchsia-900">Encerramento do resultado</span>}
+                  {l.recorrenteDe && <span className="ml-1 inline-block rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-bold text-teal-900">Lançamento padrão</span>}
                   {l.sistemaMigracao && <span className="ml-1 inline-block rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-900">Importado: {l.sistemaMigracao}</span>}
                   {l.classificacaoDeclaradaArquivo && l.classificacaoDeclaradaArquivo !== "Manual" && <div className="mt-1 text-[10px] text-slate-500">Tipo informado no arquivo: {l.classificacaoDeclaradaArquivo} · não verificado</div>}
                   {manualRejeitado && <span className="ml-1 inline-block rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-900">Rejeitado</span>}
@@ -276,10 +315,14 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                 </td>
                 <td className="py-2.5 px-2 text-center">
                   {manualPendente ? <div className="flex justify-center gap-1">
-                    <button type="button" disabled={!workspacePersistido} onClick={async () => { if (await confirmarNaTela("Aprovar este lançamento pendente e incluí-lo nos livros e relatórios? Confira os valores, as contas e a origem antes de continuar.")) await onDecidirLancamentoManual(l.id, "aprovar"); }} className="rounded bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800 disabled:opacity-40" title="Aprovar após conferir os dados">Aprovar</button>
+                    <button type="button" disabled={!workspacePersistido} onClick={async () => { if (await confirmarNaTela(l.loteId ? `Aprovar as ${tamanhoLote(l.loteId)} partidas deste lançamento juntas e incluí-las nos livros? Confira os valores e as contas antes de continuar.` : "Aprovar este lançamento pendente e incluí-lo nos livros e relatórios? Confira os valores, as contas e a origem antes de continuar.")) await onDecidirLancamentoManual(l.id, "aprovar"); }} className="rounded bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800 disabled:opacity-40" title="Aprovar após conferir os dados">Aprovar</button>
                     <button type="button" disabled={!workspacePersistido} onClick={async () => { if (!await confirmarNaTela("Rejeitar este lançamento? Ele ficará no histórico, mas não entrará nos livros.")) return; const motivo = window.prompt("Informe o motivo da rejeição:")?.trim(); if (motivo) await onDecidirLancamentoManual(l.id, "rejeitar", motivo); }} className="rounded bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-800 disabled:opacity-40">Rejeitar</button>
                   </div> : <button
                     onClick={async () => {
+                      if (!estornado && !manualRejeitado && l.loteId && onRota) {
+                        if (await confirmarNaTela(`O lançamento original (${tamanhoLote(l.loteId)} partidas) será preservado e um estorno de todas as partidas será registrado para aprovação, com débito e crédito invertidos. Continuar?`)) await onRota("POST", `lotes/${encodeURIComponent(l.loteId)}/estornar`, {});
+                        return;
+                      }
                       if (!estornado && !manualRejeitado && await confirmarNaTela("O lançamento original será preservado e uma partida de estorno será registrada para aprovação, com débito e crédito invertidos. Continuar?")) {
                         onEstornarLancamento(l.id);
                       }
@@ -320,10 +363,12 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
         </div>
       </div>
 
+      {onRota && <PadroesLancamentoPainel contas={contas} historicosPadrao={historicosPadrao} lancamentosPadrao={lancamentosPadrao} onRota={onRota} podeGravar={workspacePersistido} />}
+
       {/* Modal de Novo Lançamento Manual */}
       {modalNovo && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-200">
+          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[92vh] overflow-y-auto p-4 sm:p-6 shadow-2xl border border-slate-200">
             <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
               <h4 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Plus className="w-5 h-5 text-blue-600" />
@@ -336,6 +381,13 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
 
             <form onSubmit={handleSalvarNovo} className="space-y-3.5 text-xs">
               {erroNovo && <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800">{erroNovo}</div>}
+              {onRota && <label className="block text-slate-700 font-semibold">Forma do lançamento
+                <select data-campo="lancamento-forma" value={formaLan} onChange={(e) => setFormaLan(e.target.value as "simples" | "1xN" | "Nx1")} className="mt-1 w-full border border-slate-300 rounded-lg p-2 text-xs bg-white">
+                  <option value="simples">1 débito x 1 crédito</option>
+                  <option value="1xN">1 débito x vários créditos</option>
+                  <option value="Nx1">vários débitos x 1 crédito</option>
+                </select>
+              </label>}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-700 font-semibold mb-1">Data do Lançamento</label>
@@ -350,13 +402,15 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Valor (R$)</label>
+                  <label className="block text-slate-700 font-semibold mb-1">{formaLan === "simples" ? "Valor (R$)" : `Total do ${formaLan === "1xN" ? "débito" : "crédito"} (R$)`}</label>
                   <input
-                    type="number"
+                    type={formaLan === "simples" ? "number" : "text"}
+                    inputMode="decimal"
+                    placeholder={formaLan === "simples" ? undefined : "10.000,00"}
                     data-campo="lancamento-valor"
                     required
-                    min="0.01"
-                    step="0.01"
+                    min={formaLan === "simples" ? "0.01" : undefined}
+                    step={formaLan === "simples" ? "0.01" : undefined}
                     className="w-full border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-900"
                     value={valorLan}
                     onChange={(e) => setValorLan(e.target.value)}
@@ -364,6 +418,7 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                 </div>
               </div>
 
+{formaLan === "simples" && <>
               {/* Conta Débito com Seleção da Sequência Numérica */}
               <div className="bg-rose-50/50 p-3 rounded-xl border border-rose-200/80 space-y-2">
                 <div className="flex items-center justify-between">
@@ -458,8 +513,26 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                 </div>
               </div>
 
+</>}
+              {formaLan !== "simples" && <div className="space-y-2 rounded-xl border border-sky-200 bg-sky-50/50 p-3">
+                <label className="block font-bold text-sky-900">{formaLan === "1xN" ? "Conta a débito (uma)" : "Conta a crédito (uma)"}
+                  <select value={contaUnica} required onChange={(e) => setContaUnica(e.target.value)} className="mt-1 w-full rounded-lg border border-sky-300 bg-white p-2 font-mono text-xs"><option value="" disabled>Selecione uma conta analítica</option>{contasAnaliticas.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} — {c.descricao}</option>)}</select>
+                </label>
+                {linhasLan.map((linha, i) => <div key={i} className="flex flex-wrap items-end gap-2">
+                  <label className="min-w-[160px] flex-1 font-semibold text-slate-700">{formaLan === "1xN" ? `Crédito ${i + 1}` : `Débito ${i + 1}`}
+                    <select value={linha.conta} required onChange={(e) => setLinhasLan(linhasLan.map((x, j) => (j === i ? { ...x, conta: e.target.value } : x)))} className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2 font-mono text-xs"><option value="" disabled>Conta</option>{contasAnaliticas.filter((c) => c.codigo !== contaUnica).map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} — {c.descricao}</option>)}</select>
+                  </label>
+                  <label className="font-semibold text-slate-700">Valor<input inputMode="decimal" required value={linha.valor} placeholder="0,00" onChange={(e) => setLinhasLan(linhasLan.map((x, j) => (j === i ? { ...x, valor: e.target.value } : x)))} className="mt-1 block w-28 rounded-lg border border-slate-300 p-2 text-right text-xs" /></label>
+                  {linhasLan.length > 1 && <button type="button" onClick={() => setLinhasLan(linhasLan.filter((_, j) => j !== i))} className="rounded border px-2 py-1.5" aria-label="Tirar esta partida">×</button>}
+                </div>)}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <button type="button" onClick={() => setLinhasLan([...linhasLan, { conta: "", valor: "" }])} className="rounded border border-sky-300 bg-white px-2 py-1 font-bold text-sky-900">+ partida</button>
+                  <span className={`font-bold ${totalInformadoCentavos !== null && totalInformadoCentavos === somaLinhasCentavos ? "text-emerald-700" : "text-rose-700"}`}>Partidas: {moedaContabil(somaLinhasCentavos)} {totalInformadoCentavos !== null && totalInformadoCentavos === somaLinhasCentavos ? "· fecha com o total" : `· diferença ${moedaContabil((totalInformadoCentavos || 0) - somaLinhasCentavos)}`}</span>
+                </div>
+              </div>}
               <div>
                 <label className="block text-slate-700 font-semibold mb-1">Histórico da Operação</label>
+                {historicosPadrao.length > 0 && <select data-campo="lancamento-historico-padrao" value="" onChange={(e) => usarHistoricoPadrao(e.target.value)} className="mb-1 w-full rounded-lg border border-slate-300 bg-white p-2 text-xs"><option value="">Usar um histórico padrão…</option>{historicosPadrao.map((h) => <option key={h.id} value={h.id}>{h.codigo} — {h.texto}</option>)}</select>}
                 <textarea
                   data-campo="lancamento-historico"
                   rows={2}

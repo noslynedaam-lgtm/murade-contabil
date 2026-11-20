@@ -94,3 +94,187 @@ export function lancamentoDoMovimento(mov: MovimentoExtrato, contaBanco: ContaPl
     competencia: mov.dataISO.slice(0, 7), statusManual: "pendente_aprovacao",
   };
 }
+
+// ------------------------------------------------------------------ CSV / Excel (XLSX e planilha HTML que alguns bancos chamam de .xls)
+// O extrato em planilha não tem identificador do banco (FITID): o identificador é montado com data, valor, histórico e a
+// ordem da repetição no arquivo, então importar o mesmo arquivo de novo não duplica.
+function hash32(texto: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < texto.length; i++) { h ^= texto.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(36);
+}
+const semAcentoMin = (s: string) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+
+function dataDaCelula(v: string): string | null {
+  const t = String(v || "").trim();
+  let m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4}|\d{2})(?!\d)/.exec(t);
+  if (m) { const ano = m[3].length === 2 ? `20${m[3]}` : m[3]; return normalizarDataContabil(`${ano}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`); }
+  m = /^(\d{4})-(\d{2})-(\d{2})/.exec(t);
+  if (m) return normalizarDataContabil(`${m[1]}-${m[2]}-${m[3]}`);
+  if (/^\d{5}(\.\d+)?$/.test(t)) { // número de série do Excel (dias desde 30/12/1899)
+    const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(Number(t)) * 86400000);
+    return normalizarDataContabil(d.toISOString().slice(0, 10));
+  }
+  return null;
+}
+/** "1.234,56", "-1.234,56", "1.234,56 D", "(1.234,56)", "R$ 10,00 C" → centavos com sinal (D/negativo = saída). */
+export function valorDaCelula(v: string): number | null {
+  let t = String(v ?? "").trim().toUpperCase().replace(/R\$|\s/g, "");
+  if (!t) return null;
+  let sinal = 1;
+  if (/^\(.*\)$/.test(t)) { sinal = -1; t = t.slice(1, -1); }
+  if (t.endsWith("D") || (t.endsWith("-") && !t.startsWith("-"))) { sinal = -sinal; t = t.slice(0, -1); }
+  else if (t.endsWith("C")) t = t.slice(0, -1);
+  if (t.startsWith("-")) { sinal = -sinal; t = t.slice(1); } else if (t.startsWith("+")) t = t.slice(1);
+  if (t.includes(",") && t.includes(".")) t = t.lastIndexOf(",") > t.lastIndexOf(".") ? t.replace(/\./g, "").replace(",", ".") : t.replace(/,/g, "");
+  else if (t.includes(",")) t = t.replace(",", ".");
+  if (!/^\d+(\.\d{1,2})?$/.test(t)) return null;
+  const c = converterCentavos(Number(t));
+  return c === null ? null : sinal * c;
+}
+
+/** Lê linhas de planilha (já separadas em células) e acha as colunas pelo cabeçalho: data, histórico e valor (ou crédito/débito). */
+export function lerTabelaExtrato(linhas: string[][], origem = "CSV"): { movimentos: MovimentoExtrato[]; erros: string[] } {
+  const erros: string[] = [];
+  const cab = linhas.findIndex((l) => l.some((c) => /^data/.test(semAcentoMin(c))) && l.some((c) => /valor|credito|debito|entrada|saida/.test(semAcentoMin(c))));
+  if (cab < 0) return { movimentos: [], erros: ["Não achei o cabeçalho do extrato (precisa ter as colunas Data e Valor, ou Data, Crédito e Débito)."] };
+  const h = linhas[cab].map(semAcentoMin);
+  const col = (re: RegExp, exceto?: RegExp) => h.findIndex((c) => re.test(c) && !(exceto && exceto.test(c)));
+  const iData = col(/^data/);
+  const iHist = col(/historico|descricao|lancamento|memo|detalhe/);
+  const iDoc = col(/documento|^doc|n[º°o]?\s*doc/);
+  const iValor = col(/^valor|valor\s*\(r\$\)|^montante/, /saldo/);
+  const iCred = col(/credito|entrada/);
+  const iDeb = col(/debito|saida/);
+  if (iData < 0 || (iValor < 0 && iCred < 0 && iDeb < 0)) return { movimentos: [], erros: ["O cabeçalho precisa ter Data e Valor (ou Crédito e Débito)."] };
+  const movimentos: MovimentoExtrato[] = [];
+  const repeticoes = new Map<string, number>();
+  for (let i = cab + 1; i < linhas.length; i++) {
+    const l = linhas[i];
+    if (!l || l.every((c) => !String(c || "").trim())) continue;
+    const memo = iHist >= 0 ? String(l[iHist] || "").trim() : "";
+    if (/^saldo/i.test(semAcentoMin(memo))) continue; // linhas de saldo do dia/anterior não são movimento
+    const dataISO = dataDaCelula(l[iData] || "");
+    let valor: number | null = null;
+    if (iValor >= 0 && String(l[iValor] || "").trim()) valor = valorDaCelula(l[iValor]);
+    else {
+      const cr = iCred >= 0 && String(l[iCred] || "").trim() ? valorDaCelula(l[iCred]) : null;
+      const db = iDeb >= 0 && String(l[iDeb] || "").trim() ? valorDaCelula(l[iDeb]) : null;
+      if (cr !== null && cr !== 0) valor = Math.abs(cr);
+      else if (db !== null && db !== 0) valor = -Math.abs(db);
+    }
+    if (!dataISO || valor === null || valor === 0) { if (dataISO || valor !== null) erros.push(`Linha ${i + 1} ignorada: data ou valor inválido.`); continue; }
+    const doc = iDoc >= 0 ? String(l[iDoc] || "").trim() : "";
+    const base = `${dataISO}|${valor}|${semAcentoMin(memo)}|${doc}`;
+    const n = (repeticoes.get(base) || 0) + 1; repeticoes.set(base, n);
+    movimentos.push({ fitid: `${origem}-${dataISO.replace(/-/g, "")}-${hash32(`${base}|${n}`)}`, dataISO, valorCentavos: valor, memo: (memo || doc || "Movimento bancário").slice(0, 240) });
+  }
+  if (!movimentos.length && !erros.length) erros.push("Nenhum movimento encontrado abaixo do cabeçalho.");
+  return { movimentos, erros };
+}
+
+/** CSV com ; ou , (aspas respeitadas). */
+export function lerCSVExtrato(conteudo: string): { movimentos: MovimentoExtrato[]; erros: string[] } {
+  const texto = String(conteudo || "").replace(/^﻿/, "");
+  const primeira = texto.split(/\r?\n/).find((l) => l.trim()) || "";
+  const sep = (primeira.match(/;/g) || []).length >= (primeira.match(/,/g) || []).length ? ";" : primeira.includes("\t") ? "\t" : ",";
+  const linhas: string[][] = [];
+  let linha: string[] = [], celula = "", aspas = false;
+  for (let i = 0; i < texto.length; i++) {
+    const ch = texto[i];
+    if (aspas) { if (ch === '"') { if (texto[i + 1] === '"') { celula += '"'; i++; } else aspas = false; } else celula += ch; continue; }
+    if (ch === '"') aspas = true;
+    else if (ch === sep) { linha.push(celula); celula = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && texto[i + 1] === "\n") i++; linha.push(celula); linhas.push(linha); linha = []; celula = ""; }
+    else celula += ch;
+  }
+  if (celula || linha.length) { linha.push(celula); linhas.push(linha); }
+  return lerTabelaExtrato(linhas, "CSV");
+}
+
+/** Planilha HTML (muitos bancos exportam assim com extensão .xls). */
+export function lerHtmlExtrato(conteudo: string): { movimentos: MovimentoExtrato[]; erros: string[] } {
+  const linhas: string[][] = [];
+  const decodificar = (s: string) => s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))).replace(/\s+/g, " ").trim();
+  for (const tr of String(conteudo || "").match(/<tr[\s\S]*?<\/tr>/gi) || []) linhas.push((tr.match(/<t[dh][\s\S]*?<\/t[dh]>/gi) || []).map(decodificar));
+  if (!linhas.length) return { movimentos: [], erros: ["O arquivo não tem tabela legível. Salve o extrato como CSV ou XLSX e importe de novo."] };
+  return lerTabelaExtrato(linhas, "XLS");
+}
+
+/** Células da primeira planilha de um XLSX, a partir do XML da planilha e das strings compartilhadas (o zip é aberto por quem chama). */
+export function lerXlsxExtrato(sheetXml: string, sharedStringsXml = ""): { movimentos: MovimentoExtrato[]; erros: string[] } {
+  const desc = (s: string) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+  const shared = (sharedStringsXml.match(/<si>[\s\S]*?<\/si>/g) || []).map((si) => desc((si.match(/<t[^>]*>([\s\S]*?)<\/t>/g) || []).map((t) => t.replace(/<[^>]+>/g, "")).join("")));
+  const colunaIdx = (ref: string) => { const letras = (/^[A-Z]+/.exec(ref) || ["A"])[0]; let n = 0; for (const ch of letras) n = n * 26 + (ch.charCodeAt(0) - 64); return n - 1; };
+  const linhas: string[][] = [];
+  for (const row of sheetXml.match(/<row[\s\S]*?<\/row>/g) || []) {
+    const l: string[] = [];
+    for (const c of row.match(/<c\b[\s\S]*?(?:\/>|<\/c>)/g) || []) {
+      const ref = (/\br="([A-Z]+\d+)"/.exec(c) || [])[1] || "";
+      const tipo = (/\bt="(\w+)"/.exec(c) || [])[1] || "";
+      const v = (/<v>([\s\S]*?)<\/v>/.exec(c) || [])[1];
+      const inline = (/<is>[\s\S]*?<t[^>]*>([\s\S]*?)<\/t>/.exec(c) || [])[1];
+      const valor = tipo === "s" && v !== undefined ? shared[Number(v)] ?? "" : inline !== undefined ? desc(inline) : v !== undefined ? desc(v) : "";
+      l[ref ? colunaIdx(ref) : l.length] = valor;
+    }
+    linhas.push(Array.from(l, (x) => x ?? ""));
+  }
+  return lerTabelaExtrato(linhas, "XLSX");
+}
+
+// ------------------------------------------------------------------ regras "quando o histórico tiver X, usar a conta Y"
+export type RegraConciliacaoExtrato = { id: string; contem: string; contaCodigo: string; sentido: "entrada" | "saida" | "ambos"; ativo: boolean };
+
+export function validarRegraConciliacao(r: unknown): r is RegraConciliacaoExtrato {
+  if (!r || typeof r !== "object" || Array.isArray(r)) return false;
+  const x = r as Record<string, unknown>;
+  if (Object.keys(x).some((k) => !["id", "contem", "contaCodigo", "sentido", "ativo"].includes(k))) return false;
+  return typeof x.id === "string" && x.id.length > 0 && x.id.length <= 64
+    && typeof x.contem === "string" && x.contem.trim().length >= 3 && x.contem.length <= 80
+    && typeof x.contaCodigo === "string" && x.contaCodigo.length > 0 && x.contaCodigo.length <= 64
+    && (x.sentido === "entrada" || x.sentido === "saida" || x.sentido === "ambos") && typeof x.ativo === "boolean";
+}
+
+/** Primeira regra ativa (a mais específica: texto mais longo) cujo texto aparece no histórico e cujo sentido bate. */
+export function regraQueSeAplica(mov: Pick<MovimentoExtrato, "memo" | "valorCentavos">, regras: RegraConciliacaoExtrato[], contaBanco: string, contasAnaliticas: Set<string>): RegraConciliacaoExtrato | null {
+  const memo = semAcentoMin(mov.memo);
+  const sentido = mov.valorCentavos > 0 ? "entrada" : "saida";
+  return [...regras].filter((r) => r.ativo && (r.sentido === "ambos" || r.sentido === sentido) && r.contaCodigo !== contaBanco && contasAnaliticas.has(r.contaCodigo) && memo.includes(semAcentoMin(r.contem)))
+    .sort((a, b) => b.contem.length - a.contem.length)[0] || null;
+}
+
+export type SugestaoExtrato = { fitid: string; lancamentoId?: string; contaCodigo?: string; motivo: string };
+
+/**
+ * Sugestões para os movimentos ainda pendentes (o robô grava, a pessoa aprova): primeiro um lançamento aprovado
+ * com mesmo sentido e valor (data igual ou até 3 dias), senão a conta da regra, senão a conta mais usada no histórico.
+ */
+export function sugerirParaPendentes(pendentes: MovimentoExtrato[], entrada: { lancamentos: LancamentoContabil[]; contaBanco: string; regras: RegraConciliacaoExtrato[]; contasAnaliticas: Set<string>; lancamentosJaConciliados: Set<string> }): SugestaoExtrato[] {
+  const saida: SugestaoExtrato[] = [];
+  const usados = new Set(entrada.lancamentosJaConciliados);
+  const porMes = new Map<string, MovimentoExtrato[]>();
+  for (const m of pendentes) { const k = m.dataISO.slice(0, 7); if (!porMes.has(k)) porMes.set(k, []); porMes.get(k)!.push(m); }
+  const disponiveis = entrada.lancamentos.filter((l) => !usados.has(l.id));
+  const casados = new Map<string, { id: string; certeza: string }>();
+  for (const [mes, movs] of porMes) {
+    const r = conciliar(movs, disponiveis.filter((l) => !usados.has(l.id)), entrada.contaBanco, mes);
+    for (const c of r.conciliados) { casados.set(c.movimento.fitid, { id: c.lancamentoId, certeza: c.certeza }); usados.add(c.lancamentoId); }
+  }
+  for (const m of pendentes) {
+    const c = casados.get(m.fitid);
+    if (c) { saida.push({ fitid: m.fitid, lancamentoId: c.id, motivo: c.certeza === "exata" ? "Lançamento aprovado com mesma data e valor." : "Lançamento aprovado com mesmo valor e data próxima (confira)." }); continue; }
+    const regra = regraQueSeAplica(m, entrada.regras, entrada.contaBanco, entrada.contasAnaliticas);
+    if (regra) { saida.push({ fitid: m.fitid, contaCodigo: regra.contaCodigo, motivo: `Regra: o histórico tem "${regra.contem}".` }); continue; }
+    const s = sugerirContraPartida(m, entrada.contaBanco, entrada.lancamentos);
+    if (s && entrada.contasAnaliticas.has(s.codigo) && s.codigo !== entrada.contaBanco) saida.push({ fitid: m.fitid, contaCodigo: s.codigo, motivo: s.motivo });
+  }
+  return saida;
+}
+
+/** Confere se o lançamento pode ser conciliado com o movimento: aprovado, mexe na conta do banco no mesmo sentido e com o mesmo valor. */
+export function lancamentoCasaComMovimento(l: LancamentoContabil | undefined, mov: Pick<MovimentoExtrato, "valorCentavos">, contaBanco: string): boolean {
+  if (!l || l.statusManual === "pendente_aprovacao" || l.statusManual === "rejeitado") return false;
+  const entrada = mov.valorCentavos > 0;
+  if (entrada ? l.contaDebitoCodigo !== contaBanco : l.contaCreditoCodigo !== contaBanco) return false;
+  return converterCentavos(l.valor) === Math.abs(mov.valorCentavos);
+}

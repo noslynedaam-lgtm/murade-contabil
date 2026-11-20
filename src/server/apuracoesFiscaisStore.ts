@@ -9,6 +9,8 @@ import { cnpjContabilValido, normalizarCnpjAcesso } from "./authContabil";
 
 const TRIBUTOS_ACEITOS = new Set([
   "ICMS_DIFAL_ATIVO", "ICMS_DIFAL_CONSUMO", "IRPJ_PRESUMIDO", "CSLL_PRESUMIDO", "PIS_PRESUMIDO", "COFINS_PRESUMIDO",
+  // DAS do Simples Nacional (contrato do Fiscal em src/server/dasContabil.ts de lá): provisão e pagamento.
+  "DAS_SIMPLES", "DAS_SIMPLES_PAGO",
 ]);
 
 let pool: Pool | null | undefined;

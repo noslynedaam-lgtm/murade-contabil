@@ -1,5 +1,8 @@
 import { IDS_ORIGEM, ROTULOS_ORIGEM, ROTULO_PARA_ID, origemDaReferencia } from "../utils/origensContabeis";
 import { sugerirMapeamentosPadrao } from "../utils/sugestoesContas";
+import { validarHistoricoPadrao, validarLancamentoPadrao } from "../utils/escrituracaoAvancada";
+import { validarRegraConciliacao } from "../utils/extratoBancario";
+import type { HistoricoPadrao } from "../types";
 import crypto from "node:crypto";
 import { diaDeHoje } from "./agenteSaudacao";
 import type { NextFunction, Request, Response } from "express";
@@ -724,7 +727,7 @@ export async function bloquearEscritorioContabil(req: Request, res: Response): P
   } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível alterar o bloqueio.' }); }
 }
 
-const CAMPOS_WORKSPACE = new Set(["empresa", "contas", "centrosCusto", "mapeamentosOrigem", "preLancamentos", "lancamentos", "livros", "lembretes", "bensImobilizado"]);
+const CAMPOS_WORKSPACE = new Set(["empresa", "contas", "centrosCusto", "mapeamentosOrigem", "preLancamentos", "lancamentos", "livros", "lembretes", "bensImobilizado", "historicosPadrao", "lancamentosPadrao", "regrasConciliacao"]);
 const ORIGENS_MAPEAVEIS = IDS_ORIGEM;
 const ORIGENS_PRELANCAMENTO = ROTULOS_ORIGEM;
 const CHAVES_CERTIFICADO_INFORMATIVAS = new Set([
@@ -736,6 +739,30 @@ function chaveContemSegredo(chave: string): boolean {
   const normalizada = chave.toLowerCase().replace(/[^a-z0-9]/g, "");
   if (CHAVES_CERTIFICADO_INFORMATIVAS.has(normalizada)) return false;
   return /(senha|password|secret|token|apikey|authorization|privatekey|chaveprivada|certificado|certificate|pkcs12|pfxdata|base64)/i.test(normalizada);
+}
+
+/** Histórico padrão, lançamento padrão, regras de conciliação e marcas novas dos lançamentos (lote, encerramento, recorrente). */
+export function camposEscrituracaoValidos(payload: Record<string, unknown>): boolean {
+  const ids = (lista: Array<Record<string, unknown>>) => new Set(lista.map((x) => x.id)).size === lista.length;
+  if (payload.historicosPadrao !== undefined) {
+    if (!Array.isArray(payload.historicosPadrao) || payload.historicosPadrao.length > 500 || !payload.historicosPadrao.every(validarHistoricoPadrao) || !ids(payload.historicosPadrao as any)) return false;
+    if (new Set((payload.historicosPadrao as HistoricoPadrao[]).map((h) => h.codigo.toUpperCase())).size !== payload.historicosPadrao.length) return false;
+  }
+  if (payload.lancamentosPadrao !== undefined) {
+    if (!Array.isArray(payload.lancamentosPadrao) || payload.lancamentosPadrao.length > 200 || !payload.lancamentosPadrao.every((p) => validarLancamentoPadrao(p)) || !ids(payload.lancamentosPadrao as any)) return false;
+  }
+  if (payload.regrasConciliacao !== undefined) {
+    if (!Array.isArray(payload.regrasConciliacao) || payload.regrasConciliacao.length > 500 || !payload.regrasConciliacao.every(validarRegraConciliacao) || !ids(payload.regrasConciliacao as any)) return false;
+  }
+  if (Array.isArray(payload.lancamentos)) {
+    for (const l of payload.lancamentos as Array<Record<string, unknown>>) {
+      if (!l || typeof l !== "object") continue;
+      if (l.loteId !== undefined && (typeof l.loteId !== "string" || !l.loteId || l.loteId.length > 160)) return false;
+      if (l.tipoEspecial !== undefined && l.tipoEspecial !== "encerramento") return false;
+      if (l.recorrenteDe !== undefined && (typeof l.recorrenteDe !== "string" || l.recorrenteDe.length > 64)) return false;
+    }
+  }
+  return true;
 }
 
 export function workspaceValido(value: unknown): value is Record<string, unknown> {
@@ -771,6 +798,7 @@ export function workspaceValido(value: unknown): value is Record<string, unknown
       idsBens.add(bem.id);
     }
   }
+  if (!camposEscrituracaoValidos(payload)) return false;
   if (payload.mapeamentosOrigem !== undefined) {
     if (!Array.isArray(payload.mapeamentosOrigem) || payload.mapeamentosOrigem.length > ORIGENS_MAPEAVEIS.size) return false;
     const contasAnaliticas = new Set((payload.contas as Array<Record<string, unknown>>).filter((conta) => conta && conta.tipo === "analitica" && typeof conta.codigo === "string").map((conta) => conta.codigo as string));
@@ -1024,14 +1052,26 @@ export async function decidirLancamentoManualContabil(req: Request, res: Respons
     const payload = row.rows[0].payload as Record<string, any>;
     const lancamentos: Array<Record<string, any>> = Array.isArray(payload.lancamentos) ? [...payload.lancamentos] : [];
     const indice = lancamentos.findIndex((item) => String(item.id || "") === id);
-    const item = indice >= 0 ? lancamentos[indice] : null;
-    if (!item || (item.origem !== "Manual" && !item.estornoDe && !item.saldoInicialContaCodigo) || item.statusManual !== "pendente_aprovacao") {
+    const itemPedido = indice >= 0 ? lancamentos[indice] : null;
+    const pendenteDecidivel = (item: Record<string, any> | null) => Boolean(item && (item.origem === "Manual" || item.estornoDe || item.saldoInicialContaCodigo) && item.statusManual === "pendente_aprovacao");
+    if (!pendenteDecidivel(itemPedido)) {
       await client.query("ROLLBACK"); res.status(409).json({ sucesso: false, motivo: "O lançamento não está pendente de aprovação ou já recebeu uma decisão." }); return;
     }
-    const data = normalizarDataContabil(String(item.data || ""));
-    const valorCentavos = Number.isFinite(Number(item.valor)) ? Math.round(Number(item.valor) * 100) : 0;
+    // Lançamento com várias partidas: o lote inteiro é aprovado ou rejeitado junto (nunca metade, para o total continuar fechando).
+    const loteId = String(itemPedido!.loteId || "");
+    const indicesAlvo = loteId ? lancamentos.map((item, i) => (String(item.loteId || "") === loteId ? i : -1)).filter((i) => i >= 0) : [indice];
+    if (loteId && indicesAlvo.some((i) => !pendenteDecidivel(lancamentos[i]))) {
+      await client.query("ROLLBACK"); res.status(409).json({ sucesso: false, motivo: "Parte deste lançamento com várias partidas já recebeu decisão; o lote precisa ser decidido inteiro." }); return;
+    }
     const contas = Array.isArray(payload.contas) ? payload.contas : [];
     const analiticas = new Set(contas.filter((conta: any) => conta?.tipo === "analitica").map((conta: any) => String(conta.codigo || "")));
+    const statusManual = decisao === "aprovar" ? "aprovado" : "rejeitado";
+    const decididos: Array<Record<string, any>> = [];
+    for (const indiceAlvo of indicesAlvo) {
+    const item = lancamentos[indiceAlvo];
+    const itemId = String(item.id || "");
+    const data = normalizarDataContabil(String(item.data || ""));
+    const valorCentavos = Number.isFinite(Number(item.valor)) ? Math.round(Number(item.valor) * 100) : 0;
     if (!data || valorCentavos <= 0 || !String(item.historico || "").trim()
       || !analiticas.has(String(item.contaDebitoCodigo || "")) || !analiticas.has(String(item.contaCreditoCodigo || ""))
       || item.contaDebitoCodigo === item.contaCreditoCodigo) {
@@ -1042,7 +1082,8 @@ export async function decidirLancamentoManualContabil(req: Request, res: Respons
     if (fechado.rowCount) { await client.query("ROLLBACK"); res.status(409).json({ sucesso: false, motivo: "A competência deste lançamento está fechada. Nenhuma decisão foi aplicada." }); return; }
     if (item.estornoDe) {
       const original = lancamentos.find((lancamento) => String(lancamento.id || "") === String(item.estornoDe));
-      const jaEstornado = lancamentos.some((lancamento) => String(lancamento.estornoDe || "") === String(item.estornoDe));
+      // Outro estorno (que não este mesmo e não rejeitado) para o mesmo original = já estornado.
+      const jaEstornado = lancamentos.some((lancamento) => String(lancamento.id || "") !== itemId && String(lancamento.estornoDe || "") === String(item.estornoDe) && lancamento.statusManual !== "rejeitado");
       if (!original || original.statusManual === "pendente_aprovacao" || original.statusManual === "rejeitado" || jaEstornado
         || Math.round(Number(original.valor) * 100) !== valorCentavos
         || String(original.contaDebitoCodigo || "") !== String(item.contaCreditoCodigo || "")
@@ -1079,10 +1120,9 @@ export async function decidirLancamentoManualContabil(req: Request, res: Respons
         delete contaAbertura.saldoInicialConvertidoEm;
       }
     }
-    const statusManual = decisao === "aprovar" ? "aprovado" : "rejeitado";
     const decidido = { ...item, statusManual };
-    lancamentos[indice] = decidido;
-    const novoPayload = { ...payload, lancamentos };
+    lancamentos[indiceAlvo] = decidido;
+    decididos.push(decidido);
     const evento = item.estornoDe
       ? (decisao === "aprovar" ? "estorno_manual_aprovado" : "estorno_manual_rejeitado")
       : (decisao === "aprovar" ? "lancamento_manual_aprovado" : "lancamento_manual_rejeitado");
@@ -1090,15 +1130,17 @@ export async function decidirLancamentoManualContabil(req: Request, res: Respons
       await client.query(`
         INSERT INTO contabil_manual_journal_audit(cnpj,lancamento_id,evento,user_id,login,lancamento)
         VALUES($1,$2,$3,$4,$5,$6::jsonb)
-      `, [cnpj, id, item.estornoDe ? "estorno_manual" : "lancamento_manual", sessao.userId, sessao.login, JSON.stringify(decidido)]);
+      `, [cnpj, itemId, item.estornoDe ? "estorno_manual" : "lancamento_manual", sessao.userId, sessao.login, JSON.stringify(decidido)]);
     }
     await client.query(`
       INSERT INTO contabil_manual_journal_events(cnpj,lancamento_id,evento,user_id,login,lancamento,motivo)
       VALUES($1,$2,$3,$4,$5,$6::jsonb,$7)
-    `, [cnpj, id, evento, sessao.userId, sessao.login, JSON.stringify(decidido), decisao === "rejeitar" ? motivo : null]);
+    `, [cnpj, itemId, evento, sessao.userId, sessao.login, JSON.stringify(decidido), decisao === "rejeitar" ? motivo : null]);
+    }
+    const novoPayload = { ...payload, lancamentos };
     const atualizado = await client.query("UPDATE contabil_company_workspaces SET payload=$2::jsonb,version=version+1,updated_at=now() WHERE cnpj=$1 RETURNING version,updated_at", [cnpj, JSON.stringify(novoPayload)]);
     await client.query("COMMIT");
-    res.json({ sucesso: true, cnpj, decisao, decididoPor: sessao.login, dados: novoPayload, versao: Number(atualizado.rows[0].version), atualizadoEm: new Date(atualizado.rows[0].updated_at).toISOString(), persistencia: "postgresql" });
+    res.json({ sucesso: true, cnpj, decisao, decididos: decididos.length, decididoPor: sessao.login, dados: novoPayload, versao: Number(atualizado.rows[0].version), atualizadoEm: new Date(atualizado.rows[0].updated_at).toISOString(), persistencia: "postgresql" });
   } catch (error) {
     if (client) await client.query("ROLLBACK").catch(() => undefined);
     console.error("Falha ao decidir lançamento manual contábil:", error);
@@ -1374,6 +1416,73 @@ export async function listarCnpjsComMapeamentoContabil(): Promise<string[]> {
     ORDER BY updated_at DESC
   `);
   return result.rows.map((row) => String(row.cnpj));
+}
+
+export class ErroAlteracaoWorkspace extends Error {
+  constructor(public status: number, message: string) { super(message); this.name = "ErroAlteracaoWorkspace"; }
+}
+
+/**
+ * Altera o workspace de UMA empresa no servidor, numa transação (trava por CNPJ, mesma validação do salvar).
+ * Usado pelas rotas novas (lançamento com várias partidas, lançamento padrão, encerramento, livro caixa, conciliação),
+ * pela Agente (que chama essas rotas) e pelos robôs. Competência fechada nunca muda. `alterar` devolve payload null quando não há nada a gravar.
+ * Com `autor`, cada lançamento manual novo fica registrado na trilha (contabil_manual_journal_events) como "pendente".
+ */
+export async function alterarWorkspaceNoServidorContabil<T>(
+  cnpj: string,
+  alterar: (payload: Record<string, any>, ctx: { fechadas: Set<string> }) => { payload: Record<string, any> | null; resultado: T },
+  autor?: { userId: string; login: string },
+): Promise<{ resultado: T; dados: Record<string, any> | null; versao: number | null; atualizadoEm: string | null }> {
+  const normalizado = normalizarCnpjAcesso(cnpj);
+  if (!cnpjContabilValido(normalizado)) throw new ErroAlteracaoWorkspace(400, "CNPJ inválido.");
+  await prepararAuthContabil();
+  const client = await obterBanco().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [normalizado]);
+    const atual = await client.query("SELECT payload,version FROM contabil_company_workspaces WHERE cnpj=$1 FOR UPDATE", [normalizado]);
+    if (!atual.rowCount) throw new ErroAlteracaoWorkspace(404, "Esta empresa ainda não tem dados contábeis salvos.");
+    const payload = atual.rows[0].payload as Record<string, any>;
+    const fechadas = new Set((await client.query("SELECT competencia FROM contabil_period_closures WHERE cnpj=$1", [normalizado])).rows.map((row) => String(row.competencia)));
+    const { payload: novo, resultado } = alterar(JSON.parse(JSON.stringify(payload)), { fechadas });
+    if (!novo) { await client.query("COMMIT"); return { resultado, dados: null, versao: Number(atual.rows[0].version), atualizadoEm: null }; }
+    if (!workspaceValido(novo)) throw new ErroAlteracaoWorkspace(422, "O resultado não passou na validação do workspace; nada foi gravado.");
+    for (const competencia of fechadas) {
+      if (jsonCanonico(dadosCompetencia(payload, competencia)) !== jsonCanonico(dadosCompetencia(novo, competencia))) {
+        throw new ErroAlteracaoWorkspace(409, `A competência ${competencia} está fechada; nada foi gravado.`);
+      }
+    }
+    if (autor) {
+      const antigos = new Set((Array.isArray(payload.lancamentos) ? payload.lancamentos : []).map((item: any) => String(item?.id || "")));
+      for (const item of (Array.isArray(novo.lancamentos) ? novo.lancamentos : []) as Array<Record<string, any>>) {
+        if (antigos.has(String(item.id || "")) || item.statusManual !== "pendente_aprovacao") continue;
+        await client.query(`
+          INSERT INTO contabil_manual_journal_events(cnpj,lancamento_id,evento,user_id,login,lancamento)
+          VALUES($1,$2,$3,$4,$5,$6::jsonb)
+        `, [normalizado, String(item.id), item.estornoDe ? "estorno_manual_pendente" : "lancamento_manual_pendente", autor.userId, autor.login, JSON.stringify(item)]);
+      }
+    }
+    const r = await client.query("UPDATE contabil_company_workspaces SET payload=$2::jsonb,version=version+1,updated_at=now() WHERE cnpj=$1 RETURNING version,updated_at", [normalizado, JSON.stringify(novo)]);
+    await client.query("COMMIT");
+    return { resultado, dados: novo, versao: Number(r.rows[0].version), atualizadoEm: new Date(r.rows[0].updated_at).toISOString() };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/** Lista CNPJ e workspace de todas as empresas, em lotes (robôs). Só leitura. */
+export async function* percorrerWorkspacesContabil(lote = 25): AsyncGenerator<{ cnpj: string; payload: Record<string, any> }> {
+  await prepararAuthContabil();
+  let deslocamento = 0;
+  for (;;) {
+    const r = await obterBanco().query("SELECT cnpj, payload FROM contabil_company_workspaces ORDER BY cnpj LIMIT $1 OFFSET $2", [lote, deslocamento]);
+    for (const row of r.rows) yield { cnpj: String(row.cnpj), payload: (row.payload || {}) as Record<string, any> };
+    if (r.rows.length < lote) break;
+    deslocamento += r.rows.length;
+  }
 }
 
 /** Atomically stores generated drafts while preserving finalized entries and user workspace changes. */

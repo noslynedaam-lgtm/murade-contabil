@@ -2,13 +2,14 @@
 // É uma estimativa: sem adições, exclusões, compensação inicial de prejuízo, incentivos e retenções (o contador informa na tela da ECF).
 import { calcularEstimativaMensal, calcularLucroRealTrimestral } from '../services/ecfRealPeriodosService';
 import { gerarRelatoriosContabeis } from '../utils/livrosContabeis';
+import { semEncerramento } from '../utils/escrituracaoAvancada';
 import { grupoDemonstracao } from '../utils/analiseContabil';
 
 export function apuracaoPeriodosRealWorkspace(payload: Record<string, any>, ano: number, tipo: 'trimestral' | 'estimativa', atividade: 'comercio' | 'servicos') {
   const contas = Array.isArray(payload?.contas) ? payload.contas : [];
   const lancamentos = Array.isArray(payload?.lancamentos) ? payload.lancamentos : [];
   if (!contas.length) return { erro: 'Plano de contas vazio.' };
-  const validos = gerarRelatoriosContabeis(contas, lancamentos, 'todos').validos.filter((l) => l.dataISO.slice(0, 4) === String(ano));
+  const validos = gerarRelatoriosContabeis(contas, semEncerramento(lancamentos), 'todos').validos.filter((l) => l.dataISO.slice(0, 4) === String(ano));
   const receitaMes = Array(12).fill(0);
   const tri = [0, 1, 2, 3].map(() => ({ resultado: 0, irpj: 0, csll: 0 }));
   for (const l of validos) {

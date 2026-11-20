@@ -3,6 +3,7 @@
 // incentivos, que o contador informa na tela da ECF (Livros → ECF Lucro Real).
 import { calcularLucroRealAnual } from '../services/ecfRealService';
 import { gerarRelatoriosContabeis } from '../utils/livrosContabeis';
+import { semEncerramento } from '../utils/escrituracaoAvancada';
 import { grupoDemonstracao } from '../utils/analiseContabil';
 
 export function estimarLucroRealWorkspace(payload: Record<string, any>, ano: number) {
@@ -10,7 +11,7 @@ export function estimarLucroRealWorkspace(payload: Record<string, any>, ano: num
   const contas = Array.isArray(payload?.contas) ? payload.contas : [];
   const lancamentos = Array.isArray(payload?.lancamentos) ? payload.lancamentos : [];
   if (!contas.length) return { erro: 'Plano de contas vazio.' };
-  const validos = gerarRelatoriosContabeis(contas, lancamentos, 'todos').validos.filter((l) => l.dataISO.slice(0, 4) === String(ano));
+  const validos = gerarRelatoriosContabeis(contas, semEncerramento(lancamentos), 'todos').validos.filter((l) => l.dataISO.slice(0, 4) === String(ano));
   let resultado = 0, irpj = 0, csll = 0;
   for (const l of validos) {
     for (const [conta, sinal] of [[l.credito, 1], [l.debito, -1]] as const) {
