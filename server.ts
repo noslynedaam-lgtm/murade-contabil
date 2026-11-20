@@ -1206,7 +1206,7 @@ const reconciliacaoRascunhosStatus: {
     if (!ctx) return res.status(401).json({ error: "Entre novamente para continuar." });
     const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
     if (!message) return res.status(400).json({ error: "Digite seu pedido." });
-    if (message.length > 4000) return res.status(413).json({ error: "O pedido deve ter até 4.000 caracteres." });
+    if (message.length > 30000) return res.status(413).json({ error: "O pedido deve ter até 30.000 caracteres. Para texto maior, anexe o arquivo." });
     if (!getAI()) return res.status(503).json({ error: "Agente indisponível: configure GEMINI_API_KEY no servidor." });
     if (!limiteUsoAgenteIA(ctx.sessaoHash)) return res.status(429).json({ error: "Muitos pedidos em pouco tempo. Aguarde alguns minutos." });
     const historico = Array.isArray(req.body?.historico)
@@ -1594,7 +1594,7 @@ const reconciliacaoRascunhosStatus: {
     if (typeof message !== "string" || !message.trim()) {
       return res.status(400).json({ error: "Mensagem não fornecida." });
     }
-    if (message.length > 4000) return res.status(413).json({ error: "Mensagem excede o limite de 4.000 caracteres." });
+    if (message.length > 30000) return res.status(413).json({ error: "Mensagem excede o limite de 30.000 caracteres. Para texto maior, anexe o arquivo." });
 
     const ai = getAI();
 
