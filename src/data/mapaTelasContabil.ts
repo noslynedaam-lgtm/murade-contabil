@@ -52,6 +52,7 @@ export const TELAS_CONTABIL: TelaMapa[] = [
   { id: 'backups', rotulo: 'Backups' },
   { id: 'meu-jeito', rotulo: 'Meu jeito' },
   { id: 'revisor', rotulo: 'Revisor', periodo: 'revisor-competencia' },
+  { id: 'escola', rotulo: '🎓 Escola Murade' },
 ];
 
 const LANC = 'src/components/tabs/LancamentosTab.tsx';

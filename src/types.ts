@@ -21,7 +21,8 @@ export type TabId =
   | "backups"
   | "tarefas-equipe"
   | "meu-jeito"
-  | "revisor";
+  | "revisor"
+  | "escola";
 
 export interface OrgaoConectado {
   id: string;

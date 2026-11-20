@@ -17,6 +17,7 @@ import { prepararAuthContabil, configGestaoEquipeContabil, adicionarEmpresaAcess
 import { ArmazemDeEtapas, chaveDeEtapas, prepararPedido, limitarPedido, avisoDeTextoCortado } from "./src/server/agenteEtapas";
 import { ArmazemAcoesPendentes, avancarAcao as avancarAcaoAgenteIA, confirmarAcao as confirmarAcaoAgenteIA, conversar as conversarAgenteIA, recusarAcao as recusarAcaoAgenteIA, type ChamarApi, type ContextoAgente, type ModeloIA } from "./src/server/agenteMotor";
 import { kitContabil } from "./src/server/agenteContabil";
+import { registrarRotasEscola } from "./src/server/escolaRotas";
 import { ArmazemPedidosMemoria, ArmazemPedidosPg, CentralDePedidos, tokenValido } from "./src/server/agentesEntreSistemas";
 import { criarAtividadeEscritorio } from './src/server/atividadeEscritorio';
 import { criarServicoTarefas, registrarRotasTarefasEquipe } from "./src/server/tarefasEquipe";
@@ -1316,6 +1317,22 @@ const reconciliacaoRascunhosStatus: {
     store: storeEscritorio,
     sessao: (req) => { const s = sessaoDaRequisicaoContabil(req); return s ? { tenantId: String(s.tenantId || s.escritorioDe || s.userId), podeEditar: s.administrador === true || s.donoSistema === true } : undefined; },
   });
+  // ESCOLA MURADE (adicional pago): trilhas, aulas, simulador de treino (nunca grava dado real), provas e painel do gestor.
+  // Só tabelas contabil_escola_*; liberação pelo CNPJ do escritório no consultor (Agente IA), com cache de 10 minutos.
+  const escolaMurade = registrarRotasEscola({
+    app: { get: (c, ...h) => app.get(c, ...h), post: (c, ...h) => app.post(c, exigirOrigemNavegador, ...h) }, exigirSessao: exigirSessaoContabil,
+    sessao: (req) => { const s = sessaoDaRequisicaoContabil(req); return s ? { userId: s.userId, login: s.login, tenantId: String(s.tenantId || s.escritorioDe || s.userId), administrador: s.administrador === true, donoSistema: s.donoSistema === true } : undefined; },
+    consultar: (sql, params) => consultaBancoContabil(sql, params ?? []) as any, bancoConfigurado: bancoContabilConfigurado,
+    liberacao: { env: process.env, fetch: (url, init) => fetch(url, init) as any },
+    cnpjDoEscritorio: (tenantId) => storeEscritorio.lerOuDescobrir(tenantId),
+    escritorioDoDono: async (tenantId) => {
+      const lista = (process.env.MURADE_DONO_SISTEMA || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+      const r = lista.length
+        ? await consultaBancoContabil("SELECT 1 FROM contabil_auth_users WHERE id::text=$1 AND global_admin=true AND disabled=false AND lower(login)=ANY($2::text[])", [tenantId, lista])
+        : await consultaBancoContabil("SELECT 1 FROM (SELECT id FROM contabil_auth_users WHERE global_admin=true ORDER BY created_at, id LIMIT 1) d WHERE d.id::text=$1", [tenantId]);
+      return r.rows.length > 0;
+    },
+  });
   // Serviço completo da Agente ("fecha o mês", "faz a ECD"...): resumo em "A conferir" (tela Aprovar lançamentos) e "serviço feito".
   registrarRotasServicoCompleto(app, { exigirSessao: exigirSessaoContabil, exigirOrigem: exigirOrigemNavegador }, {
     store: storeServicoCompleto,
@@ -1691,6 +1708,14 @@ const reconciliacaoRascunhosStatus: {
     setInterval(() => void rodarRevisor(), INTERVALO_ROBO_REVISOR_MS).unref();
     registrarRotinaManual("revisor", () => rodarRevisor(true));
   }
+
+  // Robô Conferidor da Escola Murade: conteúdo com fonte oficial e data; aluno com trilha atribuída e sem progresso há 7 dias avisa o gestor.
+  registrarRobo({ id: "conferidor_escola", nome: "Robô Conferidor da Escola Murade", posto: "conferidor", missao: "A cada 6 horas confere, só em leitura, se toda aula da Escola Murade tem fonte oficial e data de conferência, perguntas bem formadas, exemplo calculado pelo motor do sistema e \"Me mostra\" apontando para tela que existe, e avisa o administrador do escritório quando um aluno com trilha atribuída está sem progresso há 7 dias. Nunca grava em lançamento, plano de contas, livro, ECD ou ECF.", intervaloMs: 6 * 60 * 60_000 });
+  const rodarConferidorEscola = () => bancoContabilConfigurado() ? executarRobo("conferidor_escola", async () => { const r = await escolaMurade.rodarRobo(); registrarResultadoRobo("conferidor_escola", r.resumo); })
+    .catch((e) => console.error("Falha no Robô Conferidor da Escola Murade:", e?.message || e)) : undefined;
+  setTimeout(() => void rodarConferidorEscola(), 290_000).unref();
+  setInterval(() => void rodarConferidorEscola(), 6 * 60 * 60_000).unref();
+  registrarRotinaManual("conferidor_escola", () => void rodarConferidorEscola());
 
   // Robôs da escrituração avançada (todos os escritórios, empresa por empresa; nunca aprovam nada sozinhos).
   const consultarEscrituracao = (sql: string, params?: unknown[]) => consultaBancoContabil(sql, params);

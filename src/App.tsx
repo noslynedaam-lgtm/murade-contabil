@@ -59,6 +59,8 @@ import { TarefasEquipeTab } from "./components/tabs/TarefasEquipeTab";
 import { CaixaPedirParaAlguem } from "./components/CaixaPedirParaAlguem";
 import { PilotoVisivel } from "./components/PilotoVisivel";
 import { IDS_DE_TELAS_CONTABIL } from "./data/mapaTelasContabil";
+import { TelaEscolaMurade } from "./components/escola/TelaEscolaMurade";
+import { AvisoEscola } from "./components/escola/AvisoEscola";
 
 export default function App() {
   return <ContabilAccessGate><AppWorkspace /></ContabilAccessGate>;
@@ -1225,6 +1227,7 @@ function AppWorkspace() {
               {tabAtiva === "backups" && <BackupsTab />}
               {tabAtiva === "tarefas-equipe" && <TarefasEquipeTab />}
               {tabAtiva === "meu-jeito" && <MeuJeitoTab />}
+              {tabAtiva === "escola" && <TelaEscolaMurade />}
               {tabAtiva === "revisor" && (
                 <RevisorTab
                   onNavegar={(tela, cnpj) => { if (cnpj && String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase() !== cnpj) escolherEmpresaPeloCnpj(cnpj); setTabAtiva(tela as TabId); }}
@@ -1292,6 +1295,8 @@ function AppWorkspace() {
         onFalar={(t) => assistenteRef.current?.falar(t)}
         onPedirAgente={(texto) => { assistenteRef.current?.abrir(); assistenteRef.current?.perguntar(texto); }}
       />
+      {/* Escola Murade: aviso de trilha atribuída, prova terminada e aluno parado (cartão pequeno embaixo). */}
+      <AvisoEscola onAbrir={() => setTabAtiva("escola")} />
       <AvisoServicoPronto
         onAbrir={(cnpj) => { if (String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase() !== cnpj) escolherEmpresaPeloCnpj(cnpj); setTabAtiva("aprovacoes"); }}
         onFalar={(t) => assistenteRef.current?.falar(t)}

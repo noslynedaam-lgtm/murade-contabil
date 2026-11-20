@@ -22,6 +22,7 @@ import { acharPessoa, acharPorNome, cnpjLimpo, formatarCnpj, formatarDataBr, mon
 import { CHAVES_PREFERENCIA, falhou, PREFERENCIAS, descreverPreferencia, descreverReceita, detectarPedidoProtegido, idDaReceita, resolverTela, sanearNome, validarPreferencia, validarReceita } from './meuJeito';
 import { blocosDoAssunto, montarApresentacao, type SecaoApresentacao } from '../data/apresentacaoSistema';
 import { MODULOS_JEITO_PADRAO, PROTECOES_FIXAS, TEXTO_PROTECAO } from '../data/jeitoPadraoContabil';
+import { FERRAMENTAS_ESCOLA, INSTRUCAO_ESCOLA } from './agenteEscola';
 
 const cnpjDe = (v: unknown): string | null => { const d = String(v ?? '').replace(/[^0-9A-Za-z]/g, '').toUpperCase(); return d.length === 14 ? d : null; };
 const competenciaDe = (v: unknown): string | null => (typeof v === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(v.trim()) ? v.trim() : null);
@@ -1071,4 +1072,4 @@ NUNCA ENROLE NEM JOGUE CONVERSA FORA
 - Se não houver ferramenta, tela, NEM uma resposta clara de quem resolve — ou seja, você realmente não sabe o que fazer com o pedido —, use chamar_supervisor com um resumo da pergunta, e então diga ao usuário, com calma, que você vai levar isso ao seu supervisor e que volta a falar com ele assim que tiver a resposta. Nunca invente um prazo. Isso NÃO é desculpa para pular a busca por uma ferramenta: só chame o supervisor depois de checar tudo o que você tem.
 - Nunca fique repetindo a pergunta, dando respostas vagas, enrolando ou gerando texto sem informação nova só para preencher a resposta — isso gasta crédito sem ajudar.`;
 
-export const kitContabil: KitAgente = { ferramentas: [...FERRAMENTAS, ...FERRAMENTAS_SERVICO_COMPLETO, ...FERRAMENTAS_PILOTO, ...FERRAMENTAS_ENTRE_SISTEMAS, ...FERRAMENTAS_REVISOR, ...FERRAMENTAS_DEMONSTRACOES], instrucao: INSTRUCAO_BASE + INSTRUCAO_SERVICO_COMPLETO + INSTRUCAO_PILOTO + INSTRUCAO_ENTRE_SISTEMAS + INSTRUCAO_REVISOR + INSTRUCAO_DEMONSTRACOES };
+export const kitContabil: KitAgente = { ferramentas: [...FERRAMENTAS, ...FERRAMENTAS_SERVICO_COMPLETO, ...FERRAMENTAS_PILOTO, ...FERRAMENTAS_ENTRE_SISTEMAS, ...FERRAMENTAS_REVISOR, ...FERRAMENTAS_DEMONSTRACOES, ...FERRAMENTAS_ESCOLA], instrucao: INSTRUCAO_BASE + INSTRUCAO_SERVICO_COMPLETO + INSTRUCAO_PILOTO + INSTRUCAO_ENTRE_SISTEMAS + INSTRUCAO_REVISOR + INSTRUCAO_DEMONSTRACOES + INSTRUCAO_ESCOLA };
