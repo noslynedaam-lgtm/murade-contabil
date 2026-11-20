@@ -50,6 +50,7 @@ export const TELAS_CONTABIL: TelaMapa[] = [
   { id: 'tarefas-equipe', rotulo: 'Tarefas da equipe' },
   { id: 'backups', rotulo: 'Backups' },
   { id: 'meu-jeito', rotulo: 'Meu jeito' },
+  { id: 'revisor', rotulo: 'Revisor', periodo: 'revisor-competencia' },
 ];
 
 const LANC = 'src/components/tabs/LancamentosTab.tsx';
@@ -117,6 +118,10 @@ export const CAMPOS_CONTABIL: CampoMapa[] = [
   { chave: 'livros-pdf', tela: 'livros', rotulo: 'Imprimir / PDF dos livros', arquivo: 'src/components/tabs/LivrosTab.tsx', tipo: 'botao' },
   { chave: 'ecd-ano', tela: 'livros', rotulo: 'Ano-calendário da ECD', arquivo: 'src/components/tabs/LivrosTab.tsx', tipo: 'numero' },
   { chave: 'ecd-baixar', tela: 'livros', rotulo: 'Baixar arquivo ECD', arquivo: 'src/components/EcdGeradorPainel.tsx', tipo: 'botao' },
+  // Revisor: revisão geral do mês e lista Corrigir
+  { chave: 'revisor-competencia', tela: 'revisor', rotulo: 'Competência da revisão', arquivo: 'src/components/tabs/RevisorTab.tsx', tipo: 'texto' },
+  { chave: 'revisor-revisar', tela: 'revisor', rotulo: 'Revisar todas as empresas', arquivo: 'src/components/tabs/RevisorTab.tsx', tipo: 'botao' },
+  { chave: 'revisor-rodar-agora', tela: 'revisor', rotulo: 'Rodar agora (revisão geral)', arquivo: 'src/components/tabs/RevisorTab.tsx', tipo: 'botao' },
   // Competência das telas com período
   { chave: 'balancete-competencia', tela: 'balancete', rotulo: 'Competência do balancete', arquivo: 'src/components/tabs/BalanceteTab.tsx', tipo: 'selecao' },
   { chave: 'gestao-periodo', tela: 'gestao-contabil', rotulo: 'Competência da gestão contábil', arquivo: 'src/components/tabs/GestaoContabilTab.tsx', tipo: 'selecao' },

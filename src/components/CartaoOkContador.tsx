@@ -50,6 +50,20 @@ export const CartaoOkContador: React.FC<{ onNavegar: (tela: string, cnpj: string
     return () => window.clearInterval(t);
   }, [esperando]);
 
+  // Parecer do REVISOR para o mesmo serviço: "✅ conferi … ⚠️ atenção …" (só lê; não muda nada).
+  const primeiro = esperando[0];
+  const [parecer, setParecer] = useState<{ chave: string; conferidos: string[]; atencao: Array<{ regra: string; texto: string; nivel: string }> } | null>(null);
+  useEffect(() => {
+    if (!primeiro?.cnpj) { setParecer(null); return; }
+    const chave = `${primeiro.cnpj}|${primeiro.roteiro}|${primeiro.referencia}`;
+    const comp = /^\d{4}-\d{2}$/.test(primeiro.referencia) ? primeiro.referencia : "";
+    let vivo = true;
+    void fetch(`/api/revisor/parecer?cnpj=${encodeURIComponent(primeiro.cnpj)}${comp ? `&competencia=${comp}` : ""}`, { credentials: "include", cache: "no-store" })
+      .then((r) => r.json()).then((d) => { if (vivo && d?.sucesso && d.parecer) setParecer({ chave, conferidos: d.parecer.conferidos || [], atencao: d.parecer.atencao || [] }); })
+      .catch(() => undefined);
+    return () => { vivo = false; };
+  }, [primeiro?.cnpj, primeiro?.roteiro, primeiro?.referencia]);
+
   if (!esperando.length) return null;
   const s = esperando[0];
   if (recolhido) return (
@@ -77,6 +91,15 @@ export const CartaoOkContador: React.FC<{ onNavegar: (tela: string, cnpj: string
           <p className="font-bold text-slate-900">Confira e dê o OK</p>
           <p className="text-xs font-semibold text-slate-700">{s.titulo}</p>
           {s.pontoOk && <p className="mt-1 text-xs text-slate-700">{s.pontoOk}</p>}
+          {parecer && parecer.chave === `${s.cnpj}|${s.roteiro}|${s.referencia}` && (
+            <div className="mt-1.5 max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-1.5 text-[11px]" data-campo="revisor-parecer">
+              <p className="font-bold text-slate-900"><span aria-hidden>🔎</span> Parecer do Revisor</p>
+              {parecer.conferidos.length > 0 && <p className="text-emerald-900"><span aria-hidden>✅</span> Conferi: {parecer.conferidos.join("; ")}.</p>}
+              {parecer.atencao.length > 0
+                ? <ul className="space-y-0.5 text-amber-950">{parecer.atencao.map((a) => <li key={a.regra}><span aria-hidden>{a.nivel === "bloqueia" ? "⛔" : "⚠️"}</span> {a.texto}</li>)}</ul>
+                : <p className="text-slate-700"><span aria-hidden>⚠️</span> Atenção: nada a apontar.</p>}
+            </div>
+          )}
           {esperando.length > 1 && <p className="mt-1 text-[11px] text-slate-500">+ {esperando.length - 1} outro(s) esperando o seu OK em A conferir.</p>}
         </div>
       </div>

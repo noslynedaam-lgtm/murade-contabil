@@ -5,6 +5,8 @@ import { LancamentoContabil, ContaPlano, HistoricoPadrao, LancamentoPadrao } fro
 import { PadroesLancamentoPainel } from "../PadroesLancamentoPainel";
 import { aplicarHistoricoPadrao, textoParaCentavos } from "../../utils/escrituracaoAvancada";
 import { moedaContabil } from "../../utils/livrosContabeis";
+import { revisarLancamento, revisarMultipartida } from "../../utils/revisorContabil";
+import { useRevisor } from "../RevisorPainel";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -35,6 +37,10 @@ interface LancamentosTabProps {
   historicosPadrao?: HistoricoPadrao[];
   lancamentosPadrao?: LancamentoPadrao[];
   onRota?: RotaEscrituracao;
+  /** Competências fechadas da empresa (o Revisor não deixa gravar nelas). */
+  competenciasFechadas?: string[];
+  /** CNPJ da empresa ativa (para o registro do "gravar mesmo assim" do Revisor). */
+  cnpj?: string;
 }
 
 export const LancamentosTab: React.FC<LancamentosTabProps> = ({
@@ -51,6 +57,8 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
   historicosPadrao = [],
   lancamentosPadrao = [],
   onRota,
+  competenciasFechadas = [],
+  cnpj = "",
 }) => {
   const [modalNovo, setModalNovo] = useState(false);
   const [filtroOrigem, setFiltroOrigem] = useState<string>("todos");
@@ -116,8 +124,28 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
     return !Number.isFinite(l.valor) || l.valor <= 0 || !debito || !credito || debito.tipo !== "analitica" || credito.tipo !== "analitica";
   }).length;
 
+  // REVISOR: antes de gravar, confere data (formato, mês fechado, futura), valor, contas (existe? analítica? iguais?), histórico,
+  // partida que não fecha e lançamento repetido. "Corrigir para mim" só arruma o que tem resposta certa (formato da data, conta pelo plano,
+  // total pela soma das partidas); o que bloqueia não deixa gravar.
+  const revisor = useRevisor();
   const handleSalvarNovo = async (e: React.FormEvent) => {
     e.preventDefault();
+    const d = new Date(); const hoje = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const ctx = { contas, lancamentos, fechadas: competenciasFechadas, hoje };
+    const revisao = formaLan === "simples"
+      ? revisarLancamento({ data: dataLan, valor: valorLan, debito: debitoCod.trim() || debitoNome, credito: creditoCod.trim() || creditoNome, historico: histLan }, ctx)
+      : revisarMultipartida({ data: dataLan, historico: histLan, forma: formaLan, contaUnica, total: valorLan, partidas: linhasLan }, ctx, textoParaCentavos);
+    const aplicar = (c: Record<string, string>) => {
+      if (c.data !== undefined) setDataLan(c.data);
+      if (c.debito !== undefined) handleSelecionarDebito(c.debito);
+      if (c.credito !== undefined) handleSelecionarCredito(c.credito);
+      if (c.historico !== undefined) setHistLan(c.historico);
+      if (c.total !== undefined) setValorLan(c.total);
+    };
+    if (!revisor.conferir(revisao, { acao: formaLan === "simples" ? "lancamento" : "lancamento_multipartida", cnpj }, { aplicar, salvar: () => gravarNovo() })) return;
+    await gravarNovo();
+  };
+  const gravarNovo = async () => {
     if (formaLan !== "simples") {
       if (!onRota) { setErroNovo("Lançamento com várias partidas indisponível nesta tela."); return; }
       if (!normalizarDataContabil(dataLan)) { setErroNovo("Informe uma data real no formato DD/MM/AAAA."); return; }
@@ -380,6 +408,7 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
             </div>
 
             <form onSubmit={handleSalvarNovo} className="space-y-3.5 text-xs">
+              {revisor.painel}
               {erroNovo && <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800">{erroNovo}</div>}
               {onRota && <label className="block text-slate-700 font-semibold">Forma do lançamento
                 <select data-campo="lancamento-forma" value={formaLan} onChange={(e) => setFormaLan(e.target.value as "simples" | "1xN" | "Nx1")} className="mt-1 w-full border border-slate-300 rounded-lg p-2 text-xs bg-white">

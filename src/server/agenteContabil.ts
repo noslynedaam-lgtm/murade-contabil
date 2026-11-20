@@ -15,6 +15,7 @@ import { compararPeriodos, explicarVariacoes } from '../utils/analiseContabil';
 import { FERRAMENTAS_ENTRE_SISTEMAS, INSTRUCAO_ENTRE_SISTEMAS } from './ferramentasEntreSistemas';
 import { FERRAMENTAS_PILOTO, INSTRUCAO_PILOTO } from './pilotoContabil';
 import { FERRAMENTAS_SERVICO_COMPLETO, INSTRUCAO_SERVICO_COMPLETO, liberacaoDoConsultor } from './servicoCompleto';
+import { FERRAMENTAS_REVISOR, INSTRUCAO_REVISOR } from './revisorContabilAgente';
 import { consultorConfigurado, opcoesConsultorParaTeste, perguntarAoConsultor, regimeParaConsultor, registrarDecisaoNoConsultor, type ContextoEmpresaConsultor } from './consultorMurade';
 import { acharPessoa, acharPorNome, cnpjLimpo, formatarCnpj, formatarDataBr, montarMensagemPedido, nomeDaPessoa, normalizarTexto, prazoValido } from './tarefasEquipe';
 import { CHAVES_PREFERENCIA, falhou, PREFERENCIAS, descreverPreferencia, descreverReceita, detectarPedidoProtegido, idDaReceita, resolverTela, sanearNome, validarPreferencia, validarReceita } from './meuJeito';
@@ -1069,4 +1070,4 @@ NUNCA ENROLE NEM JOGUE CONVERSA FORA
 - Se não houver ferramenta, tela, NEM uma resposta clara de quem resolve — ou seja, você realmente não sabe o que fazer com o pedido —, use chamar_supervisor com um resumo da pergunta, e então diga ao usuário, com calma, que você vai levar isso ao seu supervisor e que volta a falar com ele assim que tiver a resposta. Nunca invente um prazo. Isso NÃO é desculpa para pular a busca por uma ferramenta: só chame o supervisor depois de checar tudo o que você tem.
 - Nunca fique repetindo a pergunta, dando respostas vagas, enrolando ou gerando texto sem informação nova só para preencher a resposta — isso gasta crédito sem ajudar.`;
 
-export const kitContabil: KitAgente = { ferramentas: [...FERRAMENTAS, ...FERRAMENTAS_SERVICO_COMPLETO, ...FERRAMENTAS_PILOTO, ...FERRAMENTAS_ENTRE_SISTEMAS], instrucao: INSTRUCAO_BASE + INSTRUCAO_SERVICO_COMPLETO + INSTRUCAO_PILOTO + INSTRUCAO_ENTRE_SISTEMAS };
+export const kitContabil: KitAgente = { ferramentas: [...FERRAMENTAS, ...FERRAMENTAS_SERVICO_COMPLETO, ...FERRAMENTAS_PILOTO, ...FERRAMENTAS_ENTRE_SISTEMAS, ...FERRAMENTAS_REVISOR], instrucao: INSTRUCAO_BASE + INSTRUCAO_SERVICO_COMPLETO + INSTRUCAO_PILOTO + INSTRUCAO_ENTRE_SISTEMAS + INSTRUCAO_REVISOR };

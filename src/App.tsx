@@ -35,6 +35,9 @@ import { IAMuradModal } from "./components/IAMuradModal";
 import { BalaoAjudaProativa } from "./components/BalaoAjudaProativa";
 import { AvisoServicoPronto } from "./components/AvisoServicoPronto";
 import { CartaoOkContador } from "./components/CartaoOkContador";
+import { conferirNoServidor, useRevisor } from "./components/RevisorPainel";
+import { revisarFechamento } from "./utils/revisorContabil";
+import { RevisorTab } from "./components/tabs/RevisorTab";
 import { ofertaDeServico, pedidoDaOferta } from "./utils/servicoCompletoCliente";
 import { GuiaPassoAPasso, type PassoGuia } from "./components/GuiaPassoAPasso";
 import { AssistenteProvider } from "./contexts/AssistenteContext";
@@ -786,12 +789,21 @@ function AppWorkspace() {
   };
 
   // 6. Fechar Mês no Balancete
+  // REVISOR antes de fechar: fechamento guiado + extrato sem conciliação, folha do DP sem partida, lançamento repetido e Caixa com
+  // saldo credor (o servidor confere com o que está salvo). O que bloqueia não deixa fechar; o resto pode fechar mesmo assim, registrado.
+  const revisorFechamento = useRevisor();
   const handleFecharMes = async (competencia: string): Promise<boolean> => {
     const cnpj = String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
     if (!cnpj || dadosEmpresaCarregadosCnpj !== cnpj || !workspacePersistido || !auth.cnpjs.includes(cnpj)) {
       showToast("Fechamento bloqueado: aguarde o carregamento e a confirmação do banco desta empresa.", "info");
       return false;
     }
+    const local = revisarFechamento({ contas, lancamentos, preLancamentos, bensImobilizado }, competencia, new Set(competenciasFechadas));
+    const revisao = await conferirNoServidor("fechamento", cnpj, { competencia }, local);
+    if (!revisorFechamento.conferir(revisao, { acao: "fechamento", cnpj, competencia }, { salvar: () => fecharMesDireto(cnpj, competencia) })) return false;
+    return fecharMesDireto(cnpj, competencia);
+  };
+  const fecharMesDireto = async (cnpj: string, competencia: string): Promise<boolean> => {
     try {
       const response = await fetchComGuarda(`/api/workspaces/${encodeURIComponent(cnpj)}/fechamentos`, {
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -1060,6 +1072,8 @@ function AppWorkspace() {
 
               {tabAtiva === "lancamentos" && (
                 <LancamentosTab
+                  competenciasFechadas={competenciasFechadas}
+                  cnpj={String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase()}
                   lancamentos={lancamentos}
                   contas={contas}
                   centrosCusto={centrosCusto}
@@ -1188,6 +1202,17 @@ function AppWorkspace() {
               {tabAtiva === "backups" && <BackupsTab />}
               {tabAtiva === "tarefas-equipe" && <TarefasEquipeTab />}
               {tabAtiva === "meu-jeito" && <MeuJeitoTab />}
+              {tabAtiva === "revisor" && (
+                <RevisorTab
+                  onNavegar={(tela, cnpj) => { if (cnpj && String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase() !== cnpj) escolherEmpresaPeloCnpj(cnpj); setTabAtiva(tela as TabId); }}
+                  onDadosAtualizados={(cnpj, d, versao) => {
+                    // "Corrigir para mim" do Revisor na empresa aberta: a tela recebe o que o servidor gravou (sem sobrescrever).
+                    if (String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase() !== cnpj) return;
+                    if (versao !== null) versoesWorkspaceRef.current.set(cnpj, versao);
+                    setLancamentos(Array.isArray(d.lancamentos) ? d.lancamentos : []);
+                  }}
+                />
+              )}
               </ErroTela>
             </div>
 
@@ -1238,6 +1263,7 @@ function AppWorkspace() {
           assistenteRef.current?.perguntar(pedidoDaOferta(oferta, empresa));
         }}
       />
+      {revisorFechamento.painel}
       <CartaoOkContador
         onNavegar={(tela, cnpj) => { if (String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase() !== cnpj) escolherEmpresaPeloCnpj(cnpj); setTabAtiva(tela as TabId); }}
         onFalar={(t) => assistenteRef.current?.falar(t)}

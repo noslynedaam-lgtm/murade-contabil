@@ -4,9 +4,11 @@ import type { RotaEscrituracao } from "../types";
 // usar a conta Y". O Robô da Conciliação Bancária prepara as sugestões; quem aceita é a pessoa. Nada vira definitivo sem aprovação.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ContaPlano, LancamentoContabil, RegraConciliacao } from "../types";
-import { conciliar, lerCSVExtrato, lerHtmlExtrato, lerOFX, lerXlsxExtrato, regraQueSeAplica, sugerirContraPartida, type MovimentoExtrato } from "../utils/extratoBancario";
+import { conciliar, lancamentoCasaComMovimento, lerCSVExtrato, lerHtmlExtrato, lerOFX, lerXlsxExtrato, regraQueSeAplica, sugerirContraPartida, type MovimentoExtrato } from "../utils/extratoBancario";
 import { moedaContabil } from "../utils/livrosContabeis";
 import { useExclusaoDuasEtapas } from "./ConfirmaExclusaoDuasEtapas";
+import { useRevisor } from "./RevisorPainel";
+import { revisarConciliacaoLancar } from "../utils/revisorContabil";
 
 type Rota = RotaEscrituracao;
 type Guardado = MovimentoExtrato & { situacao: "pendente" | "conciliado" | "lancado"; lancamentoId: string | null; sugestaoConta: string | null; sugestaoLancamentoId: string | null; sugestaoMotivo: string | null };
@@ -34,7 +36,7 @@ export async function lerArquivoExtrato(arquivo: File): Promise<{ movimentos: Mo
   return { ...lerCSVExtrato(texto), formato: "CSV" };
 }
 
-export const ConciliacaoBancariaPainel: React.FC<{ contas: ContaPlano[]; lancamentos: LancamentoContabil[]; regras: RegraConciliacao[]; periodo: string; podeGravar: boolean; onRota: Rota }> = ({ contas, lancamentos, regras, periodo, podeGravar, onRota }) => {
+export const ConciliacaoBancariaPainel: React.FC<{ contas: ContaPlano[]; lancamentos: LancamentoContabil[]; regras: RegraConciliacao[]; periodo: string; podeGravar: boolean; onRota: Rota; fechadas?: string[]; cnpj?: string }> = ({ contas, lancamentos, regras, periodo, podeGravar, onRota, fechadas = [], cnpj = "" }) => {
   const { pedir, dialogo } = useExclusaoDuasEtapas();
   const analiticas = useMemo(() => contas.filter((c) => c.tipo === "analitica"), [contas]);
   const analiticasSet = useMemo(() => new Set(analiticas.map((c) => c.codigo)), [analiticas]);
@@ -82,9 +84,18 @@ export const ConciliacaoBancariaPainel: React.FC<{ contas: ContaPlano[]; lancame
     const r = await onRota("POST", "extratos/aceitar-sugestoes", { contaBanco: banco, fitids });
     if (r.ok) await carregar();
   };
+  // REVISOR antes de lançar: contrapartida que não existe, sintética ou igual ao banco, mês fechado, mesma contrapartida para entrada e
+  // saída e movimento que já tem lançamento aprovado (lançar de novo duplica).
+  const revisor = useRevisor();
   const lancarMarcados = async () => {
-    const itens = pendentes.filter((m) => marcados.has(m.fitid)).map((m) => ({ fitid: m.fitid, contaContrapartida: contraLote || sugestaoTela(m)?.conta || "" }));
+    const marcadosPend = pendentes.filter((m) => marcados.has(m.fitid));
+    const itens = marcadosPend.map((m) => ({ fitid: m.fitid, contaContrapartida: contraLote || sugestaoTela(m)?.conta || "" }));
     if (!itens.length || itens.some((i) => !i.contaContrapartida)) { setMsg("Marque os movimentos e escolha a contrapartida (ou deixe a sugestão de cada um)."); return; }
+    const revisao = revisarConciliacaoLancar(marcadosPend.map((m) => ({ fitid: m.fitid, dataISO: m.dataISO, valorCentavos: m.valorCentavos, memo: m.memo, contrapartida: contraLote || sugestaoTela(m)?.conta || "" })), { contas, contaBanco: banco, lancamentos, fechadas, contrapartidaUnica: Boolean(contraLote) }, lancamentoCasaComMovimento);
+    if (!revisor.conferir(revisao, { acao: "conciliacao_lancar", cnpj, competencia: periodo }, { salvar: () => lancarDireto(itens) })) return;
+    await lancarDireto(itens);
+  };
+  const lancarDireto = async (itens: Array<{ fitid: string; contaContrapartida: string }>) => {
     const r = await onRota("POST", "extratos/lancar", { contaBanco: banco, itens });
     if (r.ok) await carregar();
   };
@@ -101,6 +112,7 @@ export const ConciliacaoBancariaPainel: React.FC<{ contas: ContaPlano[]; lancame
 
   return (
     <div className="space-y-3 text-xs">
+      {revisor.painel}
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
         <h3 className="mb-2 text-sm font-bold text-slate-900">Importar extrato bancário (OFX, CSV ou Excel)</h3>
         <div className="flex flex-wrap items-end gap-2">

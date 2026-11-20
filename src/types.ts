@@ -19,7 +19,8 @@ export type TabId =
   | "ia-premium"
   | "backups"
   | "tarefas-equipe"
-  | "meu-jeito";
+  | "meu-jeito"
+  | "revisor";
 
 export interface OrgaoConectado {
   id: string;

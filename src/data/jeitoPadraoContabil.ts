@@ -35,6 +35,7 @@ export const MODULOS_JEITO_PADRAO: TelaJeito[] = [
   { id: 'tarefas-equipe', rotulo: 'Tarefas da equipe', resumo: 'Pedidos feitos à equipe, com acompanhamento de quando foram vistos e concluídos.', arquivo: 'TarefasEquipeTab' },
   { id: 'backups', rotulo: 'Backups', resumo: 'Uma cópia cifrada por mês, só com os dados do escritório, gerada sozinha pelo robô conferidor.', arquivo: 'BackupsTab' },
   { id: 'meu-jeito', rotulo: 'Meu jeito', resumo: 'O nome pelo qual a Agente te chama e o que ela aprendeu do seu jeito de trabalhar: você vê, muda o nome ou volta ao jeito padrão, uma regra por vez.', arquivo: 'MeuJeitoTab' },
+  { id: 'revisor', rotulo: 'Revisor', resumo: 'Confere antes de gravar ou fechar e revisa cada empresa no mês: certo, risco e falta. Em Corrigir fica o que o robô semanal achou; Corrigir para mim só arruma lançamento pendente em mês aberto.', arquivo: 'RevisorTab' },
 ];
 
 export const IDS_TELAS_JEITO: string[] = MODULOS_JEITO_PADRAO.map((m) => m.id);

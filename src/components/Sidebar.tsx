@@ -142,6 +142,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
       badgeColor: "bg-amber-400/30 text-amber-200",
     },
     {
+      id: "revisor" as TabId,
+      label: "Revisor",
+      icon: ShieldCheck,
+      badge: "Corrigir",
+      badgeColor: "bg-amber-300 text-amber-950 font-bold",
+    },
+    {
       id: "tarefas-equipe" as TabId,
       label: "Tarefas da equipe",
       icon: ListChecks,

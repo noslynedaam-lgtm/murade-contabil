@@ -13,7 +13,7 @@ import { dpStoreConfigurado, ErroConflitoResumoDP, ErroValidacaoResumoDP, gravar
 import { gravarResumoProLaboreDP } from "./src/server/dadosProLaboreStore";
 import { gravarEventoDP, lerEventosDP } from "./src/server/dadosDpEventosStore";
 import { registrarGestaoEquipe } from "./src/server/gestaoEquipe";
-import { prepararAuthContabil, configGestaoEquipeContabil, adicionarEmpresaAcessoContabil, adicionarEquipeContabil, bloquearEscritorioContabil, definirLimiteEscritorioContabil, convidarEquipeContabil, convidarEscritorioContabil, reenviarAcessoEscritorioContabil, listarEquipeContabil, listarEscritoriosContabil, removerEquipeContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, sessaoDaRequisicaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarCnpjsComOrigensSemMapeamentoContabil, aplicarMapeamentosPadraoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, manterConectadoContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil, importarCnpjsCompartilhados, auth2faEstadoContabil, auth2faIniciarContabil, auth2faAtivarContabil, auth2faDesativarContabil, auth2faRedefinirContabil, auth2faResumoContabil, resumoSegurancaContabil } from "./src/server/authContabil";
+import { prepararAuthContabil, configGestaoEquipeContabil, adicionarEmpresaAcessoContabil, adicionarEquipeContabil, bloquearEscritorioContabil, definirLimiteEscritorioContabil, convidarEquipeContabil, convidarEscritorioContabil, reenviarAcessoEscritorioContabil, listarEquipeContabil, listarEscritoriosContabil, removerEquipeContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, sessaoDaRequisicaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarCnpjsComOrigensSemMapeamentoContabil, aplicarMapeamentosPadraoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, manterConectadoContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil, importarCnpjsCompartilhados, auth2faEstadoContabil, auth2faIniciarContabil, auth2faAtivarContabil, auth2faDesativarContabil, auth2faRedefinirContabil, auth2faResumoContabil, resumoSegurancaContabil, alterarWorkspaceNoServidorContabil } from "./src/server/authContabil";
 import { ArmazemDeEtapas, chaveDeEtapas, prepararPedido, limitarPedido, avisoDeTextoCortado } from "./src/server/agenteEtapas";
 import { ArmazemAcoesPendentes, avancarAcao as avancarAcaoAgenteIA, confirmarAcao as confirmarAcaoAgenteIA, conversar as conversarAgenteIA, recusarAcao as recusarAcaoAgenteIA, type ChamarApi, type ContextoAgente, type ModeloIA } from "./src/server/agenteMotor";
 import { kitContabil } from "./src/server/agenteContabil";
@@ -43,6 +43,8 @@ import { criarStoreEscritorio, preencherCnpjsDosEscritorios, registrarRotasEscri
 import { criarStoreServicoCompleto, registrarRotasServicoCompleto, resumoRodadaServicos, rodarConferidorServicos, tenantServico, type ResultadoRodadaServicos } from "./src/server/servicoCompletoStore";
 import { chaveServico, descreverRegistro, tenantDaSessao } from "./src/server/servicoFeito";
 import { registrarRotasEscrituracao, roboConciliacao, roboEncerramento, roboLancamentosPadrao, roboLivroCaixa } from "./src/server/escrituracaoRotas";
+import { criarRevisorContabil, registrarRotasRevisor, INTERVALO_ROBO_REVISOR_MS } from "./src/server/revisorContabil";
+import { conferirFolhasDP } from "./src/server/conferidorFolhaDP";
 
 dotenv.config();
 
@@ -1330,6 +1332,43 @@ const reconciliacaoRascunhosStatus: {
     },
     achados: () => ultimaRodadaServicos?.achados || [],
   });
+  // REVISOR: confere antes de gravar/fechar, parecer do cartão de OK, revisão geral do mês e lista "Corrigir" (robô semanal "revisor").
+  const revisorContabil = criarRevisorContabil({
+    consultar: (sql, params) => consultaBancoContabil(sql, params),
+    lerWorkspace: async (cnpj) => (await lerWorkspaceInternoContabil(cnpj)) as Record<string, any> | null,
+    alterarWorkspace: (cnpj, alterar, autor) => alterarWorkspaceNoServidorContabil(cnpj, alterar, autor),
+    extratoPendentes: async (cnpj, competencia) => {
+      const r = await consultaBancoContabil("SELECT count(*)::int AS n FROM contabil_extrato_movimentos WHERE cnpj=$1 AND situacao='pendente' AND data >= $2::date AND data < ($2::date + interval '1 month')", [cnpj, `${competencia}-01`]).catch(() => null);
+      return r ? Number(r.rows[0]?.n || 0) : null;
+    },
+    folhasDP: (cnpj, payload) => conferirFolhasDP((sql, params) => consultaBancoContabil(sql, params), cnpj, payload),
+  });
+  const sessaoRevisor = (req: express.Request) => {
+    const s = sessaoDaRequisicaoContabil(req);
+    if (!s) return undefined;
+    const cnpjs = s.cnpjs.map(normalizarCnpjAcesso);
+    return { userId: s.userId, login: s.login, cnpjs, tenantId: tenantServico(s), podeEscrever: (c: string) => s.administrador || s.memberships.find((m) => normalizarCnpjAcesso(m.cnpj) === c)?.role !== "viewer" };
+  };
+  const ultimoRevisorPorEscritorio = new Map<string, number>();
+  registrarRotasRevisor(app, { exigirSessao: exigirSessaoContabil, exigirOrigem: exigirOrigemNavegador }, {
+    revisor: revisorContabil, sessao: sessaoRevisor,
+    nomesDasEmpresas: async (cnpjs) => {
+      const r = await consultaBancoContabil("SELECT cnpj, COALESCE(NULLIF(payload->'empresa'->>'razaoSocial',''), NULLIF(payload->'empresa'->>'nomeFantasia',''), cnpj) AS nome FROM contabil_company_workspaces WHERE cnpj = ANY($1::text[])", [cnpjs]);
+      return r.rows.map((x: any) => ({ cnpj: String(x.cnpj), nome: String(x.nome || "") }));
+    },
+    rodarAgora: (s) => {
+      if (!bancoContabilConfigurado()) return { ok: false, status: 503, motivo: "O banco do Contábil não está configurado." };
+      const ultimo = ultimoRevisorPorEscritorio.get(s.tenantId) || 0;
+      if (Date.now() - ultimo < 2 * 60_000) return { ok: false, status: 429, motivo: "A revisão acabou de ser pedida. Aguarde 2 minutos e tente de novo." };
+      if (statusRobos().robos.find((x) => x.id === "revisor")?.executando) return { ok: false, status: 409, motivo: "A revisão já está rodando agora; aguarde terminar." };
+      ultimoRevisorPorEscritorio.set(s.tenantId, Date.now());
+      void executarRobo("revisor", async () => {
+        const r = await revisorContabil.rodarRobo({ escritorios: async () => [{ id: s.tenantId, cnpjs: s.cnpjs }], forcar: true });
+        registrarResultadoRobo("revisor", r.resumo);
+      }).catch((e) => console.error("Falha na revisão geral pedida na hora:", e?.message || e));
+      return { ok: true };
+    },
+  });
   // Reprocessar a recepção de UMA empresa (botão manual ao lado da retentativa automática de 60 s do Robô Reconciliador):
   // reaplica os mapeamentos padrão e prepara de novo os rascunhos com o que o Fiscal e o DP já mandaram. Idempotente; não aprova nada.
   app.post("/api/workspaces/:cnpj/reprocessar-recepcao", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
@@ -1637,6 +1676,19 @@ const reconciliacaoRascunhosStatus: {
     setTimeout(() => void rodarServicosAgente(), 230_000).unref();
     setInterval(() => void rodarServicosAgente(), 2 * 60 * 60_000).unref();
     registrarRotinaManual("servico_completo", rodarServicosAgente);
+  }
+  // Robô do Revisor: revisão geral semanal do mês anterior de cada escritório, lista "Corrigir" (só lê; corrigir é clique da pessoa).
+  registrarRobo({ id: "revisor", nome: "Robô do Revisor (revisão geral semanal)", posto: "conferidor", missao: "Uma vez por semana (acorda a cada 6 horas e confere se já passou uma semana) faz, só em leitura, a revisão geral do mês anterior de cada empresa de cada escritório — fechamento guiado (partidas, inválidos, aprovações, rascunhos, saldos iniciais, depreciação), lançamento repetido, Caixa com saldo credor, extrato sem conciliação e folha do DP sem partida — e põe o que achou na lista Corrigir da tela Revisor. Corrigir sozinho, só com o clique da pessoa, só lançamento pendente de aprovação em mês aberto e só o determinístico; nunca aprova, nunca fecha e nunca transmite nada.", intervaloMs: 6 * 60 * 60_000 });
+  const rodarRevisor = (forcar = false) => bancoContabilConfigurado() ? executarRobo("revisor", async () => {
+    await prepararAuthContabil();
+    const r = await revisorContabil.rodarRobo({ forcar, escritorios: async () => (await escritoriosParaBackup()).map((e) => ({ id: e.id, cnpjs: e.cnpjs.map(normalizarCnpjAcesso) })) });
+    registrarResultadoRobo("revisor", r.resumo);
+    definirAlertaRobo("revisor", r.novos ? { nivel: "aviso", texto: `O Revisor achou ${r.novos} item(ns) novo(s) para corrigir; estão na tela Revisor › Corrigir.` } : null);
+  }).catch((e) => console.error("Falha no Robô do Revisor:", e?.message || e)) : undefined;
+  if (bancoContabilConfigurado()) {
+    setTimeout(() => void rodarRevisor(), 240_000).unref();
+    setInterval(() => void rodarRevisor(), INTERVALO_ROBO_REVISOR_MS).unref();
+    registrarRotinaManual("revisor", () => rodarRevisor(true));
   }
 
   // Robôs da escrituração avançada (todos os escritórios, empresa por empresa; nunca aprovam nada sozinhos).

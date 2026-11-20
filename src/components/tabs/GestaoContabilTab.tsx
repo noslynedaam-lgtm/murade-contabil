@@ -65,7 +65,7 @@ export const GestaoContabilTab: React.FC<Props> = (p) => {
           {secao === "comparativo" && <Comparativo {...p} periodo={periodo} />}
           {secao === "centros" && <Centros {...p} periodo={periodo} />}
           {secao === "imobilizado" && <Imobilizado {...p} periodo={periodo} analiticas={analiticas} />}
-          {secao === "extrato" && (p.onRota ? <ConciliacaoBancariaPainel contas={p.contas} lancamentos={p.lancamentos} regras={p.regrasConciliacao || []} periodo={periodo} podeGravar={p.workspacePersistido} onRota={p.onRota} /> : <Extrato {...p} analiticas={analiticas} periodo={periodo} />)}
+          {secao === "extrato" && (p.onRota ? <ConciliacaoBancariaPainel contas={p.contas} lancamentos={p.lancamentos} regras={p.regrasConciliacao || []} periodo={periodo} podeGravar={p.workspacePersistido} onRota={p.onRota} fechadas={p.competenciasFechadas} cnpj={String(p.empresa?.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase()} /> : <Extrato {...p} analiticas={analiticas} periodo={periodo} />)}
           {secao === "provisoes" && <Provisoes {...p} analiticas={analiticas} periodo={periodo} />}
           {secao === "dlpa" && <Dlpa {...p} periodo={periodo} />}
           {secao === "fechamento" && <Fechamento {...p} periodo={periodo} />}
