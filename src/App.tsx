@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useFecharNoVoltar, useVoltarCelular } from "./hooks/useVoltarCelular";
 import type { BemImobilizado } from "./utils/imobilizado";
 import { conferirFechamento } from "./utils/fechamentoContabil";
 import { GestaoContabilTab } from "./components/tabs/GestaoContabilTab";
@@ -140,6 +141,13 @@ function AppWorkspace() {
   const [modalFiscalAberto, setModalFiscalAberto] = useState(false);
   const [empresaFiscalDetectada, setEmpresaFiscalDetectada] = useState<EmpresaDados | null>(null);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: "success" | "info" } | null>(null);
+
+  // Botão VOLTAR do celular/navegador: volta para a tela anterior em vez de fechar o app; antes fecha o que estiver aberto por cima.
+  useVoltarCelular({ telaAtual: tabAtiva, telaInicial: "inicio", irParaTela: (tela) => setTabAtiva(tela as TabId), telasSemHistorico: ["ia-premium"] });
+  useFecharNoVoltar(mobileSidebarOpen, () => setMobileSidebarOpen(false));
+  useFecharNoVoltar(modalFiscalAberto, () => setModalFiscalAberto(false));
+  useFecharNoVoltar(!!dificuldadeAtual, () => setDificuldadeAtual(null));
+  useFecharNoVoltar(!!roteiroAtivo, () => setRoteiroAtivo(null));
 
   React.useLayoutEffect(() => {
     const cnpj = String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase();

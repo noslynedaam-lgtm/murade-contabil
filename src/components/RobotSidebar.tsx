@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useFecharNoVoltar } from "../hooks/useVoltarCelular";
 import { Bot, CheckCircle2, RefreshCw, AlertCircle, ArrowUpRight } from "lucide-react";
 
 interface RobotSidebarProps {
@@ -13,6 +14,7 @@ export const RobotSidebar: React.FC<RobotSidebarProps> = ({
   onNavigateTab,
 }) => {
   const [aberto, setAberto] = useState(false);
+  useFecharNoVoltar(aberto, () => setAberto(false)); // voltar do celular recolhe o robô aberto
   return (
     <>
       <button

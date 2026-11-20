@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
+import { useFecharNoVoltar } from "../hooks/useVoltarCelular";
 import { ATRASO_ETAPA2_MS, ROTULO_CANCELAR, ROTULO_CONTINUAR, ROTULO_FINAL_PADRAO, ROTULO_VOLTAR_ETAPA2, TITULO_ETAPA2, TITULO_ETAPA2_REFAZIVEL } from "../utils/exclusaoDuasEtapas";
 import { escolherVozPtBr } from "../utils/vozNatural";
 import { falarHumana, pararHumana, humanaFalando, ajustarVoz, bipRapido, prepararVoz, respostaRapida } from "../utils/vozHumana";
@@ -98,6 +99,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
   // Esc fecha a conversa aberta.
   const fecharPorEscRef = useRef<() => void>(() => {});
   fecharPorEscRef.current = () => { window.speechSynthesis?.cancel(); pararHumana(); onClose(); };
+  useFecharNoVoltar(isOpen, () => fecharPorEscRef.current()); // voltar do celular fecha a conversa (igual ao Esc)
   useEffect(() => {
     if (!isOpen) return;
     const aoTeclar = (e: KeyboardEvent) => { if (e.key === "Escape") fecharPorEscRef.current(); };
