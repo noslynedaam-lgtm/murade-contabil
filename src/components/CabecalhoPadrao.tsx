@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { BotoesTamanhoLetra } from './BotoesTamanhoLetra';
 import { Building2, KeyRound, LogOut, UserCircle } from 'lucide-react';
 
 // Bloco padrão do canto superior direito, igual nos 5 sistemas Murade:
@@ -130,6 +131,7 @@ export const CabecalhoPadrao: React.FC<Props> = ({ usuario, empresaNome, empresa
           </div>
         )}
       </div>
+      <BotoesTamanhoLetra />
       <button type="button" onClick={onSair} className="flex items-center gap-1 px-2 py-1 text-white/90 hover:text-white hover:bg-white/10 rounded transition cursor-pointer" title="Sair">
         <LogOut size={13} />
         <span>Sair</span>
