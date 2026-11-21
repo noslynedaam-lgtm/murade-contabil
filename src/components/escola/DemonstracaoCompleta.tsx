@@ -6,11 +6,11 @@
 // SEGURANÇA: o único pedido ao servidor que a demonstração faz é o cálculo de TREINO (/api/escola/simular, que só calcula) e o
 // registro de que a pessoa assistiu (/api/escola/demonstracao, tabela da Escola). Botões de salvar/emitir/transmitir/gerar da
 // réplica NUNCA executam nada: a seta mostra e a Agente diz "aqui você clicaria".
-// PARAR: botão Parar, tecla Esc e os eventos EVENTO_DEMO_COMANDO / EVENTO_AGENTE_PARAR (ponto para o comando de voz da Agente).
+// PARAR: botão Parar, tecla Esc e os eventos EVENTO_DEMO_COMANDO / EVENTO_AGENTE_PARAR / EVENTO_AGENTE_PAROU (controlador PARAR da Agente) (ponto para o comando de voz da Agente).
 // O que muda de um sistema para o outro (voz) fica em ./escolaAdaptador; o roteiro, em src/data/escolaDemonstracao.ts.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ETAPAS_DEMO, EVENTO_AGENTE_PARAR, EVENTO_DEMO_COMANDO, NOME_SISTEMA_DEMO, TITULO_DEMO, VELOCIDADES, avaliarCliqueSuaVez, botoesSuaVez, etapaDemoPorId, etapaDoCalculo, etapasSuaVez,
+  ETAPAS_DEMO, EVENTO_AGENTE_PARAR, EVENTO_AGENTE_PAROU, EVENTO_DEMO_COMANDO, NOME_SISTEMA_DEMO, TITULO_DEMO, VELOCIDADES, avaliarCliqueSuaVez, botoesSuaVez, etapaDemoPorId, etapaDoCalculo, etapasSuaVez,
   passosDaEtapa, tempoDeFalaDemo, transicaoDemo, valoresParaMotor, type CampoDemo, type ComandoDemo, type EstadoDemo, type EtapaDemo, type VelocidadeDemo,
 } from '../../data/escolaDemonstracao';
 import { AVISO_TREINO, EMPRESA_TREINO, formatarResultado, praticaPorId, valorParaLer } from '../../data/escolaPratica';
@@ -327,7 +327,8 @@ export const DemonstracaoCompleta: React.FC<{ onFechar: () => void; onMudou?: ()
     window.addEventListener('keydown', aoTeclar);
     window.addEventListener(EVENTO_DEMO_COMANDO, aoComando);
     window.addEventListener(EVENTO_AGENTE_PARAR, aoPararAgente);
-    return () => { window.removeEventListener('keydown', aoTeclar); window.removeEventListener(EVENTO_DEMO_COMANDO, aoComando); window.removeEventListener(EVENTO_AGENTE_PARAR, aoPararAgente); };
+    window.addEventListener(EVENTO_AGENTE_PAROU, aoPararAgente);
+    return () => { window.removeEventListener('keydown', aoTeclar); window.removeEventListener(EVENTO_DEMO_COMANDO, aoComando); window.removeEventListener(EVENTO_AGENTE_PARAR, aoPararAgente); window.removeEventListener(EVENTO_AGENTE_PAROU, aoPararAgente); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => () => { geracao.current += 1; voz.parar(); }, []); // eslint-disable-line react-hooks/exhaustive-deps

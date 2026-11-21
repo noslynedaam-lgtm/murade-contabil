@@ -15,6 +15,9 @@ import type { CenarioSim, PraticaSim, TipoCampoSim } from './escolaNucleo';
  *  EVENTO_AGENTE_PARAR — e a demonstração para na hora. Tecla Esc também para. */
 export const EVENTO_DEMO_COMANDO = 'murade:escola-demo';
 export const EVENTO_AGENTE_PARAR = 'murade:agente-parar';
+/** Evento que o controlador único do PARAR da Agente (utils/agenteParar.ts, branch agente-parar) dispara depois de pararTudo():
+ *  botão PARAR, "para" falado e Esc. A demonstração escuta e para junto — sem depender do arquivo dele estar no main. */
+export const EVENTO_AGENTE_PAROU = 'murade-agente-parou';
 export const TITULO_DEMO = '▶ Demonstração completa com a IA';
 export type ComandoDemo = 'pausar' | 'continuar' | 'pular' | 'parar';
 

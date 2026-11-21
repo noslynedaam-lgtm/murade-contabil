@@ -60,7 +60,7 @@ test('Escola (Contábil): a tela da demonstração só fala com o cálculo de tr
   assert.match(blocoSim, /moverCursor\([^)]*, false, ger\)/);
   assert.doesNotMatch(blocoSim, /fetch|onClick|\.click\(/);
   assert.doesNotMatch(src, /\.click\(\)|dispatchEvent\(new (Mouse)?Event\('click/);
-  assert.match(src, /key === 'Escape'/); assert.match(src, /EVENTO_DEMO_COMANDO/); assert.match(src, /EVENTO_AGENTE_PARAR/);
+  assert.match(src, /key === 'Escape'/); assert.match(src, /EVENTO_DEMO_COMANDO/); assert.match(src, /EVENTO_AGENTE_PARAR/); assert.ok(src.includes('addEventListener(EVENTO_AGENTE_PAROU'), 'para junto com o PARAR da Agente');
   assert.equal(EVENTO_DEMO_COMANDO, 'murade:escola-demo'); assert.equal(EVENTO_AGENTE_PARAR, 'murade:agente-parar');
   const tela = ler('src/components/escola/TelaEscolaMurade.tsx');
   assert.match(tela, /id="escola-demo-completa"/);
