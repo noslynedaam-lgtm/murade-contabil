@@ -6,6 +6,7 @@ import { rotuloDaTela } from '../data/jeitoPadraoContabil';
 import { EVENTO_APRESENTACAO, TocadorApresentacao, definirEstadoApresentacao, pedirApresentacao, type PedidoApresentacao } from '../utils/apresentacaoCliente';
 import { chamarJeito } from '../utils/meuJeitoCliente';
 import { falarHumana, pararHumana } from '../utils/vozHumana';
+import { falarRespostasLigado, registrarParador } from '../utils/agenteParar';
 import { enviarAoPiloto } from './PilotoVisivel';
 import type { AssistenteHandle } from '../types/assistenteHandle';
 
@@ -22,8 +23,15 @@ export const ApresentacaoSistema: React.FC<Props> = ({ assistenteRef, ehDono }) 
     calar: () => { pararHumana(); window.speechSynthesis?.cancel(); },
     agendar: (ms, f) => window.setTimeout(f, ms),
     cancelar: (id) => window.clearTimeout(id),
-    vozLigada: () => assistenteRef.current?.vozLigada?.() ?? true,
+    vozLigada: () => (assistenteRef.current?.vozLigada?.() ?? true) && falarRespostasLigado(),
   }), [assistenteRef]);
+  // "Para" (voz, texto, botão PARAR ou Esc): pausa na hora; "continua" retoma do mesmo bloco.
+  useEffect(() => registrarParador({
+    id: 'apresentacao',
+    ativo: () => tocador.instantaneo().estado === 'tocando',
+    parar: () => { if (tocador.instantaneo().estado !== 'tocando') return false; tocador.pausar(); return { retomavel: true }; },
+    continuar: () => tocador.continuar(),
+  }), [tocador]);
 
   useEffect(() => tocador.ouvir(() => { definirEstadoApresentacao({ tocando: tocador.ativo() }); forcar((n) => n + 1); }), [tocador]);
   useEffect(() => () => tocador.parar(false), [tocador]);

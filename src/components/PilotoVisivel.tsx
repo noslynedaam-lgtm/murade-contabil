@@ -5,6 +5,8 @@ import {
   PilotoExecutor, aplicarIntencaoAoPiloto, criarAmbienteDom, pilotoAtivo, registrarPilotoAtivo, validarPlanoPiloto,
   type InstantaneoPiloto, type Ritmo, type RespostaPiloto,
 } from '../utils/pilotoVisivel';
+import { esquecerRetomada, registrarParador } from '../utils/agenteParar';
+import { BotaoPararAgente } from './BotaoPararAgente';
 
 export const EVENTO_PILOTO = 'murade:piloto';
 /** Envia um roteiro (ou comando) da Agente para o piloto. */
@@ -69,6 +71,21 @@ export const PilotoVisivel: React.FC<Props> = (props) => {
     return () => window.removeEventListener(EVENTO_PILOTO, aoReceber);
   }, []);
 
+  // "Para" (voz, texto, botão PARAR ou Esc): a animação para na hora, sem salvar nada. Piloto comum pausa e "continua" retoma do
+  // mesmo passo; no serviço completo só a animação solta a tela (o serviço segue no servidor; para cancelar: "cancela o serviço").
+  useEffect(() => registrarParador({
+    id: 'piloto',
+    ativo: () => execRef.current?.getEstado() === 'rodando',
+    parar: () => {
+      const ex = execRef.current;
+      if (!ex || ex.getEstado() !== 'rodando') return false;
+      if (ex.ehServicoNoServidor()) { ex.soltarCalado(); esquecerRetomada('piloto'); return { servicoContinua: true }; }
+      ex.pausarPeloBotao();
+      return { retomavel: true };
+    },
+    continuar: () => execRef.current?.retomar(),
+  }), []);
+
   // Interferência: só sabemos QUE houve toque ou tecla (isTrusted = pessoa de verdade). Nunca lemos a tecla nem o campo.
   useEffect(() => {
     const dentro = (t: EventTarget | null) => !!(t as Element | null)?.closest?.('[data-piloto-ignorar]');
@@ -101,6 +118,7 @@ export const PilotoVisivel: React.FC<Props> = (props) => {
       <p className="line-clamp-3 text-xs leading-snug">{snap.legenda || snap.titulo}</p>
       {e !== 'concluido' && <p className="mt-0.5 text-[10px] text-slate-400">Passo {snap.passo} de {snap.total}</p>}
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {e === 'rodando' && <BotaoPararAgente compacto />}
         {e === 'rodando' && (<>
           <button type="button" onClick={() => exec.pausarPeloBotao()} className={`${btn} bg-white/15 hover:bg-white/25`}>Pausar</button>
           <button type="button" onClick={trocarRitmo} className={`${btn} bg-white/15 hover:bg-white/25`} aria-label="Velocidade do piloto">{ROTULO_RITMO[snap.ritmo]}</button>

@@ -6,6 +6,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Bell } from "lucide-react";
 import { FRASE_ESPERANDO_OK, darOkNoServidor, horaDeLembrar, pedidoDeContinuar } from "../utils/servicoCompletoCliente";
 import { EVENTO_SERVICO_INICIADO } from "./AvisoServicoPronto";
+import { lembretesSilenciados } from "../utils/agenteParar";
 
 type Etapa = { id: string; titulo: string; situacao: string; tela?: string };
 type Servico = { cnpj: string; roteiro: string; referencia: string; estado: string; titulo: string; pontoOk: string | null; etapas: Etapa[] };
@@ -44,7 +45,8 @@ export const CartaoOkContador: React.FC<{ onNavegar: (tela: string, cnpj: string
       if (horaDeLembrar(visivelMsRef.current, lembretesRef.current)) {
         lembretesRef.current += 1;
         setRecolhido(false);
-        falarRef.current(`${FRASE_ESPERANDO_OK} ${esperando[0].titulo}.`);
+        // Depois de um "para", o lembrete repetido não fala mais nesta sessão (o cartão volta a aparecer, calado).
+        if (!lembretesSilenciados()) falarRef.current(`${FRASE_ESPERANDO_OK} ${esperando[0].titulo}.`);
       }
     }, 10_000);
     return () => window.clearInterval(t);

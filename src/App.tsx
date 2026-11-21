@@ -44,6 +44,7 @@ import { GuiaPassoAPasso, type PassoGuia } from "./components/GuiaPassoAPasso";
 import { AssistenteProvider } from "./contexts/AssistenteContext";
 import { useDetectorDificuldade, type DificuldadeDetectada } from "./hooks/useDetectorDificuldade";
 import { roteiroParaChave } from "./data/roteirosAjuda";
+import { BotaoPararAgente } from "./components/BotaoPararAgente";
 import type { AssistenteHandle } from "./types/assistenteHandle";
 import { ordenarContasPorSequenciaNumerica } from "./utils/planoContasUtils";
 import { ModalConexaoMuradFiscal } from "./components/modals/ModalConexaoMuradFiscal";
@@ -1267,6 +1268,8 @@ function AppWorkspace() {
       <AvisoTarefasEquipe onAbrir={() => setTabAtiva("tarefas-equipe")} />
       <MeuJeitoMotor tabAtiva={tabAtiva} onNavegar={(tela) => setTabAtiva(tela as TabId)} assistenteRef={assistenteRef} onEhDono={setEhDonoSistema} />
       <ApresentacaoSistema assistenteRef={assistenteRef} ehDono={ehDonoSistema} />
+      {/* Botão PARAR da Agente: só aparece enquanto ela fala ou age e quando não há outro PARAR à vista (Esc também para). */}
+      <BotaoPararAgente variante="flutuante" />
       <IAMuradModal
         ref={assistenteRef}
         isOpen={assistenteAberta}

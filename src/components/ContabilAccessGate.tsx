@@ -2,6 +2,7 @@ import { useExclusaoDuasEtapas } from "./ConfirmaExclusaoDuasEtapas";
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { UserPlus, X, LogOut, KeyRound, ShieldCheck } from "lucide-react";
 import { SegurancaConta } from "./SegurancaConta";
+import { definirUsuarioDaVoz } from "../utils/agenteParar";
 import { PainelEquipe } from "./PainelEquipe";
 import { EsqueciSenha } from "./EsqueciSenha";
 import { PainelEscritorios } from "./PainelEscritorios";
@@ -59,6 +60,7 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
     const response = await fetch("/api/auth/session", { credentials: "include", cache: "no-store" });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.motivo || "Não foi possível consultar a sessão.");
+    if (data.autenticado) definirUsuarioDaVoz(data.usuario);
     setAuth(data.autenticado ? dadosDaSessao(data) : null);
   };
 
@@ -74,6 +76,7 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
         if (!ativo) return;
         if (!statusResponse.ok || !statusData.disponivel) throw new Error(statusData.motivo || "Autenticação indisponível.");
         setStatus({ carregando: false, primeiroAcesso: statusData.primeiroAcesso === true, configuracaoNecessaria: statusData.configuracaoNecessaria === true, erro: "" });
+        if (sessionResponse.ok && sessionData.autenticado) definirUsuarioDaVoz(sessionData.usuario); // "Falar as respostas" por usuário
         setAuth(sessionResponse.ok && sessionData.autenticado ? dadosDaSessao(sessionData) : null);
       } catch (error) {
         if (!ativo) return;

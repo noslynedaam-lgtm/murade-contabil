@@ -10,6 +10,9 @@ import { aplicarIntencaoAoPiloto, intencaoDoTexto, pilotoAtivo } from "../utils/
 import { enviarAoPiloto } from "./PilotoVisivel";
 import { tratarFraseDaApresentacao } from "../utils/apresentacaoCliente";
 import { tratarRespostaDoNome } from "../utils/nomeCliente";
+import { EVENTO_AGENTE_PAROU, agenteAgindo, continuarDeOndeParou, ehComandoContinuar, ehComandoParar, falarRespostasLigado, pararTudo, registrarParador, temParaRetomar, type ResultadoPararTudo } from "../utils/agenteParar";
+import { BotaoPararAgente } from "./BotaoPararAgente";
+import { OpcaoFalarRespostas } from "./OpcaoFalarRespostas";
 
 interface IAMuradModalProps {
   isOpen?: boolean;
@@ -36,7 +39,8 @@ const textoSemMarcas = (t: string): string => String(t || '')
   .replace(/[\u{1F000}-\u{1FAFF}\u{FE0F}]/gu, '')
   .trim();
 const limparTextoVoz = (t: string) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
-const COMANDO_PARAR = /^(para|pare|parar|espera|espere|calma|silencio|cancela|cancelar|chega)( ja| agora| ai| por favor)?$/;
+// Nomes com que a pessoa chama a Agente antes do comando ("Contábil, para").
+const NOMES_CHAMADA = ["contabil", "contabilidade", "contabi"];
 
 export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
   isOpen: isOpenProp,
@@ -127,7 +131,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
 
   // Sintetizador de voz natural em português
   const falarTexto = (texto: string) => {
-    if (!vozAtiva || typeof window === "undefined") return;
+    if (!vozAtiva || typeof window === "undefined" || !falarRespostasLigado()) return;
     const falado = textoParaFala(texto);
     textoFaladoRef.current = limparTextoVoz(falado);
     falandoRef.current = true;
@@ -184,7 +188,23 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
 
   const enviarMensagem = async (textoEnviar?: string) => {
     const texto = (textoEnviar || input).trim();
-    if (!texto || loading) return;
+    if (!texto) return;
+    // "Para" (falado ou digitado): para tudo NA HORA, aqui no navegador, sem ir ao servidor nem à IA.
+    if (ehComandoParar(texto, NOMES_CHAMADA)) {
+      setMessages((prev) => [...prev, { id: `msg-${Date.now()}`, sender: "user", text: texto, timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]);
+      setInput("");
+      pararTudo("texto");
+      return;
+    }
+    // "Continua" depois de um "para": retoma de onde parou (piloto, apresentação, demonstração).
+    if (ehComandoContinuar(texto, NOMES_CHAMADA) && temParaRetomar()) {
+      const hora = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      setMessages((prev) => [...prev, { id: `msg-${Date.now()}`, sender: "user", text: texto, timestamp: hora }, { id: `msg-${Date.now()}-continua`, sender: "ia", text: "Certo, continuando de onde parei.", timestamp: hora }]);
+      setInput("");
+      continuarDeOndeParou();
+      return;
+    }
+    if (loading) return;
     const minhaGeracao = geracaoRef.current;
 
     const userMsg: ChatMessage = {
@@ -352,6 +372,29 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
   falarRef.current = (t: string) => falarTexto(t);
   pararRef.current = () => { geracaoRef.current += 1; window.speechSynthesis?.cancel(); pararHumana(); falandoRef.current = false; setFalando(false); aguardandoComandoRef.current = false; setAvisoVoz(""); };
 
+  // Central do "para": a fala desta janela para junto com o resto (piloto, apresentação, Escola).
+  useEffect(() => registrarParador({
+    id: "janela-agente-contabil",
+    ativo: () => falandoRef.current,
+    parar: () => { const falava = falandoRef.current; pararRef.current(); return falava ? {} : false; },
+  }), []);
+  // Depois de parar: só o texto "Ok, parei." (sem voz) e ela espera.
+  const ultimaParadaRef = useRef(0);
+  useEffect(() => {
+    const aoParar = (ev: Event) => {
+      const d = (ev as CustomEvent<ResultadoPararTudo>).detail;
+      geracaoRef.current += 1; aguardandoComandoRef.current = false; janelaConversaRef.current = 0; setAvisoVoz("");
+      if (Date.now() - ultimaParadaRef.current < 1500) return; // "para, para!" vira uma resposta só
+      ultimaParadaRef.current = Date.now();
+      const frase = d?.frase || "Ok, parei.";
+      setMessages((prev) => [...prev, { id: `msg-${Date.now()}-parei`, sender: "ia", text: frase, timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]);
+      if (!isOpen) mostrarAviso(frase);
+    };
+    window.addEventListener(EVENTO_AGENTE_PAROU, aoParar);
+    return () => window.removeEventListener(EVENTO_AGENTE_PAROU, aoParar);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
   // Permite que fora deste componente (ex.: detector de dificuldade) abra a janela e fale
   // proativamente, mostrando a fala também como mensagem na conversa (pedido do dono, 06/11/2026).
   useImperativeHandle(assistenteHandleRef, () => ({
@@ -391,32 +434,29 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
           const bruto = String(ev.results[i][0].transcript || "");
           const texto = limpar(bruto);
           if (!texto) continue;
-          // "Para" / "espera": interrompe a fala e cancela o pedido em andamento.
-          // Apresentação falada: "para", "continua", "pula esse bloco" valem na voz, sem perguntar à IA.
+          // "Para" / "chega" / "silêncio"...: para TUDO na hora (voz, piloto, apresentação, Escola), sem ir ao servidor.
+          // Parcial também vale enquanto ela fala ou age (barge-in): não espera a frase terminar.
+          if (ehComandoParar(texto, NOMES_CHAMADA) && (ehFinal || agenteAgindo())) { bufferFala = ""; window.clearTimeout(tempoEnvio); aguardandoComandoRef.current = false; pararTudo("voz"); continue; }
+          // "Continua" depois de um "para": retoma de onde parou.
+          if (ehFinal && temParaRetomar() && ehComandoContinuar(texto, NOMES_CHAMADA)) { bufferFala = ""; window.clearTimeout(tempoEnvio); continuarDeOndeParou(); continue; }
+          // Enquanto ela fala, o microfone pega a voz dela: tudo o que não é "para" é ignorado.
+          if (falandoRef.current || humanaFalando()) continue;
+          // Apresentação falada: "continua", "pula esse bloco" valem na voz, sem perguntar à IA.
           if (ehFinal && tratarFraseDaApresentacao(texto)) { bufferFala = ""; window.clearTimeout(tempoEnvio); continue; }
           // Pedidos de volume e velocidade: "aumenta a voz", "fala mais rápido"...
           if (ehFinal) { const confirmacao = ajustarVoz(texto); if (confirmacao) { falarRef.current(confirmacao); continue; } }
           // Piloto Visível ativo: "cancela" / "para" cancelam o piloto (além de calar a voz).
           if (ehFinal && pilotoAtivo() && intencaoDoTexto(texto) === "cancelar") { bufferFala = ""; window.clearTimeout(tempoEnvio); pararRef.current(); aplicarIntencaoAoPiloto("cancelar"); continue; }
-          // Com a voz dela tocando, o microfone pega a fala dela junto: "para" no fim da frase também conta.
-          if (COMANDO_PARAR.test(texto) || (humanaFalando() && texto.split(" ").length <= 4 && /(^| )(para|pare|espera|espere|calma|silencio|chega)( ja| agora| ai| por favor)?$/.test(texto))) { bufferFala = ""; window.clearTimeout(tempoEnvio); pararRef.current(); continue; }
           // A pessoa voltou a falar: segura a resposta até ela terminar.
           if (bufferFala && !humanaFalando()) window.clearTimeout(tempoEnvio);
           const faladas = new Set(textoFaladoRef.current.split(" "));
           const palavrasDita = texto.split(" ");
           const parecidoComFala = Boolean(textoFaladoRef.current) && palavrasDita.filter((w) => faladas.has(w)).length / palavrasDita.length >= 0.5;
-          const falandoAgora = Boolean(falandoRef.current || humanaFalando());
-          if (falandoAgora) {
-            // Você falou por cima da resposta: ela para na hora e passa a te ouvir.
-            if (palavrasDita.length >= 2 && !parecidoComFala) {
-              window.speechSynthesis?.cancel(); pararHumana(); falandoRef.current = false; setFalando(false); ultimaFalaRef.current = 0; textoFaladoRef.current = ""; janelaConversaRef.current = Date.now() + 20000;
-            }
-            if (!ehFinal || parecidoComFala || palavrasDita.length < 2) continue;
-          } else {
+          {
             if (!ehFinal) continue;
             // Ignora o eco da própria voz logo depois de falar.
             if (Date.now() - ultimaFalaRef.current < 1500) continue;
-            if (Date.now() - ultimaFalaRef.current < 15000 && textoFaladoRef.current && ("pois nao" === texto || (palavrasDita.length >= 2 && palavrasDita.filter((w) => faladas.has(w)).length / palavrasDita.length >= 0.75))) continue;
+            if (Date.now() - ultimaFalaRef.current < 15000 && textoFaladoRef.current && ("pois nao" === texto || (palavrasDita.length >= 2 && parecidoComFala && palavrasDita.filter((w) => faladas.has(w)).length / palavrasDita.length >= 0.75))) continue;
           }
           if (aguardandoComandoRef.current || bufferFala || Date.now() < janelaConversaRef.current) {
             // Logo depois de uma resposta (20 s) a conversa continua sem precisar chamar de novo.
@@ -458,6 +498,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
           </div>
         )}
         <div data-piloto-ignorar="1" className="fixed bottom-3 right-3 z-40 flex items-center gap-1.5" id="btn-ia-flutuante">
+          <BotaoPararAgente compacto />
           <button
             type="button"
             onClick={() => onOpen?.()}
@@ -517,6 +558,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
           </div>
 
           <div className="flex items-center gap-2">
+            <BotaoPararAgente compacto />
             <button
               onClick={() => {
                 if (falando) window.speechSynthesis?.cancel(); pararHumana();
@@ -553,6 +595,12 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
             </button>
           </div>
         </div>
+
+        {/* Configuração da Agente: falar ou só escrever (guardado por usuário) */}
+        <details className="shrink-0 border-b border-slate-200 bg-white px-4 py-1 text-xs text-slate-700">
+          <summary className="cursor-pointer select-none py-1 font-semibold">⚙️ Configurações da Agente</summary>
+          <OpcaoFalarRespostas className="pb-1 text-xs" />
+        </details>
 
         {/* Área de Mensagens */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-slate-50">

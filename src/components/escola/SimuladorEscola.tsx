@@ -3,6 +3,7 @@
 // Três fases: demonstração (a Agente faz e fala o porquê), prática guiada (confere cada clique/campo na hora) e prova
 // (sem dica; corrigida no servidor, com nota, nível e aviso ao gestor).
 import React, { useEffect, useRef, useState } from 'react';
+import { registrarParador } from '../../utils/agenteParar';
 import { AVISO_TREINO, EMPRESA_TREINO, avaliarAcaoGuiada, formatarResultado, passosDaPratica, valorParaLer, type AcaoAluno, type PraticaSim, type ResultadoProva } from '../../data/escolaPratica';
 
 type Fase = 'inicio' | 'demo' | 'guiada' | 'prova' | 'fim';
@@ -32,6 +33,17 @@ export const SimuladorEscola: React.FC<{ pratica: PraticaSim; falar: (t: string)
   const [ocupado, setOcupado] = useState(false);
   const acoes = useRef<AcaoAluno[]>([]);
   const cancelado = useRef(false);
+  // "Para" durante a demonstração falada: pausa na hora; "continua" segue do mesmo campo.
+  const demoRodando = useRef(false);
+  const demoPausada = useRef(false);
+  const livre = async () => { while (demoPausada.current && !cancelado.current) await espera(150); };
+  const esperaDemo = async (ms: number) => { const fim = Date.now() + ms; while (Date.now() < fim && !cancelado.current) { await livre(); await espera(Math.min(150, Math.max(0, fim - Date.now()))); } };
+  useEffect(() => registrarParador({
+    id: 'escola-demonstracao',
+    ativo: () => demoRodando.current && !demoPausada.current && !cancelado.current,
+    parar: () => { if (!demoRodando.current || demoPausada.current || cancelado.current) return false; demoPausada.current = true; return { retomavel: true }; },
+    continuar: () => { demoPausada.current = false; },
+  }), []);
   const ultimoValor = useRef<Record<string, string>>({});
 
   useEffect(() => () => { cancelado.current = true; }, []);
@@ -49,11 +61,13 @@ export const SimuladorEscola: React.FC<{ pratica: PraticaSim; falar: (t: string)
 
   // ---------------------------------------------------------------- fase 1: demonstração
   const demonstrar = async () => {
-    limpar(); cancelado.current = false; setFase('demo');
+    limpar(); cancelado.current = false; demoPausada.current = false; demoRodando.current = true; setFase('demo');
+    try {
     const abertura = 'Vou fazer a primeira parte. Acompanhe cada campo: eu explico o porquê.';
-    setMsg({ texto: abertura, tipo: 'info' }); falar(abertura); await espera(tempoDeFala(abertura));
+    setMsg({ texto: abertura, tipo: 'info' }); falar(abertura); await esperaDemo(tempoDeFala(abertura));
     const atual: Record<string, string> = {};
     for (const c of pratica.campos) {
+      await livre();
       if (cancelado.current) return;
       setDestaque(c.id);
       const valor = pratica.demo.valores[c.id];
@@ -61,16 +75,18 @@ export const SimuladorEscola: React.FC<{ pratica: PraticaSim; falar: (t: string)
       setMsg({ texto: fala, tipo: 'info' }); falar(fala);
       const mostrado = c.tipo === 'select' ? valor : valorParaLer(c, valor).replace(/^R\$ /, '');
       if (c.tipo === 'select') { atual[c.id] = mostrado; setValores({ ...atual }); }
-      else for (let i = 1; i <= mostrado.length && !cancelado.current; i += 1) { atual[c.id] = mostrado.slice(0, i); setValores({ ...atual }); await espera(70); }
-      await espera(tempoDeFala(fala));
+      else for (let i = 1; i <= mostrado.length && !cancelado.current; i += 1) { await livre(); atual[c.id] = mostrado.slice(0, i); setValores({ ...atual }); await espera(70); }
+      await esperaDemo(tempoDeFala(fala));
     }
+    await livre();
     if (cancelado.current) return;
     setDestaque(pratica.botao.id);
     const fb = `Agora clico em "${pratica.botao.rotulo}". ${pratica.botao.porque}`;
     setMsg({ texto: fb, tipo: 'info' }); falar(fb);
-    await calcular(atual); await espera(tempoDeFala(fb));
+    await calcular(atual); await esperaDemo(tempoDeFala(fb));
     setDestaque(null);
     if (!cancelado.current) setMsg({ texto: 'Pronto! Este é o resultado calculado pelo sistema. Quando quiser, clique em "Agora é a sua vez".', tipo: 'ok' });
+    } finally { demoRodando.current = false; demoPausada.current = false; }
   };
 
   // ---------------------------------------------------------------- fase 2: prática guiada

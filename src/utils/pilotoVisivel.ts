@@ -327,6 +327,14 @@ export class PilotoExecutor {
     if (this.final()) return;
     this.mudar('cancelar'); this.limparBotao(); this.amb.limparDestaque(); this.falar(MSG_CANCELADO); this.concluir();
   }
+  /** "Para" no serviço completo: a animação solta a tela na hora, calada (o serviço segue no servidor). */
+  soltarCalado(): void {
+    if (this.estado !== 'rodando') return;
+    this.usouBg = true; this.limparBotao(); this.amb.limparDestaque();
+    this.mudar('cancelar'); this.concluir();
+  }
+  /** O plano é de serviço completo (o trabalho roda no servidor). */
+  ehServicoNoServidor(): boolean { return this.plano.segundoPlanoAoInterferir === true; }
   /** Botão "Pausar" do próprio piloto: pausa sem dizer que o contador interferiu. */
   pausarPeloBotao(): void { if (this.estado !== 'rodando') return; this.mudar('interferencia'); this.amb.limparDestaque(); this.legenda = 'Pausado. Toque em "Continuar de onde parou" quando quiser.'; this.avisar(); }
   /** Clique REAL do contador no botão final. */
