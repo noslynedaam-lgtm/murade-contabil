@@ -19,10 +19,9 @@ export function pilotoDoMeMostra(m: MeMostra, titulo: string): PlanoPiloto | nul
   ] });
 }
 
-/** Roteiro da Agente para "abre a aula de X": abre a Escola Murade e destaca a aula na lista (só mostra). */
+/** Roteiro da Agente para "abre a aula de X": destaca a aula na lista (só mostra). A Escola não fica no menu: já está aberta pelo link. */
 export function pilotoAbrirAula(aulaId: string, tituloAula: string, legenda: string): PlanoPiloto | null {
   return soMostra({ titulo: `Aula: ${tituloAula}`.slice(0, 120), passos: [
-    { tipo: 'navegar', alvo: '#btn-menu-escola', legenda: 'Abrindo a Escola Murade.' },
     { tipo: 'destacar', alvo: `#escola-aula-${aulaId}`, legenda },
   ] });
 }
@@ -30,7 +29,6 @@ export function pilotoAbrirAula(aulaId: string, tituloAula: string, legenda: str
 /** Plano da Agente para "me mostra tudo": abre a Escola Murade e destaca o botão da demonstração completa (só mostra). */
 export function pilotoAbrirDemonstracao(legenda: string): PlanoPiloto | null {
   return soMostra({ titulo: `Demonstração completa com a IA`.slice(0, 120), passos: [
-    { tipo: 'navegar', alvo: '#btn-menu-escola', legenda: 'Abrindo a Escola Murade.' },
     { tipo: 'destacar', alvo: '#escola-demo-completa', legenda },
   ] });
 }

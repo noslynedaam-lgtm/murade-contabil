@@ -61,7 +61,6 @@ import { CaixaPedirParaAlguem } from "./components/CaixaPedirParaAlguem";
 import { PilotoVisivel } from "./components/PilotoVisivel";
 import { IDS_DE_TELAS_CONTABIL } from "./data/mapaTelasContabil";
 import { TelaEscolaMurade } from "./components/escola/TelaEscolaMurade";
-import { AvisoEscola } from "./components/escola/AvisoEscola";
 
 export default function App() {
   return <ContabilAccessGate><AppWorkspace /></ContabilAccessGate>;
@@ -76,7 +75,8 @@ function AppWorkspace() {
   const flushWorkspaceRef = React.useRef<() => Promise<boolean>>(async () => true);
   const workspaceSnapshotPersistidoRef = React.useRef<string | null>(null);
   const [assistenteAberta, setAssistenteAberta] = useState(false);
-  const [tabAtiva, setTabAtiva] = useState<TabId>("inicio");
+  // A Escola Murade não fica no menu: abre só pelo link que o fornecedor manda (https://…/#escola).
+  const [tabAtiva, setTabAtiva] = useState<TabId>(() => (typeof window !== "undefined" && /(^|[#&])escola(&|$)/.test(window.location.hash.replace(/^#/, "")) ? "escola" : "inicio"));
   const [ehDonoSistema, setEhDonoSistema] = useState(false);
 
   // Assistente de voz (ref para abrir/falar de fora, ex.: quando a pessoa parece travada) + detector
@@ -1298,8 +1298,6 @@ function AppWorkspace() {
         onFalar={(t) => assistenteRef.current?.falar(t)}
         onPedirAgente={(texto) => { assistenteRef.current?.abrir(); assistenteRef.current?.perguntar(texto); }}
       />
-      {/* Escola Murade: aviso de trilha atribuída, prova terminada e aluno parado (cartão pequeno embaixo). */}
-      <AvisoEscola onAbrir={() => setTabAtiva("escola")} />
       <AvisoServicoPronto
         onAbrir={(cnpj) => { if (String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase() !== cnpj) escolherEmpresaPeloCnpj(cnpj); setTabAtiva("aprovacoes"); }}
         onFalar={(t) => assistenteRef.current?.falar(t)}

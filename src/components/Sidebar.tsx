@@ -24,7 +24,6 @@ import {
   ShieldHalf,
   ListChecks,
   SlidersHorizontal,
-  GraduationCap,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -155,13 +154,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
       icon: ShieldCheck,
       badge: "Corrigir",
       badgeColor: "bg-amber-300 text-amber-950 font-bold",
-    },
-    {
-      id: "escola" as TabId,
-      label: "🎓 Escola Murade",
-      icon: GraduationCap,
-      badge: "Aulas",
-      badgeColor: "bg-sky-300 text-sky-950 font-bold",
     },
     {
       id: "tarefas-equipe" as TabId,

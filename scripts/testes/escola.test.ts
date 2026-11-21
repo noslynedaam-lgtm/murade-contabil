@@ -100,14 +100,14 @@ test('Escola (Contábil): "Me mostra no sistema" vira roteiro válido do Piloto 
     assert.equal(p!.passos[0].tipo, 'navegar', a.id);
     assert.ok(p!.passos.every((x) => x.tipo === 'navegar' || x.tipo === 'destacar'), a.id);
   }
-  assert.deepEqual(pilotoAbrirAula('dre', 'DRE', 'Aqui.')!.passos.map((x) => x.alvo), ['#btn-menu-escola', '#escola-aula-dre']);
+  assert.deepEqual(pilotoAbrirAula('dre', 'DRE', 'Aqui.')!.passos.map((x) => x.alvo), ['#escola-aula-dre']);
 });
 
 test('Escola (Contábil): aba no menu, no tipo TabId, no App e no mapa do piloto (o robô do piloto não acha problema da Escola)', () => {
-  assert.match(ler('src/components/Sidebar.tsx')!, /id: "escola" as TabId,\n\s+label: "🎓 Escola Murade"/);
+  assert.doesNotMatch(ler('src/components/Sidebar.tsx')!, /id: "escola" as TabId/, 'a Escola não fica no menu (só por link #escola)');
+  assert.match(ler('src/App.tsx')!, /#&\]\)escola/, 'o link #escola abre a Escola');
   assert.match(ler('src/types.ts')!, /\| "escola"/);
   assert.match(ler('src/App.tsx')!, /tabAtiva === "escola" && <TelaEscolaMurade/);
-  assert.match(ler('src/App.tsx')!, /<AvisoEscola onAbrir/);
   const r = conferirMapaPiloto(ler);
   assert.deepEqual(r.problemas.filter((p) => /escola/i.test(`${p.chave} ${p.detalhe}`)), []);
   const tela = ler('src/components/escola/TelaEscolaMurade.tsx')!;
@@ -273,7 +273,7 @@ test('Escola (Contábil): server.ts registra robô, "Rodar agora" e rotas; a apr
   assert.match(src, /registrarRotinaManual\("conferidor_escola"/);
   assert.match(src, /registrarRotasEscola\(/);
   assert.match(ler('src/data/apresentacaoSistema.ts')!, /id: 'conferidor_escola', nome: 'Robô Conferidor da Escola Murade', intervaloMs: 6 \* 60 \* 60_000/);
-  assert.match(ler('src/data/jeitoPadraoContabil.ts')!, /id: 'escola', rotulo: '🎓 Escola Murade'/);
+  assert.doesNotMatch(ler('src/data/jeitoPadraoContabil.ts')!, /id: 'escola', rotulo: '🎓 Escola Murade'/, 'a Escola não é item do menu (só por link)');
 });
 
 // ---------------------------------------------------------------- Agente
@@ -288,7 +288,7 @@ test('Escola (Contábil): Agente — ferramentas no kit, "me explica X" usa o gl
   assert.equal((await explicar.executar(ctx(false), { termo: 'DRE' })).mensagem, MSG_NAO_LIBERADA);
   const abrir = FERRAMENTAS_ESCOLA.find((f) => f.declaracao.name === 'abrir_aula_escola')! as any;
   const a = await abrir.executar(ctx(true), { assunto: 'conciliação bancária' });
-  assert.equal(a.piloto.passos[0].alvo, '#btn-menu-escola'); assert.match(a.piloto.passos[1].alvo, /^#escola-aula-/);
+  assert.match(a.piloto.passos[0].alvo, /^#escola-aula-/);
   const atribuir = FERRAMENTAS_ESCOLA.find((f) => f.declaracao.name === 'atribuir_trilha_escola')! as any;
   assert.equal(atribuir.tipo, 'acao');
   assert.match((await atribuir.preparar(ctx(true, false), { aluno: 'x', trilha: 'lancamentos' })).erro, /administrador/);
