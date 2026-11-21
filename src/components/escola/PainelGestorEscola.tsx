@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useConfirmarRemocao } from './escolaAdaptador';
 
 interface Prova { praticaId: string; nota: number; nivel: string; duracaoMs: number | null; erros: string[]; em: string }
-interface Aluno { userId: string; login: string; aulasFeitas: number; totalAulas: number; mediaQuiz: number | null; nivel: string; provas: Prova[]; atribuicoes: Array<{ trilhaId: string; atribuidoEm: string }>; ondeMaisErra: string[]; ultimaAtividade: string | null; parado: Array<{ trilhaId: string; diasParado: number }> }
+interface Aluno { userId: string; login: string; aulasFeitas: number; totalAulas: number; mediaQuiz: number | null; nivel: string; provas: Prova[]; atribuicoes: Array<{ trilhaId: string; atribuidoEm: string }>; ondeMaisErra: string[]; ultimaAtividade: string | null; parado: Array<{ trilhaId: string; diasParado: number }>; demonstracao?: { etapas: string[]; suaVez: string[]; completaEm: string | null; totalEtapas: number } | null }
 interface Trilha { id: string; titulo: string }
 
 const COR_NIVEL: Record<string, string> = { 'Iniciante': 'bg-slate-200 text-slate-800', 'Em formação': 'bg-amber-100 text-amber-900', 'Pronto para fazer com conferência': 'bg-blue-100 text-blue-900', 'Autônomo': 'bg-emerald-100 text-emerald-900' };
@@ -72,7 +72,7 @@ export const PainelGestorEscola: React.FC = () => {
           <button type="button" onClick={() => setAberto(aberto === a.userId ? null : a.userId)} className="flex w-full flex-wrap items-center justify-between gap-2 text-left">
             <span className="font-bold text-slate-900">{a.login}</span>
             <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${COR_NIVEL[a.nivel] || ''}`}>{a.nivel}</span>
-            <span className="w-full text-xs text-slate-600">Aulas concluídas {a.aulasFeitas}/{a.totalAulas} · média dos questionários {a.mediaQuiz === null ? '—' : String(a.mediaQuiz).replace('.', ',')} · provas {a.provas.length} · última atividade {data(a.ultimaAtividade)}{a.parado.length ? ' · ⚠️ parado há 7+ dias' : ''}</span>
+            <span className="w-full text-xs text-slate-600">Aulas concluídas {a.aulasFeitas}/{a.totalAulas} · média dos questionários {a.mediaQuiz === null ? '—' : String(a.mediaQuiz).replace('.', ',')} · provas {a.provas.length} · última atividade {data(a.ultimaAtividade)}{a.parado.length ? ' · ⚠️ parado há 7+ dias' : ''} · demonstração completa: {a.demonstracao?.completaEm ? `✅ assistiu (${data(a.demonstracao.completaEm)})` : `${a.demonstracao?.etapas.length || 0}/${a.demonstracao?.totalEtapas || '—'} etapas`}{a.demonstracao?.suaVez.length ? ` · sua vez ${a.demonstracao.suaVez.length} etapa(s)` : ''}</span>
           </button>
           {aberto === a.userId && (
             <div className="mt-2 space-y-2 border-t pt-2 text-sm">

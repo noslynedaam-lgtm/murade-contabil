@@ -8,7 +8,9 @@ import { exemploEscola, IDS_EXEMPLOS, resultadoDoCenario, simularPratica } from 
 import {
   atribuirTrilha, aulaSemRespostas, avisosNaoLidos, consultarLiberacaoEscola, criarAviso, desatribuirTrilha, equipeDoTenant, marcarAvisoLido, ondeMaisErra, prepararEscola,
   progressoDoTenant, registrarAulaVista, registrarProva, registrarQuiz, rodarConferidorEscola, alunosParados, type Consultar, type DepsLiberacao, type Quem,
+  demonstracoesDoTenant, registrarDemonstracao,
 } from './escola';
+import { registroDemoValido } from '../data/escolaDemonstracao';
 
 export interface SessaoEscola { userId: string; login: string; tenantId?: string; administrador?: boolean; donoSistema?: boolean }
 type Rota = (caminho: string, ...h: RequestHandler[]) => unknown;
@@ -67,7 +69,8 @@ export function registrarRotasEscola(d: DepsEscola): { rodarRobo: (tenantSo?: st
     try {
       const ctx = await contexto(req, res); if (!ctx) return;
       const [meu] = await progressoDoTenant(d.consultar, ctx.q.tenantId, ctx.q.userId);
-      return res.json({ sucesso: true, trilhas: TRILHAS, aulas: AULAS.map(aulaSemRespostas), glossario: GLOSSARIO, praticas: PRATICAS.map((p) => p.id),
+      const demonstracao = (await demonstracoesDoTenant(d.consultar, ctx.q.tenantId, ctx.q.userId)).get(ctx.q.userId) || null;
+      return res.json({ sucesso: true, demonstracao, trilhas: TRILHAS, aulas: AULAS.map(aulaSemRespostas), glossario: GLOSSARIO, praticas: PRATICAS.map((p) => p.id),
         progresso: meu || { aulas: [], provas: [], atribuicoes: [], nivel: 'Iniciante', ultimaAtividade: null }, gestor: ehGestorEscola(ctx.s) });
     } catch (e) { return erro(res, e, 'Não foi possível abrir a Escola.', 503); }
   });
@@ -110,6 +113,21 @@ export function registrarRotasEscola(d: DepsEscola): { rodarRobo: (tenantSo?: st
     } catch (e) { return erro(res, e, 'Não foi possível calcular.', 422); }
   });
 
+  // "▶ Demonstração completa com a IA": registra etapa assistida, etapa feita na "sua vez" e demonstração completa (painel do gestor).
+  // Só grava na tabela da Escola; a demonstração em si nunca grava nada do sistema.
+  d.app.post('/api/escola/demonstracao', d.exigirSessao, async (req, res) => {
+    try {
+      const ctx = await contexto(req, res); if (!ctx) return;
+      const r = registroDemoValido(req.body?.evento, req.body?.etapa);
+      if (!r) return res.status(400).json({ sucesso: false, motivo: 'Registro da demonstração inválido.' });
+      const primeiraVez = await registrarDemonstracao(d.consultar, ctx.q, r.evento, r.etapa);
+      if (primeiraVez && ctx.q.userId !== ctx.q.tenantId) {
+        await criarAviso(d.consultar, ctx.q.tenantId, ctx.q.tenantId, 'demonstracao', `${ctx.q.login} assistiu a demonstração completa com a IA (do lançamento até a ECD).`, `demo:${ctx.q.userId}`);
+      }
+      return res.json({ sucesso: true });
+    } catch (e) { return erro(res, e, 'Não foi possível registrar.'); }
+  });
+
   d.app.get('/api/escola/prova/:praticaId', d.exigirSessao, async (req, res) => {
     try {
       const ctx = await contexto(req, res); if (!ctx) return;
@@ -150,7 +168,7 @@ export function registrarRotasEscola(d: DepsEscola): { rodarRobo: (tenantSo?: st
   d.app.get('/api/escola/gestor', d.exigirSessao, async (req, res) => {
     try {
       const ctx = await contexto(req, res, true); if (!ctx) return;
-      const [equipe, alunos] = await Promise.all([equipeDoTenant(d.consultar, ctx.q.tenantId), progressoDoTenant(d.consultar, ctx.q.tenantId)]);
+      const [equipe, alunos, demos] = await Promise.all([equipeDoTenant(d.consultar, ctx.q.tenantId), progressoDoTenant(d.consultar, ctx.q.tenantId), demonstracoesDoTenant(d.consultar, ctx.q.tenantId)]);
       const porId = new Map(alunos.map((a) => [a.userId, a]));
       const parados = alunosParados(alunos);
       const lista = equipe.map((u) => {
@@ -159,7 +177,7 @@ export function registrarRotasEscola(d: DepsEscola): { rodarRobo: (tenantSo?: st
         return { userId: u.userId, login: u.login, aulasFeitas: a ? a.aulas.filter((x) => x.concluida).length : 0, totalAulas: AULAS.length,
           mediaQuiz: comNota.length ? Math.round((comNota.reduce((s, x) => s + (x.quizNota as number), 0) / comNota.length) * 10) / 10 : null,
           nivel: a ? a.nivel : 'Iniciante', provas: a ? a.provas.slice(0, 30) : [], aulas: a ? a.aulas : [], atribuicoes: a ? a.atribuicoes : [], ondeMaisErra: a ? ondeMaisErra(a) : [],
-          ultimaAtividade: a?.ultimaAtividade || null, parado: parados.filter((p) => p.userId === u.userId) };
+          ultimaAtividade: a?.ultimaAtividade || null, parado: parados.filter((p) => p.userId === u.userId), demonstracao: demos.get(u.userId) || null };
       });
       return res.json({ sucesso: true, alunos: lista, trilhas: TRILHAS });
     } catch (e) { return erro(res, e, 'Não foi possível abrir o painel do gestor.', 503); }

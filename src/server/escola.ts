@@ -3,6 +3,7 @@
 // empresa, lançamento, plano de contas, fechamento, ECD, ECF ou os dados do Fiscal e do DP — a "empresa de treino" é o simulador (src/data/escolaPratica.ts).
 import { AULAS, GLOSSARIO, TRILHAS, DOMINIOS_OFICIAIS, aulaPorId, type AulaEscola } from '../data/escolaConteudo';
 import { PRATICAS, nivelGeral, type NivelAluno } from '../data/escolaPratica';
+import { IDS_ETAPAS_DEMO, conferirRoteiroDemo, type EventoRegistroDemo } from '../data/escolaDemonstracao';
 import { TELAS_CONTABIL } from '../data/mapaTelasContabil';
 
 export type Consultar = (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number | null }>;
@@ -51,6 +52,10 @@ export function prepararEscola(consultar: Consultar): Promise<void> {
       atribuido_em timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (tenant_id, user_id, trilha_id))`);
     await consultar(`CREATE TABLE IF NOT EXISTS contabil_escola_avisos (id bigserial PRIMARY KEY, tenant_id text NOT NULL, para_user_id text NOT NULL, tipo text NOT NULL, texto text NOT NULL, chave text NOT NULL,
       criado_em timestamptz NOT NULL DEFAULT now(), lido_em timestamptz, UNIQUE (tenant_id, para_user_id, chave))`);
+    // "▶ Demonstração completa com a IA": quais etapas a pessoa assistiu, quais fez na "sua vez" e quando assistiu tudo.
+    await consultar(`CREATE TABLE IF NOT EXISTS contabil_escola_demonstracoes (tenant_id text NOT NULL, user_id text NOT NULL, login text NOT NULL,
+      etapas jsonb NOT NULL DEFAULT '[]'::jsonb, sua_vez jsonb NOT NULL DEFAULT '[]'::jsonb, vezes int NOT NULL DEFAULT 0, completa_em timestamptz,
+      atualizado_em timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (tenant_id, user_id))`);
   })().catch((e) => { preparado = null; throw e; });
   return preparado;
 }
@@ -99,6 +104,30 @@ export async function progressoDoTenant(c: Consultar, tenantId: string, userId?:
   for (const r of at.rows) { const a = de(String(r.user_id), String(r.login)); a.atribuicoes.push({ trilhaId: String(r.trilha_id), atribuidoEm: iso(r.atribuido_em), atribuidoPor: String(r.atribuido_por) }); }
   for (const a of alunos.values()) a.nivel = nivelGeral(a.provas.map((p) => ({ pratica: p.praticaId, nota: p.nota, em: p.em })));
   return [...alunos.values()];
+}
+
+// ---------------------------------------------------------------- demonstração completa com a IA
+export interface DemonstracaoAluno { etapas: string[]; suaVez: string[]; vezes: number; completaEm: string | null; totalEtapas: number; atualizadoEm: string | null }
+/** Registra o que a pessoa assistiu na demonstração. Devolve true quando é a PRIMEIRA vez que ela assiste tudo (para avisar o gestor). */
+export async function registrarDemonstracao(c: Consultar, q: Quem, evento: EventoRegistroDemo, etapa: string | null): Promise<boolean> {
+  if (etapa !== null && !IDS_ETAPAS_DEMO.includes(etapa)) throw new Error('Etapa da demonstração não encontrada.');
+  await c(`INSERT INTO contabil_escola_demonstracoes (tenant_id, user_id, login) VALUES ($1,$2,$3) ON CONFLICT (tenant_id, user_id) DO UPDATE SET login=EXCLUDED.login`, [q.tenantId, q.userId, q.login]);
+  if (evento === 'etapa' || evento === 'sua_vez') {
+    const col = evento === 'etapa' ? 'etapas' : 'sua_vez';
+    await c(`UPDATE contabil_escola_demonstracoes SET ${col}=CASE WHEN ${col} ? $3 THEN ${col} ELSE ${col} || to_jsonb($3::text) END, atualizado_em=now() WHERE tenant_id=$1 AND user_id=$2`, [q.tenantId, q.userId, etapa]);
+    return false;
+  }
+  const r = await c(`UPDATE contabil_escola_demonstracoes SET vezes=vezes+1, completa_em=COALESCE(completa_em, now()), atualizado_em=now() WHERE tenant_id=$1 AND user_id=$2 RETURNING vezes`, [q.tenantId, q.userId]);
+  return Number(r.rows[0]?.vezes) === 1;
+}
+export async function demonstracoesDoTenant(c: Consultar, tenantId: string, userId?: string): Promise<Map<string, DemonstracaoAluno>> {
+  const r = await c(`SELECT user_id, etapas, sua_vez, vezes, completa_em, atualizado_em FROM contabil_escola_demonstracoes WHERE tenant_id=$1${userId ? ' AND user_id=$2' : ''}`, userId ? [tenantId, userId] : [tenantId]);
+  const m = new Map<string, DemonstracaoAluno>();
+  for (const x of r.rows) {
+    const lista = (v: unknown) => (Array.isArray(v) ? v.map(String).filter((id) => IDS_ETAPAS_DEMO.includes(id)) : []);
+    m.set(String(x.user_id), { etapas: lista(x.etapas), suaVez: lista(x.sua_vez), vezes: Number(x.vezes) || 0, completaEm: x.completa_em ? new Date(x.completa_em).toISOString() : null, totalEtapas: IDS_ETAPAS_DEMO.length, atualizadoEm: x.atualizado_em ? new Date(x.atualizado_em).toISOString() : null });
+  }
+  return m;
 }
 
 /** Onde o aluno mais erra: aulas com nota de questionário mais baixa e as práticas com nota baixa, com o erro mais repetido. */
@@ -169,6 +198,7 @@ export function conferirConteudoEscola(idsExemplos: string[], hoje = new Date().
     if (!TELAS_ME_MOSTRA.includes(a.meMostra.tela)) achados.push({ onde, problema: `o "Me mostra" aponta para a tela "${a.meMostra.tela}", que não existe no mapa de telas` });
   }
   for (const p of PRATICAS) if (!TELAS_ME_MOSTRA.includes(p.telaReal)) achados.push({ onde: `prática "${p.titulo}"`, problema: `tela real inexistente ${p.telaReal}` });
+  for (const p of conferirRoteiroDemo()) achados.push({ onde: 'demonstração completa com a IA', problema: p });
   for (const g of GLOSSARIO) {
     if (g.fonte.tipo !== 'sistema' && !oficial(g.fonte.url)) achados.push({ onde: `glossário "${g.termo}"`, problema: 'fonte fora dos sites oficiais' });
     if (g.aula && !aulaPorId(g.aula)) achados.push({ onde: `glossário "${g.termo}"`, problema: `aula inexistente ${g.aula}` });
@@ -211,6 +241,8 @@ export async function rodarConferidorEscola(c: Consultar, idsExemplos: string[],
   if (!tenantSo) {
     const r = await c(`DELETE FROM contabil_escola_atribuicoes a WHERE NOT EXISTS (SELECT 1 FROM contabil_auth_users u WHERE u.id::text=a.user_id) RETURNING 1`);
     limpos = r.rowCount ?? r.rows.length;
+    const d = await c(`DELETE FROM contabil_escola_demonstracoes a WHERE NOT EXISTS (SELECT 1 FROM contabil_auth_users u WHERE u.id::text=a.user_id) RETURNING 1`);
+    limpos += d.rowCount ?? d.rows.length;
   }
   const resumo = `${AULAS.length} aulas, ${PRATICAS.length} práticas e ${GLOSSARIO.length} termos conferidos (${conteudo.length ? `${conteudo.length} problema(s) no conteúdo` : 'conteúdo com fonte oficial e data'}); ${parados} aluno(s) sem progresso há 7 dias ou mais${avisosCriados ? `, ${avisosCriados} aviso(s) ao gestor` : ''}.`;
   return { resumo, conteudo, parados, avisosCriados, limpos };

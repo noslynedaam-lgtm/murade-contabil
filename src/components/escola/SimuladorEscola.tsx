@@ -20,7 +20,9 @@ const ROTULOS: Record<string, string> = {
   situacaoEcd: 'ECD', motivo: 'Motivo', prazo: 'Prazo de entrega',
 };
 
-export const SimuladorEscola: React.FC<{ pratica: PraticaSim; falar: (t: string) => void; onFechar: () => void; onProvaEntregue?: () => void }> = ({ pratica, falar, onFechar, onProvaEntregue }) => {
+// faseInicial / onGuiadaConcluida: usados pela "▶ Demonstração completa com a IA" ("Agora é a sua vez!"), que abre o simulador
+// já na prática guiada (ou na prova) e passa para a próxima etapa quando a pessoa termina. Sem eles, nada muda.
+export const SimuladorEscola: React.FC<{ pratica: PraticaSim; falar: (t: string) => void; onFechar: () => void; onProvaEntregue?: () => void; faseInicial?: 'guiada' | 'prova'; onGuiadaConcluida?: () => void }> = ({ pratica, falar, onFechar, onProvaEntregue, faseInicial, onGuiadaConcluida }) => {
   const [fase, setFase] = useState<Fase>('inicio');
   const [valores, setValores] = useState<Record<string, string>>({});
   const [destaque, setDestaque] = useState<string | null>(null);
@@ -47,6 +49,11 @@ export const SimuladorEscola: React.FC<{ pratica: PraticaSim; falar: (t: string)
   const ultimoValor = useRef<Record<string, string>>({});
 
   useEffect(() => () => { cancelado.current = true; }, []);
+  useEffect(() => {
+    if (faseInicial === 'guiada') comecarGuiada();
+    else if (faseInicial === 'prova') void comecarProva();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const limpar = () => { setValores({}); ultimoValor.current = {}; setCalc(null); setErroCalc(''); setDestaque(null); setIndice(0); acoes.current = []; setResultadoProva(null); };
 
   const calcular = async (v: Record<string, string>) => {
@@ -126,6 +133,7 @@ export const SimuladorEscola: React.FC<{ pratica: PraticaSim; falar: (t: string)
     if (await calcular(valores)) {
       const t = 'Você conseguiu! Confira o resultado. Quando estiver pronta, clique em "Fazer a prova": aí eu não vou mais interferir.';
       window.setTimeout(() => { setMsg({ texto: t, tipo: 'ok' }); falar(t); }, 2500);
+      onGuiadaConcluida?.();
     }
   };
 

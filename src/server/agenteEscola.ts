@@ -2,10 +2,13 @@
 //  - abrir_aula_escola: SÓ LEITURA. Acha a aula pelo assunto, abre a Escola e a seta mostra a aula (piloto: só mostra).
 //  - explicar_termo: SÓ LEITURA. "Me explica X": o termo do glossário da Escola, com a fonte oficial.
 //  - progresso_aluno_escola: SÓ LEITURA. Progresso, notas, nível e onde mais erra (gestor vê a equipe; os demais, o próprio).
+//  - abrir_demonstracao_escola: SÓ LEITURA. "Me mostra tudo", "faz a demonstração": abre a Escola e a seta mostra o botão
+//    "▶ Demonstração completa com a IA" (a demonstração roda na tela de TREINO e nunca grava nem envia nada).
 //  - atribuir_trilha_escola: ação com CARTÃO DE CONFIRMAÇÃO (só o administrador do escritório). O aluno recebe aviso ao entrar.
 // A Escola é um adicional pago: sem liberação, as ferramentas dizem isso e não mostram o conteúdo.
 import { buscarAula, buscarGlossario, normalizarEscola, TRILHAS } from '../data/escolaConteudo';
-import { pilotoAbrirAula } from '../utils/escolaMeMostra';
+import { pilotoAbrirAula, pilotoAbrirDemonstracao } from '../utils/escolaMeMostra';
+import { ETAPAS_DEMO, TITULO_DEMO } from '../data/escolaDemonstracao';
 import { ok, erroApi, type ContextoAgente, type Ferramenta } from './agenteMotor';
 
 export const NAO_LIBERADA = 'A Escola Murade é um adicional. Fale com o seu fornecedor para liberar.';
@@ -61,11 +64,24 @@ export const FERRAMENTAS_ESCOLA: Ferramenta[] = [
         const r = await ctx.chamarApi('GET', '/api/escola/gestor'); if (!ok(r)) return erroApi(r);
         const alvo = normalizarEscola(args.aluno || '');
         const alunos = (r.corpo.alunos || []).filter((a: any) => !alvo || normalizarEscola(a.login).includes(alvo));
-        return { alunos: alunos.slice(0, 15).map((a: any) => ({ login: a.login, aulasFeitas: `${a.aulasFeitas} de ${a.totalAulas}`, mediaQuestionarios: a.mediaQuiz, nivel: a.nivel, ultimaProva: a.provas[0] ? { pratica: a.provas[0].praticaId, nota: a.provas[0].nota } : null, ondeMaisErra: a.ondeMaisErra, parado: a.parado.length > 0 })) };
+        return { alunos: alunos.slice(0, 15).map((a: any) => ({ login: a.login, aulasFeitas: `${a.aulasFeitas} de ${a.totalAulas}`, mediaQuestionarios: a.mediaQuiz, nivel: a.nivel, ultimaProva: a.provas[0] ? { pratica: a.provas[0].praticaId, nota: a.provas[0].nota } : null, ondeMaisErra: a.ondeMaisErra, parado: a.parado.length > 0, demonstracaoCompleta: a.demonstracao?.completaEm ? 'assistiu' : `${a.demonstracao?.etapas?.length || 0} de ${ETAPAS_DEMO.length} etapas` })) };
       }
       const r = await ctx.chamarApi('GET', '/api/escola/conteudo'); if (!ok(r)) return erroApi(r);
       const p = r.corpo.progresso || {};
-      return { aulasConcluidas: (p.aulas || []).filter((a: any) => a.concluida).length, nivel: p.nivel, provas: (p.provas || []).slice(0, 5).map((x: any) => ({ pratica: x.praticaId, nota: x.nota, nivel: x.nivel })), trilhasAtribuidas: (p.atribuicoes || []).map((a: any) => a.trilhaId) };
+      return { aulasConcluidas: (p.aulas || []).filter((a: any) => a.concluida).length, nivel: p.nivel, provas: (p.provas || []).slice(0, 5).map((x: any) => ({ pratica: x.praticaId, nota: x.nota, nivel: x.nivel })), trilhasAtribuidas: (p.atribuicoes || []).map((a: any) => a.trilhaId), demonstracaoCompleta: r.corpo.demonstracao?.completaEm ? 'assistiu' : `${r.corpo.demonstracao?.etapas?.length || 0} de ${ETAPAS_DEMO.length} etapas` };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: {
+      name: 'abrir_demonstracao_escola',
+      description: 'Abre a Escola Murade e mostra com a seta o botão "▶ Demonstração completa com a IA": a Agente faz na tela de treino, campo a campo, o serviço do mês (lançamentos, conciliação, fechamento, balancete/DRE e ECD) e depois diz "agora é a sua vez". Use para "me mostra tudo", "faz a demonstração", "quero ver você fazendo". Só mostra: não grava nada.',
+      parameters: { type: 'OBJECT', properties: {} },
+    },
+    async executar(ctx) {
+      const lib = await liberada(ctx); if (!lib.liberado) return { liberado: false, mensagem: lib.motivo };
+      const piloto = pilotoAbrirDemonstracao(`Clique em "${TITULO_DEMO}": eu faço tudo na empresa de treino e depois é a sua vez.`);
+      return { ...(piloto ? { piloto } : {}), etapas: ETAPAS_DEMO.map((e) => e.titulo), instrucao: 'Diga em uma frase que a Escola está aberta e que é só clicar no botão destacado para a demonstração começar; ela pode ser pausada, pulada e parada (botão Parar ou tecla Esc).' };
     },
   },
   {
@@ -100,6 +116,7 @@ export const INSTRUCAO_ESCOLA = `
 ESCOLA MURADE (aba "Escola Murade" do menu; adicional pago)
 - "Me explica X", "o que é X", "o que significa X" sobre o trabalho fiscal ou contábil: use explicar_termo e responda curto, com a fonte oficial. Nunca invente regra ou artigo de lei.
 - "Quero estudar", "abre a aula de ...": use abrir_aula_escola (a seta mostra a aula).
+- "Me mostra tudo", "faz a demonstração", "quero ver você fazendo": use abrir_demonstracao_escola (a seta mostra o botão "▶ Demonstração completa com a IA").
 - Progresso, notas e nível de alguém da equipe: progresso_aluno_escola. Atribuir trilha a um funcionário novo: atribuir_trilha_escola (cartão de confirmação).
 - Se a Escola não estiver liberada, diga exatamente: "${NAO_LIBERADA}"
 `;

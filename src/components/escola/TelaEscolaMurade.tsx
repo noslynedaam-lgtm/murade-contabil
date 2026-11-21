@@ -7,9 +7,12 @@ import { SISTEMA_ESCOLA, TRILHAS as TRILHAS_DO_SISTEMA, type TermoGlossario, typ
 import { AulaEscolaView, type AulaSemRespostas } from './AulaEscola';
 import { PainelGestorEscola } from './PainelGestorEscola';
 import { useFalarNaEscola } from './escolaAdaptador';
+import { DemonstracaoCompleta } from './DemonstracaoCompleta';
+import { ETAPAS_DEMO, TITULO_DEMO } from '../../data/escolaDemonstracao';
 
 interface Progresso { aulas: Array<{ aulaId: string; quizNota: number | null; concluida: boolean }>; provas: Array<{ praticaId: string; nota: number }>; atribuicoes: Array<{ trilhaId: string }>; nivel: string }
-interface Conteudo { trilhas: TrilhaEscola[]; aulas: AulaSemRespostas[]; glossario: TermoGlossario[]; progresso: Progresso; gestor: boolean }
+interface Demonstracao { etapas: string[]; suaVez: string[]; completaEm: string | null; totalEtapas: number }
+interface Conteudo { trilhas: TrilhaEscola[]; aulas: AulaSemRespostas[]; glossario: TermoGlossario[]; progresso: Progresso; gestor: boolean; demonstracao?: Demonstracao | null }
 
 const MSG_ADICIONAL = 'A Escola Murade é um adicional. Fale com o seu fornecedor para liberar.';
 const semAcento = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -20,6 +23,7 @@ export const TelaEscolaMurade: React.FC<{ onVoltar?: () => void }> = ({ onVoltar
   const [conteudo, setConteudo] = useState<Conteudo | null>(null);
   const [aba, setAba] = useState<'trilhas' | 'glossario' | 'gestor'>('trilhas');
   const [aulaAberta, setAulaAberta] = useState<string | null>(null);
+  const [demoAberta, setDemoAberta] = useState(false);
   const [busca, setBusca] = useState('');
   const [erro, setErro] = useState('');
 
@@ -78,7 +82,19 @@ export const TelaEscolaMurade: React.FC<{ onVoltar?: () => void }> = ({ onVoltar
   return (
     <div className="mx-auto max-w-4xl p-3 sm:p-5" data-campo="escola-painel">
       {cabecalho}
-      {!aula && (
+      {/* Topo da Escola: a demonstração completa com a IA (a Agente faz tudo na tela de treino; depois é a sua vez). */}
+      {!aula && demoAberta && <div className="mb-3"><DemonstracaoCompleta onFechar={() => { setDemoAberta(false); void carregar(); }} onMudou={() => void carregar()} /></div>}
+      {!aula && !demoAberta && (
+        <section className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-gradient-to-r from-blue-700 to-indigo-700 p-3 text-white shadow">
+          <div className="min-w-0">
+            <p className="font-extrabold">{TITULO_DEMO}</p>
+            <p className="text-xs text-blue-100">A Agente faz na tela de treino, campo a campo: {ETAPAS_DEMO.map((e) => e.titulo).join(' → ')}. Depois é a sua vez.</p>
+            {conteudo.demonstracao && <p className="mt-0.5 text-[11px] font-bold text-amber-200">{conteudo.demonstracao.completaEm ? '✅ Você já assistiu a demonstração completa.' : `Você assistiu ${conteudo.demonstracao.etapas.length} de ${conteudo.demonstracao.totalEtapas} etapas.`}{conteudo.demonstracao.suaVez.length ? ` Fez ${conteudo.demonstracao.suaVez.length} na sua vez.` : ''}</p>}
+          </div>
+          <button id="escola-demo-completa" type="button" onClick={() => { setAba('trilhas'); setDemoAberta(true); }} className="rounded-full bg-white px-4 py-2 text-sm font-extrabold text-blue-800 shadow hover:bg-blue-50">▶ Assistir</button>
+        </section>
+      )}
+      {!aula && !demoAberta && (
         <>
           <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
             <span className="rounded-full bg-blue-100 px-2 py-1 font-bold text-blue-900">{concluidas}/{conteudo.aulas.length} aulas concluídas</span>
@@ -94,7 +110,7 @@ export const TelaEscolaMurade: React.FC<{ onVoltar?: () => void }> = ({ onVoltar
 
       {aula && <AulaEscolaView key={aula.id} aula={aula} falar={falar} onVoltar={() => { setAulaAberta(null); void carregar(); }} onMudou={() => void carregar()} />}
 
-      {!aula && aba === 'trilhas' && (
+      {!aula && !demoAberta && aba === 'trilhas' && (
         <div className="space-y-3">
           {conteudo.trilhas.map((t) => {
             const aulas = conteudo.aulas.filter((a) => a.trilha === t.id);
@@ -126,7 +142,7 @@ export const TelaEscolaMurade: React.FC<{ onVoltar?: () => void }> = ({ onVoltar
         </div>
       )}
 
-      {!aula && aba === 'glossario' && (
+      {!aula && !demoAberta && aba === 'glossario' && (
         <div className="space-y-2">
           <label className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-2 py-1.5">
             <Search size={16} className="text-slate-500" />
@@ -145,7 +161,7 @@ export const TelaEscolaMurade: React.FC<{ onVoltar?: () => void }> = ({ onVoltar
         </div>
       )}
 
-      {!aula && aba === 'gestor' && conteudo.gestor && <PainelGestorEscola />}
+      {!aula && !demoAberta && aba === 'gestor' && conteudo.gestor && <PainelGestorEscola />}
     </div>
   );
 };

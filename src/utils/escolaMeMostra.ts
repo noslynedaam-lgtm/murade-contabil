@@ -26,3 +26,11 @@ export function pilotoAbrirAula(aulaId: string, tituloAula: string, legenda: str
     { tipo: 'destacar', alvo: `#escola-aula-${aulaId}`, legenda },
   ] });
 }
+
+/** Plano da Agente para "me mostra tudo": abre a Escola Murade e destaca o botão da demonstração completa (só mostra). */
+export function pilotoAbrirDemonstracao(legenda: string): PlanoPiloto | null {
+  return soMostra({ titulo: `Demonstração completa com a IA`.slice(0, 120), passos: [
+    { tipo: 'navegar', alvo: '#btn-menu-escola', legenda: 'Abrindo a Escola Murade.' },
+    { tipo: 'destacar', alvo: '#escola-demo-completa', legenda },
+  ] });
+}
