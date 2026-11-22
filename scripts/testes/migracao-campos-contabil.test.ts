@@ -311,3 +311,26 @@ test('servidor: uma ação por vez numa transação; decisão guardada e mantida
     assert.equal((await analisarEmpresaMigrada(f.consultar, d.cnpj))!.achados.find((a) => a.id === item.id)!.situacao, 'mantido');
   }
 });
+
+test('servidor: "Decidir para todas" de um grupo (com os ids que a pessoa viu) e "Desfazer do grupo"; nada é apagado', async () => {
+  const { analisarEmpresaMigrada, decidirGrupoEmpresaMigrada, desfazerGrupoEmpresaMigrada, lotesDaAnalise } = await import('../../src/server/migracaoSistemaAnterior/banco');
+  const d = await montarDadosEmpresa(await abrir(), 23);
+  const f = bancoFalso();
+  const quem = { userId: 'u1', login: 'contadora', escritorioId: 'e1', tenantId: 'e1' };
+  await gravarEmpresaMigrada(f.banco, d, quem, { modelo: planoContasModelo, validar: workspaceValido, competenciaAtual: '2026-11' });
+  const an = (await analisarEmpresaMigrada(f.consultar, d.cnpj))!;
+  const pend = an.achados.filter((a) => a.situacao === 'pendente' && (a.tipo === 'conferir' || a.tipo === 'verificar'));
+  assert.ok(pend.length >= 1, 'há pendência para decidir');
+  const ids = pend.map((a) => a.id);
+  await assert.rejects(() => decidirGrupoEmpresaMigrada(f.banco, d.cnpj, [...ids, 'nao-existe'], 'manter', 'contadora', workspaceValido), /grupo mudou/);
+  const r = await decidirGrupoEmpresaMigrada(f.banco, d.cnpj, ids, 'manter', 'contadora', workspaceValido);
+  assert.equal(r.alteradas, ids.length);
+  const depois = (await analisarEmpresaMigrada(f.consultar, d.cnpj))!.achados;
+  assert.ok(ids.every((id) => depois.find((a) => a.id === id)?.situacao === 'mantido'));
+  assert.equal((await lotesDaAnalise(f.consultar, d.cnpj))[0]?.quantidade, ids.length);
+  const u = await desfazerGrupoEmpresaMigrada(f.banco, d.cnpj, r.lote, 'contadora', workspaceValido);
+  assert.equal(u.desfeitas, ids.length);
+  const volta = (await analisarEmpresaMigrada(f.consultar, d.cnpj))!.achados;
+  assert.ok(ids.every((id) => volta.find((a) => a.id === id)?.situacao === 'pendente'), 'voltaram como estavam');
+  assert.equal(volta.length, an.achados.length, 'nada apagado');
+});

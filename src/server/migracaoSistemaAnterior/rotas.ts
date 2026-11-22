@@ -9,7 +9,7 @@ import {
   descartarMigracaoContabil, gerarPreviaContabil, gravarMigracaoContabil, iniciarLimpezaMigracaoContabil, listarEmpresasDoBackupContabil,
   receberArquivoContabil, situacaoMigracaoContabilDoUsuario,
 } from './servico';
-import { completarEmpresaMigrada, analisarEmpresaMigrada, aplicarAchadoEmpresaMigrada, type AcaoAchado, cnpjsMigrados, conferirCamposEmpresaMigrada, conferirEmpresaMigrada, empresaExcluidaAntes, ErroMigracao, gravarEmpresaMigrada, lerBlocoSistemaAnterior, lerRegistroSistemaAnterior } from './banco';
+import { completarEmpresaMigrada, analisarEmpresaMigrada, aplicarAchadoEmpresaMigrada, decidirGrupoEmpresaMigrada, desfazerGrupoEmpresaMigrada, lotesDaAnalise, type AcaoAchado, cnpjsMigrados, conferirCamposEmpresaMigrada, conferirEmpresaMigrada, empresaExcluidaAntes, ErroMigracao, gravarEmpresaMigrada, lerBlocoSistemaAnterior, lerRegistroSistemaAnterior } from './banco';
 
 export interface DependenciasRotasMigracao {
   exigirSessao: express.RequestHandler;
@@ -188,10 +188,11 @@ export function registrarRotasMigracaoSistemaAnterior(app: express.Express, dep:
       const conferencia = reg.resumo ? await conferirEmpresaMigrada(dep.consultar, cnpj) : null;
       const campos = reg.resumo ? await conferirCamposEmpresaMigrada(dep.consultar, cnpj) : null;
       const analise = reg.resumo ? await analisarEmpresaMigrada(dep.consultar, cnpj) : null;
+      const lotes = reg.resumo ? await lotesDaAnalise(dep.consultar, cnpj) : [];
       const { esperado: _e, esperadoLancamentos: _l, saldoFinalEsperado: _s, mapaContas: _m, ...resumo } = (reg.resumo || {}) as any;
       res.json({ sucesso: true, cnpj, resumo: reg.resumo ? { ...resumo, naoEntraram: (resumo.naoEntraram || []).slice(0, 50) } : null, blocos: reg.blocos, conferencia,
         campos: campos ? { resumo: campos.resumo, conferidos: campos.conferidos, totalPendencias: campos.pendencias.length, pendencias: campos.pendencias.slice(0, 300), semCadastroNoRegistro: campos.semCadastroNoRegistro } : null,
-        analise: analise ? { resumo: analise.resumo, achados: analise.achados.slice(0, 300).map(({ valorVeio: _v, valorCerto: _c, ...a }) => ({ ...a, alvo: a.alvo ? { tipo: a.alvo.tipo, campo: a.alvo.campo, codigo: a.alvo.codigo, quantidade: a.alvo.ids?.length } : undefined })) } : null });
+        analise: analise ? { resumo: analise.resumo, achados: analise.achados.slice(0, 300).map(({ valorVeio: _v, valorCerto: _c, ...a }) => ({ ...a, alvo: a.alvo ? { tipo: a.alvo.tipo, campo: a.alvo.campo, codigo: a.alvo.codigo, quantidade: a.alvo.ids?.length } : undefined })), lotes } : null });
     } catch (e) { console.error('Falha ao ler registro do sistema anterior:', (e as Error)?.message || e); res.status(503).json({ sucesso: false, motivo: 'Não foi possível ler o registro do sistema anterior agora.' }); }
   });
   const ACOES: AcaoAchado[] = ['corrigir', 'desfazer', 'aceitar', 'manter', 'lancar_ajuste', 'desfazer_ajuste', 'corrigir_todos'];
@@ -209,6 +210,28 @@ export function registrarRotasMigracaoSistemaAnterior(app: express.Express, dep:
     } catch (e) {
       if (e instanceof ErroMigracao || (e instanceof Error && !/connect|ECONN|timeout/i.test(e.message))) { res.status(409).json({ sucesso: false, motivo: motivo(e) }); return; }
       console.error('Falha ao aplicar item da análise da migração:', (e as Error)?.message || e);
+      res.status(503).json({ sucesso: false, motivo: 'O banco não confirmou; nada foi alterado. Tente de novo.' });
+    }
+  });
+  // "Decidir para todas" de um grupo (aceitar / manter como veio), com segunda confirmação na tela, e "Desfazer do grupo".
+  app.post(`${base}/registro/:cnpj/achado-grupo`, dep.exigirOrigemNavegador, dep.exigirSessao, async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const s = sessaoDe(req); const cnpj = normalizar(req.params.cnpj);
+    if (!s || !s.cnpjs.includes(cnpj)) { res.status(403).json({ sucesso: false, motivo: 'Empresa fora do seu acesso.' }); return; }
+    if (!s.administrador && !s.escritorioDe) { res.status(403).json({ sucesso: false, motivo: 'Só a equipe do escritório decide os itens da migração.' }); return; }
+    const acao = String(req.body?.acao || ''); const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map((x: unknown) => String(x).slice(0, 200)))].slice(0, 5000) as string[];
+    const lote = String(req.body?.lote || '');
+    try {
+      await dep.preparar();
+      if (acao === 'desfazer') { const r = await desfazerGrupoEmpresaMigrada(dep.banco(), cnpj, lote, s.login, (p) => dep.workspaceValido(p)); res.json({ sucesso: true, ...r }); return; }
+      if (acao !== 'aceitar' && acao !== 'manter') { res.status(400).json({ sucesso: false, motivo: 'Ação inválida.' }); return; }
+      if (req.body?.confirmadoDuasVezes !== true) { res.status(400).json({ sucesso: false, motivo: 'Confirme duas vezes na tela antes de decidir para o grupo todo.' }); return; }
+      if (!ids.length) { res.status(400).json({ sucesso: false, motivo: 'Grupo vazio.' }); return; }
+      const r = await decidirGrupoEmpresaMigrada(dep.banco(), cnpj, ids, acao, s.login, (p) => dep.workspaceValido(p));
+      res.json({ sucesso: true, ...r });
+    } catch (e) {
+      if (e instanceof ErroMigracao || (e instanceof Error && !/connect|ECONN|timeout/i.test(e.message))) { res.status(409).json({ sucesso: false, motivo: motivo(e) }); return; }
+      console.error('Falha ao decidir o grupo da análise da migração:', (e as Error)?.message || e);
       res.status(503).json({ sucesso: false, motivo: 'O banco não confirmou; nada foi alterado. Tente de novo.' });
     }
   });

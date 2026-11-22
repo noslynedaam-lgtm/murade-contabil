@@ -214,6 +214,78 @@ export async function aplicarAchadoEmpresaMigrada(banco: BancoTransacional, cnpj
   });
 }
 
+/** Decisões em grupo ainda valendo (para o "Desfazer do grupo" na tela). */
+export async function lotesDaAnalise(consultar: ConsultaSql, cnpj: string): Promise<Array<{ lote: string; decisao: string; quantidade: number; em: string; por: string }>> {
+  const r = await consultar(`SELECT bloco, linhas FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 AND bloco = ANY($2::text[])`, [cnpj, [BLOCO_DECISOES]]).catch(() => ({ rows: [] as any[] }));
+  const m = new Map<string, { lote: string; decisao: string; quantidade: number; em: string; por: string }>();
+  const linhas = r.rows.find((x: any) => x.bloco === BLOCO_DECISOES)?.linhas;
+  for (const d of Object.values<any>(linhas && typeof linhas === 'object' && !Array.isArray(linhas) ? linhas : {})) { if (!d?.lote) continue; const x = m.get(d.lote) ?? { lote: d.lote, decisao: String(d.decisao), quantidade: 0, em: String(d.em || ''), por: String(d.por || '') }; x.quantidade++; m.set(d.lote, x); }
+  return [...m.values()].sort((a, b) => b.em.localeCompare(a.em)).slice(0, 20);
+}
+
+/**
+ * "Decidir para todas" de um grupo da análise (mesmo tipo de item): aceitar a sugestão (só os que têm o que aplicar) ou manter como veio,
+ * numa transação. Os ids são os que a pessoa viu e confirmou duas vezes: se algum já não está pendente, recusa. Fica um lote para o
+ * "Desfazer do grupo". Nada é apagado.
+ */
+export async function decidirGrupoEmpresaMigrada(banco: BancoTransacional, cnpj: string, ids: string[], acao: 'aceitar' | 'manter', quem: string, validar: (p: Record<string, unknown>) => boolean): Promise<{ lote: string; alteradas: number; puladas: number; mensagem: string }> {
+  return banco.transacao(async (q) => {
+    await q('SELECT pg_advisory_xact_lock(hashtext($1))', [cnpj]);
+    const ws = await q('SELECT payload,version FROM contabil_company_workspaces WHERE cnpj=$1 FOR UPDATE', [cnpj]);
+    if (!ws.rows.length) throw new ErroMigracao('A empresa não tem escrituração no Contábil.');
+    const c = await carregarParaAnalise(q, cnpj, ws.rows[0].payload);
+    if (!c) throw new ErroMigracao('Esta empresa não tem migração do sistema anterior registrada.');
+    const fechadas = new Set((await q('SELECT competencia FROM contabil_period_closures WHERE cnpj=$1', [cnpj])).rows.map((r) => String(r.competencia)));
+    const quer = new Set(ids);
+    const alvos = analisar(c).filter((a) => quer.has(a.id) && a.situacao === 'pendente' && (a.tipo === 'conferir' || a.tipo === 'verificar'));
+    if (alvos.length !== quer.size) throw new ErroMigracao(`O grupo mudou desde que você abriu (agora são ${alvos.length} pendente(s)). Abra de novo e confira antes de decidir.`);
+    const lote = `g${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`; const em = new Date().toISOString();
+    let payload = c.payload; let puladas = 0; const decisoes = { ...c.decisoes } as Record<string, any>;
+    for (const a of alvos) {
+      const lancs = a.alvo?.tipo === 'lancamentos' ? (payload.lancamentos || []).filter((l: any) => (a.alvo!.ids || []).includes(l.id)) : [];
+      if (lancs.some((l: any) => fechadas.has(String(l.data).slice(0, 7)))) { puladas++; continue; }
+      if (acao === 'aceitar') { if (!a.alvo) { puladas++; continue; } payload = aplicarAcaoAchado(payload, a, 'aceitar', quem); }
+      decisoes[a.id] = { decisao: acao === 'aceitar' ? 'aceito' : 'mantido', por: quem, em, lote };
+    }
+    const alteradas = alvos.length - puladas;
+    await q(`DELETE FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 AND bloco=$2`, [cnpj, BLOCO_DECISOES]);
+    await q(`INSERT INTO ${TABELA_SISTEMA_ANTERIOR}(cnpj,bloco,linhas,quantidade,migrado_por) VALUES($1,$2,$3::jsonb,$4,$5)`, [cnpj, BLOCO_DECISOES, JSON.stringify(decisoes), Object.keys(decisoes).length, quem]);
+    if (payload !== c.payload) {
+      if (!validar(payload)) throw new ErroMigracao('A mudança não passou na validação do Contábil; nada foi alterado.');
+      await q('UPDATE contabil_company_workspaces SET payload=$2::jsonb,version=version+1,updated_at=now() WHERE cnpj=$1', [cnpj, JSON.stringify(payload)]);
+    }
+    return { lote, alteradas, puladas, mensagem: `${alteradas} item(ns) ${acao === 'aceitar' ? 'aceito(s) e corrigido(s)' : 'mantido(s) como vieram'}${puladas ? `; ${puladas} ficaram como estavam (sem o que aplicar ou competência fechada)` : ''}. Dá para voltar com "Desfazer do grupo".` };
+  });
+}
+
+/** "Desfazer do grupo": tira as decisões do lote e, nas aceitas, volta o valor que veio do sistema anterior. */
+export async function desfazerGrupoEmpresaMigrada(banco: BancoTransacional, cnpj: string, lote: string, quem: string, validar: (p: Record<string, unknown>) => boolean): Promise<{ desfeitas: number; mensagem: string }> {
+  if (!/^g[a-z0-9]{6,30}$/.test(lote)) throw new ErroMigracao('Grupo de decisão inválido.');
+  return banco.transacao(async (q) => {
+    await q('SELECT pg_advisory_xact_lock(hashtext($1))', [cnpj]);
+    const ws = await q('SELECT payload,version FROM contabil_company_workspaces WHERE cnpj=$1 FOR UPDATE', [cnpj]);
+    if (!ws.rows.length) throw new ErroMigracao('A empresa não tem escrituração no Contábil.');
+    const c = await carregarParaAnalise(q, cnpj, ws.rows[0].payload);
+    if (!c) throw new ErroMigracao('Esta empresa não tem migração do sistema anterior registrada.');
+    const doLote = Object.entries(c.decisoes as Record<string, any>).filter(([, d]) => d?.lote === lote);
+    if (!doLote.length) throw new ErroMigracao('Não há nada deste grupo para desfazer.');
+    const achados = new Map(analisar(c).map((a) => [a.id, a]));
+    let payload = c.payload; const decisoes = { ...c.decisoes } as Record<string, any>;
+    for (const [id, d] of doLote) {
+      const a = achados.get(id);
+      if (d.decisao === 'aceito' && a?.alvo && a.valorVeio !== undefined) payload = aplicarAcaoAchado(payload, { ...a, tipo: 'corrigido' }, 'desfazer', quem);
+      delete decisoes[id];
+    }
+    await q(`DELETE FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 AND bloco=$2`, [cnpj, BLOCO_DECISOES]);
+    await q(`INSERT INTO ${TABELA_SISTEMA_ANTERIOR}(cnpj,bloco,linhas,quantidade,migrado_por) VALUES($1,$2,$3::jsonb,$4,$5)`, [cnpj, BLOCO_DECISOES, JSON.stringify(decisoes), Object.keys(decisoes).length, quem]);
+    if (payload !== c.payload) {
+      if (!validar(payload)) throw new ErroMigracao('A mudança não passou na validação do Contábil; nada foi alterado.');
+      await q('UPDATE contabil_company_workspaces SET payload=$2::jsonb,version=version+1,updated_at=now() WHERE cnpj=$1', [cnpj, JSON.stringify(payload)]);
+    }
+    return { desfeitas: doLote.length, mensagem: `${doLote.length} item(ns) voltaram como estavam.` };
+  });
+}
+
 const semValor = (v: unknown) => v === undefined || v === null || (typeof v === 'string' && v.trim() === '') || (Array.isArray(v) && v.length === 0);
 
 /**

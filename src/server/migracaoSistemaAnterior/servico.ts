@@ -13,6 +13,7 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { Request } from 'express';
 import type { ContaPlano } from '../../types';
+import { FilaMigracao, textoDaFila } from './fila';
 import { indexarDump, carregarTabelaDump, type IndiceDump } from './leitorDump';
 import { listarEmpresasContabeis, montarDadosEmpresa, type DadosContabeisEmpresa, type EmpresaDoBackup, type Linha } from './conversor';
 import { mesclarMigracao } from './mesclagem';
@@ -27,9 +28,15 @@ const MAX_EMPRESAS_POR_VEZ = 50;
 interface Sessao {
   token: string; userId: string; arquivo: string; tamanho: number; criadoEm: number;
   indice?: IndiceDump; cache: Map<string, Linha[] | null>; empresas?: EmpresaDoBackup[];
-  previas: Map<number, DadosContabeisEmpresa>; ocupado: boolean;
+  /** Empresas que passaram na prévia: só o que a pessoa escolheu (CNPJ digitado, desfazer ajustes). Os dados são lidos de novo do
+   * arquivo na gravação (mesmo arquivo = mesmo resultado): guardar os dados de todas pesava centenas de MB no servidor de 512 MB. */
+  previas: Map<number, { cnpjInformado: string; desfazerAjustes: boolean }>; ocupado: boolean;
 }
+/** Uma leitura pesada por vez no servidor inteiro (prévia e gravação), na ordem de chegada (servidor compartilhado, 512 MB). */
+export const filaMigracaoContabil = new FilaMigracao();
 const sessoes = new Map<string, Sessao>();
+/** Posição na fila (0 = é a vez; N = há N na frente) e o aviso para a tela. */
+export function filaDaMigracaoContabil(token: string): { posicao: number | null; aviso: string } { const p = filaMigracaoContabil.posicao(String(token || '')); return { posicao: p, aviso: textoDaFila(p) }; }
 
 const apagarArquivo = (a: string) => { try { fs.rmSync(a, { force: true }); } catch { /* já não existe */ } };
 
@@ -152,7 +159,7 @@ export async function gerarPreviaContabil(token: string, userId: string, cdempre
   if (!lista.length) throw new Error('Marque ao menos uma empresa.');
   if (lista.length > MAX_EMPRESAS_POR_VEZ) throw new Error(`Marque no máximo ${MAX_EMPRESAS_POR_VEZ} empresas por vez.`);
   const informados = (cnpjsInformados && typeof cnpjsInformados === 'object' ? cnpjsInformados : {}) as Record<string, unknown>;
-  return comOcupado(s, async () => {
+  return comOcupado(s, () => filaMigracaoContabil.entrar(s.token, async () => {
     s.indice = s.indice || await indexarDump(s.arquivo);
     const ler = leitor(s);
     const doBackup = new Map((s.empresas || []).map((e) => [e.cdempresa, e]));
@@ -194,10 +201,11 @@ export async function gerarPreviaContabil(token: string, userId: string, cdempre
         conferencia: conf?.resumo || '', bate: Boolean(conf?.bate), totalAvisos: avisos.length, avisos: avisos.slice(0, 15),
         ajustesMigracaoLancados: m.ajustesMigracaoLancados || 0, desfazerAjustes: Boolean(dados.desfazerAjustesMigracao),
       });
-      if (!motivo) s.previas.set(cd, dados); else s.previas.delete(cd);
+      if (!motivo) s.previas.set(cd, { cnpjInformado: informado, desfazerAjustes: comDesfazer.has(cd) }); else s.previas.delete(cd);
+      await new Promise<void>((ok) => setImmediate(ok)); // cede a vez ao servidor entre uma empresa e outra
     }
     return saida;
-  });
+  }));
 }
 
 export interface ResultadoGravacaoContabil { cdempresa: number; cnpj: string; gravado: boolean; motivo?: string; lancamentos: number; contas: number; conferencia?: string; bate?: boolean }
@@ -212,11 +220,17 @@ export async function gravarMigracaoContabil(
   const lista = [...new Set((Array.isArray(cdempresas) ? cdempresas : []).map(Number).filter((n) => Number.isInteger(n)))];
   if (!lista.length) throw new Error('Marque ao menos uma empresa.');
   if (lista.length > MAX_EMPRESAS_POR_VEZ) throw new Error(`Grave no máximo ${MAX_EMPRESAS_POR_VEZ} empresas por vez.`);
-  const resultados = await comOcupado(s, async () => {
+  const resultados = await comOcupado(s, () => filaMigracaoContabil.entrar(s.token, async () => {
+    s.indice = s.indice || await indexarDump(s.arquivo);
+    const ler = leitor(s);
     const r: ResultadoGravacaoContabil[] = [];
     for (const cd of lista) {
-      const dados = s.previas.get(cd);
-      if (!dados) { r.push({ cdempresa: cd, cnpj: '', gravado: false, motivo: 'Confira a prévia desta empresa antes de gravar.', lancamentos: 0, contas: 0 }); continue; }
+      const escolha = s.previas.get(cd);
+      if (!escolha) { r.push({ cdempresa: cd, cnpj: '', gravado: false, motivo: 'Confira a prévia desta empresa antes de gravar.', lancamentos: 0, contas: 0 }); continue; }
+      // Lê de novo do arquivo a empresa conferida na prévia (mesmo arquivo, mesma regra: o mesmo resultado da prévia).
+      const dados = await montarDadosEmpresa(ler, cd, { cnpjInformado: escolha.cnpjInformado });
+      if (escolha.desfazerAjustes) dados.desfazerAjustesMigracao = true;
+      dados.cnpj = normalizar(dados.cnpj);
       try {
         // Sem CNPJ no backup = sempre escolhida uma por uma (a pessoa digitou o CNPJ).
         if (!escolhidasUmaAUma && !dados.semCadastroNoBackup && await excluidaAntes(dados.cnpj)) {
@@ -229,9 +243,10 @@ export async function gravarMigracaoContabil(
       } catch (erro: any) {
         r.push({ cdempresa: cd, cnpj: dados.cnpj, gravado: false, motivo: String(erro?.message || erro).slice(0, 400), lancamentos: 0, contas: 0 });
       }
+      await new Promise<void>((ok) => setImmediate(ok));
     }
     return r;
-  });
+  }));
   // Tudo que foi conferido já foi gravado: o arquivo (dado de cliente) é apagado na hora.
   if (!s.previas.size) descartarMigracaoContabil(token);
   return resultados;

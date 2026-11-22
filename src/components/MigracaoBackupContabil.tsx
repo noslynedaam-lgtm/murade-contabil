@@ -272,7 +272,7 @@ type PendenciaCampo = { grupo: string; item: string; rotulo: string; origem: str
 type RegistroResposta = {
   resumo: any | null; blocos: Array<{ bloco: string; quantidade: number }>; conferencia: { resumo: string; bate: boolean; diferencas: any[] } | null;
   campos?: { resumo: string; totalPendencias: number; pendencias: PendenciaCampo[] } | null;
-  analise?: { resumo: string; achados: Achado[] } | null;
+  analise?: { resumo: string; achados: Achado[]; lotes?: Array<{ lote: string; decisao: string; quantidade: number; em: string; por: string }> } | null;
 };
 type Achado = {
   id: string; tipo: "corrigido" | "conferir" | "verificar" | "ajuste"; situacao: string; titulo: string; veio: string; certo: string; base: string;
@@ -281,8 +281,38 @@ type Achado = {
 const SITUACAO: Record<string, string> = { corrigido: "corrigido", desfeito: "desfeito (como veio)", alterado: "alterado pela equipe", pendente: "esperando o contador", aceito: "aceito", mantido: "mantido como veio", lancado: "ajuste lançado" };
 
 /** Análise do que veio errado: corrigidos (Desfazer / Corrigir agora), para conferir (Aceitar / Manter) e ajustes (Sim, lançar / Desfazer). Um por vez. */
-const AnaliseMigracao: React.FC<{ cnpj: string; analise: { resumo: string; achados: Achado[] }; aoMudar: () => void }> = ({ cnpj, analise, aoMudar }) => {
+/** Grupo (para não assustar o cliente): o mesmo tipo de item, na ordem do que mexe em valor para o cadastro; "verificar" por último. */
+const grupoDoAchado = (a: Achado) => `${a.tipo}|${a.alvo ? `${a.alvo.tipo}:${a.alvo.campo}` : a.titulo.replace(/\s+\S*\d\S*/g, '').slice(0, 60)}`;
+const pesoGrupo = (a: Achado) => (a.tipo === 'ajuste' ? 0 : a.alvo?.tipo === 'lancamentos' ? 1 : a.tipo === 'conferir' ? 2 : a.tipo === 'corrigido' ? 3 : 10);
+const AnaliseMigracao: React.FC<{ cnpj: string; analise: { resumo: string; achados: Achado[]; lotes?: Array<{ lote: string; decisao: string; quantidade: number; em: string; por: string }> }; aoMudar: () => void }> = ({ cnpj, analise, aoMudar }) => {
   const [aberto, setAberto] = useState(false);
+  const [grupoAberto, setGrupoAberto] = useState("");
+  const [confirmando, setConfirmando] = useState<{ g: string; acao: "aceitar" | "manter"; passo: 1 | 2 } | null>(null);
+  const grupos = useMemo(() => {
+    const m = new Map<string, { g: string; titulo: string; tipo: string; peso: number; itens: Achado[] }>();
+    for (const a of analise.achados) { const g = grupoDoAchado(a); const x = m.get(g) ?? { g, titulo: a.titulo, tipo: a.tipo, peso: pesoGrupo(a), itens: [] }; x.itens.push(a); m.set(g, x); }
+    return [...m.values()].sort((a, b) => a.peso - b.peso || b.itens.length - a.itens.length);
+  }, [analise.achados]);
+  const decidirGrupo = async (g: { g: string; itens: Achado[] }, acao: "aceitar" | "manter") => {
+    const ids = g.itens.filter((a) => (a.tipo === "conferir" || a.tipo === "verificar") && a.situacao === "pendente" && (acao === "manter" || a.alvo)).map((a) => a.id);
+    setConfirmando(null); setOcupado(g.g); setMsg("");
+    try {
+      const r = await fetch(`/api/migracao-sistema-anterior/registro/${encodeURIComponent(cnpj)}/achado-grupo`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, acao, confirmadoDuasVezes: true }) });
+      const j = await r.json().catch(() => ({}));
+      setMsg(j?.sucesso ? String(j.mensagem || "Feito.") : String(j?.motivo || "Não foi possível."));
+      if (j?.sucesso) { aoMudar(); window.dispatchEvent(new CustomEvent("murade-workspace-alterado", { detail: { cnpj } })); }
+    } catch { setMsg("Sem conexão; nada foi alterado."); } finally { setOcupado(""); }
+  };
+  const desfazerGrupo = async (lote: string) => {
+    if (ocupado || !(await confirmarNaTela("Desfazer a decisão deste grupo? Cada item volta como estava."))) return;
+    setOcupado(lote); setMsg("");
+    try {
+      const r = await fetch(`/api/migracao-sistema-anterior/registro/${encodeURIComponent(cnpj)}/achado-grupo`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ acao: "desfazer", lote }) });
+      const j = await r.json().catch(() => ({}));
+      setMsg(j?.sucesso ? String(j.mensagem || "Feito.") : String(j?.motivo || "Não foi possível."));
+      if (j?.sucesso) { aoMudar(); window.dispatchEvent(new CustomEvent("murade-workspace-alterado", { detail: { cnpj } })); }
+    } catch { setMsg("Sem conexão; nada foi alterado."); } finally { setOcupado(""); }
+  };
   const [ocupado, setOcupado] = useState("");
   const [msg, setMsg] = useState("");
   const agir = async (a: Achado | null, acao: string, pergunta: string) => {
@@ -305,8 +335,39 @@ const AnaliseMigracao: React.FC<{ cnpj: string; analise: { resumo: string; achad
       {aberto && (
         <div className="space-y-2">
           {desfeitos > 0 && <button type="button" disabled={!!ocupado} onClick={() => void agir(null, "corrigir_todos", `Corrigir agora as ${desfeitos} correção(ões) automática(s) desfeita(s)? Só muda formatação (espaços nas pontas, zero do CPF, bairro completo); valores não mudam.`)} className="min-h-[40px] rounded border border-blue-400 bg-blue-50 px-3 text-blue-900 disabled:opacity-40">Corrigir agora</button>}
+          <p className="text-slate-600">Resumo por tipo, do que mexe em valor para o cadastro. Toque em <b>“Ver exemplos”</b> para ver um a um.</p>
+          {grupos.map((g) => {
+            const pend = g.itens.filter((a) => (a.tipo === "conferir" || a.tipo === "verificar") && a.situacao === "pendente");
+            const comAlvo = pend.filter((a) => a.alvo).length;
+            return (
+              <div key={g.g} className={`rounded border p-2 ${g.tipo === "verificar" ? "border-slate-200" : "border-amber-300 bg-amber-50"}`}>
+                <div className="font-bold text-slate-900">{g.titulo}{g.itens.length > 1 ? ` (e parecidos) — ${g.itens.length} item(ns)` : ""}{pend.length ? ` — ${pend.length} esperando o contador` : ""}</div>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <button type="button" onClick={() => setGrupoAberto(grupoAberto === g.g ? "" : g.g)} className="min-h-[40px] rounded border border-slate-300 bg-white px-3">{grupoAberto === g.g ? "Fechar os exemplos" : "Ver exemplos"}</button>
+                  {pend.length > 1 && comAlvo > 0 && <button type="button" disabled={!!ocupado} onClick={() => setConfirmando({ g: g.g, acao: "aceitar", passo: 1 })} className="min-h-[40px] rounded border border-blue-400 bg-white px-3 disabled:opacity-40">Decidir para todas: Aceitar</button>}
+                  {pend.length > 1 && <button type="button" disabled={!!ocupado} onClick={() => setConfirmando({ g: g.g, acao: "manter", passo: 1 })} className="min-h-[40px] rounded border border-slate-300 bg-white px-3 disabled:opacity-40">Decidir para todas: Manter como veio</button>}
+                </div>
+                {confirmando?.g === g.g && (
+                  <div role="alertdialog" className="mt-2 rounded border-2 border-blue-500 bg-white p-2">
+                    {confirmando.passo === 1 ? (<>
+                      <p>{confirmando.acao === "aceitar" ? `Aceitar a sugestão nos ${comAlvo} item(ns) que têm o que aplicar?` : `Deixar os ${pend.length} item(ns) como vieram do sistema anterior?`} Nada é apagado e dá para desfazer o grupo depois.</p>
+                      <div className="mt-1 flex gap-2"><button type="button" onClick={() => setConfirmando({ ...confirmando, passo: 2 })} className="min-h-[40px] rounded bg-[#0F2B5B] px-3 font-bold text-white">Sim, continuar</button><button type="button" onClick={() => setConfirmando(null)} className="min-h-[40px] rounded border border-slate-300 px-3">Não</button></div>
+                    </>) : (<>
+                      <p className="font-bold">Segunda confirmação: {confirmando.acao === "aceitar" ? "aceitar" : "manter como veio"} — {g.titulo}, {confirmando.acao === "aceitar" ? comAlvo : pend.length} item(ns). Confirma?</p>
+                      <div className="mt-1 flex gap-2"><button type="button" disabled={!!ocupado} onClick={() => void decidirGrupo(g, confirmando.acao)} className="min-h-[40px] rounded bg-emerald-600 px-3 font-bold text-white">Confirmo</button><button type="button" onClick={() => setConfirmando(null)} className="min-h-[40px] rounded border border-slate-300 px-3">Cancelar</button></div>
+                    </>)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {(analise.lotes || []).length > 0 && (
+            <details className="rounded border border-slate-200 p-2"><summary className="cursor-pointer font-semibold">Decisões em grupo ({analise.lotes!.length}) — Desfazer do grupo</summary>
+              {analise.lotes!.map((l) => <div key={l.lote} className="flex flex-wrap items-center gap-2 border-t border-slate-100 py-1"><span>{l.quantidade} item(ns) {l.decisao === "aceito" ? "aceitos" : "mantidos como vieram"}{l.em ? ` em ${new Date(l.em).toLocaleString("pt-BR")}` : ""}{l.por ? ` por ${l.por}` : ""}</span><button type="button" disabled={!!ocupado} onClick={() => void desfazerGrupo(l.lote)} className="min-h-[40px] rounded border border-slate-300 px-3 disabled:opacity-40">Desfazer do grupo</button></div>)}
+            </details>
+          )}
           <ul className="max-h-96 space-y-2 overflow-auto">
-            {analise.achados.map((a) => (
+            {analise.achados.filter((a) => grupoAberto && grupoDoAchado(a) === grupoAberto).map((a) => (
               <li key={a.id} className="rounded border border-slate-200 p-2">
                 <div className="font-bold text-slate-900">{a.tipo === "corrigido" ? "Corrigido sozinho" : a.tipo === "ajuste" ? "Ajuste do balancete" : a.tipo === "verificar" ? "Verificar" : "Para o contador conferir"} · {a.titulo} <span className="font-normal text-slate-500">({SITUACAO[a.situacao] || a.situacao})</span></div>
                 <div><span className="text-slate-500">O backup veio assim:</span> <span className="break-words">{a.veio}</span></div>

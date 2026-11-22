@@ -114,7 +114,12 @@ export const FERRAMENTAS_MIGRACAO_SISTEMA_ANTERIOR: Ferramenta[] = [
       if (!ok(r)) return erroApi(r);
       if (!r.corpo.resumo) return { cnpj, migrada: false, mensagem: 'Esta empresa não tem migração do sistema anterior registrada.' };
       const a = r.corpo.analise; const desde = Math.max(0, Math.floor(Number(args.desde) || 0));
-      return a ? { cnpj, resumo: a.resumo, total: a.achados.length, desde, itens: a.achados.slice(desde, desde + 20).map((x: any) => ({ id: x.id, tipo: x.tipo, situacao: x.situacao, titulo: x.titulo, veio: x.veio, certo: x.certo, base: x.base, ajuste: x.ajuste })), comoDecidir: 'Para decidir um item use decidir_item_migracao_sistema_anterior (vira cartão de confirmação). Um por vez.' } : { cnpj, mensagem: 'Não foi possível analisar agora.' };
+      // Resumo POR GRUPO primeiro (mesmo tipo de item), na ordem do que mexe em valor para o cadastro; "verificar" por último.
+      const peso = (x: any) => (x.tipo === 'ajuste' ? 0 : x.alvo?.tipo === 'lancamentos' ? 1 : x.tipo === 'conferir' ? 2 : x.tipo === 'corrigido' ? 3 : 10);
+      const gm = new Map<string, { tipo: string; titulo: string; quantidade: number; pendentes: number; peso: number }>();
+      for (const x of (a?.achados || []) as any[]) { const k = `${x.tipo}|${x.alvo ? `${x.alvo.tipo}:${x.alvo.campo}` : x.titulo}`; const g = gm.get(k) ?? { tipo: x.tipo, titulo: x.titulo, quantidade: 0, pendentes: 0, peso: peso(x) }; g.quantidade++; if (x.situacao === 'pendente') g.pendentes++; gm.set(k, g); }
+      const resumoPorGrupo = [...gm.values()].sort((p1, p2) => p1.peso - p2.peso || p2.quantidade - p1.quantidade).map(({ peso: _p, ...g }) => g);
+      return a ? { cnpj, resumo: a.resumo, resumoPorGrupo, comoFalar: 'Fale o resumo por grupo (tipo e quantos), não a lista inteira; um a um só se pedirem. "Decidir para todas" de um grupo fica na tela, com segunda confirmação e Desfazer do grupo.', total: a.achados.length, desde, itens: a.achados.slice(desde, desde + 20).map((x: any) => ({ id: x.id, tipo: x.tipo, situacao: x.situacao, titulo: x.titulo, veio: x.veio, certo: x.certo, base: x.base, ajuste: x.ajuste })), comoDecidir: 'Para decidir um item use decidir_item_migracao_sistema_anterior (vira cartão de confirmação). Um por vez.' } : { cnpj, mensagem: 'Não foi possível analisar agora.' };
     },
   },
   {
