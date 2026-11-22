@@ -1545,7 +1545,7 @@ const reconciliacaoRascunhosStatus: {
   const rodarConferidor = () => executarRobo("conferidor", async () => { const r = await rodarConferidorContabil((sql, params) => consultaBancoContabil(sql, params)); registrarResultadoRobo("conferidor", `${r.empresas} empresa(s) conferida(s) para o fechamento; ${r.comPendencia} com pendência.`); }).catch((e) => console.error("Falha no Robô Conferidor:", e?.message || e));
   setTimeout(() => void rodarConferidor(), 45_000).unref();
   setInterval(() => void rodarConferidor(), 30 * 60_000).unref();
-  registrarRobo({ id: "empresas_fiscal", nome: "Robô de Empresas do Fiscal", posto: "integrador", missao: "Trazer do Murade Fiscal as empresas que ainda não estão no Contábil, para a equipe não cadastrar duas vezes. Não altera o que já existe e não leva certificado nem senha.", intervaloMs: 60 * 60_000 });
+  registrarRobo({ id: "empresas_fiscal", nome: "Robô de Empresas do Fiscal", posto: "integrador", missao: "Trazer do Murade Fiscal as empresas que ainda não estão no Contábil, para a equipe não cadastrar duas vezes. Não altera o que já existe e não leva certificado nem senha.", intervaloMs: 10 * 60_000 });
   const sincronizarEmpresasDoFiscal = async () => {
     const f = await buscarEmpresasDoFiscal();
     if (!f.ok) return { ok: false, motivo: f.motivo || "Fiscal indisponível.", criadas: [] as string[] };
@@ -1557,7 +1557,7 @@ const reconciliacaoRascunhosStatus: {
   };
   const rodarEmpresasFiscal = () => bancoContabilConfigurado() ? executarRobo("empresas_fiscal", async () => { const r = await sincronizarEmpresasDoFiscal(); registrarResultadoRobo("empresas_fiscal", r.motivo); }).catch((e) => console.error("Falha no Robô de Empresas do Fiscal:", e?.message || e)) : undefined;
   setTimeout(() => void rodarEmpresasFiscal(), 120_000).unref();
-  setInterval(() => void rodarEmpresasFiscal(), 60 * 60_000).unref();
+  setInterval(() => void rodarEmpresasFiscal(), 10 * 60_000).unref();
   app.post("/api/empresas/importar-do-fiscal", exigirSessaoContabil, async (req, res) => {
     if (!sessaoDaRequisicaoContabil(req)?.donoSistema) return res.status(403).json({ sucesso: false, motivo: "Somente o dono do sistema pode trazer as empresas do Fiscal." });
     try { const r = await sincronizarEmpresasDoFiscal(); return res.status(r.ok ? 200 : 502).json({ sucesso: r.ok, ...r }); }
