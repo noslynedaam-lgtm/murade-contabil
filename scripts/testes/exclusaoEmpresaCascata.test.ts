@@ -17,6 +17,7 @@ function bancoFalso() {
     compartilhadas: [{ cnpj: ALVO, dados: { razaoSocial: 'TESTE' } }, { cnpj: OUTRA, dados: {} }],
     workspaces: [{ cnpj: ALVO, payload: { lancamentos: [{ id: 1 }] }, version: 7 }, { cnpj: OUTRA, payload: {}, version: 1 }],
     atividade: [{ cnpj: ALVO }, { cnpj: ALVO }, { cnpj: OUTRA }],
+    sistemaAnterior: [{ cnpj: ALVO, bloco: 'lotes' }, { cnpj: ALVO, bloco: '__migracao' }, { cnpj: OUTRA, bloco: 'lotes' }],
     arquivo: [] as any[],
   };
   const sqls: string[] = [];
@@ -36,6 +37,8 @@ function bancoFalso() {
     if (sql.startsWith('DELETE FROM contabil_company_workspaces')) return apagar(t.workspaces);
     if (sql.includes("to_regclass('contabil_atividade_equipe')")) return { rows: [{ t: 'contabil_atividade_equipe' }] };
     if (sql.startsWith('DELETE FROM contabil_atividade_equipe')) return apagar(t.atividade);
+    if (sql.includes("to_regclass('contabil_sistema_anterior')")) return { rows: [{ t: 'contabil_sistema_anterior' }] };
+    if (sql.startsWith('DELETE FROM contabil_sistema_anterior')) return apagar(t.sistemaAnterior);
     throw new Error(`SQL não previsto no teste: ${sql.slice(0, 80)}`);
   };
   const banco: BancoTransacional = {
@@ -54,7 +57,8 @@ test('remove a empresa de TODOS os usuários, do cadastro compartilhado, do work
   const f = bancoFalso();
   const r = await removerEmpresaCompleta(f.banco, '10.368.859/0001-01', { por: 'dono', origem: 'fiscal' });
   assert.equal(r.sucesso, true); assert.equal(r.cnpj, ALVO);
-  assert.deepEqual(r.apagados, { acessosDeUsuarios: 3, empresaCompartilhada: 1, workspace: 1, atividadeEquipe: 2 });
+  assert.deepEqual(r.apagados, { acessosDeUsuarios: 3, empresaCompartilhada: 1, workspace: 1, atividadeEquipe: 2, sistemaAnterior: 2 });
+  assert.deepEqual(f.t.sistemaAnterior, [{ cnpj: OUTRA, bloco: 'lotes' }], 'o registro do sistema anterior sai junto e a outra empresa fica');
   assert.equal(r.jaNaoExistia, false);
   assert.deepEqual(f.t.acesso, [{ user_id: 'u1', cnpj: OUTRA }]);
   assert.deepEqual(f.t.compartilhadas.map((x) => x.cnpj), [OUTRA]);
@@ -80,7 +84,7 @@ test('é idempotente: repetir devolve zeros e não cria outra cópia; CNPJ inexi
   const f = bancoFalso();
   await removerEmpresaCompleta(f.banco, ALVO);
   const de_novo = await removerEmpresaCompleta(f.banco, ALVO);
-  assert.deepEqual(de_novo.apagados, { acessosDeUsuarios: 0, empresaCompartilhada: 0, workspace: 0, atividadeEquipe: 0 });
+  assert.deepEqual(de_novo.apagados, { acessosDeUsuarios: 0, empresaCompartilhada: 0, workspace: 0, atividadeEquipe: 0, sistemaAnterior: 0 });
   assert.equal(de_novo.jaNaoExistia, true); assert.equal(f.t.arquivo.length, 1);
   assert.equal((await removerEmpresaCompleta(f.banco, '99999999000199')).jaNaoExistia, true);
 });

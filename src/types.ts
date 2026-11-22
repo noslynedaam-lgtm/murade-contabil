@@ -157,7 +157,7 @@ export interface LancamentoContabil {
   contaCreditoNome: string;
   valor: number;
   historico: string;
-  origem: "Cadastro" | "Fiscal — NFe Entrada" | "Fiscal — NFe Saída" | "Fiscal — Apuração ICMS" | "DP — Folha" | "DP — INSS" | "DP — INSS patronal" | "DP — IRRF" | "DP — FGTS" | "Financeiro / Bancos" | "Manual";
+  origem: "Cadastro" | "Fiscal — NFe Entrada" | "Fiscal — NFe Saída" | "Fiscal — Apuração ICMS" | "DP — Folha" | "DP — INSS" | "DP — INSS patronal" | "DP — IRRF" | "DP — FGTS" | "Financeiro / Bancos" | "Manual" | "Sistema anterior";
   documentoRef?: string;
   competencia?: string;
   centroCustoCodigo?: string;

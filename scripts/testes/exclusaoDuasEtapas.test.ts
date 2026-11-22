@@ -107,6 +107,7 @@ interface Excecao { regra: string; caminho: string; contem: string; motivo: stri
 export const EXCECOES: Excecao[] = [
   { regra: 'API', caminho: 'src/App.tsx', contem: 'method: "DELETE"', motivo: 'Chamada de onRemoverEmpresa; a pergunta em duas etapas é feita em EmpresaTab antes de chamar (conferido em outro teste).' },
   { regra: 'ARQ', caminho: 'src/App.tsx', contem: 'localStorage.removeItem', motivo: 'Limpeza automática de dados de teste ao abrir o sistema; ninguém clica.' },
+  { regra: 'ARQ', caminho: 'src/utils/tamanhoLetra.ts', contem: 'localStorage.removeItem', motivo: 'Volta o tamanho da letra ao padrão (A-/A+): é só preferência de tela, não apaga dado nenhum.' },
   { regra: 'FUNC', caminho: 'src/components/tabs/EmpresaTab.tsx', contem: 'excluirEmpresaConfirmada', motivo: 'Só é chamada por handleExcluirEmpresa depois das duas etapas (conferido em outro teste).' },
   { regra: 'FUNC', caminho: 'src/components/tabs/InicioTab.tsx', contem: 'handleExcluirLembrete', motivo: 'Só é chamada pelo ExcluirModal (duas etapas) ao confirmar.' },
   { regra: 'FUNC', caminho: 'src/components/tabs/AgendaTab.tsx', contem: 'confirmarExclusao', motivo: 'Só é chamada pelo ExcluirModal (duas etapas) ao confirmar.' },

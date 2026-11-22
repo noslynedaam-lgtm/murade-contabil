@@ -1,0 +1,443 @@
+// Conversão da parte contábil de UMA empresa do backup do sistema anterior para as estruturas do Murade Contábil.
+// Função pura (não grava nada): recebe as tabelas já lidas do arquivo e devolve plano de contas, históricos padrão,
+// lançamentos, a conferência esperada (saldos do sistema anterior por conta e mês) e todos os blocos originais.
+//
+// Como o sistema anterior grava (conferido no banco restaurado):
+//  - lançamentos (wcont.mvNNNNN): uma linha por lado. Valor NEGATIVO = débito na conta, POSITIVO = crédito.
+//    Cada partida simples tem 2 linhas com o mesmo lote + sequência + data. Lotes de abertura têm várias linhas
+//    soltas (sem contrapartida) que somam zero no lote.
+//  - saldos (wcont.sdNNNNN): por conta e data; total_movimento_debito (negativo) e total_movimento_credito do dia/mês
+//    e acumulados vldebito/vlcredito. Os totais do mês batem com os lançamentos.
+//  - plano (wcont.contas): classificação "1-1-01-01-01", tpconta A/S, idorigem D/C (ou I: segue a conta-mãe).
+import type { ContaPlano, EmpresaDados, HistoricoPadrao, LancamentoContabil } from '../../types';
+import { COLUNAS_NUNCA_GUARDAR, tabelaDaEmpresa } from '../../utils/tabelasSistemaAnteriorContabil';
+
+export type Linha = Record<string, any>;
+/** Lê uma tabela do arquivo (null = a tabela não está no arquivo). */
+export type LerTabela = (nome: string) => Promise<Linha[] | null>;
+
+export const ORIGEM_SISTEMA_ANTERIOR = 'Sistema anterior' as const;
+export const PREFIXO_ID_MIGRACAO = 'sa-';
+
+export interface ContaConvertida extends ContaPlano { idContaOrigem: number; codigoReduzidoOrigem: string; classificacaoOrigem: string }
+export interface NaoEntrou { idmovimento: string; data: string; idconta: number | null; valorCentavos: number; motivo: string }
+export interface EsperadoConferencia { codigo: string; competencia: string; debitoCentavos: number; creditoCentavos: number; /** Mês calculado pelo acumulado (o sistema anterior não gravou o total do mês). */ semTotalDoMes?: boolean }
+
+export interface DadosContabeisEmpresa {
+  cdempresa: number;
+  cnpj: string;
+  razaoSocial: string;
+  semCadastroNoBackup: boolean;
+  empresa: Partial<EmpresaDados>;
+  idPlano: number | null;
+  nomePlano: string;
+  contas: ContaConvertida[];
+  historicosPadrao: HistoricoPadrao[];
+  lancamentos: LancamentoContabil[];
+  naoEntraram: NaoEntrou[];
+  /** Totais de débito e crédito por conta (código do Murade) e competência, tirados dos saldos do sistema anterior. */
+  esperado: EsperadoConferencia[];
+  /** Os mesmos totais tirados direto dos lançamentos originais do arquivo (cada linha lida). */
+  esperadoLancamentos: EsperadoConferencia[];
+  /** Saldo final por conta (devedor menos credor, em centavos), pelo último saldo acumulado do sistema anterior. */
+  saldoFinalEsperado: Record<string, number>;
+  semSaldosParaConferir: boolean;
+  /** Todos os registros originais da empresa, por bloco, para consulta (nada fica para trás). */
+  blocos: Record<string, Linha[]>;
+  lidos: Record<string, number>;
+  avisos: string[];
+}
+
+const txt = (v: unknown) => String(v ?? '').trim();
+const somenteDigitos = (v: unknown) => txt(v).toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+/** Data do arquivo (Date em UTC ou texto) → AAAA-MM-DD. */
+export function dataIso(v: unknown): string {
+  if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(txt(v));
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+}
+
+/** Valor do arquivo em centavos (os valores do sistema anterior não têm fração de centavo). */
+export function centavos(v: unknown): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  const c = Math.round(Number((Math.abs(n) * 100).toPrecision(15)));
+  return n < 0 ? -c : c;
+}
+
+/** "1-1-01-01-01" → "1.1.01.01.01". */
+export function converterClassificacao(v: unknown): string {
+  return txt(v).split('-').map((p) => p.trim()).filter(Boolean).join('.');
+}
+
+const paiDe = (codigo: string) => (codigo.includes('.') ? codigo.slice(0, codigo.lastIndexOf('.')) : '');
+const normalizarNome = (v: string) => v.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/** Cópia de uma linha sem colunas de credencial e com datas em texto. */
+function limparLinha(l: Linha): Linha {
+  const saida: Linha = {};
+  for (const [k, v] of Object.entries(l)) {
+    if (COLUNAS_NUNCA_GUARDAR.has(k.toLowerCase())) continue;
+    saida[k] = v instanceof Date ? v.toISOString() : v;
+  }
+  return saida;
+}
+
+function proximoCodigoLivre(codigoOriginal: string, usados: Set<string>): string {
+  const pai = paiDe(codigoOriginal);
+  const ultimo = codigoOriginal.slice(pai ? pai.length + 1 : 0);
+  const largura = Math.max(ultimo.length, 2);
+  let maior = 0;
+  for (const c of usados) {
+    if (paiDe(c) !== pai) continue;
+    const n = parseInt(c.slice(pai ? pai.length + 1 : 0), 10);
+    if (Number.isFinite(n) && n > maior) maior = n;
+  }
+  for (let n = maior + 1; ; n++) {
+    const candidato = `${pai ? `${pai}.` : ''}${String(n).padStart(largura, '0')}`;
+    if (!usados.has(candidato)) return candidato;
+  }
+}
+
+/** Lista de empresas do backup que têm parte contábil (para a pessoa escolher). */
+export interface EmpresaDoBackup { cdempresa: number; nome: string; cnpj: string; ativa: boolean | null; semCadastro: boolean; temPlano: boolean; temLancamentos: boolean }
+
+export function listarEmpresasContabeis(empresas: Linha[], empcont: Linha[], tabelasNoArquivo: string[]): EmpresaDoBackup[] {
+  const comTabela = new Map<number, Set<string>>();
+  for (const nome of tabelasNoArquivo) {
+    const m = /^(wcont|wativo)\.(mv|sd|lt|be)(\d{5})$/.exec(nome.toLowerCase());
+    if (!m) continue;
+    const cd = Number(m[3]);
+    if (!comTabela.has(cd)) comTabela.set(cd, new Set());
+    comTabela.get(cd)!.add(m[2]);
+  }
+  const comPlano = new Set(empcont.map((e) => Number(e.idempresa)));
+  const cadastro = new Map(empresas.map((e) => [Number(e.cdempresa), e]));
+  const codigos = new Set<number>([...comTabela.keys(), ...comPlano]);
+  const lista: EmpresaDoBackup[] = [];
+  for (const cd of codigos) {
+    if (!Number.isInteger(cd) || cd <= 0 || cd >= 99990) continue; // 99997–99999: empresas-modelo do programa
+    const e = cadastro.get(cd);
+    const tabelas = comTabela.get(cd) || new Set<string>();
+    lista.push({
+      cdempresa: cd,
+      nome: e ? txt(e.nmempresa || e.nmfantasia) : `Empresa código ${cd}`,
+      cnpj: e ? somenteDigitos(e.nrcgc) : '',
+      ativa: e ? (e.stativa == null ? null : e.stativa === true || ['S', '1', 't', 'T', 'A', 'true'].includes(txt(e.stativa))) : null,
+      semCadastro: !e,
+      temPlano: comPlano.has(cd),
+      temLancamentos: tabelas.has('mv'),
+    });
+  }
+  return lista.sort((a, b) => Number(a.semCadastro) - Number(b.semCadastro) || a.nome.localeCompare(b.nome, 'pt-BR'));
+}
+
+function empresaDoCadastro(e: Linha | undefined, cnpj: string): Partial<EmpresaDados> {
+  if (!e) return { cnpj };
+  const capital = Number(e.vlcapital);
+  const dataAbertura = dataIso(e.dtinicioatividade);
+  const r: Partial<EmpresaDados> = {
+    cnpj,
+    razaoSocial: txt(e.nmempresa),
+    nomeFantasia: txt(e.nmfantasia),
+    municipio: txt(e.nmcidade),
+    uf: txt(e.cduf).toUpperCase(),
+    cnae: txt(e.cdcnae),
+    inscricaoEstadual: txt(e.nrinscrestadual),
+    inscricaoMunicipal: txt(e.nrinscrmunicipal),
+    endereco: txt(e.dsendereco),
+    bairro: txt(e.nmbairro),
+    cep: txt(e.nrcep),
+    telefone: txt(e.nrtelefone),
+    email: txt(e.nmemail),
+  };
+  if (Number.isFinite(capital) && capital > 0) r.capitalSocial = Math.round(capital * 100) / 100;
+  if (dataAbertura) r.dataAbertura = dataAbertura.split('-').reverse().join('/');
+  for (const k of Object.keys(r) as Array<keyof EmpresaDados>) if (r[k] === '') delete r[k];
+  return r;
+}
+
+/** Monta tudo de uma empresa. `cnpjInformado` vale para empresa sem cadastro no backup (a pessoa digita o CNPJ). */
+export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opcoes: { cnpjInformado?: string } = {}): Promise<DadosContabeisEmpresa> {
+  const avisos: string[] = [];
+  const lidos: Record<string, number> = {};
+  const blocos: Record<string, Linha[]> = {};
+  const guardar = (bloco: string, linhas: Linha[]) => { if (linhas.length) blocos[bloco] = [...(blocos[bloco] || []), ...linhas.map(limparLinha)]; };
+  const tabela = async (nome: string) => (await ler(nome)) || [];
+
+  const empresas = await tabela('wphd.empresa');
+  const cadastro = empresas.find((e) => Number(e.cdempresa) === cdempresa);
+  const cnpj = somenteDigitos(cadastro?.nrcgc) || somenteDigitos(opcoes.cnpjInformado);
+  const empcont = (await tabela('wcont.empcont')).find((e) => Number(e.idempresa) === cdempresa);
+  const mv = await tabela(tabelaDaEmpresa('wcont', 'mv', cdempresa));
+  const sd = await tabela(tabelaDaEmpresa('wcont', 'sd', cdempresa));
+  const lt = await tabela(tabelaDaEmpresa('wcont', 'lt', cdempresa));
+  lidos.lancamentosOrigem = mv.length; lidos.saldos = sd.length; lidos.lotes = lt.length;
+
+  const todasContas = await tabela('wcont.contas');
+  const contaPorId = new Map(todasContas.map((c) => [Number(c.idconta), c]));
+  // Plano da empresa: o do cadastro contábil; sem ele, o mais usado nos lançamentos.
+  let idPlano: number | null = empcont?.idplanodecontas != null ? Number(empcont.idplanodecontas) : null;
+  if (idPlano == null) {
+    const uso = new Map<number, number>();
+    for (const m of mv) { const c = contaPorId.get(Number(m.idconta)); if (c) uso.set(Number(c.idplanodecontas), (uso.get(Number(c.idplanodecontas)) || 0) + 1); }
+    idPlano = [...uso.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  }
+  const pcont = (await tabela('wcont.pcont')).find((p) => Number(p.idplanodecontas) === idPlano);
+  if (empcont) guardar('empresa_contabil', [empcont]);
+  if (pcont) guardar('plano_cadastro', [pcont]);
+
+  // ---- plano de contas -------------------------------------------------------------------------------------------
+  const doPlano = idPlano == null ? [] : todasContas.filter((c) => Number(c.idplanodecontas) === idPlano).sort((a, b) => Number(a.idconta) - Number(b.idconta));
+  const idsUsados = new Set<number>([...mv.map((m) => Number(m.idconta)), ...sd.map((s) => Number(s.idconta))]);
+  const estrangeiras = [...idsUsados].map((id) => contaPorId.get(id)).filter((c): c is Linha => Boolean(c) && Number(c!.idplanodecontas) !== idPlano);
+  // Contas-mãe (por classificação, no plano de origem) das contas de outro plano que a empresa usou.
+  const maesEstrangeiras: Linha[] = [];
+  for (const c of estrangeiras) {
+    let cod = converterClassificacao(c.cdclassinterna);
+    while ((cod = paiDe(cod))) {
+      const mae = todasContas.find((x) => Number(x.idplanodecontas) === Number(c.idplanodecontas) && converterClassificacao(x.cdclassinterna) === cod);
+      if (mae && !maesEstrangeiras.includes(mae)) maesEstrangeiras.push(mae);
+    }
+  }
+  const contas: ContaConvertida[] = [];
+  const codigoPorId = new Map<number, string>();
+  const porCodigo = new Map<string, ContaConvertida>();
+  const codigosOcupados = new Set<string>();
+  const naturezaPorCodigo = new Map<string, 'D' | 'C'>();
+  const adicionar = (c: Linha, origemEstrangeira: boolean) => {
+    const original = converterClassificacao(c.cdclassinterna);
+    if (!original) { avisos.push(`Conta ${txt(c.cdchamada) || c.idconta} sem classificação no sistema anterior: guardada só no registro do sistema anterior.`); return; }
+    const descricao = txt(c.nmconta) || `Conta ${txt(c.cdchamada) || c.idconta}`;
+    const tipo: ContaPlano['tipo'] = txt(c.tpconta).toUpperCase() === 'S' ? 'sintetica' : 'analitica';
+    const existente = porCodigo.get(original);
+    if (existente && origemEstrangeira && normalizarNome(existente.descricao) === normalizarNome(descricao) && existente.tipo === tipo) {
+      codigoPorId.set(Number(c.idconta), original); // mesma conta, gravada em outro plano que a empresa usou antes
+      return;
+    }
+    let codigo = original;
+    if (existente || codigosOcupados.has(codigo)) {
+      codigo = proximoCodigoLivre(original, codigosOcupados);
+      avisos.push(`A conta "${descricao}" (código ${original} no sistema anterior) recebeu o código ${codigo}, porque o código ${original} já era de outra conta${origemEstrangeira ? ' (ela veio de outro plano de contas que a empresa usou antes)' : ' (código repetido no sistema anterior)'}.`);
+    }
+    const origemNat = txt(c.idorigem).toUpperCase();
+    let natureza: 'D' | 'C' | undefined = origemNat === 'D' || origemNat === 'C' ? origemNat : undefined;
+    for (let p = paiDe(codigo); !natureza && p; p = paiDe(p)) natureza = naturezaPorCodigo.get(p);
+    if (!natureza) natureza = /^1(\.|$)/.test(codigo) || /^[45](\.|$)/.test(codigo) ? 'D' : 'C';
+    const partes = codigo.split('.').length;
+    if (partes > 5) avisos.push(`A conta ${codigo} tem mais de 5 níveis; ficou como nível 5.`);
+    const conta: ContaConvertida = {
+      codigo, descricao, tipo, natureza,
+      nivel: Math.min(5, Math.max(1, partes)) as ContaPlano['nivel'],
+      idContaOrigem: Number(c.idconta), codigoReduzidoOrigem: txt(c.cdchamada), classificacaoOrigem: txt(c.cdclassinterna),
+    };
+    contas.push(conta); porCodigo.set(codigo, conta); codigosOcupados.add(codigo); naturezaPorCodigo.set(codigo, natureza);
+    codigoPorId.set(Number(c.idconta), codigo);
+  };
+  for (const c of doPlano) adicionar(c, false);
+  for (const c of [...maesEstrangeiras, ...estrangeiras].sort((a, b) => converterClassificacao(a.cdclassinterna).length - converterClassificacao(b.cdclassinterna).length)) {
+    if (!codigoPorId.has(Number(c.idconta))) adicionar(c, true);
+  }
+  guardar('plano_contas', [...doPlano, ...maesEstrangeiras.filter((c) => !doPlano.includes(c)), ...estrangeiras.filter((c) => !maesEstrangeiras.includes(c))]);
+  lidos.contas = doPlano.length + [...new Set([...maesEstrangeiras, ...estrangeiras])].length;
+
+  // ---- históricos padrão (cadastro único do sistema anterior, vale para todas as empresas) --------------------------
+  const hist = await tabela('wcont.hist');
+  lidos.historicosPadrao = hist.length;
+  const histPorId = new Map(hist.map((h) => [txt(h.idhistoricopadrao), h]));
+  const historicosPadrao: HistoricoPadrao[] = [];
+  const codigosHist = new Set<string>();
+  for (const h of hist) {
+    const texto = txt(h.dshistoricopadrao);
+    let codigo = (txt(h.cdchamada) || txt(h.idhistoricopadrao)).replace(/[^A-Za-z0-9._-]/g, '').slice(0, 12);
+    if (!texto || !codigo) { avisos.push(`Histórico padrão ${txt(h.cdchamada) || txt(h.idhistoricopadrao)} sem texto ou sem código: guardado só no registro do sistema anterior.`); continue; }
+    if (codigosHist.has(codigo.toUpperCase())) { avisos.push(`Histórico padrão com código repetido (${codigo}) no sistema anterior: o segundo ficou só no registro do sistema anterior.`); continue; }
+    codigosHist.add(codigo.toUpperCase());
+    if (texto.length > 240) avisos.push(`O histórico padrão ${codigo} tem ${texto.length} letras; no Murade ficaram as 240 primeiras (o texto inteiro está no registro do sistema anterior).`);
+    historicosPadrao.push({ id: `${PREFIXO_ID_MIGRACAO}hist-${txt(h.idhistoricopadrao).slice(0, 40)}`, codigo, texto: texto.slice(0, 240) });
+  }
+  guardar('historicos_padrao', hist);
+
+  // ---- lançamentos ---------------------------------------------------------------------------------------------------
+  const lotePorId = new Map(lt.map((l) => [txt(l.idlote), l]));
+  guardar('lotes', lt);
+  guardar('lancamentos_originais', mv);
+  const naoEntraram: NaoEntrou[] = [];
+  type Perna = { linha: Linha; data: string; codigo: string; centavos: number };
+  const pernas: Perna[] = [];
+  for (const m of mv) {
+    const data = dataIso(m.dtlancamento);
+    const c = centavos(m.vllancamento);
+    const codigo = codigoPorId.get(Number(m.idconta));
+    const conta = codigo ? porCodigo.get(codigo) : undefined;
+    const registro = { idmovimento: txt(m.idmovimento), data, idconta: m.idconta == null ? null : Number(m.idconta), valorCentavos: c };
+    if (!data) { naoEntraram.push({ ...registro, motivo: 'sem data' }); continue; }
+    if (!c) { naoEntraram.push({ ...registro, motivo: 'valor zero' }); continue; }
+    if (!conta) { naoEntraram.push({ ...registro, motivo: 'a conta não existe em nenhum plano de contas do backup' }); continue; }
+    if (conta.tipo !== 'analitica') { naoEntraram.push({ ...registro, motivo: `a conta ${conta.codigo} é sintética` }); continue; }
+    pernas.push({ linha: m, data, codigo: conta.codigo, centavos: c });
+  }
+  const lancamentos: LancamentoContabil[] = [];
+  const nomeConta = (codigo: string) => porCodigo.get(codigo)!.descricao;
+  const historicoDe = (p: Perna, outra?: Perna) => txt(p.linha.dshistorico) || (outra ? txt(outra.linha.dshistorico) : '')
+    || txt(histPorId.get(txt(p.linha.idhistoricopadrao))?.dshistoricopadrao) || 'Lançamento do sistema anterior';
+  const referencia = (p: Perna) => {
+    const lote = lotePorId.get(txt(p.linha.idlote));
+    const doc = txt(p.linha.dsdocumento);
+    return [lote ? `Lote ${txt(lote.cdchamada) || txt(lote.idlote)}` : '', doc ? `Doc ${doc}` : ''].filter(Boolean).join(' · ') || undefined;
+  };
+  const criar = (id: string, deb: Perna, cred: Perna, valor: number, loteId?: string) => {
+    const l: LancamentoContabil = {
+      id, data: deb.data, competencia: deb.data.slice(0, 7),
+      contaDebitoCodigo: deb.codigo, contaDebitoNome: nomeConta(deb.codigo),
+      contaCreditoCodigo: cred.codigo, contaCreditoNome: nomeConta(cred.codigo),
+      valor: valor / 100, historico: historicoDe(deb, cred), origem: ORIGEM_SISTEMA_ANTERIOR as LancamentoContabil['origem'],
+    };
+    const ref = referencia(deb) || referencia(cred);
+    if (ref) l.documentoRef = ref;
+    if (loteId) l.loteId = loteId;
+    if (deb.linha.stencerramento === true || cred.linha.stencerramento === true) l.tipoEspecial = 'encerramento';
+    lancamentos.push(l);
+  };
+  const grupos = new Map<string, Perna[]>();
+  for (const p of pernas) {
+    const k = `${txt(p.linha.idlote)}|${txt(p.linha.idlotelancamento)}|${p.data}`;
+    if (!grupos.has(k)) grupos.set(k, []);
+    grupos.get(k)!.push(p);
+  }
+  const soltas = new Map<string, Perna[]>();
+  for (const g of grupos.values()) {
+    const d = g.filter((p) => p.centavos < 0); const c = g.filter((p) => p.centavos > 0);
+    if (g.length === 2 && d.length === 1 && c.length === 1 && -d[0].centavos === c[0].centavos && d[0].codigo !== c[0].codigo) {
+      criar(`${PREFIXO_ID_MIGRACAO}${cdempresa}-${txt(d[0].linha.idmovimento)}`, d[0], c[0], c[0].centavos);
+      continue;
+    }
+    for (const p of g) { const k = `${txt(p.linha.idlote)}|${p.data}`; if (!soltas.has(k)) soltas.set(k, []); soltas.get(k)!.push(p); }
+  }
+  // Partidas com várias contas (abertura, por exemplo): débitos x créditos do mesmo lote e data, como lançamento de várias partidas.
+  for (const [k, g] of soltas) {
+    const deb = g.filter((p) => p.centavos < 0).map((p) => ({ p, resto: -p.centavos }));
+    const cre = g.filter((p) => p.centavos > 0).map((p) => ({ p, resto: p.centavos }));
+    const loteId = `sa:${cdempresa}:${k}`.slice(0, 160);
+    let n = 0;
+    for (const d of deb) {
+      while (d.resto > 0) {
+        const c = cre.find((x) => x.resto > 0 && x.p.codigo !== d.p.codigo);
+        if (!c) break;
+        const v = Math.min(d.resto, c.resto);
+        criar(`${PREFIXO_ID_MIGRACAO}${cdempresa}-${txt(d.p.linha.idmovimento)}-${++n}`, d.p, c.p, v, loteId);
+        d.resto -= v; c.resto -= v;
+      }
+    }
+    for (const x of [...deb, ...cre]) {
+      if (x.resto <= 0) continue;
+      const total = x.p.centavos;
+      naoEntraram.push({ idmovimento: txt(x.p.linha.idmovimento), data: x.p.data, idconta: Number(x.p.linha.idconta), valorCentavos: total < 0 ? -x.resto : x.resto,
+        motivo: 'no sistema anterior este lote não fecha débito com crédito nesta data (ou só tem a mesma conta dos dois lados)' });
+    }
+  }
+  lancamentos.sort((a, b) => a.data.localeCompare(b.data) || a.id.localeCompare(b.id));
+
+  // ---- conferência esperada (saldos do sistema anterior) -------------------------------------------------------------
+  // Os saldos são ACUMULADOS (vlcredito só cresce, vldebito só fica mais negativo). O movimento do mês de cada conta é a
+  // diferença entre o acumulado no fim do mês e o do fim do mês anterior — vale também para saldos antigos, gravados
+  // sem a coluna de total do mês.
+  const esperadoMapa = new Map<string, EsperadoConferencia>();
+  const somar = (mapa: Map<string, EsperadoConferencia>, codigo: string, comp: string, deb: number, cred: number, semTotal = false) => {
+    const k = `${codigo}|${comp}`;
+    const e = mapa.get(k) || { codigo, competencia: comp, debitoCentavos: 0, creditoCentavos: 0 };
+    e.debitoCentavos += deb; e.creditoCentavos += cred;
+    if (semTotal) e.semTotalDoMes = true;
+    mapa.set(k, e);
+  };
+  const porConta = new Map<number, Map<string, { cred: number; deb: number; totCred: number; totDeb: number; semTotal: boolean }>>();
+  for (const s of sd) {
+    const id = Number(s.idconta);
+    const comp = dataIso(s.dtsaldo).slice(0, 7);
+    if (!codigoPorId.has(id)) { avisos.push(`Há saldo no sistema anterior para uma conta que não existe no plano (código interno ${id}); ficou no registro do sistema anterior.`); continue; }
+    if (!comp) continue;
+    if (!porConta.has(id)) porConta.set(id, new Map());
+    const meses = porConta.get(id)!;
+    const atual = meses.get(comp) || { cred: 0, deb: 0, totCred: 0, totDeb: 0, semTotal: false };
+    atual.cred = Math.max(atual.cred, centavos(s.vlcredito));
+    atual.deb = Math.min(atual.deb, centavos(s.vldebito));
+    // Total do mês gravado pelo sistema anterior (quando existe, é o número mais confiável: bate com os lançamentos).
+    if (s.total_movimento_credito == null && s.total_movimento_debito == null) atual.semTotal = true;
+    else { atual.totCred += centavos(s.total_movimento_credito); atual.totDeb += -centavos(s.total_movimento_debito); }
+    meses.set(comp, atual);
+  }
+  const saldoFinalEsperado: Record<string, number> = {};
+  for (const [id, meses] of porConta) {
+    const codigo = codigoPorId.get(id)!;
+    let anterior = { cred: 0, deb: 0 };
+    let final = 0;
+    for (const comp of [...meses.keys()].sort()) {
+      const m = meses.get(comp)!;
+      if (m.semTotal) somar(esperadoMapa, codigo, comp, -(m.deb - anterior.deb), m.cred - anterior.cred, true);
+      else somar(esperadoMapa, codigo, comp, m.totDeb, m.totCred);
+      final = m.semTotal ? -(m.cred + m.deb) : final + m.totDeb - m.totCred;
+      anterior = { cred: m.cred, deb: m.deb };
+    }
+    saldoFinalEsperado[codigo] = (saldoFinalEsperado[codigo] || 0) + final;
+  }
+  for (const k of Object.keys(saldoFinalEsperado)) if (!saldoFinalEsperado[k]) delete saldoFinalEsperado[k];
+  // Conferência pelos lançamentos originais: cada linha lida do arquivo, por conta e mês.
+  const esperadoLancMapa = new Map<string, EsperadoConferencia>();
+  for (const m of mv) {
+    const codigo = codigoPorId.get(Number(m.idconta)); const comp = dataIso(m.dtlancamento).slice(0, 7); const c = centavos(m.vllancamento);
+    if (!codigo || !comp || !c) continue;
+    somar(esperadoLancMapa, codigo, comp, c < 0 ? -c : 0, c > 0 ? c : 0);
+  }
+  const temTotais = sd.length > 0;
+  guardar('saldos', sd);
+  if (!sd.length && mv.length) avisos.push('O sistema anterior não tem a tabela de saldos desta empresa: a conferência compara só os lançamentos lidos com os gravados.');
+
+  // ---- demais blocos com dado real (só consulta) -------------------------------------------------------------------
+  const daEmpresa = (linhas: Linha[], col: string) => linhas.filter((l) => Number(l[col]) === cdempresa);
+  const abertos = daEmpresa(await tabela('wcont.lancamento'), 'idempresa');
+  guardar('lancamentos_lote_aberto', abertos); lidos.lancamentosLoteAberto = abertos.length;
+  if (abertos.length) avisos.push(`${abertos.length} lançamento(s) estavam em lote ABERTO no sistema anterior (não efetivados, fora do balancete de lá): ficam no registro do sistema anterior para consulta e não entram no balancete.`);
+  const contasIds = new Set(doPlano.map((c) => Number(c.idconta)));
+  const lcontas = (await tabela('wcont.lcontas')).filter((l) => Number(l.idplanodecontas) === idPlano);
+  const idsLauto = new Set(lcontas.map((l) => txt(l.idlancautomatico)));
+  guardar('lancamentos_automaticos', (await tabela('wcont.lauto')).filter((l) => idsLauto.has(txt(l.idlancautomatico))));
+  guardar('lancamentos_automaticos_contas', lcontas);
+  const titulos = daEmpresa(await tabela('wcont.titulos'), 'idempresa');
+  const idsTitulos = new Set(titulos.map((t) => txt(t.idtitulo)));
+  guardar('titulos', titulos);
+  guardar('titulos_baixas', (await tabela('wcont.baixa_titulos')).filter((b) => idsTitulos.has(txt(b.idtitulo))));
+  guardar('titulos_provisao', daEmpresa(await tabela('wcont.titulos_provisao'), 'idempresa'));
+  const estab = daEmpresa(await tabela('wcont.estabelecimento_cartao_credito'), 'empresa_id');
+  const idsEstab = new Set(estab.map((e) => txt(e.id)));
+  guardar('cartao_estabelecimentos', estab);
+  guardar('cartao_movimentos', (await tabela('wcont.movimento_cartao_credito')).filter((m) => idsEstab.has(txt(m.estabelecimento_cartao_credito_id))));
+  guardar('identificador_sequencial', daEmpresa(await tabela('wcont.lancamento_identificador_sequencial'), 'empresa_id'));
+  guardar('ecf_linhas_contas', daEmpresa(await tabela('wcont.ecf_linha_conta'), 'empresa_id'));
+  guardar('ecf_configuracao_contas', (await tabela('wcont.ecf_conta_configuracao')).filter((c) => contasIds.has(Number(c.conta_id))));
+  const demo = (await tabela('wcont.demonstrativo_contabil_configuracao')).filter((d) => Number(d.plano_de_contas_id) === idPlano);
+  guardar('demonstracoes_configuracao', demo);
+  const modelos = new Set(demo.map((d) => txt(d.demonstrativo_contabil_modelo_id)));
+  guardar('demonstracoes_modelos', (await tabela('wcont.demonstrativo_contabil_modelo')).filter((m) => modelos.has(txt(m.id))));
+  guardar('demonstracoes_modelos_analise', (await tabela('wcont.demonstrativo_contabil_modelo_analise')).filter((m) => modelos.has(txt(m.demonstrativo_contabil_modelo_id))));
+  if (empcont?.contador_id != null) guardar('contador', (await tabela('wcont.contador')).filter((c) => Number(c.id) === Number(empcont.contador_id)));
+  guardar('imobilizado_empresa', daEmpresa(await tabela('wativo.emp_ativ'), 'idempresa'));
+  guardar('imobilizado_configuracao', daEmpresa(await tabela('wativo.empcfg'), 'idempresa'));
+  const bens = await tabela(tabelaDaEmpresa('wativo', 'be', cdempresa));
+  guardar('imobilizado_bens', bens); lidos.bensImobilizado = bens.length;
+  if (bens.length) avisos.push(`${bens.length} bem(ns) do imobilizado do sistema anterior ficam no registro do sistema anterior para consulta; cadastre no módulo Imobilizado do Murade os que ainda estão em uso (o robô de depreciação só calcula os cadastrados lá).`);
+
+  const contador = blocos.contador?.[0];
+  const empresa = empresaDoCadastro(cadastro, cnpj);
+  if (contador) { if (txt(contador.nome)) empresa.contadorNome = txt(contador.nome); if (txt(contador.crc)) empresa.contadorCrc = txt(contador.crc); if (txt(contador.uf_crc)) empresa.contadorUfCrc = txt(contador.uf_crc); }
+  else if (empcont) { if (txt(empcont.nmcontador)) empresa.contadorNome = txt(empcont.nmcontador); if (txt(empcont.nrcrc)) empresa.contadorCrc = txt(empcont.nrcrc); }
+
+  return {
+    cdempresa, cnpj, razaoSocial: txt(cadastro?.nmempresa) || (pcont ? txt(pcont.nmplanodecontas) : '') || `Empresa código ${cdempresa}`,
+    semCadastroNoBackup: !cadastro, empresa, idPlano, nomePlano: txt(pcont?.nmplanodecontas),
+    contas: contas.sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR', { numeric: true })),
+    historicosPadrao, lancamentos, naoEntraram, esperado: [...esperadoMapa.values()].filter((e) => e.debitoCentavos || e.creditoCentavos),
+    esperadoLancamentos: [...esperadoLancMapa.values()],
+    saldoFinalEsperado, semSaldosParaConferir: !temTotais, blocos, lidos, avisos,
+  };
+}

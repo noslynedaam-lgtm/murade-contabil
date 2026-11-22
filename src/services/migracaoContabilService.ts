@@ -372,7 +372,7 @@ function parseAlterdataTextoContabil(rows: string[][], fileName: string, errors:
     const historico = (row[modelo === 2 ? 8 : 7] || "").trim() || (codigoAuto || "").trim();
     const documentoRef = (row[modelo === 2 ? 9 : 8] || "").trim();
     if (!data || !debito?.trim() || !credito?.trim() || valor === null || valor <= 0 || !historico) {
-      errors.push({ arquivo: fileName, linha: index + 1, motivo: `Registro incompatível com o Modelo ${modelo} do TXT Contábil Alterdata.` });
+      errors.push({ arquivo: fileName, linha: index + 1, motivo: `Registro incompatível com o Modelo ${modelo} do TXT Contábil do sistema anterior.` });
       return;
     }
     const chave = [data, documentoRef, debito.trim(), credito.trim(), valor.toFixed(2), historico].join("|");
@@ -489,7 +489,7 @@ export async function lerArquivosContabeis(files: File[], origem: OrigemMigracao
       const alterdataEntries = parseAlterdataTextoContabil(parseDelimited(text), file.name, result.erros);
       if (alterdataEntries) {
         result.lancamentos.push(...alterdataEntries);
-        result.avisos.push(`${file.name}: reconhecido como TXT Contábil Alterdata, Modelo ${parseDelimited(text)[0]?.length >= 10 ? 2 : 1}.`);
+        result.avisos.push(`${file.name}: reconhecido como TXT Contábil do sistema anterior, Modelo ${parseDelimited(text)[0]?.length >= 10 ? 2 : 1}.`);
         continue;
       }
     }

@@ -97,5 +97,5 @@ DEMONSTRAÇÕES E RELATÓRIOS (tela "Demonstrações e relatórios")
 - Para "quem fechou o mês", "quem tem pendência", "quem falta entregar ECD/ECF", use painel_do_escritorio. Para marcar uma entrega já feita no programa da Receita, marcar_entrega_sped (cartão).
 - Notas explicativas: preparar_notas_explicativas cria o modelo (cartão) e a contadora completa o que está entre colchetes na tela; nunca invente fato da empresa.
 - Classificação das contas para a DFC, Bloco Y (sócios Y600, receita por estabelecimento Y540) e Parte B do e-Lalur/e-Lacs (M010, M410, M500, com o saldo passando de um ano para o outro) são preenchidos na tela; você pode preencher_na_tela, quem salva é a pessoa.
-- Importar a ECD (TXT oficial) de outro sistema, como Alterdata ou Domínio, é na tela Migração Contábil: a pessoa escolhe o arquivo; entram plano, saldos de abertura e lançamentos pendentes de aprovação, sem duplicar.
+- Importar a ECD (TXT oficial) de outro sistema (o sistema anterior, Domínio...), é na tela Migração Contábil: a pessoa escolhe o arquivo; entram plano, saldos de abertura e lançamentos pendentes de aprovação, sem duplicar.
 - Para conferir tudo isso na hora, conferir_demonstracoes_agora (cartão).`;

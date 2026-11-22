@@ -10,7 +10,7 @@ export type ConsultaSql = (sql: string, params?: unknown[]) => Promise<{ rows: a
 export interface BancoTransacional { transacao<T>(fn: (consultar: ConsultaSql) => Promise<T>): Promise<T>; consultar: ConsultaSql }
 
 /** O que a exclusão apaga (chave = nome mostrado na resposta). */
-export interface Apagados { acessosDeUsuarios: number; empresaCompartilhada: number; workspace: number; atividadeEquipe: number }
+export interface Apagados { acessosDeUsuarios: number; empresaCompartilhada: number; workspace: number; atividadeEquipe: number; sistemaAnterior: number }
 
 /** Tabelas por CNPJ que a exclusão NÃO toca. A escrituração mora no payload do workspace: por isso ele é copiado para o arquivo antes de apagar. */
 export const PRESERVADOS = [
@@ -35,6 +35,15 @@ const SQL_ARQUIVO = `CREATE TABLE IF NOT EXISTS ${TABELA_ARQUIVO} (
   excluido_em timestamptz NOT NULL DEFAULT now(), excluido_por text, origem text
 )`;
 
+/** Cópia da escrituração para o arquivo SEM o que veio da migração do sistema anterior (lançamentos e históricos da migração saem junto com a empresa). */
+export function semDadosDoSistemaAnterior(payload: any): any {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+  const copia = { ...payload };
+  if (Array.isArray(copia.lancamentos)) copia.lancamentos = copia.lancamentos.filter((l: any) => !(l && l.origem === 'Sistema anterior' && String(l.id || '').startsWith('sa-')));
+  if (Array.isArray(copia.historicosPadrao)) copia.historicosPadrao = copia.historicosPadrao.filter((h: any) => !String(h?.id || '').startsWith('sa-hist-'));
+  return copia;
+}
+
 export function normalizarCnpjExclusao(v: unknown): string { return String(v ?? '').replace(/[^0-9A-Za-z]/g, '').toUpperCase(); }
 
 export interface ResultadoExclusao { sucesso: true; cnpj: string; apagados: Apagados; preservados: string[]; jaNaoExistia: boolean }
@@ -50,7 +59,7 @@ export async function removerEmpresaCompleta(banco: BancoTransacional, cnpjBruto
     if (ws.rows.length) {
       const comp = await q('SELECT dados FROM contabil_empresas_compartilhadas WHERE cnpj=$1', [cnpj]);
       await q(`INSERT INTO ${TABELA_ARQUIVO}(cnpj,payload,versao,cadastro_compartilhado,excluido_por,origem) VALUES($1,$2::jsonb,$3,$4::jsonb,$5,$6)`,
-        [cnpj, JSON.stringify(ws.rows[0].payload ?? null), ws.rows[0].version ?? null, comp.rows[0]?.dados ? JSON.stringify(comp.rows[0].dados) : null, quem.por ?? null, quem.origem ?? null]);
+        [cnpj, JSON.stringify(semDadosDoSistemaAnterior(ws.rows[0].payload ?? null)), ws.rows[0].version ?? null, comp.rows[0]?.dados ? JSON.stringify(comp.rows[0].dados) : null, quem.por ?? null, quem.origem ?? null]);
     }
     const n = async (sql: string) => Number((await q(sql, [cnpj])).rowCount ?? 0);
     const acessos = await n('DELETE FROM contabil_auth_company_access WHERE cnpj=$1');
@@ -59,9 +68,12 @@ export async function removerEmpresaCompleta(banco: BancoTransacional, cnpjBruto
     // A tabela de atividade só existe depois do primeiro registro de atividade do escritório.
     const existe = await q("SELECT to_regclass('contabil_atividade_equipe') AS t", []);
     const ativ = existe.rows[0]?.t ? await n('DELETE FROM contabil_atividade_equipe WHERE cnpj=$1') : 0;
-    return { acessosDeUsuarios: acessos, empresaCompartilhada: comp, workspace: work, atividadeEquipe: ativ } as Apagados;
+    // O que veio do sistema anterior (registro por bloco) sai junto: só existe depois da primeira migração.
+    const existeAnterior = await q("SELECT to_regclass('contabil_sistema_anterior') AS t", []);
+    const anterior = existeAnterior.rows[0]?.t ? await n('DELETE FROM contabil_sistema_anterior WHERE cnpj=$1') : 0;
+    return { acessosDeUsuarios: acessos, empresaCompartilhada: comp, workspace: work, atividadeEquipe: ativ, sistemaAnterior: anterior } as Apagados;
   });
-  const total = apagados.acessosDeUsuarios + apagados.empresaCompartilhada + apagados.workspace + apagados.atividadeEquipe;
+  const total = apagados.acessosDeUsuarios + apagados.empresaCompartilhada + apagados.workspace + apagados.atividadeEquipe + apagados.sistemaAnterior;
   return { sucesso: true, cnpj, apagados, preservados: [...PRESERVADOS], jaNaoExistia: total === 0 };
 }
 

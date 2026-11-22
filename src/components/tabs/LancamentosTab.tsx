@@ -336,7 +336,7 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                   {l.loteId && <span className="ml-1 inline-block rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold text-sky-900" title="Lançamento com várias partidas: aprovar, rejeitar e estornar valem para todas juntas">Várias partidas ({tamanhoLote(l.loteId)})</span>}
                   {l.tipoEspecial === "encerramento" && <span className="ml-1 inline-block rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-bold text-fuchsia-900">Encerramento do resultado</span>}
                   {l.recorrenteDe && <span className="ml-1 inline-block rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-bold text-teal-900">Lançamento padrão</span>}
-                  {l.sistemaMigracao && <span className="ml-1 inline-block rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-900">Importado: {l.sistemaMigracao}</span>}
+                  {l.sistemaMigracao && <span className="ml-1 inline-block rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-900">Importado: {l.sistemaMigracao === "ALTERDATA" ? "sistema anterior" : l.sistemaMigracao}</span>}
                   {l.classificacaoDeclaradaArquivo && l.classificacaoDeclaradaArquivo !== "Manual" && <div className="mt-1 text-[10px] text-slate-500">Tipo informado no arquivo: {l.classificacaoDeclaradaArquivo} · não verificado</div>}
                   {manualRejeitado && <span className="ml-1 inline-block rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-900">Rejeitado</span>}
                   {l.statusManual === "aprovado" && <span className="ml-1 inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-900">Aprovado</span>}

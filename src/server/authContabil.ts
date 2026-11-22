@@ -1667,7 +1667,8 @@ export async function salvarWorkspaceContabil(req: Request, res: Response, opcoe
       || (item.origem === "Cadastro" && item.saldoInicialContaCodigo && item.statusManual === "pendente_aprovacao" && !item.estornoDe)))) {
       await client.query("ROLLBACK"); res.status(403).json({ sucesso: false, motivo: "Partidas definitivas não podem ser inseridas pelo navegador. Envie lançamentos manuais pendentes ou propostas de abertura para aprovação." }); return;
     }
-    for (const antigo of lancamentosAtuais.filter((item) => item.origem === "Manual" || Boolean(item.estornoDe) || Boolean(item.saldoInicialContaCodigo))) {
+    // Lançamentos que vieram do sistema anterior (migração pelo backup) também não podem ser alterados nem apagados pelo navegador.
+    for (const antigo of lancamentosAtuais.filter((item) => item.origem === "Manual" || item.origem === "Sistema anterior" || Boolean(item.estornoDe) || Boolean(item.saldoInicialContaCodigo))) {
       const novo = lancamentosNovosPorId.get(String(antigo.id || ""));
       if (!novo || jsonCanonico(antigo) !== jsonCanonico(novo)) {
         await client.query("ROLLBACK");

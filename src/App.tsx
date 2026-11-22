@@ -545,8 +545,9 @@ function AppWorkspace() {
       ["revisao-origens", "Conferência de tributos por regime", "conferencia tributos regime simples presumido real", "Conferência de tributos"],
       ["revisao-origens", "Lançamentos manuais e estornos", "manual estorno estornar lancamento", "Lançamentos manuais e estornos"],
       ["revisao-origens", "Histórico e trilha de auditoria", "historico auditoria trilha log", "trilha de auditoria"],
-      ["migracao", "Importar plano de contas do Alterdata", "importar plano contas alterdata exportacao txt exppcontas", "Arquivos e Leitura"],
-      ["migracao", "Importar lançamentos / diário do Alterdata", "importar lancamentos diario alterdata txt modelo", "Arquivos e Leitura"],
+      ["migracao", "Importar plano de contas do sistema anterior", "importar plano contas alterdata exportacao txt exppcontas", "Arquivos e Leitura"],
+      ["migracao", "Importar lançamentos / diário do sistema anterior", "importar lancamentos diario alterdata txt modelo", "Arquivos e Leitura"],
+      ["migracao", "Trazer tudo do sistema anterior pelo backup", "backup sistema anterior bcir migrar migracao trazer tudo plano lancamentos saldos balancete", "Trazer tudo do sistema anterior (pelo backup)"],
     ];
     const itens: ItemBusca[] = modulos.map(([id, rotulo, palavras]) => ({ id: `m-${id}`, rotulo, tipo: "Módulo", palavras, acao: () => setTabAtiva(id) }));
     for (const [tab, rotulo, palavras, campo] of assuntos) itens.push({ id: `a-${tab}-${rotulo}`, rotulo, tipo: "Assunto", palavras, acao: () => { setTabAtiva(tab); destacarCampo(campo); } });

@@ -48,6 +48,9 @@ import { chaveServico, descreverRegistro, tenantDaSessao } from "./src/server/se
 import { registrarRotasEscrituracao, roboConciliacao, roboEncerramento, roboLancamentosPadrao, roboLivroCaixa } from "./src/server/escrituracaoRotas";
 import { criarRevisorContabil, registrarRotasRevisor, INTERVALO_ROBO_REVISOR_MS } from "./src/server/revisorContabil";
 import { conferirFolhasDP } from "./src/server/conferidorFolhaDP";
+import { registrarRotasMigracaoSistemaAnterior, rotinaConferidorMigracao } from "./src/server/migracaoSistemaAnterior/rotas";
+import { workspaceValido } from "./src/server/authContabil";
+import { planoContasModelo } from "./src/data/planoContasModelo";
 
 dotenv.config();
 
@@ -234,6 +237,18 @@ const reconciliacaoRascunhosStatus: {
   app.post("/api/auth/redeem", exigirOrigemNavegador, resgatarConviteUsuarioContabil);
   app.post("/api/auth/companies", exigirOrigemNavegador, exigirSessaoContabil, adicionarEmpresaAcessoContabil);
   app.delete("/api/auth/companies/:cnpj", exigirOrigemNavegador, exigirSessaoContabil, removerEmpresaAcessoContabil);
+  // Migração da parte contábil pelo backup do sistema anterior (tela Migração) + Robô Conferidor da Migração.
+  registrarRotasMigracaoSistemaAnterior(app, {
+    exigirSessao: exigirSessaoContabil, exigirOrigemNavegador, consultar: (sql, params) => consultaBancoContabil(sql, params),
+    banco: bancoTransacionalContabil, preparar: prepararAuthContabil, bancoConfigurado: bancoContabilConfigurado,
+    workspaceValido, cnpjValido: cnpjContabilValido, modelo: planoContasModelo,
+    robos: { executarRobo, registrarResultadoRobo, definirAlertaRobo },
+  });
+  registrarRobo({ id: "conferidor_migracao_sistema_anterior", nome: "Robô Conferidor da Migração do Sistema Anterior", posto: "conferidor", missao: "Conferir, em cada empresa migrada pelo backup do sistema anterior, se o balancete do Murade (lançamentos que vieram de lá) bate por conta e competência com os saldos e com os lançamentos originais do sistema anterior, e se nenhum lançamento migrado sumiu ou foi alterado. Só lê e avisa; nunca altera lançamento.", intervaloMs: 6 * 60 * 60_000 });
+  const rodarConferidorMigracao = rotinaConferidorMigracao({ consultar: (sql, params) => consultaBancoContabil(sql, params), preparar: prepararAuthContabil, bancoConfigurado: bancoContabilConfigurado, robos: { executarRobo, registrarResultadoRobo, definirAlertaRobo } });
+  registrarRotinaManual("conferidor_migracao_sistema_anterior", rodarConferidorMigracao);
+  setTimeout(() => void rodarConferidorMigracao(), 7 * 60_000).unref();
+  setInterval(() => void rodarConferidorMigracao(), 6 * 60 * 60_000).unref();
   app.post("/api/auth/invites", exigirOrigemNavegador, exigirSessaoContabil, criarConviteUsuarioContabil);
   app.post("/api/auth/access", exigirOrigemNavegador, exigirSessaoContabil, vincularUsuarioExistenteContabil);
   app.get("/api/auth/users", exigirSessaoContabil, listarUsuariosEmpresaContabil);

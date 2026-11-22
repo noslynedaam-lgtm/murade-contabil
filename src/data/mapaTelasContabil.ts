@@ -173,6 +173,8 @@ export const SECOES_CONTABIL: SecaoMapa[] = [
   { chave: 'relatorio-cliente', tela: 'demonstracoes', texto: 'Relatório para o cliente', arquivo: DEMO },
   { chave: 'painel-escritorio', tela: 'demonstracoes', texto: 'Painel do escritório', arquivo: DEMO },
   { chave: 'relatorio-ecd-importada', tela: 'migracao', texto: 'Relatório da ECD', arquivo: 'src/components/tabs/MigracaoContabilTab.tsx' },
+  { chave: 'migracao-backup-sistema-anterior', tela: 'migracao', texto: 'Trazer tudo do sistema anterior (pelo backup)', arquivo: 'src/components/MigracaoBackupContabil.tsx' },
+  { chave: 'registro-sistema-anterior', tela: 'migracao', texto: 'O que veio do sistema anterior para esta empresa', arquivo: 'src/components/MigracaoBackupContabil.tsx' },
   { chave: 'servicos-agente', tela: 'aprovacoes', texto: 'Serviços preparados pela Agente', arquivo: 'src/components/ServicosAgentePainel.tsx' },
 ];
 
