@@ -54,6 +54,16 @@ const FERRAMENTAS: Ferramenta[] = [
   },
   {
     tipo: 'leitura',
+    declaracao: { name: 'prontos_para_conferir', description: 'Mostra, por empresa do escritório, quantos pré-lançamentos o robô já preparou com as notas do Fiscal e a folha do DP e estão prontos para conferir e aprovar, e quais empresas estão paradas no Contábil (sem área de trabalho, sem mapeamento ou com notas e nenhum pré-lançamento). Use quando pedirem "o que tem para conferir", "o contábil está parado?".', parameters: { type: 'OBJECT', properties: {} } },
+    async executar(ctx) {
+      const r = await ctx.chamarApi('GET', '/api/contabil/prontos-para-conferir');
+      if (!ok(r)) return erroApi(r);
+      const empresas = (r.corpo?.empresas || []) as any[];
+      return { totalPendentes: Number(r.corpo?.totalPendentes) || 0, ondeVer: 'Tela Início > quadro "Prontos para conferir" (toque na empresa para abrir Revisar dados recebidos)', empresas: empresas.filter((e) => e.pendentes > 0 || e.parada).map((e) => ({ cnpj: e.cnpj, nome: e.nome || null, paraConferir: e.pendentes, parada: e.parada || null })) };
+    },
+  },
+  {
+    tipo: 'leitura',
     declaracao: { name: 'consultar_pendencias', description: 'Mostra o que está pendente na contabilidade da empresa: pré-lançamentos aguardando conferência (vindos do DP e do Fiscal), lançamentos manuais aguardando aprovação e competências já fechadas. Informe competência para filtrar.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, competencia: props.competencia }, required: ['cnpj'] } },
     async executar(ctx, args) {
       const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };

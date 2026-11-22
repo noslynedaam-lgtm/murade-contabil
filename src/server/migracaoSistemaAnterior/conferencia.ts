@@ -5,6 +5,7 @@ import type { ContaPlano } from '../../types';
 import { gerarRelatoriosContabeis, normalizarDataContabil, converterCentavos } from '../../utils/livrosContabeis';
 import type { EsperadoConferencia } from './conversor';
 import { ORIGEM_SISTEMA_ANTERIOR, PREFIXO_ID_MIGRACAO } from './conversor';
+import { PREFIXO_AJUSTE } from './analiseSistemaAnterior';
 
 export interface DiferencaConferencia { codigo: string; competencia: string; debitoMurade: number; debitoAnterior: number; creditoMurade: number; creditoAnterior: number }
 export interface ReferenciaConferencia {
@@ -43,20 +44,23 @@ export function ehLancamentoDoSistemaAnterior(l: any): boolean {
 
 const reais = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-function comparar(murade: Map<string, { d: number; c: number }>, esperado: EsperadoConferencia[]): Array<DiferencaConferencia & { semTotalDoMes?: boolean }> {
+function comparar(murade: Map<string, { d: number; c: number }>, esperado: EsperadoConferencia[], peloSaldo = false): Array<DiferencaConferencia & { semTotalDoMes?: boolean }> {
   const mapa = new Map(esperado.map((e) => [`${e.codigo}|${e.competencia}`, e]));
   const saida: Array<DiferencaConferencia & { semTotalDoMes?: boolean }> = [];
   for (const k of new Set([...murade.keys(), ...mapa.keys()])) {
     const m = murade.get(k) || { d: 0, c: 0 }; const e = mapa.get(k);
     const [codigo, competencia] = k.split('|');
-    if (m.d !== (e?.debitoCentavos || 0) || m.c !== (e?.creditoCentavos || 0)) saida.push({ codigo, competencia, debitoMurade: m.d, debitoAnterior: e?.debitoCentavos || 0, creditoMurade: m.c, creditoAnterior: e?.creditoCentavos || 0, ...(e?.semTotalDoMes ? { semTotalDoMes: true } : {}) });
+    const difere = peloSaldo ? m.d - m.c !== (e?.debitoCentavos || 0) - (e?.creditoCentavos || 0) : m.d !== (e?.debitoCentavos || 0) || m.c !== (e?.creditoCentavos || 0);
+    if (difere) saida.push({ codigo, competencia, debitoMurade: m.d, debitoAnterior: e?.debitoCentavos || 0, creditoMurade: m.c, creditoAnterior: e?.creditoCentavos || 0, ...(e?.semTotalDoMes ? { semTotalDoMes: true } : {}) });
   }
   return saida.sort((a, b) => a.competencia.localeCompare(b.competencia) || a.codigo.localeCompare(b.codigo));
 }
 
 export function conferirMigracao(contas: ContaPlano[], lancamentos: any[], ref: ReferenciaConferencia): ResultadoConferencia {
   const migrados = (Array.isArray(lancamentos) ? lancamentos : []).filter(ehLancamentoDoSistemaAnterior);
-  const rel = gerarRelatoriosContabeis(contas, migrados, 'todos');
+  // Ajustes de migração que o contador confirmou (e os estornos deles) entram no balancete conferido.
+  const ajustes = (Array.isArray(lancamentos) ? lancamentos : []).filter((l) => String(l?.documentoRef || '').startsWith(PREFIXO_AJUSTE));
+  const rel = gerarRelatoriosContabeis(contas, [...migrados, ...ajustes], 'todos');
   const murade = new Map<string, { d: number; c: number }>();
   const saldo = new Map<string, number>();
   for (const v of rel.validos) {
@@ -68,8 +72,10 @@ export function conferirMigracao(contas: ContaPlano[], lancamentos: any[], ref: 
     saldo.set(v.credito.codigo, (saldo.get(v.credito.codigo) || 0) - v.valorCentavos);
   }
   const semSaldos = Boolean(ref.semSaldosParaConferir);
-  const difOriginais = comparar(murade, ref.esperadoLancamentos || []);
-  const difSaldos = semSaldos ? [] : comparar(murade, ref.esperado || []);
+  // Com ajuste de migração confirmado pelo contador, a conta/mês confere pelo efeito no saldo (débito − crédito).
+  const peloSaldo = ajustes.length > 0;
+  const difOriginais = comparar(murade, ref.esperadoLancamentos || [], peloSaldo);
+  const difSaldos = semSaldos ? [] : comparar(murade, ref.esperado || [], peloSaldo);
   const saldosFinaisDiferentes: ResultadoConferencia['saldosFinaisDiferentes'] = [];
   if (!semSaldos) {
     for (const codigo of new Set([...saldo.keys(), ...Object.keys(ref.saldoFinalEsperado || {})])) {

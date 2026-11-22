@@ -48,7 +48,7 @@ export const NOMES_BLOCOS_SISTEMA_ANTERIOR: Record<string, string> = {
 };
 
 export const INSTRUCAO_MIGRACAO_SISTEMA_ANTERIOR = `
-MIGRAÇÃO DO SISTEMA ANTERIOR (parte contábil): a pessoa traz tudo do sistema anterior pela tela "Migração" do Contábil (botão "Escolher o arquivo de backup", depois "Transportar tudo" ou "Não, quero escolher", prévia e "Confirmar e gravar agora"). Você NÃO grava a migração: para fazer, abra a tela Migração e explique passo a passo onde clicar. Para saber como está, use situacao_migracao_sistema_anterior; para conferir uma empresa já migrada (se o balancete bate com o sistema anterior), use conferir_migracao_sistema_anterior; para mostrar o que ficou guardado (lotes abertos, títulos, bens, cartões...), use ver_registro_sistema_anterior; para conferir CAMPO A CAMPO o que estava preenchido no sistema anterior e chegou vazio ou diferente no Murade (cadastro, contas, históricos, lançamentos, bens), use pendencias_campos_migracao_sistema_anterior e diga, para cada pendência, a tela e o campo onde corrigir. Nunca escreva o nome comercial do sistema anterior: diga "sistema anterior".`;
+MIGRAÇÃO DO SISTEMA ANTERIOR (parte contábil): a pessoa traz tudo do sistema anterior pela tela "Migração" do Contábil (botão "Escolher o arquivo de backup", depois "Transportar tudo" ou "Não, quero escolher", prévia e "Confirmar e gravar agora"). Você NÃO grava a migração: para fazer, abra a tela Migração e explique passo a passo onde clicar. Para saber como está, use situacao_migracao_sistema_anterior; para conferir uma empresa já migrada (se o balancete bate com o sistema anterior), use conferir_migracao_sistema_anterior; para mostrar o que ficou guardado (lotes abertos, títulos, bens, cartões...), use ver_registro_sistema_anterior; para conferir CAMPO A CAMPO o que estava preenchido no sistema anterior e chegou vazio ou diferente no Murade (cadastro, contas, históricos, lançamentos, bens), use pendencias_campos_migracao_sistema_anterior e diga, para cada pendência, a tela e o campo onde corrigir. Para o que veio ERRADO do sistema anterior (regras oficiais), use analise_migracao_sistema_anterior e leia para a pessoa: "o backup veio assim: X; o certo é: Y; base: Z". Corrigir, desfazer, aceitar, manter ou lançar ajuste é sempre por decidir_item_migracao_sistema_anterior (cartão), um item por vez; ajuste de balancete só depois do "Sim" do contador, nunca por conta própria. Nunca escreva o nome comercial do sistema anterior: diga "sistema anterior".`;
 
 export const FERRAMENTAS_MIGRACAO_SISTEMA_ANTERIOR: Ferramenta[] = [
   {
@@ -102,6 +102,40 @@ export const FERRAMENTAS_MIGRACAO_SISTEMA_ANTERIOR: Ferramenta[] = [
       if (!c) return { cnpj, migrada: true, mensagem: 'Não foi possível conferir campo a campo agora.' };
       const desde = Math.max(0, Math.floor(Number(args.desde) || 0));
       return { cnpj, resumo: c.resumo, conferidos: c.conferidos, totalPendencias: c.totalPendencias, desde, pendencias: (c.pendencias || []).slice(desde, desde + 30), ondeCorrigir: 'Cadastro: tela Empresa › Editar empresa. Contas: Plano de Contas. Históricos: Históricos padrão. Bens: Imobilizado. Lançamentos migrados: migre a empresa de novo pela tela Migração (troca só os do sistema anterior).' };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'analise_migracao_sistema_anterior', description: 'ANÁLISE do que veio ERRADO do sistema anterior em UMA empresa migrada, pelas regras oficiais: o que o sistema já corrigiu sozinho (espaços nas pontas, zero do CPF, bairro cortado — com "Desfazer"), o que é para o contador conferir (natureza da conta diferente do grupo, saldo credor de caixa, CPF com dígito errado, histórico vazio, linha que não entrou) e os ajustes de balancete prontos quando algo não bate. Cada item tem: como veio, o certo e a base (norma). Só lê.', parameters: { type: 'OBJECT', properties: { cnpj: { type: 'STRING', description: 'CNPJ da empresa.' }, desde: { type: 'NUMBER', description: 'Opcional: quantos itens pular.' } }, required: ['cnpj'] } },
+    async executar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const r = await ctx.chamarApi('GET', `/api/migracao-sistema-anterior/registro/${q(cnpj)}`);
+      if (!ok(r)) return erroApi(r);
+      if (!r.corpo.resumo) return { cnpj, migrada: false, mensagem: 'Esta empresa não tem migração do sistema anterior registrada.' };
+      const a = r.corpo.analise; const desde = Math.max(0, Math.floor(Number(args.desde) || 0));
+      return a ? { cnpj, resumo: a.resumo, total: a.achados.length, desde, itens: a.achados.slice(desde, desde + 20).map((x: any) => ({ id: x.id, tipo: x.tipo, situacao: x.situacao, titulo: x.titulo, veio: x.veio, certo: x.certo, base: x.base, ajuste: x.ajuste })), comoDecidir: 'Para decidir um item use decidir_item_migracao_sistema_anterior (vira cartão de confirmação). Um por vez.' } : { cnpj, mensagem: 'Não foi possível analisar agora.' };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'decidir_item_migracao_sistema_anterior', description: 'MIGRAÇÃO: propõe decidir UM item da análise do que veio do sistema anterior: "corrigir" ou "desfazer" uma correção automática; "aceitar" a sugestão ou "manter" como veio num item para conferir; "lancar_ajuste" (lança o ajuste de balancete proposto) ou "desfazer_ajuste" (estorno); "corrigir_todos" refaz todas as correções automáticas desfeitas. Pegue o id em analise_migracao_sistema_anterior. Vira cartão; só executa depois do Sim.', parameters: { type: 'OBJECT', properties: { cnpj: { type: 'STRING' }, id: { type: 'STRING', description: 'id do item (não precisa em corrigir_todos).' }, acao: { type: 'STRING', description: 'corrigir, desfazer, aceitar, manter, lancar_ajuste, desfazer_ajuste ou corrigir_todos.' } }, required: ['cnpj', 'acao'] } },
+    async preparar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); const acao = String(args.acao || '').trim(); const id = String(args.id || '').trim();
+      if (!cnpj || !['corrigir', 'desfazer', 'aceitar', 'manter', 'lancar_ajuste', 'desfazer_ajuste', 'corrigir_todos'].includes(acao) || (acao !== 'corrigir_todos' && !id)) return { erro: 'Informe o CNPJ, a ação e o id do item.' };
+      const r = await ctx.chamarApi('GET', `/api/migracao-sistema-anterior/registro/${q(cnpj)}`);
+      if (!ok(r)) return { erro: erroApi(r).erro };
+      const item = (r.corpo.analise?.achados || []).find((x: any) => x.id === id);
+      if (acao !== 'corrigir_todos' && !item) return { erro: 'Não achei este item na análise desta empresa (pode já ter sido resolvido).' };
+      const reais = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+      const descricao = acao === 'corrigir_todos' ? ['Refaz as correções automáticas que foram desfeitas (só formatação; valores não mudam).']
+        : acao === 'lancar_ajuste' && item.ajuste ? [item.titulo, `Vou lançar: D ${item.ajuste.contaDebito} / C ${item.ajuste.contaCredito} — ${reais(item.ajuste.valorCentavos)} em ${String(item.ajuste.data).split('-').reverse().join('/')}`, `Histórico: ${item.ajuste.historico}`, `Base: ${item.base}`]
+          : [item.titulo, `Veio: ${item.veio}`, `${acao === 'desfazer' ? 'Volta a ficar como veio' : acao === 'manter' ? 'Fica como veio (marcado como conferido)' : `Fica: ${item.certo}`}`, `Base: ${item.base}`];
+      const titulos: Record<string, string> = { corrigir: 'Corrigir agora', desfazer: 'Desfazer a correção', aceitar: 'Aceitar a sugestão e corrigir', manter: 'Manter como veio', lancar_ajuste: 'Quer que eu ajuste? Lançar o ajuste', desfazer_ajuste: 'Desfazer o ajuste (estorno)', corrigir_todos: 'Corrigir agora todas as correções automáticas' };
+      return { cnpj, params: { cnpj, id, acao }, titulo: titulos[acao], descricao, resumo: `${titulos[acao]} ${cnpj} ${id}`.slice(0, 160) };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', `/api/migracao-sistema-anterior/registro/${q(String(params.cnpj))}/achado`, { id: params.id, acao: params.acao });
+      return ok(r) ? { sucesso: true, mensagem: `${String(r.corpo?.mensagem || 'Feito.')} ${r.corpo?.resumo || ''}`.trim() } : { sucesso: false, mensagem: erroApi(r).erro };
     },
   },
 ];

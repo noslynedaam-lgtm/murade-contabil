@@ -7,6 +7,7 @@ import type { ItemBusca } from "./components/BuscaGlobal";
 import { destacarCampo } from "./utils/destacarCampo";
 import { TabId, OrgaoConectado, EmpresaDados, LancamentoContabil, ContaPlano, LivroContabil, LembreteItem, CentroCustoContabil, MapeamentoOrigemContabil, PreLancamentoContabil, HistoricoPadrao, LancamentoPadrao, RegraConciliacao, MetodoRota } from "./types";
 import { initialEmpresa, orgaosIniciais, planoContasPadrao } from "./data/mockData";
+import { montarWorkspaceInicialContabil } from "./utils/workspaceInicial";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import { RobotSidebar } from "./components/RobotSidebar";
@@ -215,12 +216,14 @@ function AppWorkspace() {
           } catch (error) {
             console.warn("Dados locais antigos da empresa não puderam ser lidos:", error);
           }
+          // Mesmo ponto de partida que o servidor monta sozinho (plano padrão do Murade + mapeamentos de origem padrão).
+          const inicial = montarWorkspaceInicialContabil({ ...empresa, certificadoAtivo: false, certificadoNomeArquivo: undefined });
           dados = {
-            empresa: { ...empresa, certificadoAtivo: false, certificadoNomeArquivo: undefined },
-            contas: Array.isArray(dados?.contas) ? dados.contas : ordenarContasPorSequenciaNumerica(planoContasPadrao),
+            empresa: inicial.empresa,
+            contas: Array.isArray(dados?.contas) ? dados.contas : inicial.contas,
             centrosCusto: Array.isArray(dados?.centrosCusto) ? dados.centrosCusto : [],
             bensImobilizado: Array.isArray(dados?.bensImobilizado) ? dados.bensImobilizado : [],
-            mapeamentosOrigem: Array.isArray(dados?.mapeamentosOrigem) ? dados.mapeamentosOrigem : [],
+            mapeamentosOrigem: Array.isArray(dados?.mapeamentosOrigem) ? dados.mapeamentosOrigem : (Array.isArray(dados?.contas) ? [] : inicial.mapeamentosOrigem),
             preLancamentos: Array.isArray(dados?.preLancamentos) ? dados.preLancamentos : [],
             lancamentos: Array.isArray(dados?.lancamentos) ? dados.lancamentos.map((item: LancamentoContabil) =>
               (item.origem === "Manual" || item.estornoDe) && !item.statusManual
@@ -983,6 +986,7 @@ function AppWorkspace() {
                   onRunAudit={handleRunAudit}
                   onConectarFiscal={handleConectarMuradFiscal}
                   onConectarDP={handleConectarMuradDP}
+                  onAbrirEmpresaParaConferir={(cnpj) => { escolherEmpresaPeloCnpj(cnpj); setTabAtiva("revisao-origens"); }}
                 />
               )}
 

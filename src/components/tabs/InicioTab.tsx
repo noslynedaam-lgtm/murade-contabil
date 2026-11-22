@@ -26,6 +26,7 @@ import {
   Users,
 } from "lucide-react";
 import { IbsCbsReformaCard } from "../IbsCbsReformaCard";
+import { PainelProntosParaConferir } from "../PainelProntosParaConferir";
 import { lembretesIniciais } from "../../data/mockData";
 import {
   VisualizarModal,
@@ -47,6 +48,8 @@ interface InicioTabProps {
   onRunAudit?: () => void;
   onConectarFiscal?: () => void;
   onConectarDP?: () => void;
+  /** Abre a empresa e vai para "Revisar dados recebidos" (painel Prontos para conferir). */
+  onAbrirEmpresaParaConferir?: (cnpj: string) => void;
 }
 
 export const InicioTab: React.FC<InicioTabProps> = ({
@@ -59,6 +62,7 @@ export const InicioTab: React.FC<InicioTabProps> = ({
   onRunAudit,
   onConectarFiscal,
   onConectarDP,
+  onAbrirEmpresaParaConferir,
 }) => {
   // Lembretes com fallback
   const [internalLembretes, setInternalLembretes] = useState<LembreteItem[]>(lembretesIniciais);
@@ -268,6 +272,8 @@ export const InicioTab: React.FC<InicioTabProps> = ({
           </div>
         </div>
       </div>
+
+      {onAbrirEmpresaParaConferir && <PainelProntosParaConferir onAbrir={onAbrirEmpresaParaConferir} />}
 
       {/* BARRAMENTO DE CONEXÃO MURADE: FISCAL • DP • GOV (RECEITA, SEFAZ, SERPRO) */}
       <div className="bg-[#082B66] text-white rounded-xl p-4 sm:p-5 shadow-sm border border-[#0A357D]">

@@ -13,7 +13,7 @@ import { dpStoreConfigurado, ErroConflitoResumoDP, ErroValidacaoResumoDP, gravar
 import { gravarResumoProLaboreDP } from "./src/server/dadosProLaboreStore";
 import { gravarEventoDP, lerEventosDP } from "./src/server/dadosDpEventosStore";
 import { registrarGestaoEquipe } from "./src/server/gestaoEquipe";
-import { prepararAuthContabil, configGestaoEquipeContabil, adicionarEmpresaAcessoContabil, adicionarEquipeContabil, bloquearEscritorioContabil, definirLimiteEscritorioContabil, convidarEquipeContabil, convidarEscritorioContabil, reenviarAcessoEscritorioContabil, listarEquipeContabil, listarEscritoriosContabil, removerEquipeContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, sessaoDaRequisicaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarCnpjsComOrigensSemMapeamentoContabil, aplicarMapeamentosPadraoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, manterConectadoContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil, importarCnpjsCompartilhados, auth2faEstadoContabil, auth2faIniciarContabil, auth2faAtivarContabil, auth2faDesativarContabil, auth2faRedefinirContabil, auth2faResumoContabil, resumoSegurancaContabil, alterarWorkspaceNoServidorContabil } from "./src/server/authContabil";
+import { prepararAuthContabil, configGestaoEquipeContabil, adicionarEmpresaAcessoContabil, adicionarEquipeContabil, bloquearEscritorioContabil, definirLimiteEscritorioContabil, convidarEquipeContabil, convidarEscritorioContabil, reenviarAcessoEscritorioContabil, listarEquipeContabil, listarEscritoriosContabil, removerEquipeContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, sessaoDaRequisicaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarCnpjsComOrigensSemMapeamentoContabil, aplicarMapeamentosPadraoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, manterConectadoContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil, importarCnpjsCompartilhados, auth2faEstadoContabil, auth2faIniciarContabil, auth2faAtivarContabil, auth2faDesativarContabil, auth2faRedefinirContabil, auth2faResumoContabil, resumoSegurancaContabil, alterarWorkspaceNoServidorContabil, criarWorkspacesQueFaltamContabil, resumoPreLancamentosPorEmpresaContabil } from "./src/server/authContabil";
 import { ArmazemDeEtapas, chaveDeEtapas, prepararPedido, limitarPedido, avisoDeTextoCortado } from "./src/server/agenteEtapas";
 import { ArmazemAcoesPendentes, avancarAcao as avancarAcaoAgenteIA, confirmarAcao as confirmarAcaoAgenteIA, conversar as conversarAgenteIA, recusarAcao as recusarAcaoAgenteIA, type ChamarApi, type ContextoAgente, type ModeloIA } from "./src/server/agenteMotor";
 import { kitContabil } from "./src/server/agenteContabil";
@@ -34,6 +34,7 @@ import { criarServicoBackupBanco } from "./src/server/backupBanco/servico";
 import { buscarEmpresasDoFiscal, cnpjsValidosDoFiscal } from "./src/server/empresasDoFiscal";
 import { resumoRelatorioAcessos, rodarConferidorAcessos } from "./src/server/conferidorAcessos";
 import { achadosEcdDoConferidor, rodarConferidorContabil } from "./src/server/conferidorContabil";
+import { empresasParadas, situacaoEmpresasContabil, textoAvisoParadas } from "./src/server/conferidorEmpresasParadas";
 import { registrarRotasDemonstracoes, rodarRoboDemonstracoes } from "./src/server/demonstracoesServidor";
 import { conferirBackupsEscritorios } from "./src/server/conferidorBackupsContabil";
 import { gerarBackupEscritorio, listarBackupsEscritorio, baixarBackupEscritorio, periodoDe } from "./src/services/backupEscritorioContabilService";
@@ -266,6 +267,23 @@ const reconciliacaoRascunhosStatus: {
   app.get("/api/auth/duvidas-supervisor", exigirSessaoContabil, listarDuvidasSemRespostaDonoSistemaContabil);
   app.post("/api/auth/duvidas-supervisor/:id/resolver", exigirOrigemNavegador, exigirSessaoContabil, resolverDuvidaSemRespostaDonoSistemaContabil);
   app.get("/api/workspaces", exigirSessaoContabil, listarWorkspacesContabil);
+  // Painel "Prontos para conferir": por empresa do escritório (só os CNPJs da sessão), quantos pré-lançamentos o robô já preparou e o que está parado.
+  app.get("/api/contabil/prontos-para-conferir", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const sessao = sessaoDaRequisicaoContabil(req);
+    if (!sessao) return res.status(401).json({ sucesso: false, motivo: "Entre no sistema." });
+    if (!bancoContabilConfigurado()) return res.status(503).json({ sucesso: false, motivo: "O banco do Contábil não está configurado." });
+    try {
+      const cnpjs = sessao.cnpjs.map(normalizarCnpjAcesso);
+      const [resumo, situacao] = await Promise.all([resumoPreLancamentosPorEmpresaContabil(cnpjs), situacaoEmpresasContabil((sql, params) => consultaBancoContabil(sql, params), cnpjs)]);
+      const paradas = new Map(empresasParadas(situacao).map((p) => [p.cnpj, p.motivo]));
+      const empresas = resumo.map((e) => ({ ...e, parada: paradas.get(e.cnpj) ?? null }));
+      return res.json({ sucesso: true, totalPendentes: empresas.reduce((t, e) => t + e.pendentes, 0), empresas });
+    } catch (erro: any) {
+      console.error("Falha ao montar o painel de pré-lançamentos:", erro?.message || erro);
+      return res.status(503).json({ sucesso: false, motivo: "Não consegui consultar agora. Tente de novo em instantes." });
+    }
+  });
   app.get("/api/workspaces/:cnpj", exigirSessaoContabil, lerWorkspaceContabil);
   app.get("/api/workspaces/:cnpj/historico-aprovacoes", exigirSessaoContabil, listarHistoricoAprovacoesContabil);
   app.get("/api/workspaces/:cnpj/fechamentos", exigirSessaoContabil, listarFechamentosContabil);
@@ -1418,6 +1436,7 @@ const reconciliacaoRascunhosStatus: {
     if (!sessao) return res.status(401).json({ sucesso: false, motivo: "Entre no sistema." });
     if (!cnpjContabilValido(cnpj) || !sessao.cnpjs.map(normalizarCnpjAcesso).includes(cnpj)) return res.status(403).json({ sucesso: false, motivo: "Este CNPJ não está vinculado ao seu acesso." });
     try {
+      await criarWorkspacesQueFaltamContabil([cnpj]); // empresa sem workspace ganha o plano padrão antes de reprocessar
       const mapeamentos = await aplicarMapeamentosPadraoContabil(cnpj);
       const r = await prepararRascunhosContabeisAutomaticos(cnpj);
       return res.json({ sucesso: true, mapeamentosAplicados: mapeamentos, criados: r.criados, atualizados: r.atualizados, mensagem: `Recepção reprocessada: ${r.criados} rascunho(s) novo(s), ${r.atualizados} atualizado(s). Nada foi aprovado.` });
@@ -1542,7 +1561,13 @@ const reconciliacaoRascunhosStatus: {
   registrarRobo({ id: "contabilizador", nome: "Robô Contabilizador", posto: "calculador", missao: "Transformar pré-lançamentos em lançamentos definitivos.", motivoSemRotina: "Sem rotina automática por regra: lançamento definitivo só nasce depois da aprovação de uma pessoa." });
   registrarRobo({ id: "mensageiro", nome: "Robô Mensageiro", posto: "integrador", missao: "Reenviar pedidos entre as Agentes dos sistemas Murade que não chegaram ao destino.", intervaloMs: 60_000 });
   registrarRobo({ id: "conferidor", nome: "Robô Conferidor", posto: "conferidor", missao: "Conferir todas as empresas: o que falta para fechar o mês (aprovações, rascunhos do Fiscal e do DP, depreciação, partidas) e se a ECD do ano anterior já está pronta para o contador (Balanço, DRE, assinaturas, plano referencial), deixando o resultado para a tela e para a Agente.", intervaloMs: 30 * 60_000 });
-  const rodarConferidor = () => executarRobo("conferidor", async () => { const r = await rodarConferidorContabil((sql, params) => consultaBancoContabil(sql, params)); registrarResultadoRobo("conferidor", `${r.empresas} empresa(s) conferida(s) para o fechamento; ${r.comPendencia} com pendência.`); }).catch((e) => console.error("Falha no Robô Conferidor:", e?.message || e));
+  const rodarConferidor = () => executarRobo("conferidor", async () => {
+    const r = await rodarConferidorContabil((sql, params) => consultaBancoContabil(sql, params));
+    // Também confere se alguma empresa está parada no Contábil (sem workspace, ou com notas/folha e sem pré-lançamento).
+    const paradas = empresasParadas(await situacaoEmpresasContabil((sql, params) => consultaBancoContabil(sql, params)).catch(() => []));
+    definirAlertaRobo("conferidor", paradas.length ? { nivel: "aviso", texto: textoAvisoParadas(paradas) } : null);
+    registrarResultadoRobo("conferidor", `${r.empresas} empresa(s) conferida(s) para o fechamento; ${r.comPendencia} com pendência; ${paradas.length} empresa(s) parada(s) no Contábil.`);
+  }).catch((e) => console.error("Falha no Robô Conferidor:", e?.message || e));
   setTimeout(() => void rodarConferidor(), 45_000).unref();
   setInterval(() => void rodarConferidor(), 30 * 60_000).unref();
   registrarRobo({ id: "empresas_fiscal", nome: "Robô de Empresas do Fiscal", posto: "integrador", missao: "Trazer do Murade Fiscal as empresas que ainda não estão no Contábil, para a equipe não cadastrar duas vezes. Não altera o que já existe e não leva certificado nem senha.", intervaloMs: 10 * 60_000 });
@@ -1876,6 +1901,10 @@ const reconciliacaoRascunhosStatus: {
       reconciliacaoRascunhosStatus.iniciouEm = new Date().toISOString();
       let empresasProcessadas = 0;
       try {
+        // Empresa que já está no Contábil (Fiscal, DP, migração ou cadastro manual) sem workspace ganha o workspace inicial
+        // (plano padrão + mapeamentos padrão) para entrar na reconciliação. Nunca sobrescreve workspace existente.
+        const novosWorkspaces = await criarWorkspacesQueFaltamContabil().catch((error) => { console.error("[Murad Contábil] Falha ao criar workspaces que faltam:", error); return { criados: [] as string[], falhas: [] as string[] }; });
+        if (novosWorkspaces.criados.length) console.log(`[Murad Contábil] Workspace inicial criado sozinho para ${novosWorkspaces.criados.length} empresa(s): ${novosWorkspaces.criados.join(", ")}.`);
         // Antes de gerar rascunhos: preenche sozinho as origens sem mapeamento com o plano padrão (só quando código e descrição batem).
         let mapeamentosAplicados = 0;
         for (const cnpjSem of await listarCnpjsComOrigensSemMapeamentoContabil()) {
@@ -1904,7 +1933,7 @@ const reconciliacaoRascunhosStatus: {
         reconciliacaoRascunhosStatus.criados = criados;
         reconciliacaoRascunhosStatus.atualizados = atualizados;
         reconciliacaoRascunhosStatus.falhas = falhas;
-        registrarResultadoRobo("reconciliador", `${cnpjs.length} empresa(s) com mapeamento reconciliada(s); ${criados} pré-lançamento(s) criado(s), ${atualizados} atualizado(s), ${falhas} falha(s). Mapeamentos padrão aplicados sozinhos neste ciclo: ${mapeamentosAplicados}${ultimoMapeamentoAutomatico.semMapeamentoAinda ? `; ${ultimoMapeamentoAutomatico.semMapeamentoAinda} empresa(s) ainda precisam de mapeamento manual (o plano de contas delas não bate com o padrão)` : ""}.`);
+        registrarResultadoRobo("reconciliador", `${novosWorkspaces.criados.length ? `${novosWorkspaces.criados.length} empresa(s) nova(s) ganharam o plano padrão e entraram na reconciliação; ` : ""}${novosWorkspaces.falhas.length ? `${novosWorkspaces.falhas.length} empresa(s) não conseguiram workspace inicial (tenta de novo no próximo minuto); ` : ""}${cnpjs.length} empresa(s) com mapeamento reconciliada(s); ${criados} pré-lançamento(s) criado(s), ${atualizados} atualizado(s), ${falhas} falha(s). Mapeamentos padrão aplicados sozinhos neste ciclo: ${mapeamentosAplicados}${ultimoMapeamentoAutomatico.semMapeamentoAinda ? `; ${ultimoMapeamentoAutomatico.semMapeamentoAinda} empresa(s) ainda precisam de mapeamento manual (o plano de contas delas não bate com o padrão)` : ""}.`);
         if (cnpjs.length || falhas) console.log(`[Murad Contábil] Reconciliação automática: ${cnpjs.length} empresa(s), ${criados} rascunho(s) criado(s), ${atualizados} atualizado(s), ${falhas} falha(s); nenhum lançamento definitivo foi confirmado.`);
       } catch (error) {
         reconciliacaoRascunhosStatus.falhas += 1;

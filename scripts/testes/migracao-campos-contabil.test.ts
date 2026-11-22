@@ -175,7 +175,11 @@ function bancoFalso() {
     if (s.startsWith('SELECT competencia FROM contabil_period_closures')) return { rows: [] };
     if (s.startsWith('SELECT dados FROM contabil_empresas_compartilhadas')) return { rows: [] };
     if (s.startsWith('INSERT INTO contabil_company_workspaces')) { t.workspaces.set(String(p[0]), { payload: JSON.parse(String(p[1])), version: 1 }); return { rows: [{ version: 1 }] }; }
-    if (s.startsWith('DELETE FROM contabil_sistema_anterior')) { t.registro = t.registro.filter((r) => r.cnpj !== p[0]); return { rows: [] }; }
+    if (s.startsWith('DELETE FROM contabil_sistema_anterior')) {
+      t.registro = t.registro.filter((r) => r.cnpj !== p[0] || (s.includes('bloco<>$2') && r.bloco === p[1]) || (s.includes('bloco=$2') && r.bloco !== p[1]));
+      return { rows: [] };
+    }
+    if (s.startsWith('UPDATE contabil_company_workspaces')) { const w = t.workspaces.get(String(p[0]))!; w.payload = JSON.parse(String(p[1])); w.version++; return { rows: [{ version: w.version }] }; }
     if (s.startsWith('INSERT INTO contabil_sistema_anterior')) { t.registro.push({ cnpj: p[0], bloco: p[1], linhas: JSON.parse(String(p[2])), quantidade: p[3], migrado_em: new Date() }); return { rows: [] }; }
     if (s.startsWith('SELECT bloco, quantidade, migrado_em')) return { rows: t.registro.filter((r) => r.cnpj === p[0]).map((r) => ({ ...r, resumo: r.bloco === p[1] ? r.linhas : null })) };
     if (s.startsWith('SELECT bloco, linhas FROM contabil_sistema_anterior')) return { rows: t.registro.filter((r) => r.cnpj === p[0] && (p[1] as string[]).includes(r.bloco)) };
@@ -219,4 +223,91 @@ test('mais dados do cadastro: a tela carrega e grava os campos novos sem perder 
   assert.deepEqual(volta.livrosNumeracao, d.empresa.livrosNumeracao);
   const tela = fs.readFileSync(path.join(AQUI, '..', '..', 'src', 'components', 'tabs', 'EmpresaTab.tsx'), 'utf8');
   assert.match(tela, /<details data-campo="empresa-mais-dados"/, 'seção recolhível');
+});
+
+test('análise do que veio errado: corrige sozinho a formatação (com Desfazer), manda para o contador o que é julgamento', async () => {
+  const { analisarMigracao, aplicarAcaoAchado, cpfValido } = await import('../../src/server/migracaoSistemaAnterior/analiseSistemaAnterior');
+  const { conferirMigracao } = await import('../../src/server/migracaoSistemaAnterior/conferencia');
+  assert.equal(cpfValido('123.456.789-09'), true); assert.equal(cpfValido('98765432100'), true); assert.equal(cpfValido('12345678901'), false);
+  const d = await montarDadosEmpresa(await abrir(), 23);
+  const p0: any = novo(d).payload;
+  const ref = { esperado: d.esperado, esperadoLancamentos: d.esperadoLancamentos, saldoFinalEsperado: d.saldoFinalEsperado, lancamentosGravados: d.lancamentos.length, semSaldosParaConferir: d.semSaldosParaConferir, linhasQueNaoEntraram: d.naoEntraram.length };
+  const analisar = (payload: any, decisoes = {}) => analisarMigracao({ cdempresa: 23, blocos: JSON.parse(JSON.stringify(d.blocos)), mapaContas: d.mapaContas, payload, naoEntraram: d.naoEntraram, conferencia: conferirMigracao(payload.contas, payload.lancamentos, ref), decisoes, hoje: '2026-11-22' });
+  let a = analisar(p0);
+  const im = a.find((x) => x.id === 'corr:empresa:inscricaoMunicipal')!;
+  assert.equal(im.tipo, 'corrigido'); assert.equal(im.situacao, 'corrigido'); assert.equal(im.valorVeio, '\t2535939'); assert.equal(im.valorCerto, '2535939');
+  assert.ok(a.some((x) => x.id === 'corr:empresa:bairro-cortado' && x.situacao === 'corrigido'));
+  // Desfazer: volta como veio; "Corrigir agora" refaz.
+  const p1 = aplicarAcaoAchado(p0, im, 'desfazer', 'contadora');
+  assert.equal(p1.empresa.inscricaoMunicipal, '\t2535939');
+  assert.equal(analisar(p1).find((x) => x.id === im.id)!.situacao, 'desfeito');
+  assert.equal(aplicarAcaoAchado(p1, analisar(p1).find((x) => x.id === im.id)!, 'corrigir', 'contadora').empresa.inscricaoMunicipal, '2535939');
+  assert.equal(p0.empresa.inscricaoMunicipal, '2535939', 'a ação trabalha numa cópia');
+  // Natureza do Ativo como credora (sem ser redutora): é julgamento do contador; aceitar aplica, manter registra.
+  const pN = JSON.parse(JSON.stringify(p0));
+  const conta = pN.contas.find((c: any) => c.tipo === 'analitica' && c.codigo.startsWith('1.') && !/\(-\)|deprec/i.test(c.descricao));
+  conta.natureza = 'C';
+  a = analisar(pN);
+  const nat = a.find((x) => x.id === `natureza:${conta.codigo}`)!;
+  assert.equal(nat.tipo, 'conferir'); assert.equal(nat.situacao, 'pendente'); assert.match(nat.base, /6\.404/);
+  assert.throws(() => aplicarAcaoAchado(pN, nat, 'corrigir', 'x'), /contador decidir/);
+  const pAceito = aplicarAcaoAchado(pN, nat, 'aceitar', 'contadora');
+  assert.equal(pAceito.contas.find((c: any) => c.codigo === conta.codigo).natureza, 'D');
+  assert.equal(analisar(pN, { [nat.id]: { decisao: 'mantido' } }).find((x) => x.id === nat.id)!.situacao, 'mantido');
+});
+
+test('balancete que não bate: acha a causa, propõe o ajuste pronto, só lança no Sim, confere de novo e desfaz com estorno', async () => {
+  const { analisarMigracao, aplicarAcaoAchado } = await import('../../src/server/migracaoSistemaAnterior/analiseSistemaAnterior');
+  const { conferirMigracao } = await import('../../src/server/migracaoSistemaAnterior/conferencia');
+  const d = await montarDadosEmpresa(await abrir(), 23);
+  const ref = { esperado: d.esperado, esperadoLancamentos: d.esperadoLancamentos, saldoFinalEsperado: d.saldoFinalEsperado, lancamentosGravados: d.lancamentos.length, semSaldosParaConferir: d.semSaldosParaConferir, linhasQueNaoEntraram: d.naoEntraram.length };
+  const p: any = JSON.parse(JSON.stringify(novo(d).payload));
+  const analiticas = p.contas.filter((c: any) => c.tipo === 'analitica');
+  p.empresa.contaContrapartidaAberturaCodigo = analiticas[analiticas.length - 1].codigo;
+  const l = p.lancamentos.find((x: any) => !x.loteId && x.contaDebitoCodigo !== p.empresa.contaContrapartidaAberturaCodigo && x.contaCreditoCodigo !== p.empresa.contaContrapartidaAberturaCodigo);
+  l.valor = Number((l.valor + 0.01).toFixed(2)); // um centavo a mais (como um arredondamento errado)
+  const analisar = (payload: any) => analisarMigracao({ cdempresa: 23, blocos: JSON.parse(JSON.stringify(d.blocos)), mapaContas: d.mapaContas, payload, naoEntraram: d.naoEntraram, conferencia: conferirMigracao(payload.contas, payload.lancamentos, ref), decisoes: {}, hoje: '2026-11-22' });
+  assert.equal(conferirMigracao(p.contas, p.lancamentos, ref).bate, false);
+  const ajustes = analisar(p).filter((x) => x.tipo === 'ajuste');
+  assert.equal(ajustes.length, 2, 'débito e crédito da partida');
+  assert.ok(ajustes.every((x) => x.situacao === 'pendente' && x.ajuste && x.ajuste.valorCentavos === 1 && /arredondamento/.test(x.base)));
+  const qtd = p.lancamentos.length;
+  assert.equal(analisar(p).length >= 2, true); assert.equal(p.lancamentos.length, qtd, 'nada é lançado sem o Sim');
+  let q = p;
+  for (const a of ajustes) q = aplicarAcaoAchado(q, a, 'lancar_ajuste', 'contadora');
+  const depois = conferirMigracao(q.contas, q.lancamentos, ref);
+  assert.equal(depois.bateComLancamentosOriginais, true, depois.resumo);
+  assert.ok(analisar(q).filter((x) => x.tipo === 'ajuste').every((x) => x.situacao === 'lancado'));
+  assert.throws(() => aplicarAcaoAchado(q, analisar(q).find((x) => x.tipo === 'ajuste')!, 'lancar_ajuste', 'x'), /já foi lançado/);
+  const primeiro = analisar(q).find((x) => x.tipo === 'ajuste')!;
+  const est = aplicarAcaoAchado(q, primeiro, 'desfazer_ajuste', 'contadora');
+  assert.equal(est.lancamentos.length, q.lancamentos.length + 1, 'desfazer é estorno, não apaga');
+  assert.ok(est.lancamentos.some((x: any) => x.estornoDe));
+  assert.equal(conferirMigracao(est.contas, est.lancamentos, ref).bate, false, 'sem o ajuste volta a não bater');
+  assert.ok(analisar(est).some((x) => x.id === primeiro.id && x.situacao === 'pendente'), 'a proposta volta para o contador');
+});
+
+test('servidor: uma ação por vez numa transação; decisão guardada e mantida ao migrar de novo; robô avisa o que falta', async () => {
+  const { aplicarAchadoEmpresaMigrada, analisarEmpresaMigrada } = await import('../../src/server/migracaoSistemaAnterior/banco');
+  const d = await montarDadosEmpresa(await abrir(), 23);
+  const f = bancoFalso();
+  const quem = { userId: 'u1', login: 'contadora', escritorioId: 'e1', tenantId: 'e1' };
+  const op = { modelo: planoContasModelo, validar: workspaceValido, competenciaAtual: '2026-11' };
+  await gravarEmpresaMigrada(f.banco, d, quem, op);
+  const an = await analisarEmpresaMigrada(f.consultar, d.cnpj);
+  assert.ok(an!.achados.some((a) => a.id === 'corr:empresa:inscricaoMunicipal'));
+  const r = await aplicarAchadoEmpresaMigrada(f.banco, d.cnpj, 'corr:empresa:inscricaoMunicipal', 'desfazer', 'contadora', workspaceValido);
+  assert.match(r.mensagem, /Desfeito/);
+  assert.equal(f.t.workspaces.get(d.cnpj)!.payload.empresa.inscricaoMunicipal, '\t2535939');
+  await aplicarAchadoEmpresaMigrada(f.banco, d.cnpj, '', 'corrigir_todos', 'contadora', workspaceValido);
+  assert.equal(f.t.workspaces.get(d.cnpj)!.payload.empresa.inscricaoMunicipal, '2535939');
+  await assert.rejects(() => aplicarAchadoEmpresaMigrada(f.banco, d.cnpj, '', 'corrigir_todos', 'contadora', workspaceValido), /já estão aplicadas/);
+  // "Manter como veio" num item de verificar fica guardado, inclusive depois de migrar de novo.
+  const item = an!.achados.find((a) => a.situacao === 'pendente');
+  assert.ok(item, JSON.stringify(an!.achados.map((a) => [a.id, a.situacao])));
+  {
+    await aplicarAchadoEmpresaMigrada(f.banco, d.cnpj, item.id, 'manter', 'contadora', workspaceValido);
+    await gravarEmpresaMigrada(f.banco, d, quem, op);
+    assert.equal((await analisarEmpresaMigrada(f.consultar, d.cnpj))!.achados.find((a) => a.id === item.id)!.situacao, 'mantido');
+  }
 });

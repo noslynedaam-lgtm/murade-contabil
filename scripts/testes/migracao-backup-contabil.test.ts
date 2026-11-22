@@ -291,7 +291,8 @@ test('robô conferidor e Agente IA: estão registrados e a tela nova não escrev
   assert.ok(ROBOS_APRESENTACAO.some((r) => r.id === 'conferidor_migracao_sistema_anterior'));
   const nomes = kitContabil.ferramentas.map((f) => f.declaracao.name);
   for (const n of ['situacao_migracao_sistema_anterior', 'conferir_migracao_sistema_anterior', 'ver_registro_sistema_anterior']) assert.ok(nomes.includes(n), n);
-  assert.ok(kitContabil.ferramentas.filter((f) => /sistema_anterior/.test(f.declaracao.name)).every((f) => f.tipo === 'leitura'));
+  assert.ok(kitContabil.ferramentas.filter((f) => /sistema_anterior/.test(f.declaracao.name) && f.declaracao.name !== 'decidir_item_migracao_sistema_anterior').every((f) => f.tipo === 'leitura'));
+  assert.equal(kitContabil.ferramentas.find((f) => f.declaracao.name === 'decidir_item_migracao_sistema_anterior')?.tipo, 'acao', 'decidir é sempre por cartão');
   const tela = fs.readFileSync(path.join(AQUI, '..', '..', 'src', 'components', 'MigracaoBackupContabil.tsx'), 'utf8');
   assert.ok(!/alterdata/i.test(tela));
 });

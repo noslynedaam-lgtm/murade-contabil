@@ -8,7 +8,7 @@ import {
   descartarMigracaoContabil, gerarPreviaContabil, gravarMigracaoContabil, iniciarLimpezaMigracaoContabil, listarEmpresasDoBackupContabil,
   receberArquivoContabil, situacaoMigracaoContabilDoUsuario,
 } from './servico';
-import { cnpjsMigrados, conferirCamposEmpresaMigrada, conferirEmpresaMigrada, empresaExcluidaAntes, ErroMigracao, gravarEmpresaMigrada, lerBlocoSistemaAnterior, lerRegistroSistemaAnterior } from './banco';
+import { analisarEmpresaMigrada, aplicarAchadoEmpresaMigrada, type AcaoAchado, cnpjsMigrados, conferirCamposEmpresaMigrada, conferirEmpresaMigrada, empresaExcluidaAntes, ErroMigracao, gravarEmpresaMigrada, lerBlocoSistemaAnterior, lerRegistroSistemaAnterior } from './banco';
 
 export interface DependenciasRotasMigracao {
   exigirSessao: express.RequestHandler;
@@ -117,10 +117,30 @@ export function registrarRotasMigracaoSistemaAnterior(app: express.Express, dep:
       const reg = await lerRegistroSistemaAnterior(dep.consultar, cnpj);
       const conferencia = reg.resumo ? await conferirEmpresaMigrada(dep.consultar, cnpj) : null;
       const campos = reg.resumo ? await conferirCamposEmpresaMigrada(dep.consultar, cnpj) : null;
+      const analise = reg.resumo ? await analisarEmpresaMigrada(dep.consultar, cnpj) : null;
       const { esperado: _e, esperadoLancamentos: _l, saldoFinalEsperado: _s, mapaContas: _m, ...resumo } = (reg.resumo || {}) as any;
       res.json({ sucesso: true, cnpj, resumo: reg.resumo ? { ...resumo, naoEntraram: (resumo.naoEntraram || []).slice(0, 50) } : null, blocos: reg.blocos, conferencia,
-        campos: campos ? { resumo: campos.resumo, conferidos: campos.conferidos, totalPendencias: campos.pendencias.length, pendencias: campos.pendencias.slice(0, 300), semCadastroNoRegistro: campos.semCadastroNoRegistro } : null });
+        campos: campos ? { resumo: campos.resumo, conferidos: campos.conferidos, totalPendencias: campos.pendencias.length, pendencias: campos.pendencias.slice(0, 300), semCadastroNoRegistro: campos.semCadastroNoRegistro } : null,
+        analise: analise ? { resumo: analise.resumo, achados: analise.achados.slice(0, 300).map(({ valorVeio: _v, valorCerto: _c, ...a }) => ({ ...a, alvo: a.alvo ? { tipo: a.alvo.tipo, campo: a.alvo.campo, codigo: a.alvo.codigo, quantidade: a.alvo.ids?.length } : undefined })) } : null });
     } catch (e) { console.error('Falha ao ler registro do sistema anterior:', (e as Error)?.message || e); res.status(503).json({ sucesso: false, motivo: 'Não foi possível ler o registro do sistema anterior agora.' }); }
+  });
+  const ACOES: AcaoAchado[] = ['corrigir', 'desfazer', 'aceitar', 'manter', 'lancar_ajuste', 'desfazer_ajuste', 'corrigir_todos'];
+  app.post(`${base}/registro/:cnpj/achado`, dep.exigirOrigemNavegador, dep.exigirSessao, async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const s = sessaoDe(req); const cnpj = normalizar(req.params.cnpj);
+    if (!s || !s.cnpjs.includes(cnpj)) { res.status(403).json({ sucesso: false, motivo: 'Empresa fora do seu acesso.' }); return; }
+    if (!s.administrador && !s.escritorioDe) { res.status(403).json({ sucesso: false, motivo: 'Só a equipe do escritório decide os itens da migração.' }); return; }
+    const acao = String(req.body?.acao || '') as AcaoAchado; const id = String(req.body?.id || '').slice(0, 200);
+    if (!ACOES.includes(acao) || (acao !== 'corrigir_todos' && !id)) { res.status(400).json({ sucesso: false, motivo: 'Ação inválida.' }); return; }
+    try {
+      await dep.preparar();
+      const r = await aplicarAchadoEmpresaMigrada(dep.banco(), cnpj, id, acao, s.login, (p) => dep.workspaceValido(p));
+      res.json({ sucesso: true, mensagem: r.mensagem, resumo: r.resumo, bate: r.conferencia.bate, conferencia: r.conferencia.resumo });
+    } catch (e) {
+      if (e instanceof ErroMigracao || (e instanceof Error && !/connect|ECONN|timeout/i.test(e.message))) { res.status(409).json({ sucesso: false, motivo: motivo(e) }); return; }
+      console.error('Falha ao aplicar item da análise da migração:', (e as Error)?.message || e);
+      res.status(503).json({ sucesso: false, motivo: 'O banco não confirmou; nada foi alterado. Tente de novo.' });
+    }
   });
   app.get(`${base}/registro/:cnpj/bloco/:bloco`, dep.exigirSessao, async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -139,13 +159,21 @@ export function rotinaConferidorMigracao(dep: Pick<DependenciasRotasMigracao, 'c
     const cnpjs = await cnpjsMigrados(dep.consultar);
     const problemas: string[] = [];
     const camposPendentes: string[] = [];
-    let desatualizados = 0; let totalPendencias = 0;
+    let desatualizados = 0; let totalPendencias = 0; let totalConferir = 0; let totalAjustes = 0;
+    const analises: string[] = [];
     for (const cnpj of cnpjs) {
       const c = await conferirEmpresaMigrada(dep.consultar, cnpj);
       if (!c) continue;
       if (!c.bate) problemas.push(`${cnpj}: ${c.resumo}`);
       else if (c.saldosAntigosDesatualizadosNoSistemaAnterior) desatualizados++;
       // Campo a campo: o que estava preenchido no sistema anterior e chegou vazio ou diferente no Murade.
+      const an = await analisarEmpresaMigrada(dep.consultar, cnpj).catch(() => null);
+      if (an) {
+        const ajustes = an.achados.filter((a) => a.tipo === 'ajuste' && a.situacao === 'pendente').length;
+        const conferir = an.achados.filter((a) => a.tipo === 'conferir' && a.situacao === 'pendente').length;
+        if (ajustes || conferir) analises.push(`${cnpj}: ${conferir} item(ns) para o contador conferir${ajustes ? `, ${ajustes} ajuste(s) prontos esperando o "Sim"` : ''}`);
+        totalConferir += conferir; totalAjustes += ajustes;
+      }
       const f = await conferirCamposEmpresaMigrada(dep.consultar, cnpj).catch((e) => { console.error(`Conferidor campo a campo falhou para ${cnpj}:`, (e as Error)?.message || e); return null; });
       if (f?.pendencias.length) {
         totalPendencias += f.pendencias.length;
@@ -159,7 +187,8 @@ export function rotinaConferidorMigracao(dep: Pick<DependenciasRotasMigracao, 'c
     if (cnpjs.length) texto += camposPendentes.length
       ? ` Campo a campo: ${totalPendencias} pendência(s) em ${camposPendentes.length} empresa(s) — ${camposPendentes.slice(0, 3).join(' | ')}. Veja na empresa › Migração › "O que veio do sistema anterior".`
       : ' Campo a campo: todos os campos preenchidos no sistema anterior estão iguais no Murade.';
+    if (cnpjs.length && analises.length) texto += ` Análise do que veio errado do sistema anterior: ${totalConferir} item(ns) para o contador conferir${totalAjustes ? ` e ${totalAjustes} ajuste(s) prontos` : ''} — ${analises.slice(0, 3).join(' | ')}.`;
     dep.robos.registrarResultadoRobo(id, texto);
-    dep.robos.definirAlertaRobo(id, problemas.length || camposPendentes.length ? { nivel: 'aviso', texto } : null);
+    dep.robos.definirAlertaRobo(id, problemas.length || camposPendentes.length || totalAjustes ? { nivel: 'aviso', texto } : null);
   }).catch((e) => console.error('Falha no Robô Conferidor da Migração do Sistema Anterior:', (e as Error)?.message || e)) : undefined;
 }

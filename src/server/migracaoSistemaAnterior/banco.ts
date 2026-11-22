@@ -8,10 +8,13 @@ import type { DadosContabeisEmpresa } from './conversor';
 import { conferirMigracao, type ReferenciaConferencia, type ResultadoConferencia } from './conferencia';
 import { mesclarMigracao } from './mesclagem';
 import { conferirCamposMigrados, type ResultadoCampos } from './camposSistemaAnterior';
+import { analisarMigracao, aplicarAcaoAchado, resumoAnalise, type AchadoMigracao } from './analiseSistemaAnterior';
 import { converterClassificacao } from './conversor';
 
 export const TABELA_SISTEMA_ANTERIOR = 'contabil_sistema_anterior';
 export const BLOCO_RESUMO = '__migracao';
+/** Decisões do contador sobre a análise do que veio (aceitar a sugestão / manter como veio). */
+export const BLOCO_DECISOES = '__decisoes';
 const SQL_TABELA = `CREATE TABLE IF NOT EXISTS ${TABELA_SISTEMA_ANTERIOR} (
   cnpj text NOT NULL CHECK (cnpj ~ '^[A-Z0-9]{12}[0-9]{2}$'), bloco text NOT NULL, linhas jsonb NOT NULL, quantidade integer NOT NULL,
   migrado_em timestamptz NOT NULL DEFAULT now(), migrado_por text, PRIMARY KEY (cnpj, bloco)
@@ -72,7 +75,7 @@ export async function gravarEmpresaMigrada(
       lancamentosGravados: dados.lancamentos.length, semSaldosParaConferir: dados.semSaldosParaConferir, linhasQueNaoEntraram: dados.naoEntraram.length,
       naoEntraram: dados.naoEntraram, avisos: [...dados.avisos, ...m.avisos], conferenciaNaGravacao: conferencia.resumo, mapaContas: dados.mapaContas,
     };
-    await q(`DELETE FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1`, [cnpj]);
+    await q(`DELETE FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 AND bloco<>$2`, [cnpj, BLOCO_DECISOES]);
     let linhasGuardadas = 0;
     const blocos = Object.entries(dados.blocos);
     for (const [bloco, linhas] of blocos) {
@@ -94,12 +97,12 @@ export async function lerRegistroSistemaAnterior(consultar: ConsultaSql, cnpj: s
   if (!existe.rows[0]?.t) return { resumo: null, blocos: [] };
   const r = await consultar(`SELECT bloco, quantidade, migrado_em, CASE WHEN bloco=$2 THEN linhas END AS resumo FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 ORDER BY bloco`, [cnpj, BLOCO_RESUMO]);
   const resumo = r.rows.find((x) => x.bloco === BLOCO_RESUMO)?.resumo ?? null;
-  return { resumo, blocos: r.rows.filter((x) => x.bloco !== BLOCO_RESUMO).map((x) => ({ bloco: String(x.bloco), quantidade: Number(x.quantidade), migradoEm: new Date(x.migrado_em).toISOString() })) };
+  return { resumo, blocos: r.rows.filter((x) => x.bloco !== BLOCO_RESUMO && x.bloco !== BLOCO_DECISOES).map((x) => ({ bloco: String(x.bloco), quantidade: Number(x.quantidade), migradoEm: new Date(x.migrado_em).toISOString() })) };
 }
 
 /** Linhas de um bloco, paginadas (consulta na tela e pela Agente). */
 export async function lerBlocoSistemaAnterior(consultar: ConsultaSql, cnpj: string, bloco: string, deslocamento = 0, limite = 100): Promise<{ total: number; linhas: any[] }> {
-  if (bloco === BLOCO_RESUMO) return { total: 0, linhas: [] };
+  if (bloco === BLOCO_RESUMO || bloco === BLOCO_DECISOES) return { total: 0, linhas: [] };
   const existe = await consultar(`SELECT to_regclass('${TABELA_SISTEMA_ANTERIOR}') AS t`, []);
   if (!existe.rows[0]?.t) return { total: 0, linhas: [] };
   const lim = Math.max(1, Math.min(500, Math.floor(limite)));
@@ -119,7 +122,7 @@ export async function conferirEmpresaMigrada(consultar: ConsultaSql, cnpj: strin
 }
 
 /** Blocos usados pelo conferidor campo a campo. */
-export const BLOCOS_CONFERENCIA_CAMPOS = ['cadastro_empresa', 'empresa_contabil', 'contador', 'socios_empresa', 'socios', 'municipio', 'plano_cadastro', 'plano_contas', 'historicos_padrao', 'lotes', 'lancamentos_originais', 'imobilizado_bens', 'cadastro_historico_cnae', 'historico_nire'];
+export const BLOCOS_CONFERENCIA_CAMPOS: string[] = ['cadastro_empresa', 'empresa_contabil', 'contador', 'socios_empresa', 'socios', 'municipio', 'plano_cadastro', 'plano_contas', 'historicos_padrao', 'lotes', 'lancamentos_originais', 'imobilizado_bens', 'cadastro_historico_cnae', 'historico_nire'];
 
 /** Conferência campo a campo de uma empresa já migrada: cada campo preenchido no backup x o que está no Murade hoje. Só lê. */
 export async function conferirCamposEmpresaMigrada(consultar: ConsultaSql, cnpj: string): Promise<ResultadoCampos | null> {
@@ -137,6 +140,73 @@ export async function conferirCamposEmpresaMigrada(consultar: ConsultaSql, cnpj:
     for (const c of blocos.plano_contas || []) { const cod = converterClassificacao(c.cdclassinterna); if (cod) mapa[String(Number(c.idconta))] = cod; }
   }
   return conferirCamposMigrados({ cdempresa: Number(resumo.cdempresa), blocos, mapaContas: mapa, payload, registroAntigo });
+}
+
+async function carregarParaAnalise(consultar: ConsultaSql, cnpj: string, payloadAtual?: Record<string, any>) {
+  const { resumo } = await lerRegistroSistemaAnterior(consultar, cnpj);
+  if (!resumo) return null;
+  const nomes = [...BLOCOS_CONFERENCIA_CAMPOS, 'lancamentos_lote_aberto', BLOCO_DECISOES];
+  const r = await consultar(`SELECT bloco, linhas FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 AND bloco = ANY($2::text[])`, [cnpj, nomes]);
+  const blocos: Record<string, any[]> = {}; let decisoes: Record<string, any> = {};
+  for (const x of r.rows) { if (x.bloco === BLOCO_DECISOES) decisoes = x.linhas && typeof x.linhas === 'object' && !Array.isArray(x.linhas) ? x.linhas : {}; else blocos[String(x.bloco)] = Array.isArray(x.linhas) ? x.linhas : []; }
+  const payload = payloadAtual || (await consultar('SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1', [cnpj])).rows[0]?.payload || {};
+  let mapa = resumo.mapaContas;
+  if (!mapa) { mapa = {}; for (const c of blocos.plano_contas || []) { const cod = converterClassificacao(c.cdclassinterna); if (cod) mapa[String(Number(c.idconta))] = cod; } }
+  return { resumo, blocos, decisoes, payload, mapa };
+}
+
+function analisar(c: NonNullable<Awaited<ReturnType<typeof carregarParaAnalise>>>): AchadoMigracao[] {
+  const conferencia = conferirMigracao(Array.isArray(c.payload.contas) ? c.payload.contas : [], Array.isArray(c.payload.lancamentos) ? c.payload.lancamentos : [], c.resumo);
+  return analisarMigracao({ cdempresa: Number(c.resumo.cdempresa), blocos: c.blocos, mapaContas: c.mapa, payload: c.payload, naoEntraram: c.resumo.naoEntraram || [], conferencia, decisoes: c.decisoes });
+}
+
+/** Análise do que veio errado do sistema anterior (correções automáticas, itens para o contador, ajustes propostos). Só lê. */
+export async function analisarEmpresaMigrada(consultar: ConsultaSql, cnpj: string): Promise<{ achados: AchadoMigracao[]; resumo: string } | null> {
+  const c = await carregarParaAnalise(consultar, cnpj);
+  if (!c) return null;
+  const achados = analisar(c);
+  return { achados, resumo: resumoAnalise(achados) };
+}
+
+export type AcaoAchado = 'corrigir' | 'desfazer' | 'aceitar' | 'manter' | 'lancar_ajuste' | 'desfazer_ajuste' | 'corrigir_todos';
+
+/** Executa UMA ação do contador sobre a análise (ou "Corrigir agora" para todas as correções automáticas), numa transação. */
+export async function aplicarAchadoEmpresaMigrada(banco: BancoTransacional, cnpj: string, id: string, acao: AcaoAchado, quem: string, validar: (p: Record<string, unknown>) => boolean): Promise<{ mensagem: string; achados: AchadoMigracao[]; resumo: string; conferencia: ResultadoConferencia }> {
+  return banco.transacao(async (q) => {
+    await q('SELECT pg_advisory_xact_lock(hashtext($1))', [cnpj]);
+    const ws = await q('SELECT payload,version FROM contabil_company_workspaces WHERE cnpj=$1 FOR UPDATE', [cnpj]);
+    if (!ws.rows.length) throw new ErroMigracao('A empresa não tem escrituração no Contábil.');
+    const c = await carregarParaAnalise(q, cnpj, ws.rows[0].payload);
+    if (!c) throw new ErroMigracao('Esta empresa não tem migração do sistema anterior registrada.');
+    const fechadas = new Set((await q('SELECT competencia FROM contabil_period_closures WHERE cnpj=$1', [cnpj])).rows.map((r) => String(r.competencia)));
+    const achados = analisar(c);
+    let payload = c.payload; let mensagem = '';
+    const alvos = acao === 'corrigir_todos' ? achados.filter((a) => a.tipo === 'corrigido' && a.situacao === 'desfeito') : achados.filter((a) => a.id === id);
+    if (!alvos.length) throw new ErroMigracao(acao === 'corrigir_todos' ? 'Não há correção automática para refazer: todas já estão aplicadas.' : 'Este item não está mais na análise (pode já ter sido resolvido).');
+    for (const a of alvos) {
+      const comp = a.ajuste?.competencia || '';
+      const lancsAlvo = a.alvo?.tipo === 'lancamentos' ? (payload.lancamentos || []).filter((l: any) => (a.alvo!.ids || []).includes(l.id)) : [];
+      if ((comp && fechadas.has(comp)) || lancsAlvo.some((l: any) => fechadas.has(String(l.data).slice(0, 7)))) throw new ErroMigracao('A competência está fechada no Murade. Reabra a competência para mudar este item.');
+      if (acao === 'manter') { mensagem = 'Mantido como veio do sistema anterior.'; continue; }
+      payload = aplicarAcaoAchado(payload, a, acao === 'corrigir_todos' ? 'corrigir' : acao, quem);
+    }
+    if (acao === 'aceitar' || acao === 'manter') {
+      const decisoes = { ...c.decisoes, [id]: { decisao: acao === 'aceitar' ? 'aceito' : 'mantido', por: quem, em: new Date().toISOString() } };
+      await q(`DELETE FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 AND bloco=$2`, [cnpj, BLOCO_DECISOES]);
+      await q(`INSERT INTO ${TABELA_SISTEMA_ANTERIOR}(cnpj,bloco,linhas,quantidade,migrado_por) VALUES($1,$2,$3::jsonb,$4,$5)`, [cnpj, BLOCO_DECISOES, JSON.stringify(decisoes), Object.keys(decisoes).length, quem]);
+      c.decisoes = decisoes;
+    }
+    if (payload !== c.payload) {
+      if (!validar(payload)) throw new ErroMigracao('A mudança não passou na validação do Contábil; nada foi alterado.');
+      await q('UPDATE contabil_company_workspaces SET payload=$2::jsonb,version=version+1,updated_at=now() WHERE cnpj=$1', [cnpj, JSON.stringify(payload)]);
+    }
+    const depois = analisar({ ...c, payload });
+    const conferencia = conferirMigracao(Array.isArray(payload.contas) ? payload.contas : [], Array.isArray(payload.lancamentos) ? payload.lancamentos : [], c.resumo);
+    if (!mensagem) mensagem = acao === 'lancar_ajuste' ? `Ajuste lançado. Conferência de novo: ${conferencia.bate ? 'agora bate exatamente.' : conferencia.resumo}`
+      : acao === 'desfazer_ajuste' ? 'Ajuste estornado (o lançamento continua no Diário, com o estorno).' : acao === 'desfazer' ? 'Desfeito: voltou como veio do sistema anterior.'
+        : acao === 'corrigir_todos' ? `${alvos.length} correção(ões) aplicada(s).` : acao === 'aceitar' ? 'Sugestão aceita e aplicada.' : 'Corrigido.';
+    return { mensagem, achados: depois, resumo: resumoAnalise(depois), conferencia };
+  });
 }
 
 /** CNPJs com migração registrada (para o robô). */

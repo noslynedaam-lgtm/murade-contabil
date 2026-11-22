@@ -1,5 +1,6 @@
 import { IDS_ORIGEM, ROTULOS_ORIGEM, ROTULO_PARA_ID, origemDaReferencia } from "../utils/origensContabeis";
 import { sugerirMapeamentosPadrao } from "../utils/sugestoesContas";
+import { montarWorkspaceInicialContabil, empresaInicialDoCadastro } from "../utils/workspaceInicial";
 import { validarHistoricoPadrao, validarLancamentoPadrao } from "../utils/escrituracaoAvancada";
 import { validarRegraConciliacao } from "../utils/extratoBancario";
 import type { HistoricoPadrao } from "../types";
@@ -1364,6 +1365,62 @@ export async function lerWorkspaceInternoContabil(cnpj: string): Promise<Record<
   return row.rowCount ? row.rows[0].payload as Record<string, unknown> : null;
 }
 
+/**
+ * Automático: toda empresa que já está no Contábil (veio do Fiscal, do DP, da migração ou do cadastro manual) e ainda não tem
+ * workspace ganha o workspace inicial — plano de contas padrão do Murade + mapeamentos de origem padrão — para o Robô Reconciliador
+ * já preparar os pré-lançamentos do Fiscal e do DP. Nunca sobrescreve workspace existente (INSERT ... DO NOTHING).
+ * Isolado por escritório: só CNPJ que tem acesso cadastrado (contabil_auth_company_access); o cadastro básico é o do próprio CNPJ.
+ * Com `cnpjs`, cria só para esses (ex.: logo depois do robô trazer as empresas do Fiscal).
+ */
+export async function criarWorkspacesQueFaltamContabil(cnpjs?: string[], agoraIso = new Date().toISOString()): Promise<{ criados: string[]; falhas: string[] }> {
+  await prepararAuthContabil();
+  const filtro = cnpjs ? [...new Set(cnpjs.map(normalizarCnpjAcesso).filter(cnpjContabilValido))] : null;
+  if (filtro && !filtro.length) return { criados: [], falhas: [] };
+  const faltando = await obterBanco().query(`
+    SELECT DISTINCT a.cnpj, c.dados
+    FROM contabil_auth_company_access a
+    LEFT JOIN contabil_empresas_compartilhadas c ON c.cnpj=a.cnpj
+    WHERE NOT EXISTS (SELECT 1 FROM contabil_company_workspaces w WHERE w.cnpj=a.cnpj)
+      AND ($1::text[] IS NULL OR a.cnpj=ANY($1::text[]))
+    ORDER BY a.cnpj
+  `, [filtro]);
+  const criados: string[] = []; const falhas: string[] = [];
+  for (const row of faltando.rows) {
+    const cnpj = normalizarCnpjAcesso(row.cnpj);
+    if (!cnpjContabilValido(cnpj)) continue;
+    try {
+      const payload = montarWorkspaceInicialContabil(empresaInicialDoCadastro(cnpj, row.dados as Record<string, unknown> | null), agoraIso);
+      if (!workspaceValido(payload)) { falhas.push(cnpj); continue; }
+      const r = await obterBanco().query("INSERT INTO contabil_company_workspaces(cnpj,payload,version) VALUES($1,$2::jsonb,1) ON CONFLICT(cnpj) DO NOTHING RETURNING cnpj", [cnpj, JSON.stringify(payload)]);
+      if (r.rowCount) criados.push(cnpj);
+    } catch (error) {
+      falhas.push(cnpj);
+      console.error(`[Murad Contábil] Falha ao criar o workspace inicial do CNPJ ${cnpj}:`, error);
+    }
+  }
+  return { criados, falhas };
+}
+
+/** Painel "prontos para conferir": por empresa do escritório, quantos pré-lançamentos aguardam conferência e se a empresa já tem workspace. Só leitura. */
+export async function resumoPreLancamentosPorEmpresaContabil(cnpjs: string[]): Promise<Array<{ cnpj: string; nome: string; temWorkspace: boolean; pendentes: number; contabilizados: number; ultimoPreparo: string | null }>> {
+  await prepararAuthContabil();
+  const lista = [...new Set(cnpjs.map(normalizarCnpjAcesso).filter(cnpjContabilValido))];
+  if (!lista.length) return [];
+  const r = await obterBanco().query(`
+    SELECT x.cnpj,
+      COALESCE(w.payload->'empresa'->>'razaoSocial', c.dados->>'razaoSocial', '') AS nome,
+      (w.cnpj IS NOT NULL) AS tem_workspace,
+      COALESCE((SELECT count(*) FROM jsonb_array_elements(CASE WHEN jsonb_typeof(w.payload->'preLancamentos')='array' THEN w.payload->'preLancamentos' ELSE '[]'::jsonb END) p WHERE p->>'status'='pendente_conferencia'),0)::int AS pendentes,
+      COALESCE((SELECT count(*) FROM jsonb_array_elements(CASE WHEN jsonb_typeof(w.payload->'preLancamentos')='array' THEN w.payload->'preLancamentos' ELSE '[]'::jsonb END) p WHERE p->>'status'='contabilizado'),0)::int AS contabilizados,
+      (SELECT max(p->>'criadoEm') FROM jsonb_array_elements(CASE WHEN jsonb_typeof(w.payload->'preLancamentos')='array' THEN w.payload->'preLancamentos' ELSE '[]'::jsonb END) p) AS ultimo
+    FROM unnest($1::text[]) AS x(cnpj)
+    LEFT JOIN contabil_company_workspaces w ON w.cnpj=x.cnpj
+    LEFT JOIN contabil_empresas_compartilhadas c ON c.cnpj=x.cnpj
+    ORDER BY 2, 1
+  `, [lista]);
+  return r.rows.map((row) => ({ cnpj: String(row.cnpj), nome: String(row.nome || ""), temWorkspace: row.tem_workspace === true, pendentes: Number(row.pendentes) || 0, contabilizados: Number(row.contabilizados) || 0, ultimoPreparo: row.ultimo ? String(row.ultimo) : null }));
+}
+
 /** Empresas que ainda têm origem sem mapeamento (candidatas à sugestão automática do plano padrão). */
 export async function listarCnpjsComOrigensSemMapeamentoContabil(): Promise<string[]> {
   await prepararAuthContabil();
@@ -1911,6 +1968,8 @@ export async function importarCnpjsCompartilhados(itens: Array<{ cnpj: string; e
     // Guarda o cadastro básico para a empresa aparecer na lista (nome, regime, UF) mesmo antes do primeiro salvamento da escrituração.
     if (meu && item.dados) await obterBanco().query("INSERT INTO contabil_empresas_compartilhadas(cnpj,dados) VALUES($1,$2::jsonb) ON CONFLICT(cnpj) DO NOTHING", [cnpj, JSON.stringify(item.dados)]);
   }
+  // A empresa que chegou do Fiscal já começa a trabalhar no Contábil: workspace inicial (plano padrão + mapeamentos) para o reconciliador preparar os pré-lançamentos.
+  await criarWorkspacesQueFaltamContabil(itens.map((i) => i.cnpj)).catch((error) => console.error("[Murad Contábil] Falha ao criar workspaces das empresas vindas do Fiscal (o Robô Reconciliador tenta de novo):", error));
   return { criadas, jaExistiam, semEscritorio, semDono: !dono && itens.some((i) => i.donoSistema) ? true : undefined };
 }
 

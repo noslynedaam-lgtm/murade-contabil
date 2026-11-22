@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ehBackupCustom, extrairTabelasContabeis, leitoresDoNavegador } from "../utils/leitorBackupCustom";
+import { confirmarNaTela } from "../utils/dialogoNaTela";
 
 // Tela "Trazer tudo do sistema anterior (pelo backup)" do Contábil — mesmo jeito do Murade DP:
 // escolhe o arquivo .bcir/.backup → o navegador separa só a parte contábil e envia → lista as empresas →
@@ -249,6 +250,62 @@ type PendenciaCampo = { grupo: string; item: string; rotulo: string; origem: str
 type RegistroResposta = {
   resumo: any | null; blocos: Array<{ bloco: string; quantidade: number }>; conferencia: { resumo: string; bate: boolean; diferencas: any[] } | null;
   campos?: { resumo: string; totalPendencias: number; pendencias: PendenciaCampo[] } | null;
+  analise?: { resumo: string; achados: Achado[] } | null;
+};
+type Achado = {
+  id: string; tipo: "corrigido" | "conferir" | "verificar" | "ajuste"; situacao: string; titulo: string; veio: string; certo: string; base: string;
+  alvo?: { tipo: string; campo: string; codigo?: string; quantidade?: number }; ajuste?: { contaDebito: string; contaCredito: string; valorCentavos: number; historico: string; data: string };
+};
+const SITUACAO: Record<string, string> = { corrigido: "corrigido", desfeito: "desfeito (como veio)", alterado: "alterado pela equipe", pendente: "esperando o contador", aceito: "aceito", mantido: "mantido como veio", lancado: "ajuste lançado" };
+
+/** Análise do que veio errado: corrigidos (Desfazer / Corrigir agora), para conferir (Aceitar / Manter) e ajustes (Sim, lançar / Desfazer). Um por vez. */
+const AnaliseMigracao: React.FC<{ cnpj: string; analise: { resumo: string; achados: Achado[] }; aoMudar: () => void }> = ({ cnpj, analise, aoMudar }) => {
+  const [aberto, setAberto] = useState(false);
+  const [ocupado, setOcupado] = useState("");
+  const [msg, setMsg] = useState("");
+  const agir = async (a: Achado | null, acao: string, pergunta: string) => {
+    if (ocupado || !(await confirmarNaTela(pergunta))) return;
+    setOcupado(a?.id || acao); setMsg("");
+    try {
+      const r = await fetch(`/api/migracao-sistema-anterior/registro/${encodeURIComponent(cnpj)}/achado`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: a?.id || "", acao }) });
+      const j = await r.json().catch(() => ({}));
+      setMsg(j?.sucesso ? String(j.mensagem || "Feito.") : String(j?.motivo || "Não foi possível."));
+      if (j?.sucesso) aoMudar();
+    } catch { setMsg("Sem conexão; nada foi alterado."); } finally { setOcupado(""); }
+  };
+  const desfeitos = analise.achados.filter((a) => a.tipo === "corrigido" && a.situacao === "desfeito").length;
+  const pendentes = analise.achados.filter((a) => a.situacao === "pendente").length;
+  return (
+    <div data-campo="analise-migracao-sistema-anterior" className="space-y-1">
+      <p className={pendentes ? "text-amber-800" : "text-emerald-800"}>{analise.resumo}</p>
+      {analise.achados.length > 0 && <button type="button" onClick={() => setAberto((v) => !v)} className="min-h-[40px] rounded border border-amber-300 bg-amber-50 px-3 text-amber-900">{aberto ? "Fechar a análise" : `Ver a análise (${analise.achados.length} item(ns))`}</button>}
+      {msg && <p role="status" className="text-slate-700">{msg}</p>}
+      {aberto && (
+        <div className="space-y-2">
+          {desfeitos > 0 && <button type="button" disabled={!!ocupado} onClick={() => void agir(null, "corrigir_todos", `Corrigir agora as ${desfeitos} correção(ões) automática(s) desfeita(s)? Só muda formatação (espaços nas pontas, zero do CPF, bairro completo); valores não mudam.`)} className="min-h-[40px] rounded border border-blue-400 bg-blue-50 px-3 text-blue-900 disabled:opacity-40">Corrigir agora</button>}
+          <ul className="max-h-96 space-y-2 overflow-auto">
+            {analise.achados.map((a) => (
+              <li key={a.id} className="rounded border border-slate-200 p-2">
+                <div className="font-bold text-slate-900">{a.tipo === "corrigido" ? "Corrigido sozinho" : a.tipo === "ajuste" ? "Ajuste do balancete" : a.tipo === "verificar" ? "Verificar" : "Para o contador conferir"} · {a.titulo} <span className="font-normal text-slate-500">({SITUACAO[a.situacao] || a.situacao})</span></div>
+                <div><span className="text-slate-500">O backup veio assim:</span> <span className="break-words">{a.veio}</span></div>
+                <div><span className="text-slate-500">{a.tipo === "corrigido" ? "Corrigido para:" : a.tipo === "verificar" ? "O que ver:" : "O certo:"}</span> <span className="break-words">{a.certo}</span></div>
+                <div className="text-[11px] text-slate-500">Base: {a.base}</div>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {a.tipo === "corrigido" && a.situacao === "corrigido" && <button type="button" disabled={!!ocupado} onClick={() => void agir(a, "desfazer", `Desfazer esta correção e deixar como veio do sistema anterior?\n${a.titulo}: ${a.veio}`)} className="min-h-[40px] rounded border border-slate-300 px-3 disabled:opacity-40">Desfazer</button>}
+                  {a.tipo === "corrigido" && a.situacao !== "corrigido" && <button type="button" disabled={!!ocupado} onClick={() => void agir(a, "corrigir", `Corrigir agora?\n${a.titulo}: ${a.certo}`)} className="min-h-[40px] rounded border border-blue-400 px-3 disabled:opacity-40">Corrigir agora</button>}
+                  {(a.tipo === "conferir" || a.tipo === "verificar") && a.situacao === "pendente" && a.alvo && <button type="button" disabled={!!ocupado} onClick={() => void agir(a, "aceitar", `Aceitar a sugestão e corrigir?\n${a.titulo}: ${a.certo}\nBase: ${a.base}`)} className="min-h-[40px] rounded border border-blue-400 px-3 disabled:opacity-40">Aceitar e corrigir</button>}
+                  {(a.tipo === "conferir" || a.tipo === "verificar") && a.situacao === "pendente" && <button type="button" disabled={!!ocupado} onClick={() => void agir(a, "manter", `Manter como veio do sistema anterior (marcar como conferido por você)?\n${a.titulo}`)} className="min-h-[40px] rounded border border-slate-300 px-3 disabled:opacity-40">Manter como veio</button>}
+                  {a.tipo === "ajuste" && a.situacao === "pendente" && a.ajuste && <button type="button" disabled={!!ocupado} onClick={() => void agir(a, "lancar_ajuste", `Quer que eu ajuste?\nVou lançar: D ${a.ajuste!.contaDebito} / C ${a.ajuste!.contaCredito} — ${(a.ajuste!.valorCentavos / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} em ${a.ajuste!.data.split("-").reverse().join("/")}\nHistórico: ${a.ajuste!.historico}`)} className="min-h-[40px] rounded border border-emerald-500 bg-emerald-50 px-3 text-emerald-900 disabled:opacity-40">Sim, lançar o ajuste</button>}
+                  {a.tipo === "ajuste" && a.situacao === "pendente" && <button type="button" disabled={!!ocupado} onClick={() => void agir(a, "manter", `Deixar sem ajuste por enquanto?\n${a.titulo}`)} className="min-h-[40px] rounded border border-slate-300 px-3 disabled:opacity-40">Não ajustar</button>}
+                  {a.tipo === "ajuste" && a.situacao === "lancado" && <button type="button" disabled={!!ocupado} onClick={() => void agir(a, "desfazer_ajuste", `Desfazer o ajuste? Vou lançar o estorno (o lançamento continua no Diário, com a partida invertida).`)} className="min-h-[40px] rounded border border-slate-300 px-3 disabled:opacity-40">Desfazer (estorno)</button>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
 };
 
 const NOMES: Record<string, string> = {
@@ -271,13 +328,14 @@ export const RegistroSistemaAnterior: React.FC<{ cnpj: string }> = ({ cnpj }) =>
   const [aberto, setAberto] = useState<{ bloco: string; desde: number; total: number; linhas: any[] } | null>(null);
   const [erro, setErro] = useState("");
   const [verCampos, setVerCampos] = useState(false);
+  const [recarregar, setRecarregar] = useState(0);
   useEffect(() => {
-    let vivo = true; setDados(null); setVerCampos(false); setAberto(null); setErro("");
+    let vivo = true; if (!recarregar) { setDados(null); setVerCampos(false); } setAberto(null); setErro("");
     if (c.length !== 14) return;
     fetch(`/api/migracao-sistema-anterior/registro/${encodeURIComponent(c)}`, { credentials: "include", cache: "no-store" })
       .then((r) => r.json()).then((j) => { if (vivo && j?.sucesso) setDados(j); }).catch(() => undefined);
     return () => { vivo = false; };
-  }, [c]);
+  }, [c, recarregar]);
   const abrir = async (bloco: string, desde = 0) => {
     setErro("");
     try {
@@ -294,6 +352,7 @@ export const RegistroSistemaAnterior: React.FC<{ cnpj: string }> = ({ cnpj }) =>
       <h3 className="text-sm font-black text-slate-900">O que veio do sistema anterior para esta empresa</h3>
       <p>Migrada em {new Date(dados.resumo.migradoEm).toLocaleString("pt-BR")} por {dados.resumo.migradoPor}: {dados.resumo.lancamentosGravados} lançamento(s) no balancete.</p>
       {dados.conferencia && <p className={dados.conferencia.bate ? "text-emerald-800" : "text-red-700"}>Conferência de agora: {dados.conferencia.resumo}</p>}
+      {dados.analise && <AnaliseMigracao cnpj={c} analise={dados.analise} aoMudar={() => setRecarregar((n) => n + 1)} />}
       {dados.campos && (
         <div data-campo="conferencia-campos-sistema-anterior" className="space-y-1">
           <p className={dados.campos.totalPendencias ? "text-red-700" : "text-emerald-800"}>{dados.campos.resumo}</p>
