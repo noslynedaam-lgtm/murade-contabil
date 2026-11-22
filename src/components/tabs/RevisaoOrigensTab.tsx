@@ -652,8 +652,8 @@ export const RevisaoOrigensTab: React.FC<{
     const persistido = await onContabilizar(pendentes.map((item) => item.referenciaOrigem));
     if (persistido) void carregarHistorico();
     setMensagemPrevia(persistido
-      ? `${pendentes.length} lançamento(s) elegível(is) contabilizado(s) e confirmado(s) no PostgreSQL${bloqueados ? `; ${bloqueados} rascunho(s) preservado(s) para revisão` : ""}.`
-      : "A gravação no PostgreSQL não foi confirmada. Os dados continuam apenas na cópia local; atualize a empresa antes de tentar novamente.");
+      ? `${pendentes.length} lançamento(s) elegível(is) contabilizado(s) e confirmado(s) no banco de dados${bloqueados ? `; ${bloqueados} rascunho(s) preservado(s) para revisão` : ""}.`
+      : "A gravação no banco de dados não foi confirmada. Os dados continuam apenas na cópia local; atualize a empresa antes de tentar novamente.");
   };
 
   return (
@@ -705,7 +705,7 @@ export const RevisaoOrigensTab: React.FC<{
       </section>
 
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-        <div className="border-b border-slate-200 px-4 py-3"><h2 className="font-bold text-slate-900">Lançamentos manuais e estornos</h2><p className="mt-1 text-xs text-slate-600">A autoria, o horário e o conteúdo são gravados junto com a alteração no PostgreSQL. Partidas já salvas ficam preservadas; correções são feitas por estorno.</p></div>
+        <div className="border-b border-slate-200 px-4 py-3"><h2 className="font-bold text-slate-900">Lançamentos manuais e estornos</h2><p className="mt-1 text-xs text-slate-600">A autoria, o horário e o conteúdo são gravados junto com a alteração no banco de dados. Partidas já salvas ficam preservadas; correções são feitas por estorno.</p></div>
         <div className="overflow-x-auto p-4">
           {historicoLancamentosManuais.length === 0 ? <p className="text-sm text-slate-500">Ainda não há lançamentos manuais ou estornos registrados nesta trilha.</p> : <table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Data e hora</th><th className="px-3 py-2">Ação / usuário</th><th className="px-3 py-2">Lançamento</th><th className="px-3 py-2">Débito / crédito</th><th className="px-3 py-2 text-right">Valor</th><th className="px-3 py-2">Motivo</th></tr></thead><tbody>{historicoLancamentosManuais.map((item, index) => { const evento = item.evento.replaceAll("_", " "); const titulo = evento.includes("estorno") ? "Estorno" : item.lancamento.saldoInicialContaCodigo ? "Abertura de saldo inicial" : "Lançamento manual"; const decisao = evento.endsWith("pendente") ? "proposto" : evento.endsWith("aprovado") ? "aprovado" : evento.endsWith("rejeitado") ? "rejeitado" : "registrado"; return <tr key={`${item.lancamentoId}-${item.registradoEm}-${index}`} className="border-t border-slate-100"><td className="whitespace-nowrap px-3 py-2">{new Date(item.registradoEm).toLocaleString("pt-BR")}</td><td className="px-3 py-2">{titulo}: {decisao}<br/><span className="text-xs text-slate-500">{texto(item.login)}</span></td><td className="max-w-64 truncate px-3 py-2" title={item.lancamentoId}>{item.lancamentoId}</td><td className="px-3 py-2">{texto(item.lancamento.contaDebitoCodigo)} / {texto(item.lancamento.contaCreditoCodigo)}</td><td className="px-3 py-2 text-right tabular-nums">{dinheiro(item.lancamento.valor)}</td><td className="max-w-64 px-3 py-2 text-xs text-slate-600">{texto(item.motivo || "—")}</td></tr>; })}</tbody></table>}
         </div>

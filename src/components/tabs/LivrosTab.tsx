@@ -287,7 +287,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
 
   const exportarExcel = () => {
     if (!workspaceCarregado || !workspacePersistido || !empresa.cnpj) {
-      setAviso("Aguarde a confirmação de gravação no PostgreSQL deste CNPJ antes de exportar os livros definitivos.");
+      setAviso("Aguarde a confirmação de gravação no banco de dados deste CNPJ antes de exportar os livros definitivos.");
       return;
     }
     if (!temDados || relatorios.invalidos.length) {
@@ -409,7 +409,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
 
   const imprimirPdf = () => {
     if (!workspaceCarregado || !workspacePersistido || !empresa.cnpj) {
-      setAviso("Aguarde a confirmação de gravação no PostgreSQL deste CNPJ antes de imprimir os livros definitivos.");
+      setAviso("Aguarde a confirmação de gravação no banco de dados deste CNPJ antes de imprimir os livros definitivos.");
       return;
     }
     if (!temDados || relatorios.invalidos.length) {
@@ -466,7 +466,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
       </div>
 
       {!workspaceCarregado && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">Carregando os dados persistidos da empresa. A exportação fica bloqueada até confirmar a leitura do banco.</div>}
-      {workspaceCarregado && !workspacePersistido && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">Há alterações aguardando confirmação do PostgreSQL. Os relatórios podem ser conferidos na tela, mas a exportação só será liberada depois que a gravação permanente for confirmada.</div>}
+      {workspaceCarregado && !workspacePersistido && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">Há alterações aguardando confirmação do banco de dados. Os relatórios podem ser conferidos na tela, mas a exportação só será liberada depois que a gravação permanente for confirmada.</div>}
       {pendentes > 0 && <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><p><strong>{pendentes} pré-lançamento(s) aguardam conferência.</strong> Eles não aparecem no Diário, Razão nem Balancete até que o contador os confira e confirme a contabilização na aba Revisão Fiscal e DP.</p></div>}
       {relatorios.invalidos.length > 0 && <div role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-xs text-rose-950"><strong>Há {relatorios.invalidos.length} lançamento(s) definitivo(s) com inconsistência.</strong> Eles não foram incluídos nos relatórios, e as exportações estão bloqueadas para evitar livros incompletos. Confira data, histórico, valor e contas analíticas.</div>}
       {saldosAberturaPendentes.length > 0 && <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950"><strong>{saldosAberturaPendentes.length} saldo(s) inicial(is) têm valor ou competência-base pendente/inconsistente.</strong> Eles ficam fora dos cálculos até a conferência no Plano de Contas; PDF e Excel permanecem bloqueados para não apresentar um livro incompleto.</div>}

@@ -126,7 +126,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
           return lista;
         });
       } catch (error) {
-        console.warn("Não foi possível sincronizar a lista de empresas do PostgreSQL:", error);
+        console.warn("Não foi possível sincronizar a lista de empresas do banco de dados:", error);
       }
     })();
     return () => { ativo = false; };

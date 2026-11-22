@@ -318,7 +318,7 @@ function AppWorkspace() {
   const handleImportarDadosContabeis = async (dados: { contas: ContaPlano[]; centrosCusto: CentroCustoContabil[]; lancamentos: LancamentoContabil[] }): Promise<boolean> => {
     const workspaceAnteriorSalvo = await flushWorkspaceRef.current();
     if (!workspaceAnteriorSalvo) {
-      showToast("Há alterações anteriores sem confirmação do PostgreSQL. A migração foi interrompida para evitar sobrescrever dados.", "info");
+      showToast("Há alterações anteriores sem confirmação do banco de dados. A migração foi interrompida para evitar sobrescrever dados.", "info");
       return false;
     }
     const contasPorCodigo = new Map<string, ContaPlano>(contas.map((item) => [item.codigo, item]));
@@ -362,7 +362,7 @@ function AppWorkspace() {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || result.sucesso !== true || !Number.isSafeInteger(result.versao)) {
-        showToast(result.motivo || "O PostgreSQL não confirmou a migração. Os dados continuam na etapa de revisão.", "info");
+        showToast(result.motivo || "O banco de dados não confirmou a migração. Os dados continuam na etapa de revisão.", "info");
         return false;
       }
       versoesWorkspaceRef.current.set(cnpj, result.versao);
@@ -374,12 +374,12 @@ function AppWorkspace() {
       try {
         localStorage.setItem(`murade_contabil_dados_${cnpj}`, JSON.stringify(dadosWorkspace));
       } catch {
-        console.warn("PostgreSQL confirmou a migração, mas o navegador não atualizou a cópia local de compatibilidade.");
+        console.warn("banco de dados confirmou a migração, mas o navegador não atualizou a cópia local de compatibilidade.");
       }
       return true;
     } catch (error) {
-      console.warn("Falha ao confirmar a migração contábil no PostgreSQL:", error);
-      showToast("O PostgreSQL não confirmou a migração. Os dados continuam na etapa de revisão.", "info");
+      console.warn("Falha ao confirmar a migração contábil no banco de dados:", error);
+      showToast("O banco de dados não confirmou a migração. Os dados continuam na etapa de revisão.", "info");
       return false;
     }
   };
@@ -415,8 +415,8 @@ function AppWorkspace() {
       versoesWorkspaceRef.current.set(pendente.cnpj, result.versao);
       return true;
     }).catch((error) => {
-      console.warn("Falha ao persistir dados contábeis no PostgreSQL:", error);
-      showToast("Alterações guardadas neste navegador, mas o PostgreSQL não confirmou a gravação.", "info");
+      console.warn("Falha ao persistir dados contábeis no banco de dados:", error);
+      showToast("Alterações guardadas neste navegador, mas o banco de dados não confirmou a gravação.", "info");
       return false;
     });
     const persistido = await filaGravacaoWorkspaceRef.current;
@@ -679,7 +679,7 @@ function AppWorkspace() {
     const empresaCnpj = empresa.cnpj.toUpperCase().replace(/[^A-Z0-9]/g, "");
     const workspaceAtualSalvo = await flushWorkspaceRef.current();
     if (!workspaceAtualSalvo) {
-      showToast("Não foi possível confirmar os dados atuais no PostgreSQL. Atualize a empresa e tente novamente.", "info");
+      showToast("Não foi possível confirmar os dados atuais no banco de dados. Atualize a empresa e tente novamente.", "info");
       return false;
     }
     try {
@@ -835,10 +835,10 @@ function AppWorkspace() {
       });
       const result = await response.json().catch(() => ({}));
       if (tratarBloqueioServico(result)) { setCompetenciasFechadas((atual) => result.codigo === "servico_ja_feito" ? Array.from(new Set([...atual, competencia])).sort() : atual); return false; }
-      if (!response.ok || result.sucesso !== true) throw new Error(result.motivo || "O PostgreSQL não confirmou o fechamento.");
+      if (!response.ok || result.sucesso !== true) throw new Error(result.motivo || "O banco de dados não confirmou o fechamento.");
       if (Number.isSafeInteger(result.versao)) versoesWorkspaceRef.current.set(cnpj, result.versao);
       setCompetenciasFechadas((atual) => Array.from(new Set([...atual, competencia])).sort());
-      showToast(`Competência ${competencia} fechada e bloqueada no PostgreSQL.`, "success");
+      showToast(`Competência ${competencia} fechada e bloqueada no banco de dados.`, "success");
       return true;
     } catch (error) {
       showToast(error instanceof Error ? error.message : "O fechamento não foi confirmado. Nenhum período foi bloqueado.", "info");

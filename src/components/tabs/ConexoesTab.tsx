@@ -139,7 +139,7 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
           <div className="bg-white/90 border border-slate-300/80 rounded-lg p-3 shadow-2xs">
             <div className="text-[10px] text-slate-600 uppercase font-bold">Fiscal · origem dos documentos</div>
             <div className="mt-1 text-xs font-black text-slate-900">Captura e armazenamento na origem</div>
-            <p className="mt-1 text-[11px] text-slate-600">Documentos novos ou atualizados podem ser enviados pelo Fiscal e persistidos por CNPJ. A integração exige token e PostgreSQL disponíveis; a classificação contábil continua pendente.</p>
+            <p className="mt-1 text-[11px] text-slate-600">Documentos novos ou atualizados podem ser enviados pelo Fiscal e persistidos por CNPJ. A integração exige token e banco de dados disponíveis; a classificação contábil continua pendente.</p>
           </div>
           <div className="bg-white/90 border border-slate-300/80 rounded-lg p-3 shadow-2xs">
             <div className="text-[10px] text-slate-600 uppercase font-bold">Departamento Pessoal · origem da folha</div>

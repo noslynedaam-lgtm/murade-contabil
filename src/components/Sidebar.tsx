@@ -194,24 +194,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
     <aside className="w-52 bg-[#082B66] text-white flex flex-col shrink-0 border-r border-[#0A357D] select-none h-full max-h-screen shadow-md overflow-hidden">
       {/* Topo da Barra Lateral: Marca Murade */}
       <div className="px-3 py-2 border-b border-[#0A357D] bg-[#082B66] shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-white text-[#082B66] flex items-center justify-center font-black text-sm shadow-md border border-blue-200 relative group">
-            <span>MC</span>
-            <Scale className="w-3.5 h-3.5 text-amber-600 ml-0.5" title="Símbolo Oficial da Contabilidade" />
-          </div>
-          <div>
-            <h1 className="text-xs font-black text-white tracking-tight flex items-center gap-1">
-              <span>MURAD CONTÁBIL</span>
-            </h1>
-
-          </div>
-        </div>
-
+        {/* A marca MURAD fica uma vez só, no cabeçalho (aqui repetia o logo "MC"). */}
         {/* Código de Ligação Rápido */}
         <div
           onClick={copiarCodigo}
           title="Clique para copiar código de ligação dos sistemas"
-          className="mt-2 bg-[#06214E] hover:bg-[#0A357D] border border-blue-400/30 rounded-md px-2 py-1.5 flex items-center justify-between cursor-pointer transition group shadow-2xs"
+          className="bg-[#06214E] hover:bg-[#0A357D] border border-blue-400/30 rounded-md px-2 py-1.5 flex items-center justify-between cursor-pointer transition group shadow-2xs"
         >
           <div className="flex items-center gap-2 text-xs">
             <span className="text-amber-300">🔑</span>

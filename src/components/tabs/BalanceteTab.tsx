@@ -83,7 +83,7 @@ export const BalanceteTab: React.FC<BalanceteTabProps> = ({ cnpj, competencia, l
   const pendenciasGuiadas = /^\d{4}-(0[1-9]|1[0-2])$/.test(competenciaSelecionada) && !competenciaFechada ? (pendenciasFechamento?.(competenciaSelecionada) ?? []) : [];
   const fecharMes = async () => {
     if (!competenciaSelecionada || competenciaFechada) return;
-    const confirmado = await confirmarNaTela(`Fechar a competência ${competenciaSelecionada} da empresa ${cnpj}? O servidor vai validar o PostgreSQL, bloquear alterações nos lançamentos e rascunhos desse mês e registrar quem confirmou. Essa ação não envia nada a órgãos oficiais.`);
+    const confirmado = await confirmarNaTela(`Fechar a competência ${competenciaSelecionada} da empresa ${cnpj}? O servidor vai validar o banco de dados, bloquear alterações nos lançamentos e rascunhos desse mês e registrar quem confirmou. Essa ação não envia nada a órgãos oficiais.`);
     if (confirmado) await onFecharMes(competenciaSelecionada);
   };
 
@@ -133,7 +133,7 @@ export const BalanceteTab: React.FC<BalanceteTabProps> = ({ cnpj, competencia, l
           <button type="button" onClick={() => setGeradoEm(new Date().toISOString())} className="flex items-center gap-1.5 rounded-md bg-blue-700 px-3 py-2 text-xs font-bold text-white">
             <RefreshCw className="h-3.5 w-3.5" /> Atualizar balancete
           </button>
-          <button type="button" onClick={() => void fecharMes()} disabled={!workspaceCarregado || !workspacePersistido || !/^\d{4}-(0[1-9]|1[0-2])$/.test(competenciaSelecionada) || competenciaFechada || !resumo.temDados || resumo.saldosIniciaisPendentes.length > 0 || resumo.diferencaSaldos !== 0 || pendenciasGuiadas.length > 0} className="flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 disabled:cursor-not-allowed disabled:opacity-50" title={pendenciasGuiadas.length ? `Fechamento guiado pendente: ${pendenciasGuiadas.join("; ")}` : resumo.saldosIniciaisPendentes.length ? "Informe a competência-base de cada saldo inicial pendente" : !resumo.temDados ? "Informe movimentos ou saldos iniciais antes de fechar" : !workspacePersistido ? "Aguarde a confirmação do PostgreSQL" : competenciaFechada ? "Competência já fechada" : ""}>
+          <button type="button" onClick={() => void fecharMes()} disabled={!workspaceCarregado || !workspacePersistido || !/^\d{4}-(0[1-9]|1[0-2])$/.test(competenciaSelecionada) || competenciaFechada || !resumo.temDados || resumo.saldosIniciaisPendentes.length > 0 || resumo.diferencaSaldos !== 0 || pendenciasGuiadas.length > 0} className="flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 disabled:cursor-not-allowed disabled:opacity-50" title={pendenciasGuiadas.length ? `Fechamento guiado pendente: ${pendenciasGuiadas.join("; ")}` : resumo.saldosIniciaisPendentes.length ? "Informe a competência-base de cada saldo inicial pendente" : !resumo.temDados ? "Informe movimentos ou saldos iniciais antes de fechar" : !workspacePersistido ? "Aguarde a confirmação do banco de dados" : competenciaFechada ? "Competência já fechada" : ""}>
             <Lock className="h-3.5 w-3.5" /> {competenciaFechada ? "Mês fechado" : "Fechar mês"}
           </button>
         </div>
@@ -141,7 +141,7 @@ export const BalanceteTab: React.FC<BalanceteTabProps> = ({ cnpj, competencia, l
 
       {geradoEm && <p role="status" className="text-xs text-slate-600">Resumo local atualizado em {new Date(geradoEm).toLocaleString("pt-BR")}.</p>}
       {feedbackExportacao && <p role="status" className="rounded-md border border-blue-200 bg-blue-50 p-2 text-xs text-blue-900">{feedbackExportacao}</p>}
-      {competenciaFechada && <p role="status" className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-xs text-emerald-950"><strong>Competência fechada e bloqueada no PostgreSQL.</strong> Os lançamentos, rascunhos e registros contábeis deste mês não podem ser alterados pelo sistema.<span className="mt-1 block"><SeloServicoFeito cnpj={cnpj} tipo="fechamento:periodo" referencia={competenciaSelecionada} rotulo="Fechado" /></span></p>}
+      {competenciaFechada && <p role="status" className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-xs text-emerald-950"><strong>Competência fechada e bloqueada no banco de dados.</strong> Os lançamentos, rascunhos e registros contábeis deste mês não podem ser alterados pelo sistema.<span className="mt-1 block"><SeloServicoFeito cnpj={cnpj} tipo="fechamento:periodo" referencia={competenciaSelecionada} rotulo="Fechado" /></span></p>}
 
       <section className={`rounded-lg border p-3 ${equilibrado ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
         <div className="flex items-start gap-2">
