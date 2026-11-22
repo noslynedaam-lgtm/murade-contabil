@@ -188,7 +188,7 @@ export const orgaosIniciais: OrgaoConectado[] = ([
   // --- MÓDULOS MURADE: FISCAL, DP E FISCO IA ---
   {
     id: "murade-fiscal",
-    nome: "Murad fiscal",
+    nome: "Murad Fiscal",
     sigla: "Murad Fiscal",
     esfera: "Murad Fiscal",
     descricao: "Varredura 24h de DFe (NF-e, NFC-e, CT-e) • Livros Fiscais de Entrada e Saída • Manifesto Automático",
@@ -220,7 +220,7 @@ export const orgaosIniciais: OrgaoConectado[] = ([
   },
   {
     id: "murade-fisco-ia",
-    nome: "Murad fisco IA",
+    nome: "Murad Fisco IA",
     sigla: "Murad Fisco IA",
     esfera: "Murad Fisco IA",
     descricao: "Auditoria Preditiva Tributária com IA • Análise de IBS, CBS, ICMS, IPI e PIS/COFINS • Alerta de Inconsistências",

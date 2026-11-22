@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useEstadoIntegracoes, NOME_FISCAL, NOME_DP } from "../PainelIntegracoesReais";
+import { textoOrigem } from "../../utils/integracaoTexto";
 import { EmpresaDados } from "../../types";
 import { CAMPOS_MAIS_DADOS, maisDadosDe, maisDadosParaSalvar } from "../../utils/maisDadosEmpresa";
 import {
@@ -68,6 +70,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
   onRemoverEmpresa,
   onTrocarEmpresaAtiva,
 }) => {
+  const estadoIntegracoes = useEstadoIntegracoes();
   // Lista de empresas cadastradas no sistema (persistência real em localStorage)
   // Nunca a mesma empresa duas vezes na lista: toda gravação da lista passa pela deduplicação por CNPJ.
   const [empresasCadastradas, setEmpresasCadastradasBruto] = useState<EmpresaDados[]>(() => dedupEmpresasPorCnpj((() => {
@@ -769,7 +772,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
               </span>
             </div>
             <p className="text-xs text-slate-500">
-              Cadastre suas empresas reais, vincule o certificado digital e sincronize com DP, Fiscal e Fisco IA.
+              Cadastre as empresas do escritório; os dados também chegam do Fiscal e do DP.
             </p>
           </div>
         </div>
@@ -834,12 +837,9 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
                 <h3 className="text-sm sm:text-base font-black tracking-tight text-white flex items-center gap-1.5">
                   <span>Conexão Murad: puxar empresas do Murad Fiscal e do Murad DP</span>
                 </h3>
-                <span className="text-[10px] bg-amber-300 text-amber-950 font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
-                  Não configurada
-                </span>
               </div>
               <p className="text-xs text-blue-100 mt-0.5">
-                Cadastro local e integração ainda não conectada. As rotas atuais de Fiscal e DP não fornecem uma leitura autenticada compartilhada.
+                Traz do Fiscal os dados da empresa e do DP os resumos da folha, sem digitar de novo.
               </p>
             </div>
           </div>
@@ -869,23 +869,12 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-3 text-xs">
-          <div className="bg-black/20 rounded-lg p-2 border border-white/10 flex items-center justify-between">
-            <span className="text-[11px] text-blue-100">Murad Fiscal:</span>
-            <span className="font-bold text-amber-200">Não conectado</span>
-          </div>
-          <div className="bg-black/20 rounded-lg p-2 border border-white/10 flex items-center justify-between">
-            <span className="text-[11px] text-blue-100">Murad DP:</span>
-            <span className="font-bold text-amber-200">Não conectado</span>
-          </div>
-          <div className="bg-black/20 rounded-lg p-2 border border-white/10 flex items-center justify-between">
-            <span className="text-[11px] text-blue-100">Receita Federal:</span>
-            <span className="font-bold text-amber-200">Não verificado</span>
-          </div>
-          <div className="bg-black/20 rounded-lg p-2 border border-white/10 flex items-center justify-between">
-            <span className="text-[11px] text-blue-100">SEFAZ Estadual:</span>
-            <span className="font-bold text-amber-200">Não verificado</span>
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-3 text-xs">
+          {[textoOrigem(NOME_FISCAL, estadoIntegracoes?.fiscal), textoOrigem(NOME_DP, estadoIntegracoes?.dp)].map((t) => (
+            <div key={t.texto} className="bg-black/20 rounded-lg p-2 border border-white/10">
+              <span className={`font-bold ${t.ok ? 'text-emerald-200' : 'text-amber-200'}`}>{estadoIntegracoes ? t.texto : 'Conferindo…'}</span>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -920,7 +909,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
             className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>+ Cadastrar Nova Empresa</span>
+            <span>Cadastrar nova empresa</span>
           </button>
         </div>
 
@@ -1532,7 +1521,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
               </span>
             ) : (
               <span className="text-[11px] text-slate-500">
-                Certificado ainda não conectado neste módulo
+                O certificado A1 da empresa fica no Murad Fiscal
               </span>
             )}
           </div>

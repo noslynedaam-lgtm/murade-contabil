@@ -99,7 +99,7 @@ const Comparativo: React.FC<Props & { periodo: string }> = ({ contas, lancamento
   );
   return (
     <>
-      <Cartao titulo={`Resultado: ${periodo} × ${comp.periodoMesAnterior} × ${comp.periodoAnoAnterior}`}>
+      <Cartao titulo={`Resultado: ${[periodo, comp.periodoMesAnterior, comp.periodoAnoAnterior].map((x) => /^\d{4}-\d{2}$/.test(String(x)) ? `${String(x).slice(5, 7)}/${String(x).slice(0, 4)}` : String(x)).join(' × ')}`}>
         {comp.linhas.length === 0 ? <p>Sem receitas ou despesas classificadas nos três períodos.</p> : (
           <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-left">
             <thead><tr><th>Conta</th><th>{periodo}</th><th>{comp.periodoMesAnterior}</th><th>{comp.periodoAnoAnterior}</th><th>Var. mês</th><th>Var. ano</th></tr></thead>

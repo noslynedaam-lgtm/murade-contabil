@@ -10,7 +10,7 @@ export function empresasParadas(lista: SituacaoEmpresaContabil[]): EmpresaParada
   const paradas: EmpresaParada[] = [];
   for (const e of lista) {
     const chegou = e.notasProntas + e.folhasRecebidas;
-    if (!e.temWorkspace) paradas.push({ ...e, motivo: chegou ? `sem workspace no Contábil, com ${e.notasProntas} nota(s) e ${e.folhasRecebidas} folha(s) esperando` : "sem workspace no Contábil" });
+    if (!e.temWorkspace) paradas.push({ ...e, motivo: chegou ? `ainda não aberta no Contábil, com ${e.notasProntas} nota(s) e ${e.folhasRecebidas} folha(s) esperando` : "ainda não aberta no Contábil" });
     else if (!e.temMapeamento && chegou) paradas.push({ ...e, motivo: "sem mapeamento de origem (o plano de contas não bate com o padrão): mapear em Revisão das origens" });
     else if ((e.dasRecebidos ?? 0) > 0 && !e.temMapeamentoDas) paradas.push({ ...e, motivo: `recebeu ${e.dasRecebidos} DAS do Simples do Fiscal e o DAS não está mapeado: mapear em Revisar dados recebidos (Fiscal — DAS Simples)` });
     else if (chegou && e.preLancamentos === 0) paradas.push({ ...e, motivo: `recebeu ${e.notasProntas} nota(s) e ${e.folhasRecebidas} folha(s) e ainda não tem pré-lançamento` });
@@ -46,7 +46,7 @@ export function textoAvisoParadas(paradas: EmpresaParada[]): string {
   const semWs = paradas.filter((p) => !p.temWorkspace).length;
   const semPre = paradas.length - semWs;
   const partes: string[] = [];
-  if (semWs) partes.push(`${semWs} empresa(s) sem workspace no Contábil (o Robô Reconciliador cria sozinho no próximo minuto)`);
+  if (semWs) partes.push(`${semWs} empresa(s) ainda não aberta(s) no Contábil (o Robô Reconciliador abre sozinho no próximo minuto)`);
   if (semPre) partes.push(`${semPre} empresa(s) com dados do Fiscal/DP parados (sem pré-lançamento ou sem mapeamento; veja Início > Prontos para conferir)`);
   return partes.join("; ");
 }

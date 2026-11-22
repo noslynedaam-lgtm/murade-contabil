@@ -128,8 +128,8 @@ export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
   const { pedir: pedirExclusao, dialogo: dialogoExclusao } = useExclusaoDuasEtapas();
   const limparValores = async () => {
     if (await pedirExclusao({
-      titulo: "Zerar os valores do Fluxo Prevítico?",
-      oQue: "os três valores digitados no Fluxo Prevítico (saldo atual, entradas previstas e saídas previstas)",
+      titulo: "Zerar os valores do Fluxo de Caixa Previsto?",
+      oQue: "os três valores digitados no Fluxo de Caixa Previsto (saldo atual, entradas previstas e saídas previstas)",
       consequencias: ["Os valores digitados são apagados deste aparelho.", "Para ter de novo, será preciso digitar outra vez."],
       rotuloFinal: "Sim, zerar",
     })) {
@@ -261,7 +261,7 @@ export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
           )}
           <div>
             <h1 className="text-base sm:text-lg font-extrabold text-slate-900 flex items-center gap-1.5">
-              <span>⚡ Fluxo Prevítico</span>
+              <span>⚡ Fluxo de Caixa Previsto</span>
               <span className="text-[11px] font-semibold text-slate-500 hidden sm:inline">— Projeção 90 Dias</span>
             </h1>
             <p className="text-[11px] text-slate-600">
@@ -388,13 +388,6 @@ export const FluxoPreviticoTab: React.FC<FluxoPreviticoTabProps> = ({
 
       {/* Botões de Ação Imediata — Compactos e Equilibrados */}
       <div className="flex flex-wrap gap-2 text-xs">
-        <button
-          onClick={atualizarAutomatico}
-          className="flex-1 min-w-[140px] py-2 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          <span>🔄 Verificar conexão bancária</span>
-        </button>
 
         <button
           onClick={() => {

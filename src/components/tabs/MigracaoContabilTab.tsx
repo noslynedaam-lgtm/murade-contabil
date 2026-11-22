@@ -23,9 +23,7 @@ interface Props {
 
 const origens: Array<{ id: OrigemMigracaoContabil; nome: string; detalhe: string }> = [
   { id: "ALTERDATA", nome: "Sistema anterior — Contábil", detalhe: "Plano de contas, centros e diário exportados em CSV/TXT" },
-  { id: "DOMINIO", nome: "Domínio — Contábil", detalhe: "Plano, centros de custo e lançamentos delimitados" },
-  { id: "ATRON", nome: "Atron — Contábil", detalhe: "Arquivos contábeis exportados em CSV/TXT" },
-  { id: "CSV", nome: "Planilha / CSV Genérica", detalhe: "Importação por cabeçalho reconhecido ou pacote Murad JSON" },
+  { id: "CSV", nome: "Outro sistema / planilha (CSV ou TXT)", detalhe: "Plano de contas, centros de custo e lançamentos com cabeçalho reconhecido, ou pacote Murad" },
 ];
 
 const etapas = ["Sistema de Origem", "Arquivos e Leitura", "Validação e Relatório", "Importação Concluída"];
@@ -197,7 +195,7 @@ export const MigracaoContabilTab: React.FC<Props> = ({ empresa, contas, centrosC
             <span className="mt-1 block text-xs text-slate-500">{item.detalhe}</span>
           </button>)}
         </div>
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">A leitura reconhece cabeçalhos comuns de CSV/TXT. Também lê lançamentos TXT do sistema anterior nos modelos 1 e 2 e o arquivo TXT oficial da ECD (Sped Contábil) gerado por qualquer sistema (o sistema anterior, Domínio…): traz plano de contas, saldos de abertura, centros de custo e lançamentos do ano, sem duplicar. Para plano de contas e centros de custo, exporte como arquivo delimitado com cabeçalho. Os demais layouts proprietários variam por versão e precisam ser exportados para CSV/TXT ou convertidos para pacote Murad.</div>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">A leitura reconhece cabeçalhos comuns de CSV/TXT. Também lê lançamentos TXT do sistema anterior nos modelos 1 e 2 e o arquivo TXT oficial da ECD (Sped Contábil) gerado por qualquer sistema contábil: traz plano de contas, saldos de abertura, centros de custo e lançamentos do ano, sem duplicar. Para plano de contas e centros de custo, exporte como arquivo delimitado com cabeçalho. Os demais layouts proprietários variam por versão e precisam ser exportados para CSV/TXT ou convertidos para pacote Murad.</div>
         <div className="flex justify-end"><button type="button" onClick={() => setEtapa(2)} className="inline-flex items-center gap-2 rounded-lg bg-[#0F2B5B] px-4 py-2 text-xs font-bold text-white hover:bg-blue-900">Continuar <ArrowRight size={15} /></button></div>
       </section>}
 

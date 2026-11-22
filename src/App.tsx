@@ -10,7 +10,7 @@ import { initialEmpresa, orgaosIniciais, planoContasPadrao } from "./data/mockDa
 import { montarWorkspaceInicialContabil } from "./utils/workspaceInicial";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
-import { RobotSidebar } from "./components/RobotSidebar";
+import { EVENTO_ABRIR_ROBOS } from "./components/RobotSidebar";
 import { FaixaEcd } from "./components/FaixaEcd";
 import { ErroTela } from "./components/ErroTela";
 import { AvisoServicoFeito } from "./components/AvisoServicoFeito";
@@ -79,6 +79,8 @@ function AppWorkspace() {
   const [assistenteAberta, setAssistenteAberta] = useState(false);
   // A Escola Murade não fica no menu: abre só pelo link que o fornecedor manda (https://…/#escola).
   const [tabAtiva, setTabAtiva] = useState<TabId>(() => (typeof window !== "undefined" && /(^|[#&])escola(&|$)/.test(window.location.hash.replace(/^#/, "")) ? "escola" : "inicio"));
+  // Botão "Robôs" do cabeçalho: abre a tela de robôs (antes abria um painel de demonstração).
+  React.useEffect(() => { const abrir = () => setTabAtiva("agente"); window.addEventListener(EVENTO_ABRIR_ROBOS, abrir); return () => window.removeEventListener(EVENTO_ABRIR_ROBOS, abrir); }, []);
   const [ehDonoSistema, setEhDonoSistema] = useState(false);
 
   // Assistente de voz (ref para abrir/falar de fora, ex.: quando a pessoa parece travada) + detector
@@ -514,7 +516,7 @@ function AppWorkspace() {
       ["inicio", "Tela Inicial", "home painel resumo inicio pendencias lembretes"],
       ["empresa", "Cadastro de Empresa", "empresas cnpj cadastrar cliente razao social certificado digital excluir apagar regime"],
       ["agenda", "Agenda & Lembretes", "prazos vencimentos calendario lembrete compromisso data"],
-      ["fluxo-previtico", "Fluxo Prevítico", "fluxo de caixa projecao entradas saidas saldo zerar"],
+      ["fluxo-previtico", "Fluxo de Caixa Previsto", "fluxo de caixa projecao entradas saidas saldo zerar"],
       ["modulos-finais", "Obrigações & Gestão", "obrigacoes acessorias declaracoes ecd ecf sped dctf defis"],
       ["gestao-contabil", "Gestão contábil", "fechamento fechar competencia conciliacao bancaria extrato ofx imobilizado depreciacao"],
       ["conexoes", "Conexão Órgãos", "receita sefaz serpro ecac conexao orgaos status"],
@@ -1261,12 +1263,6 @@ function AppWorkspace() {
               </ErroTela>
             </div>
 
-            {/* Robô Murade: minimizado e flutuante (abre ao clicar) */}
-            <RobotSidebar
-              onRunAudit={handleRunAudit}
-              isAuditing={isAuditing}
-              onNavigateTab={(tab) => setTabAtiva(tab)}
-            />
           </div>
         </main>
       </div>

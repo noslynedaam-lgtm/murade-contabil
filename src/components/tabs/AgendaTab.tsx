@@ -261,7 +261,7 @@ export const AgendaTab: React.FC<AgendaTabProps> = ({
           )}
           <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-full text-xs font-semibold shrink-0" role="status">
             <AlertCircle className="w-3.5 h-3.5 text-amber-700" />
-            <span className="hidden sm:inline">Agenda local · integrações não confirmadas</span>
+            <span className="hidden sm:inline">Agenda de prazos</span>
             <span className="sm:hidden">Agenda local</span>
           </div>
         </div>
@@ -298,7 +298,7 @@ export const AgendaTab: React.FC<AgendaTabProps> = ({
             <Clock className="w-4 h-4" />
           </div>
           <div>
-            Use os filtros para localizar lembretes por data. É possível consultar os dados cadastrados e calcular uma prévia matemática. Geração de guia, preparação SPED, transmissão e confirmação de pagamento ainda dependem de integrações não configuradas; nenhuma dessas ações será marcada como concluída.
+            Use os filtros para localizar os lembretes por data. A agenda só lembra os prazos: as guias e os arquivos são feitos nas telas próprias (Fiscal, DP, Livros Fiscais &amp; ECD).
           </div>
         </div>
 

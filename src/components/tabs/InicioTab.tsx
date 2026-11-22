@@ -122,18 +122,18 @@ export const InicioTab: React.FC<InicioTabProps> = ({
   }> = [
     {
       id: "fluxo-previtico",
-      titulo: "Fluxo Prevítico",
-      subtitulo: "Projeção inteligente de 90 dias, controle de saldo e upload de NF-e/boletos por OCR.",
+      titulo: "Fluxo de Caixa Previsto",
+      subtitulo: "Projeção de 90 dias a partir do saldo atual e das entradas e saídas previstas que você informa.",
       icone: Zap,
-      tag: "Módulo local",
+      tag: "Projeção",
       tagCor: "bg-slate-100 text-slate-700 border-slate-300",
     },
     {
       id: "conexoes",
       titulo: "Conexões & Órgãos",
-      subtitulo: "Configuração das integrações externas e credenciais por empresa.",
+      subtitulo: "Sites e canais oficiais dos órgãos para cada empresa.",
       icone: Globe,
-      tag: "Não configurados",
+      tag: "Órgãos",
       tagCor: "bg-amber-100 text-amber-900 border-amber-300",
     },
     {
@@ -155,7 +155,7 @@ export const InicioTab: React.FC<InicioTabProps> = ({
     {
       id: "balancete",
       titulo: "Balancete de Verificação",
-      subtitulo: "Fechamento mensal automatizado com conferência de débitos e créditos em tempo real.",
+      subtitulo: "Saldos das contas a partir dos lançamentos definitivos, com conferência de débitos e créditos.",
       icone: Scale,
       tag: "Aguardando dados",
       tagCor: "bg-amber-100 text-amber-900 border-amber-300",
@@ -165,15 +165,15 @@ export const InicioTab: React.FC<InicioTabProps> = ({
       titulo: "IA Murad Premium",
       subtitulo: "Assistente contábil e tributário com interação por voz, pareceres e diagnósticos.",
       icone: Sparkles,
-      tag: "Voz v3.0",
+      tag: "Voz",
       tagCor: "bg-amber-100 text-amber-800 border-amber-300",
     },
     {
       id: "calculadora",
       titulo: "Calculadora 3D",
-      subtitulo: "Simulador tridimensional com cálculo avançado de impostos, juros e margens.",
+      subtitulo: "Calculadora com soma acumulada por empresa, para conferências rápidas.",
       icone: Calculator,
-      tag: "3D Interativo",
+      tag: "Calculadora",
       tagCor: "bg-indigo-100 text-indigo-800 border-indigo-300",
     },
     {
@@ -187,9 +187,9 @@ export const InicioTab: React.FC<InicioTabProps> = ({
     {
       id: "integracao",
       titulo: "Integrações de Sistemas",
-      subtitulo: "Configuração das conexões externas; sincronização ainda não disponível.",
+      subtitulo: "Ligação com o Fiscal e o DP: as notas e a folha chegam sozinhas para virar pré-lançamentos.",
       icone: Layers,
-      tag: "Pendente",
+      tag: "Fiscal + DP",
       tagCor: "bg-amber-100 text-amber-900 border-amber-300",
     },
   ];
@@ -211,7 +211,7 @@ export const InicioTab: React.FC<InicioTabProps> = ({
             </h1>
             <p className="text-xs sm:text-sm text-slate-600 max-w-3xl leading-relaxed">
               Visão geral centralizada para gerenciar a escrituração, conciliação bancária,
-              projeções do <strong>Fluxo Prevítico</strong> e conferência tributária da Reforma 2026.
+              projeções do <strong>Fluxo de Caixa Previsto</strong> e conferência tributária da Reforma 2026.
             </p>
           </div>
 
@@ -236,7 +236,7 @@ export const InicioTab: React.FC<InicioTabProps> = ({
                 </div>
                 <div className="flex items-center justify-between text-[11px] mt-2 pt-2 border-t border-slate-100 text-slate-500">
                   <span>{empresa.regime || "Regime não informado"}</span>
-                  <span className="font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">Comp. {empresa.competencia || "Não definida"}</span>
+                  <span className="font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">Comp. {/^\d{4}-\d{2}$/.test(String(empresa.competencia || "")) ? `${String(empresa.competencia).slice(5, 7)}/${String(empresa.competencia).slice(0, 4)}` : (empresa.competencia || "Não definida")}</span>
                 </div>
               </>
             ) : (
@@ -274,7 +274,7 @@ export const InicioTab: React.FC<InicioTabProps> = ({
 
       {/* 4 Cards de Indicadores Rápidos (Resumo Geral) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-        {/* Card 1: Fluxo Prevítico */}
+        {/* Card 1: Fluxo de Caixa Previsto */}
         <div
           onClick={() => onNavigateTab("fluxo-previtico")}
           className="bg-[#EEF4F9] border border-[#CBD5E1] hover:border-blue-400 rounded-xl p-4 transition cursor-pointer shadow-xs group flex flex-col justify-between"
@@ -283,7 +283,7 @@ export const InicioTab: React.FC<InicioTabProps> = ({
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                 <Zap className="w-4 h-4 text-emerald-600" />
-                <span>Fluxo Prevítico</span>
+                <span>Fluxo de Caixa Previsto</span>
               </span>
               <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded">
               Sem dados
@@ -311,17 +311,14 @@ export const InicioTab: React.FC<InicioTabProps> = ({
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                 <Globe className="w-4 h-4 text-blue-600" />
-                <span>Órgãos & APIs</span>
-              </span>
-              <span className="text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 px-1.5 py-0.5 rounded">
-                {totalConectados} endereços respondendo
+                <span>Órgãos</span>
               </span>
             </div>
             <div className="text-lg font-black text-slate-900">
-              Integrações não configuradas
+              Sites e canais oficiais
             </div>
             <p className="text-[11px] text-slate-600 mt-1 leading-snug">
-              O teste de alcance HTTP não confirma autenticação nem acesso a dados.
+              Atalhos para Receita, SEFAZ e demais órgãos, por empresa.
             </p>
           </div>
           <div className="mt-3 pt-2 border-t border-slate-300/80 flex items-center justify-between text-xs font-semibold text-blue-700 group-hover:text-blue-900">
@@ -342,14 +339,14 @@ export const InicioTab: React.FC<InicioTabProps> = ({
                 <span>Balancete Geral</span>
               </span>
               <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded">
-              Não verificado
+              {totalLancamentos} lançamento(s)
               </span>
             </div>
             <div className="text-lg font-black text-emerald-700">
               {totalLancamentos > 0 ? "Aguardando conferência" : "Sem lançamentos"}
             </div>
             <p className="text-[11px] text-slate-600 mt-1 leading-snug">
-              {totalLancamentos} lançamento(s) cadastrado(s). A conferência ainda não foi executada.
+              Abra para ver os saldos e conferir débitos e créditos.
             </p>
           </div>
           <div className="mt-3 pt-2 border-t border-slate-300/80 flex items-center justify-between text-xs font-semibold text-blue-700 group-hover:text-blue-900">
@@ -367,21 +364,18 @@ export const InicioTab: React.FC<InicioTabProps> = ({
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                 <Bot className="w-4 h-4 text-blue-600" />
-                <span>3 Robôs + 1 Agente IA</span>
-              </span>
-              <span className="text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300 px-1.5 py-0.5 rounded font-mono">
-                v2026.1.0
+                <span>Robôs</span>
               </span>
             </div>
             <div className="text-lg font-black text-slate-900">
-              Aguardando dados
+              Trabalham sozinhos
             </div>
             <p className="text-[11px] text-slate-600 mt-1 leading-snug">
-              A conferência local só pode rodar depois que houver registros.
+              Veja o que cada robô fez por último e se algum parou.
             </p>
           </div>
           <div className="mt-3 pt-2 border-t border-slate-300/80 flex items-center justify-between text-xs font-semibold text-blue-700 group-hover:text-blue-900">
-            <span>Abrir Painel dos Robôs</span>
+            <span>Ver os robôs</span>
             <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
           </div>
         </div>
@@ -633,7 +627,7 @@ export const InicioTab: React.FC<InicioTabProps> = ({
           onClick={() => onNavigateTab("fluxo-previtico")}
           className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1.5 rounded-lg transition cursor-pointer shrink-0 shadow-xs"
         >
-          Ir para Fluxo Prevítico →
+          Ir para Fluxo de Caixa Previsto →
         </button>
       </div>
 

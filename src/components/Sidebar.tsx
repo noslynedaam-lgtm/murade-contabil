@@ -56,7 +56,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
     },
     {
       id: "fluxo-previtico" as TabId,
-      label: "Fluxo Prevítico",
+      label: "Fluxo de Caixa Previsto",
       icon: Zap,
     },
     {
@@ -73,7 +73,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
       id: "conexoes" as TabId,
       label: "Conexão Órgãos",
       icon: Plug,
-      badge: "A configurar",
+      badge: "",
       badgeColor: "bg-white/10 text-blue-100",
     },
     {
@@ -134,14 +134,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
       id: "calculadora" as TabId,
       label: "Calculadora 3D",
       icon: Calculator,
-      badge: "3D Pro",
+      badge: "",
       badgeColor: "bg-purple-300 text-purple-950 font-bold",
     },
     {
       id: "agente" as TabId,
-      label: "Agentes & Robô",
+      label: "Robôs",
       icon: Bot,
-      badge: "Autônomo",
+      badge: "",
       badgeColor: "bg-amber-400/30 text-amber-200",
     },
     {
@@ -176,7 +176,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
       id: "ia-premium" as TabId,
       label: "IA Murad Premium",
       icon: Sparkles,
-      badge: "Voz v3.0",
+      badge: "Voz",
       badgeColor: "bg-amber-300 text-slate-950 font-bold",
     },
   ];

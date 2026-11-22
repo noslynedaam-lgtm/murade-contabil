@@ -31,7 +31,7 @@ export const ModulosFinaisTab: React.FC<ModulosFinaisTabProps> = ({ empresa, lan
     <div className="space-y-4">
       <header className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
         <h2 className="flex items-center gap-2 text-base font-bold text-slate-900"><BookOpen className="h-5 w-5 text-blue-700" /> Processamento contábil da empresa</h2>
-        <p className="mt-1 text-sm text-slate-600">{empresa.razaoSocial || "Empresa não cadastrada"}{empresa.cnpj ? ` · CNPJ ${empresa.cnpj}` : ""} · competência {empresa.competencia || "não definida"}</p>
+        <p className="mt-1 text-sm text-slate-600">{empresa.razaoSocial || "Empresa não cadastrada"}{empresa.cnpj ? ` · CNPJ ${empresa.cnpj}` : ""} · competência {/^\d{4}-\d{2}$/.test(String(empresa.competencia || "")) ? `${String(empresa.competencia).slice(5, 7)}/${String(empresa.competencia).slice(0, 4)}` : (empresa.competencia || "não definida")}</p>
         <p className="mt-2 text-xs text-slate-500">Este painel resume lançamentos definitivos deste CNPJ. Recebimentos do Fiscal e do DP e pré-lançamentos ficam sujeitos à disponibilidade das origens, ao mapeamento e à revisão do contador.</p>
       </header>
 
@@ -45,7 +45,7 @@ export const ModulosFinaisTab: React.FC<ModulosFinaisTabProps> = ({ empresa, lan
       <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
         <h3 className="flex items-center gap-2 font-bold"><AlertTriangle className="h-4 w-4" /> Integrações e obrigações</h3>
         <p className="mt-1">O Fiscal é responsável por buscar as notas na SEFAZ. O Contábil não consulta a SEFAZ: recebe e armazena documentos que o Fiscal já capturou e encaminhou. O DP pode encaminhar resumos agregados da folha. O funcionamento depende das filas, bancos e segredos de integração configurados em cada serviço.</p>
-        <p className="mt-1">O Contábil pode preparar rascunhos automaticamente em segundo plano, em regras ainda limitadas, quando há dados persistidos, completos e mapeamentos válidos. Isso não comprova um fluxo contínuo validado com dados reais. O contador confere e aprova; nenhum rascunho vira lançamento definitivo sozinho. Balancete, Diário e Razão usam lançamentos definitivos. DRE e Balanço são gerenciais; apurações de impostos e transmissões oficiais ainda não estão concluídas.</p>
+        <p className="mt-1">O robô prepara os pré-lançamentos sozinho quando as notas e a folha chegam e o mapeamento das contas está feito. O contador confere e aprova; nenhum rascunho vira lançamento definitivo sozinho. Balancete, Diário, Razão, DRE e Balanço usam os lançamentos definitivos.</p>
       </section>
 
       <section className="grid gap-3 md:grid-cols-3">

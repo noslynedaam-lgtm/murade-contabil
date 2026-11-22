@@ -47,8 +47,8 @@ test("Conferidor de empresa parada: sem workspace, sem mapeamento ou com notas e
     { cnpj: "5", temWorkspace: true, temMapeamento: false, notasProntas: 3, folhasRecebidas: 0, preLancamentos: 0 },
   ]);
   assert.deepEqual(p.map((x) => x.cnpj), ["1", "2", "5"]);
-  assert.match(p[0].motivo, /sem workspace.*119 nota/);
-  assert.match(textoAvisoParadas(p), /1 empresa\(s\) sem workspace.*2 empresa\(s\) com dados do Fiscal/);
+  assert.match(p[0].motivo, /ainda não aberta no Contábil.*119 nota/);
+  assert.match(textoAvisoParadas(p), /1 empresa\(s\) ainda não aberta.*2 empresa\(s\) com dados do Fiscal/);
 });
 
 const planoAntigo572 = () => planoContasInicialContabil().filter((c) => !["2.1.05.01.09", "4.3.06.01", "4.3.06.01.01"].includes(c.codigo));

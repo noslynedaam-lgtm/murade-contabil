@@ -16,8 +16,8 @@ export const BotaoRobosCabecalho: React.FC = () => (
   <button
     type="button"
     onClick={() => window.dispatchEvent(new Event(EVENTO_ABRIR_ROBOS))}
-    aria-label="Abrir Agente e Robô Murad"
-    title="Robôs e Agente"
+    aria-label="Abrir a tela dos robôs"
+    title="Robôs"
     className="flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/10 px-2 py-1 text-[11px] font-bold text-white hover:bg-white/20 cursor-pointer"
   >
     <Bot className="h-3.5 w-3.5 text-blue-100" />

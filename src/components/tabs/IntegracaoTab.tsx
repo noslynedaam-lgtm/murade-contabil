@@ -121,7 +121,7 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({ empresa }) => {
       {empresa?.cnpj && <p className="text-xs text-slate-500">Empresa selecionada: {empresa.razaoSocial || "Sem razão social"} · CNPJ {empresa.cnpj}. {estado.cnpjEmpresa === empresa.cnpj.replace(/[^A-Z0-9]/gi, "").toUpperCase() ? "Os totais acima correspondem somente a esta empresa." : "O servidor não confirmou o escopo desta empresa; atualize ou confira a autorização."}</p>}
       <p className="flex items-center gap-1 text-[11px] text-slate-500"><Clock3 className="h-3.5 w-3.5" /> Consultado em {new Date(estado.consultadoEm).toLocaleString("pt-BR")}</p>
     </>}
-    <PainelRobos />
+    <p className="text-xs text-slate-500">A saúde dos robôs fica no menu <strong>Robôs</strong>.</p>
     <PainelBackupBanco />
   </section>;
 };

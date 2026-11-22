@@ -59,7 +59,7 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
       case "Murad DP":
         return "bg-indigo-50 text-indigo-700 border-indigo-200";
       case "Murad Fisco IA":
-      case "Murad fisco IA":
+      case "Murad Fisco IA":
         return "bg-violet-50 text-violet-700 border-violet-200";
       default:
         return "bg-slate-50 text-slate-700 border-slate-200";
@@ -139,7 +139,7 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
           <div className="bg-white/90 border border-slate-300/80 rounded-lg p-3 shadow-2xs">
             <div className="text-[10px] text-slate-600 uppercase font-bold">Fiscal · origem dos documentos</div>
             <div className="mt-1 text-xs font-black text-slate-900">Captura e armazenamento na origem</div>
-            <p className="mt-1 text-[11px] text-slate-600">Documentos novos ou atualizados podem ser enviados pelo Fiscal e persistidos por CNPJ. A integração exige token e banco de dados disponíveis; a classificação contábil continua pendente.</p>
+            <p className="mt-1 text-[11px] text-slate-600">As notas da empresa chegam sozinhas do Fiscal e viram pré-lançamentos para o contador conferir e aprovar.</p>
           </div>
           <div className="bg-white/90 border border-slate-300/80 rounded-lg p-3 shadow-2xs">
             <div className="text-[10px] text-slate-600 uppercase font-bold">Departamento Pessoal · origem da folha</div>
@@ -148,8 +148,8 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
           </div>
           <div className="bg-white/90 border border-slate-300/80 rounded-lg p-3 shadow-2xs">
             <div className="text-[10px] text-slate-600 uppercase font-bold">Contábil · consolidação</div>
-            <div className="mt-1 text-xs font-black text-amber-800">Lançamentos locais; sem fechamento integrado</div>
-            <p className="mt-1 text-[11px] text-slate-600">Balancete usa lançamentos e plano de contas locais. Livros oficiais e obrigações ainda exigem integração, validação e conferência.</p>
+            <div className="mt-1 text-xs font-black text-slate-900">Lançamentos aprovados pelo contador</div>
+            <p className="mt-1 text-[11px] text-slate-600">Balancete, livros e demonstrações saem dos lançamentos definitivos. Os arquivos da ECD/ECF são gerados em Livros Fiscais & ECD para validar no programa da Receita.</p>
           </div>
           <div className="md:col-span-3 flex flex-wrap gap-x-5 gap-y-1 rounded-lg bg-white/70 px-3 py-2 text-[10px] text-slate-600">
             <span>Endereços que responderam: <strong className="text-slate-900">{respondendo} de {orgaos.length}</strong></span>
@@ -214,7 +214,7 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
           }`}
         >
           <Sparkles className="w-3.5 h-3.5" />
-          <span>Murad fiscal</span>
+          <span>Murad Fiscal</span>
         </button>
         <button
           onClick={() => setFiltroEsfera("Murad DP")}
@@ -228,15 +228,15 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
           <span>Murad DP</span>
         </button>
         <button
-          onClick={() => setFiltroEsfera("Murad fisco IA")}
+          onClick={() => setFiltroEsfera("Murad Fisco IA")}
           className={`px-3 py-1.5 rounded-md text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
-            filtroEsfera === "Murad fisco IA"
+            filtroEsfera === "Murad Fisco IA"
               ? "bg-purple-700 text-white shadow-xs"
               : "text-slate-600 hover:text-slate-900"
           }`}
         >
           <Bot className="w-3.5 h-3.5" />
-          <span>Murad fisco IA</span>
+          <span>Murad Fisco IA</span>
         </button>
       </div>
 

@@ -33,7 +33,7 @@ export const TELAS_CONTABIL: TelaMapa[] = [
   { id: 'inicio', rotulo: 'Tela Inicial' },
   { id: 'empresa', rotulo: 'Cadastro de Empresa' },
   { id: 'agenda', rotulo: 'Agenda & Lembretes' },
-  { id: 'fluxo-previtico', rotulo: 'Fluxo Prevítico' },
+  { id: 'fluxo-previtico', rotulo: 'Fluxo de Caixa Previsto' },
   { id: 'modulos-finais', rotulo: 'Obrigações & Gestão' },
   { id: 'gestao-contabil', rotulo: 'Gestão contábil', periodo: 'gestao-periodo' },
   { id: 'conexoes', rotulo: 'Conexão Órgãos' },
