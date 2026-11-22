@@ -30,6 +30,7 @@ import { opcoesConexaoBancoContabil, bancoTransacionalContabil } from "./src/ser
 import { removerEmpresaCompleta, sobrasDeEmpresasExcluidas } from "./src/server/exclusaoEmpresaCascata";
 import { listarRegistroAgenteIAContabil, bancoContabilConfigurado, consultaBancoContabil, hashSessaoContabil, registrarAcaoAgenteIAContabil, listarDuvidasSemRespostaDonoSistemaContabil, resolverDuvidaSemRespostaDonoSistemaContabil } from "./src/server/authContabil";
 import { definirAlertaRobo, dispararRoboAgora, executarRobo, registrarResultadoRobo, registrarRobo, registrarRotinaManual, statusRobos } from "./src/server/robosStatus";
+import { conferirEmpresasRepetidas } from "./src/server/conferidorEmpresaRepetida";
 import { criarServicoBackupBanco } from "./src/server/backupBanco/servico";
 import { buscarEmpresasDoFiscal, cnpjsValidosDoFiscal } from "./src/server/empresasDoFiscal";
 import { resumoRelatorioAcessos, rodarConferidorAcessos } from "./src/server/conferidorAcessos";
@@ -1717,6 +1718,20 @@ const reconciliacaoRascunhosStatus: {
   registrarRotinaManual("empresas_fiscal", rodarEmpresasFiscal);
   registrarRotinaManual("empresas_excluidas", rodarEmpresasExcluidas);
   registrarRotinaManual("acessos", rodarConferidorDeAcessos);
+  // Nenhuma empresa repetida (ver src/server/conferidorEmpresaRepetida.ts): só lê e conta; nunca apaga nem junta.
+  registrarRobo({ id: "conferidor_empresa_repetida", nome: "Robô Conferidor de Empresa Repetida", posto: "conferidor", missao: "De 2 em 2 horas confere se alguma empresa aparece duas vezes: o mesmo CNPJ no acesso de mais de um escritório, gravado com e sem pontuação, cadastro com CNPJ diferente da chave ou o mesmo código interno em duas empresas. Só conta e avisa; nunca apaga nem junta empresa sozinho.", ...(bancoContabilConfigurado() ? { intervaloMs: 2 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  const rodarConferidorEmpresaRepetida = () => { if (!bancoContabilConfigurado()) return; executarRobo("conferidor_empresa_repetida", async () => {
+    await prepararAuthContabil();
+    const r = await conferirEmpresasRepetidas((sql, params) => consultaBancoContabil(sql, (params ?? []) as any[]) as any, {
+      acessos: "SELECT a.cnpj, COALESCE(u.tenant_id, u.office_owner, u.id)::text AS tenant FROM contabil_auth_company_access a JOIN contabil_auth_users u ON u.id=a.user_id WHERE u.disabled=false",
+      empresas: "SELECT cnpj, payload->'empresa'->>'cnpj' AS cnpj_cadastro, NULL::text AS id FROM contabil_company_workspaces",
+    });
+    registrarResultadoRobo("conferidor_empresa_repetida", r.resumo);
+    definirAlertaRobo("conferidor_empresa_repetida", r.alerta ? { nivel: "aviso", texto: r.resumo } : null);
+  }).catch((e) => console.error("Falha no Robô Conferidor de Empresa Repetida:", e?.message || e)); };
+  registrarRotinaManual("conferidor_empresa_repetida", rodarConferidorEmpresaRepetida);
+  setTimeout(rodarConferidorEmpresaRepetida, 13 * 60_000).unref();
+  setInterval(rodarConferidorEmpresaRepetida, 2 * 60 * 60_000).unref();
   registrarRotinaManual("seguranca_login", rodarSegurancaLogin);
   registrarRotinaManual("backups", rodarConferidorBackups);
   // Robô de Backup Agendado (a cada 5 min) e o conferidor dele (de 2 em 2 horas): ver src/server/backupAgendado/servico.ts.

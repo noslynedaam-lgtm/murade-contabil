@@ -488,7 +488,8 @@ function AppWorkspace() {
       } catch { /* sem rede: o seletor mostra só os CNPJs autorizados */ }
       if (!ativo) return;
       const porCnpj = new Map<string, EmpresaDados>(cadastradas.map((e) => [limpar(e.cnpj), e]));
-      setListaEmpresas(auth.cnpjs.map((c) => {
+      // Uma por CNPJ no seletor do topo (nunca a mesma empresa duas vezes).
+      setListaEmpresas([...new Set(auth.cnpjs.map((c) => String(c || "").toUpperCase().replace(/[^0-9A-Z]/g, "")).filter(Boolean))].map((c) => {
         const d = porCnpj.get(c);
         return { cnpj: c, nome: d?.razaoSocial || d?.nomeFantasia || c, dados: d ? { ...initialEmpresa, ...d } : { ...initialEmpresa, cnpj: c } };
       }));

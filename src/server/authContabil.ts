@@ -282,8 +282,17 @@ export async function sessaoDoEscritorioParaIntegracaoContabil(escritorio: strin
   }
   const login = String(escritorio || "").trim().toLowerCase();
   if (!loginValidoContabil(login)) return null;
-  const r = await obterBanco().query(`${sql} AND lower(login)=$1 LIMIT 1`, [login]);
+  let r = await obterBanco().query(`${sql} AND lower(login)=$1 LIMIT 1`, [login]);
+  // Login de alguém da equipe: usa o escritório do dono (a migração grava sempre no escritório, nunca no nome do membro).
+  if (!r.rows[0]) { const dono = await loginDoDonoDoEscritorioContabil(login); if (dono) r = await obterBanco().query(`${sql} AND lower(login)=$1 LIMIT 1`, [dono]); }
   return r.rows[0] ? montarSessaoContabil(r.rows[0]) : null;
+}
+
+/** Login de outro sistema Murade que é de alguém da EQUIPE: devolve o login do dono do escritório (a empresa é sempre do escritório). */
+export async function loginDoDonoDoEscritorioContabil(login: string): Promise<string | null> {
+  const r = await obterBanco().query(`SELECT o.login FROM contabil_auth_users m JOIN contabil_auth_users o ON o.id=m.office_owner
+    WHERE lower(m.login)=$1 AND m.disabled=false AND m.global_admin=false AND o.disabled=false AND o.global_admin=true LIMIT 1`, [String(login || "").trim().toLowerCase()]);
+  return r.rows[0]?.login ? String(r.rows[0].login).toLowerCase() : null;
 }
 
 /** Acesso efetivo: empresas próprias + (se for equipe do escritório) todas as empresas do dono do escritório. */
@@ -1985,7 +1994,9 @@ export async function importarCnpjsCompartilhados(itens: Array<{ cnpj: string; e
   for (const item of itens) {
     const cnpj = normalizarCnpjAcesso(item.cnpj);
     if (!cnpjContabilValido(cnpj)) continue;
-    const alvo = item.donoSistema ? dono : (porLogin.get(String(item.escritorio).toLowerCase()) ?? null);
+    let alvo = item.donoSistema ? dono : (porLogin.get(String(item.escritorio).toLowerCase()) ?? null);
+    // Login de alguém da equipe: a empresa vai para o escritório do dono (nunca fica no nome do membro).
+    if (!alvo && !item.donoSistema && item.escritorio) { const d = await loginDoDonoDoEscritorioContabil(item.escritorio); if (d) alvo = porLogin.get(d) ?? null; }
     if (!alvo) { semEscritorio.push(cnpj); continue; }
     const existe = await obterBanco().query("SELECT user_id FROM contabil_auth_company_access WHERE cnpj=$1 LIMIT 1", [cnpj]);
     let meu = false;

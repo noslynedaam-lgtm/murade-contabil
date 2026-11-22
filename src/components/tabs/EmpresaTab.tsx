@@ -38,6 +38,7 @@ import { useExclusaoDuasEtapas } from "../ConfirmaExclusaoDuasEtapas";
 import { ModalConexaoMuradFiscal } from "../modals/ModalConexaoMuradFiscal";
 import { conectarEPuxarEmpresaMuradFiscal, conectarMuradDP } from "../../services/integracaoMuradService";
 import { baixarPacoteEmpresasMurade, lerPacoteEmpresasMurade } from "../../services/migracaoEmpresaService";
+import { chaveCnpjEmpresa, dedupEmpresasPorCnpj } from "../../utils/dedupEmpresas";
 
 const competenciaAtualISO = () => { const hoje = new Date(); return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`; };
 
@@ -68,7 +69,8 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
   onTrocarEmpresaAtiva,
 }) => {
   // Lista de empresas cadastradas no sistema (persistência real em localStorage)
-  const [empresasCadastradas, setEmpresasCadastradas] = useState<EmpresaDados[]>(() => {
+  // Nunca a mesma empresa duas vezes na lista: toda gravação da lista passa pela deduplicação por CNPJ.
+  const [empresasCadastradas, setEmpresasCadastradasBruto] = useState<EmpresaDados[]>(() => dedupEmpresasPorCnpj((() => {
     try {
       const salvas = localStorage.getItem("murad_empresas_lista");
       if (salvas) {
@@ -95,7 +97,11 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
       return [empresa];
     }
     return [];
-  });
+  })()));
+  const setEmpresasCadastradas = (valor: EmpresaDados[] | ((prev: EmpresaDados[]) => EmpresaDados[])) =>
+    setEmpresasCadastradasBruto((prev) => dedupEmpresasPorCnpj(typeof valor === "function" ? (valor as (p: EmpresaDados[]) => EmpresaDados[])(prev) : valor));
+  // Cadastro novo com CNPJ que já está no escritório: avisa e oferece abrir (não cria outra nem sobrescreve).
+  const [empresaJaCadastrada, setEmpresaJaCadastrada] = useState<EmpresaDados | null>(null);
 
   useEffect(() => {
     let ativo = true;
@@ -636,6 +642,12 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
       showToast("⚠️ Informe um CNPJ com 14 caracteres para manter o cadastro separado por empresa.");
       return;
     }
+    if (!modoEdicaoId) {
+      const chave = chaveCnpjEmpresa(cnpjLimpo);
+      const existente = empresasCadastradas.find((e) => chaveCnpjEmpresa(e.cnpj) === chave)
+        || (cnpjsAutorizados.includes(chave) ? ({ cnpj: chave, razaoSocial: chaveCnpjEmpresa(empresa.cnpj) === chave ? empresa.razaoSocial : chave } as EmpresaDados) : null);
+      if (existente) { setEmpresaJaCadastrada(existente); return; }
+    }
     if (onAutorizarCnpj && !await onAutorizarCnpj(cnpjLimpo)) return;
 
     const dadosParaSalvar: EmpresaDados = {
@@ -790,6 +802,19 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
       </div>
 
       {/* NOTIFICAÇÃO TOAST */}
+      {empresaJaCadastrada && (
+        <div role="alert" data-testid="aviso-empresa-ja-cadastrada" className="p-3.5 bg-amber-50 border border-amber-300 text-amber-900 rounded-xl text-xs font-semibold space-y-2 shadow-md">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>Esta empresa já está cadastrada no escritório: {empresaJaCadastrada.razaoSocial || empresaJaCadastrada.nomeFantasia || empresaJaCadastrada.cnpj}. Nada foi criado nem alterado.</span>
+          </div>
+          <div className="flex flex-wrap justify-end gap-2">
+            <button type="button" onClick={() => setEmpresaJaCadastrada(null)} className="px-3 py-1.5 rounded-lg border border-amber-300 bg-white font-bold">Fechar</button>
+            {onTrocarEmpresaAtiva && <button type="button" onClick={() => { const e = empresaJaCadastrada; setEmpresaJaCadastrada(null); onTrocarEmpresaAtiva(e); }} className="px-3 py-1.5 rounded-lg bg-amber-600 text-white font-bold">Abrir a empresa</button>}
+          </div>
+        </div>
+      )}
+
       {toastMsg && (
         <div className="p-3.5 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-xl text-xs font-semibold flex items-center gap-2.5 shadow-md animate-in fade-in">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
