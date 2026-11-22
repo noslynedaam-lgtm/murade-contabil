@@ -32,7 +32,7 @@ export const MODULOS_JEITO_PADRAO: TelaJeito[] = [
   { id: 'integracao', rotulo: 'Integrações', resumo: 'Estado da recepção do Fiscal e do DP e da preparação automática de rascunhos, com botões para reprocessar a recepção.', arquivo: 'IntegracaoTab' },
   { id: 'revisao-origens', rotulo: 'Revisar dados recebidos', resumo: 'Revisão do que veio do Fiscal e do DP: mapeamento de contas, prévias contábeis das notas e da folha, conciliação e aprovação final.', arquivo: 'RevisaoOrigensTab' },
   { id: 'calculadora', rotulo: 'Calculadora 3D', resumo: 'Calculadora com teclas compactas e acumulado por empresa.', arquivo: 'CalculadoraTab' },
-  { id: 'agente', rotulo: 'Agentes & Robô', resumo: 'Painel dos robôs e da Agente IA, com a missão e o estado de cada um.', arquivo: 'AgenteTab' },
+  { id: 'agente', rotulo: 'Robôs', resumo: 'Saúde dos robôs: a missão, quando rodou e o resultado de cada um.', arquivo: 'AgenteTab' },
   { id: 'tarefas-equipe', rotulo: 'Tarefas da equipe', resumo: 'Pedidos feitos à equipe, com acompanhamento de quando foram vistos e concluídos.', arquivo: 'TarefasEquipeTab' },
   { id: 'backups', rotulo: 'Backups', resumo: 'Backup do escritório em arquivo próprio do Murad, cifrado: agendar (todo dia, semana ou mês), guardar no computador ou na nuvem do escritório e restaurar; o mensal automático continua.', arquivo: 'BackupsTab' },
   { id: 'meu-jeito', rotulo: 'Meu jeito', resumo: 'O nome pelo qual a Agente te chama e o que ela aprendeu do seu jeito de trabalhar: você vê, muda o nome ou volta ao jeito padrão, uma regra por vez.', arquivo: 'MeuJeitoTab' },

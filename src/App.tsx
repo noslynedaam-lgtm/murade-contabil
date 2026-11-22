@@ -530,7 +530,7 @@ function AppWorkspace() {
       ["integracao", "Integrações", "fiscal dp integracao enviar receber"],
       ["revisao-origens", "Revisar dados recebidos", "origens fiscal dp revisao notas folha conciliacao mapeamento"],
       ["calculadora", "Calculadora 3D", "calculadora tributos imposto calcular zerar historico"],
-      ["agente", "Agentes & Robô", "robos agente conferidor automatico"],
+      ["agente", "Robôs", "robos agente conferidor automatico"],
       ["ia-premium", "IA Murad Premium", "inteligencia artificial assistente pergunta voz"],
     ];
     // Assuntos dentro das telas: abrem a tela e piscam o título da parte procurada.

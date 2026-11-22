@@ -155,27 +155,6 @@ export const VisualizarModal: React.FC<VisualizarModalProps> = ({
             )}
           </div>
 
-          {/* Linha Digitável se existir */}
-          {item.linhaDigitavel && (
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Linha digitável informada (não validada):</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value="Não verificada; código oculto para evitar pagamento incorreto"
-                  className="w-full font-mono text-xs p-2.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none"
-                />
-                <button
-                  disabled
-                  className="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg text-xs font-bold flex items-center gap-1.5 shrink-0 transition cursor-not-allowed border border-slate-300 opacity-50"
-                >
-                  {copiado ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-                  <span>{copiado ? "Copiado!" : "Copiar"}</span>
-                </button>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Rodapé com Botões de Ação Interativos */}
