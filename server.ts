@@ -46,7 +46,7 @@ import { criarStoreEscritorio, preencherCnpjsDosEscritorios, registrarRotasEscri
 import { conferirCadastrosDosEscritorios, registrarRotaCadastroEscritorioContabil } from "./src/server/cadastroEscritorioContabil";
 import { criarStoreServicoCompleto, registrarRotasServicoCompleto, resumoRodadaServicos, rodarConferidorServicos, tenantServico, type ResultadoRodadaServicos } from "./src/server/servicoCompletoStore";
 import { chaveServico, descreverRegistro, tenantDaSessao } from "./src/server/servicoFeito";
-import { registrarRotasEscrituracao, roboConciliacao, roboEncerramento, roboLancamentosPadrao, roboLivroCaixa } from "./src/server/escrituracaoRotas";
+import { registrarRotasEscrituracao, roboAjustesFechamento, roboConciliacao, roboEncerramento, roboLancamentosPadrao, roboLivroCaixa } from "./src/server/escrituracaoRotas";
 import { criarRevisorContabil, registrarRotasRevisor, INTERVALO_ROBO_REVISOR_MS } from "./src/server/revisorContabil";
 import { conferirFolhasDP } from "./src/server/conferidorFolhaDP";
 import { registrarRotasMigracaoSistemaAnterior, rotinaConferidorMigracao } from "./src/server/migracaoSistemaAnterior/rotas";
@@ -246,7 +246,7 @@ const reconciliacaoRascunhosStatus: {
     robos: { executarRobo, registrarResultadoRobo, definirAlertaRobo },
   });
   registrarRobo({ id: "conferidor_migracao_sistema_anterior", nome: "Robô Conferidor da Migração do Sistema Anterior", posto: "conferidor", missao: "Conferir, em cada empresa migrada pelo backup do sistema anterior, se o balancete do Murade (lançamentos que vieram de lá) bate por conta e competência com os saldos e com os lançamentos originais do sistema anterior, e se nenhum lançamento migrado sumiu ou foi alterado; e, campo a campo, se cada campo preenchido no sistema anterior (cadastro da empresa, responsável, contador, contas, históricos, lançamentos e bens) chegou igual no Murade. Só lê e avisa; nunca altera nada.", intervaloMs: 6 * 60 * 60_000 });
-  const rodarConferidorMigracao = rotinaConferidorMigracao({ consultar: (sql, params) => consultaBancoContabil(sql, params), preparar: prepararAuthContabil, bancoConfigurado: bancoContabilConfigurado, robos: { executarRobo, registrarResultadoRobo, definirAlertaRobo } });
+  const rodarConferidorMigracao = rotinaConferidorMigracao({ consultar: (sql, params) => consultaBancoContabil(sql, params), preparar: prepararAuthContabil, bancoConfigurado: bancoContabilConfigurado, robos: { executarRobo, registrarResultadoRobo, definirAlertaRobo }, banco: bancoTransacionalContabil, workspaceValido });
   registrarRotinaManual("conferidor_migracao_sistema_anterior", rodarConferidorMigracao);
   setTimeout(() => void rodarConferidorMigracao(), 7 * 60_000).unref();
   setInterval(() => void rodarConferidorMigracao(), 6 * 60 * 60_000).unref();
@@ -1775,7 +1775,11 @@ const reconciliacaoRascunhosStatus: {
   const rodarEncerramento = () => bancoContabilConfigurado() ? executarRobo("encerramento", async () => registrarResultadoRobo("encerramento", await roboEncerramento(consultarEscrituracao))).catch((e) => console.error("Falha no Robô do Encerramento:", e?.message || e)) : undefined;
   registrarRobo({ id: "conciliacao", nome: "Robô da Conciliação Bancária", posto: "conferidor", missao: "Olhar o extrato guardado de cada empresa e sugerir, para cada movimento sem conciliação, o lançamento aprovado que casa (mesmo sentido e valor) ou a conta pela regra do escritório (quando o histórico tiver o texto) ou pelo histórico. Só grava sugestão: conciliar e lançar é sempre uma pessoa.", ...(bancoContabilConfigurado() ? { intervaloMs: 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
   const rodarConciliacao = () => bancoContabilConfigurado() ? executarRobo("conciliacao", async () => registrarResultadoRobo("conciliacao", await roboConciliacao(consultarEscrituracao))).catch((e) => console.error("Falha no Robô da Conciliação:", e?.message || e)) : undefined;
+  registrarRobo({ id: "ajustes_fechamento", nome: "Robô Conferidor do Fechamento (ajustes)", posto: "conferidor", missao: "Conferir em cada empresa se Diário, Razão, balancete e Balanço/DRE fecham: saldos iniciais sem contrapartida, lançamento fora do Diário (conta sintética, competência diferente da data, fração de centavo), conta de resultado que não zerou no encerramento. Acha a causa e deixa o ajuste pronto para o contador dizer \"Sim\" na tela Fechamento ou pela Agente IA. Nunca lança sozinho.", ...(bancoContabilConfigurado() ? { intervaloMs: 2 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  const rodarAjustesFechamento = () => bancoContabilConfigurado() ? executarRobo("ajustes_fechamento", async () => registrarResultadoRobo("ajustes_fechamento", await roboAjustesFechamento())).catch((e) => console.error("Falha no Robô dos ajustes do fechamento:", e?.message || e)) : undefined;
   if (bancoContabilConfigurado()) {
+    setTimeout(() => void rodarAjustesFechamento(), 250_000).unref(); setInterval(() => void rodarAjustesFechamento(), 2 * 60 * 60_000).unref();
+    registrarRotinaManual("ajustes_fechamento", rodarAjustesFechamento);
     setTimeout(() => void rodarLancamentosPadrao(), 150_000).unref(); setInterval(() => void rodarLancamentosPadrao(), 60 * 60_000).unref();
     setTimeout(() => void rodarLivroCaixa(), 170_000).unref(); setInterval(() => void rodarLivroCaixa(), 2 * 60 * 60_000).unref();
     setTimeout(() => void rodarEncerramento(), 190_000).unref(); setInterval(() => void rodarEncerramento(), 6 * 60 * 60_000).unref();

@@ -23,7 +23,8 @@ import {
   resumoExtratoEmpresa, validarMovimentosRecebidos,
 } from "./extratoBancarioStore";
 import { naturezasDasContas } from "../services/ecdService";
-import { normalizarDataContabil } from "../utils/livrosContabeis";
+import { gerarRelatoriosContabeis, normalizarDataContabil } from "../utils/livrosContabeis";
+import { analisarFechamento, aplicarPropostaFechamento, type PropostaFechamento } from "../utils/ajustesFechamento";
 
 type Consultar = (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number | null }>;
 type Mw = (req: express.Request, res: express.Response, next: express.NextFunction) => unknown;
@@ -45,7 +46,7 @@ export function planejarRecorrentes(payload: Record<string, any>, competencia: s
   return prepararRecorrentesDoMes({ padroes, lancamentos: lancamentosDe(payload), contas: contasDe(payload), competencia, fechadas, novoId: novoId("rec") });
 }
 
-export type AchadoEscrituracao = { cnpj: string; tipo: "livro_caixa" | "encerramento" | "conciliacao" | "recorrentes"; titulo: string; detalhe: string; verificadoEm: string };
+export type AchadoEscrituracao = { cnpj: string; tipo: "livro_caixa" | "encerramento" | "conciliacao" | "recorrentes" | "ajustes_fechamento"; titulo: string; detalhe: string; verificadoEm: string };
 const achados = new Map<string, AchadoEscrituracao>(); // chave: tipo:cnpj
 export const achadosEscrituracao = (cnpjs?: string[]): AchadoEscrituracao[] => [...achados.values()].filter((a) => !cnpjs || cnpjs.includes(a.cnpj)).sort((a, b) => a.cnpj.localeCompare(b.cnpj) || a.tipo.localeCompare(b.tipo));
 export const limparAchadosEscrituracaoParaTeste = () => achados.clear();
@@ -456,6 +457,44 @@ export function registrarRotasEscrituracao(app: express.Express, deps: Deps): vo
     } catch (e) { return erroHttp(res, e, "Não foi possível remover a regra."); }
   });
 
+  // ---------- "Quer que eu ajuste?" no fechamento: análise (só lê) e uma decisão por vez (Sim / Desfazer / Manter)
+  const competenciaDoPedido = (v: unknown) => (COMP.test(String(v || "")) ? String(v) : undefined);
+  app.get("/api/workspaces/:cnpj/ajustes-fechamento", sessaoMw, async (req, res) => {
+    const a = acessoEmpresa(req, res, false); if (!a) return;
+    try {
+      const payload = await lerWorkspaceInternoContabil(a.cnpj);
+      if (!payload) return res.status(404).json({ sucesso: false, motivo: "Esta empresa ainda não tem dados contábeis salvos." });
+      const competencia = competenciaDoPedido(req.query.competencia);
+      const propostas = analisarFechamento({ contas: contasDe(payload), lancamentos: lancamentosDe(payload), empresa: payload.empresa, competencia });
+      return res.json({ sucesso: true, competencia: competencia || null, propostas, resumo: resumoAjustesFechamento(propostas) });
+    } catch (e) { return erroHttp(res, e, "Não foi possível analisar o fechamento."); }
+  });
+  app.post("/api/workspaces/:cnpj/ajustes-fechamento", origem, sessaoMw, async (req, res) => {
+    const a = acessoEmpresa(req, res, true); if (!a) return;
+    const id = String(req.body?.id || "").slice(0, 200); const acao = String(req.body?.acao || "");
+    if (!id || !["executar", "desfazer", "manter"].includes(acao)) return res.status(400).json({ sucesso: false, motivo: "Informe o item e a ação (executar, desfazer ou manter)." });
+    const competencia = competenciaDoPedido(req.body?.competencia);
+    try {
+      const r = await alterarWorkspaceNoServidorContabil(a.cnpj, (payload) => {
+        const antes = analisarFechamento({ contas: contasDe(payload), lancamentos: lancamentosDe(payload), empresa: payload.empresa, competencia });
+        const proposta = antes.find((x) => x.id === id);
+        if (!proposta) throw new ErroAlteracaoWorkspace(404, "Este item não está mais na análise (pode já ter sido resolvido).");
+        if (acao === "desfazer" && proposta.situacao !== "feito") throw new ErroAlteracaoWorkspace(409, "Este item ainda não foi ajustado.");
+        let novo: Record<string, any>;
+        try { novo = aplicarPropostaFechamento(payload, proposta, acao as "executar" | "desfazer" | "manter", a.sessao.login); }
+        catch (e: any) { throw new ErroAlteracaoWorkspace(409, String(e?.message || e)); }
+        const depois = analisarFechamento({ contas: contasDe(novo), lancamentos: lancamentosDe(novo), empresa: novo.empresa, competencia });
+        const rel = gerarRelatoriosContabeis(contasDe(novo), lancamentosDe(novo), competencia || "todos");
+        return { payload: novo, resultado: { depois, proposta, diferenca: rel.totalSaldoDevedorCentavos - rel.totalSaldoCredorCentavos } };
+      }, autor(a.sessao));
+      const { depois, proposta, diferenca } = r.resultado;
+      const agora = depois.find((x) => x.id === id);
+      const conferido = acao !== "executar" ? "" : agora && agora.situacao !== "feito" ? " Conferi de novo: ainda não bateu, veja o item." : ` Conferi de novo: ${diferenca === 0 ? "o balancete fecha exatamente" : `o balancete ainda tem diferença de R$ ${(Math.abs(diferenca) / 100).toFixed(2).replace(".", ",")}`}.`;
+      const msg = acao === "manter" ? "Mantido como está (marcado como conferido)." : acao === "desfazer" ? (proposta.tipo === "lancamento" ? "Ajuste desfeito por estorno (o lançamento continua no Diário)." : "Desfeito: voltou o valor anterior.") : `Ajuste feito.${conferido}`;
+      return res.json(respostaAlteracao(r, { mensagem: msg, propostas: depois, resumo: resumoAjustesFechamento(depois) }));
+    } catch (e) { return erroHttp(res, e, "Não foi possível aplicar o ajuste."); }
+  });
+
   // ---------- achados dos robôs desta escrituração (só as empresas da sessão)
   app.get("/api/escrituracao/achados", sessaoMw, (req, res) => {
     res.setHeader("Cache-Control", "no-store");
@@ -564,3 +603,27 @@ export async function roboConciliacao(consultar: Consultar, agora = new Date()):
 }
 
 export { agruparPorLote };
+
+export function resumoAjustesFechamento(p: PropostaFechamento[]): string {
+  const pend = p.filter((x) => x.situacao === "pendente");
+  const prontos = pend.filter((x) => x.tipo !== "verificar").length;
+  if (!pend.length) return p.some((x) => x.situacao === "feito") ? "Fechamento: tudo fecha; os ajustes feitos podem ser desfeitos aqui." : "Fechamento: nada a ajustar.";
+  return `Fechamento: ${prontos} ajuste(s) pronto(s) esperando o "Sim"${pend.length - prontos ? ` e ${pend.length - prontos} item(ns) para verificar` : ""}.`;
+}
+
+/** Robô conferidor do fechamento: em cada empresa, acha o que não fecha e deixa a proposta pronta (não lança nada). */
+export async function roboAjustesFechamento(agora = new Date()): Promise<string> {
+  let empresas = 0, comAjuste = 0, prontos = 0, verificar = 0;
+  for await (const { cnpj, payload } of percorrerWorkspacesContabil()) {
+    if (!contasDe(payload).length || !lancamentosDe(payload).length) { guardarAchado(null, "ajustes_fechamento", cnpj); continue; }
+    empresas += 1;
+    try {
+      const p = analisarFechamento({ contas: contasDe(payload), lancamentos: lancamentosDe(payload), empresa: payload.empresa }).filter((x) => x.situacao === "pendente");
+      const pr = p.filter((x) => x.tipo !== "verificar").length;
+      prontos += pr; verificar += p.length - pr;
+      if (p.length) comAjuste += 1;
+      guardarAchado(p.length ? { cnpj, tipo: "ajustes_fechamento", titulo: pr ? `${pr} ajuste(s) pronto(s) — "Quer que eu ajuste?"` : `${p.length} item(ns) do fechamento para verificar`, detalhe: p.slice(0, 3).map((x) => `${x.titulo}: ${x.causa}`).join(" | "), verificadoEm: agora.toISOString() } : null, "ajustes_fechamento", cnpj);
+    } catch (e: any) { console.error(`Robô dos ajustes do fechamento falhou para ${cnpj}:`, e?.message || e); }
+  }
+  return `${empresas} empresa(s) conferida(s); ${comAjuste} com algo que não fecha: ${prontos} ajuste(s) pronto(s) esperando o "Sim" do contador e ${verificar} item(ns) para verificar. Nada foi lançado sozinho.`;
+}

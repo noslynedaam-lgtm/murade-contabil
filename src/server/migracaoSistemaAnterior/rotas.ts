@@ -8,7 +8,7 @@ import {
   descartarMigracaoContabil, gerarPreviaContabil, gravarMigracaoContabil, iniciarLimpezaMigracaoContabil, listarEmpresasDoBackupContabil,
   receberArquivoContabil, situacaoMigracaoContabilDoUsuario,
 } from './servico';
-import { analisarEmpresaMigrada, aplicarAchadoEmpresaMigrada, type AcaoAchado, cnpjsMigrados, conferirCamposEmpresaMigrada, conferirEmpresaMigrada, empresaExcluidaAntes, ErroMigracao, gravarEmpresaMigrada, lerBlocoSistemaAnterior, lerRegistroSistemaAnterior } from './banco';
+import { completarEmpresaMigrada, analisarEmpresaMigrada, aplicarAchadoEmpresaMigrada, type AcaoAchado, cnpjsMigrados, conferirCamposEmpresaMigrada, conferirEmpresaMigrada, empresaExcluidaAntes, ErroMigracao, gravarEmpresaMigrada, lerBlocoSistemaAnterior, lerRegistroSistemaAnterior } from './banco';
 
 export interface DependenciasRotasMigracao {
   exigirSessao: express.RequestHandler;
@@ -153,10 +153,18 @@ export function registrarRotasMigracaoSistemaAnterior(app: express.Express, dep:
 }
 
 /** Rotina do Robô Conferidor da Migração do Sistema Anterior (registrado no server.ts). Só lê e avisa. */
-export function rotinaConferidorMigracao(dep: Pick<DependenciasRotasMigracao, 'consultar' | 'preparar' | 'bancoConfigurado' | 'robos'>, id = 'conferidor_migracao_sistema_anterior'): () => Promise<unknown> | undefined {
+export function rotinaConferidorMigracao(dep: Pick<DependenciasRotasMigracao, 'consultar' | 'preparar' | 'bancoConfigurado' | 'robos'> & { banco?: () => BancoTransacional; workspaceValido?: (p: unknown) => boolean }, id = 'conferidor_migracao_sistema_anterior'): () => Promise<unknown> | undefined {
   return () => dep.bancoConfigurado() ? dep.robos.executarRobo(id, async () => {
     await dep.preparar();
     const cnpjs = await cnpjsMigrados(dep.consultar);
+    // Primeiro completa sozinho os campos que ficaram vazios (empresas migradas antes dos campos novos), sem sobrescrever.
+    let completadas = 0; let camposCompletados = 0;
+    if (dep.banco && dep.workspaceValido) {
+      for (const cnpj of cnpjs) {
+        try { const f = await completarEmpresaMigrada(dep.banco(), cnpj, (p) => dep.workspaceValido!(p)); if (f.length) { completadas++; camposCompletados += f.length; } }
+        catch (e) { console.error(`Completar campos da migração falhou para ${cnpj}:`, (e as Error)?.message || e); }
+      }
+    }
     const problemas: string[] = [];
     const camposPendentes: string[] = [];
     let desatualizados = 0; let totalPendencias = 0; let totalConferir = 0; let totalAjustes = 0;
@@ -187,6 +195,7 @@ export function rotinaConferidorMigracao(dep: Pick<DependenciasRotasMigracao, 'c
     if (cnpjs.length) texto += camposPendentes.length
       ? ` Campo a campo: ${totalPendencias} pendência(s) em ${camposPendentes.length} empresa(s) — ${camposPendentes.slice(0, 3).join(' | ')}. Veja na empresa › Migração › "O que veio do sistema anterior".`
       : ' Campo a campo: todos os campos preenchidos no sistema anterior estão iguais no Murade.';
+    if (completadas) texto += ` Completei sozinho ${camposCompletados} campo(s) vazio(s) em ${completadas} empresa(s) a partir do registro do sistema anterior (nada foi sobrescrito).`;
     if (cnpjs.length && analises.length) texto += ` Análise do que veio errado do sistema anterior: ${totalConferir} item(ns) para o contador conferir${totalAjustes ? ` e ${totalAjustes} ajuste(s) prontos` : ''} — ${analises.slice(0, 3).join(' | ')}.`;
     dep.robos.registrarResultadoRobo(id, texto);
     dep.robos.definirAlertaRobo(id, problemas.length || camposPendentes.length || totalAjustes ? { nivel: 'aviso', texto } : null);

@@ -134,6 +134,13 @@ function AppWorkspace() {
     credencialTipo: undefined,
   })));
   const [lancamentos, setLancamentos] = useState<LancamentoContabil[]>([]);
+  // Recarrega a empresa do banco quando outra tela mudou o workspace no servidor (ex.: análise da migração).
+  const [recargaWorkspace, setRecargaWorkspace] = useState(0);
+  React.useEffect(() => {
+    const ouvir = () => setRecargaWorkspace((n) => n + 1);
+    window.addEventListener("murade-workspace-alterado", ouvir);
+    return () => window.removeEventListener("murade-workspace-alterado", ouvir);
+  }, []);
   const [contas, setContas] = useState<ContaPlano[]>(() =>
     ordenarContasPorSequenciaNumerica(planoContasPadrao)
   );
@@ -271,7 +278,7 @@ function AppWorkspace() {
       }
     })();
     return () => { ativo = false; };
-  }, [empresa.cnpj, auth.cnpjs.join(",")]);
+  }, [empresa.cnpj, auth.cnpjs.join(","), recargaWorkspace]);
 
   React.useEffect(() => {
     const cnpj = String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase();
@@ -747,6 +754,9 @@ function AppWorkspace() {
         setHistoricosPadrao(Array.isArray(d.historicosPadrao) ? d.historicosPadrao : []);
         setLancamentosPadrao(Array.isArray(d.lancamentosPadrao) ? d.lancamentosPadrao : []);
         setRegrasConciliacao(Array.isArray(d.regrasConciliacao) ? d.regrasConciliacao : []);
+        // Ajustes do fechamento podem mudar o plano (saldo inicial) e o cadastro (decisões do contador).
+        if (Array.isArray(d.contas)) setContas(ordenarContasPorSequenciaNumerica(d.contas));
+        if (d.empresa && typeof d.empresa === "object") setEmpresa((anterior) => ({ ...anterior, ...d.empresa, certificadoAtivo: anterior.certificadoAtivo, certificadoNomeArquivo: anterior.certificadoNomeArquivo }));
       }
       if (metodo !== "GET" && result.mensagem) showToast(String(result.mensagem), "success");
       return { ok: true, corpo: result };

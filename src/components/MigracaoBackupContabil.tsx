@@ -270,7 +270,7 @@ const AnaliseMigracao: React.FC<{ cnpj: string; analise: { resumo: string; achad
       const r = await fetch(`/api/migracao-sistema-anterior/registro/${encodeURIComponent(cnpj)}/achado`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: a?.id || "", acao }) });
       const j = await r.json().catch(() => ({}));
       setMsg(j?.sucesso ? String(j.mensagem || "Feito.") : String(j?.motivo || "Não foi possível."));
-      if (j?.sucesso) aoMudar();
+      if (j?.sucesso) { aoMudar(); window.dispatchEvent(new CustomEvent("murade-workspace-alterado", { detail: { cnpj } })); }
     } catch { setMsg("Sem conexão; nada foi alterado."); } finally { setOcupado(""); }
   };
   const desfeitos = analise.achados.filter((a) => a.tipo === "corrigido" && a.situacao === "desfeito").length;

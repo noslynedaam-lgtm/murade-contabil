@@ -11,6 +11,7 @@
 // Regra sem fonte oficial certa vira "verificar" (sem afirmar o que é o certo).
 import type { ResultadoConferencia } from './conferencia';
 import { cadastroDoBackup, dataIsoSA, txt, type Linha } from './camposSistemaAnterior';
+import { ajusteLancado, estornarAjuste, lancarAjuste } from '../../utils/ajustesPropostos';
 
 export const PREFIXO_AJUSTE = 'AJUSTE-MIGRACAO:';
 
@@ -215,10 +216,7 @@ export function analisarMigracao(ent: EntradaAnalise): AchadoMigracao[] {
   // ---- 3. ajuste proposto quando o balancete não bate -------------------------------------------------------------------
   const contrapartida = contas.find((c) => c.tipo === 'analitica' && /ajustes? de exercicios anteriores/.test(semAcento(String(c.descricao || ''))))?.codigo
     || (empresa.contaContrapartidaAberturaCodigo && porCodigo.get(empresa.contaContrapartidaAberturaCodigo)?.tipo === 'analitica' ? empresa.contaContrapartidaAberturaCodigo : '');
-  const lancado = (id: string) => {
-    const l = lancs.find((x) => String(x?.documentoRef || '') === `${PREFIXO_AJUSTE}${id}`);
-    return Boolean(l && !lancs.some((x) => x?.estornoDe === l.id));
-  };
+  const lancado = (id: string) => Boolean(ajusteLancado(lancs, `${PREFIXO_AJUSTE}${id}`));
   for (const d of ent.conferencia?.diferencasLancamentosOriginais || []) {
     const net = (d.debitoAnterior - d.debitoMurade) - (d.creditoAnterior - d.creditoMurade);
     if (!net) continue;
@@ -265,24 +263,14 @@ export function aplicarAcaoAchado(payload: Record<string, any>, achado: AchadoMi
     else if (a.tipo === 'lancamentos') { const mapa = (valor || {}) as Record<string, string>; for (const l of p.lancamentos || []) if (mapa[l.id] !== undefined) l[a.campo] = mapa[l.id]; }
     return p;
   }
+  const referencia = `${PREFIXO_AJUSTE}${achado.id}`;
   if (acao === 'lancar_ajuste') {
     const aj = achado.ajuste;
     if (achado.tipo !== 'ajuste' || !aj) throw new Error('Este ajuste ainda não tem conta de contrapartida.');
     if (achado.situacao === 'lancado') throw new Error('Este ajuste já foi lançado.');
-    const nome = (c: string) => (p.contas || []).find((x: any) => x.codigo === c)?.descricao || c;
-    p.lancamentos = [...(p.lancamentos || []), {
-      id: `AJMIG-${aj.competencia}-${aj.contaDebito}-${aj.contaCredito}-${agora.getTime()}`.slice(0, 64), data: aj.data, competencia: aj.competencia,
-      contaDebitoCodigo: aj.contaDebito, contaDebitoNome: nome(aj.contaDebito), contaCreditoCodigo: aj.contaCredito, contaCreditoNome: nome(aj.contaCredito),
-      valor: aj.valorCentavos / 100, historico: `${aj.historico} — confirmado por ${quem}`.slice(0, 240), origem: 'Manual', documentoRef: `${PREFIXO_AJUSTE}${achado.id}`, statusManual: 'aprovado',
-    }];
-    return p;
+    return lancarAjuste(p, referencia, aj, quem, agora);
   }
-  // desfazer ajuste = estorno (partida invertida), nunca apaga
-  const l = (p.lancamentos || []).find((x: any) => String(x?.documentoRef || '') === `${PREFIXO_AJUSTE}${achado.id}` && !(p.lancamentos || []).some((y: any) => y?.estornoDe === x.id));
-  if (!l) throw new Error('Não há ajuste lançado para desfazer.');
-  p.lancamentos.push({ ...l, id: `EST-${l.id}`.slice(0, 64), contaDebitoCodigo: l.contaCreditoCodigo, contaDebitoNome: l.contaCreditoNome, contaCreditoCodigo: l.contaDebitoCodigo, contaCreditoNome: l.contaDebitoNome,
-    historico: `Estorno: ${l.historico}`.slice(0, 240), estornoDe: l.id, documentoRef: `${PREFIXO_AJUSTE}${achado.id}:ESTORNO` });
-  return p;
+  return estornarAjuste(p, referencia); // desfazer ajuste = estorno, nunca apaga
 }
 
 export function resumoAnalise(achados: AchadoMigracao[]): string {

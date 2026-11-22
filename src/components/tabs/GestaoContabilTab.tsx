@@ -4,6 +4,7 @@ import { useExclusaoDuasEtapas } from "../ConfirmaExclusaoDuasEtapas";
 import React, { useMemo, useState } from "react";
 import { CentroCustoContabil, ContaPlano, EmpresaDados, LancamentoContabil, PreLancamentoContabil, RegraConciliacao } from "../../types";
 import { ConciliacaoBancariaPainel } from "../ConciliacaoBancariaPainel";
+import { AjustesFechamentoPainel } from "../AjustesFechamentoPainel";
 import { compararPeriodos, explicarVariacoes, resultadoPorCentroCusto } from "../../utils/analiseContabil";
 import { BemImobilizado, definirAjusteQuota, depreciacaoAcumulada, filialAtual, quotaAutomatica, quotaDoMes, quotaFoiAjustada, removerAjusteQuota, resultadoDaBaixa, totalQuotasDoMes, validarBem, valorContabilLiquido } from "../../utils/imobilizado";
 import { centavosParaTexto, liquidoLancado, montarComplemento, paraCentavos, valorEfetivoCentavos } from "../../utils/ajusteManual";
@@ -357,7 +358,7 @@ const Extrato: React.FC<Props & { periodo: string; analiticas: ContaPlano[] }> =
   );
 };
 
-const Fechamento: React.FC<Props & { periodo: string }> = ({ contas, lancamentos, preLancamentos, bens, competenciasFechadas, onFecharMes, workspacePersistido, confirmacoes: conf, onConfirmacoes: setConf, periodo }) => {
+const Fechamento: React.FC<Props & { periodo: string }> = ({ contas, lancamentos, preLancamentos, bens, competenciasFechadas, onFecharMes, workspacePersistido, confirmacoes: conf, onConfirmacoes: setConf, periodo, onRota }) => {
   const confirmacoes = conf[periodo] ?? {};
   const r = useMemo(() => conferirFechamento({ competencia: periodo, contas, lancamentos, preLancamentos, bens, confirmacoes }), [periodo, contas, lancamentos, preLancamentos, bens, confirmacoes]);
   const fechada = competenciasFechadas.includes(periodo);
@@ -372,6 +373,7 @@ const Fechamento: React.FC<Props & { periodo: string }> = ({ contas, lancamentos
         ))}
       </ul>
       <button type="button" data-campo="fechamento-fechar" disabled={!r.podeFechar || fechada || !workspacePersistido} onClick={async () => { if (await confirmarNaTela(`Fechar a competência ${periodo}? O servidor vai bloquear alterações nesse mês.`)) await onFecharMes(periodo); }} className="mt-3 rounded-md bg-blue-700 px-4 py-2 font-bold text-white disabled:opacity-50">{fechada ? "Competência já fechada" : r.podeFechar ? "Fechar competência" : "Resolva os itens para fechar"}</button>
+      {onRota && <AjustesFechamentoPainel onRota={onRota} periodo={periodo} podeGravar={workspacePersistido && !fechada} />}
       <p className="mt-2 text-slate-600">Os itens automáticos vêm dos dados deste Contábil. Os itens "confirmação sua" o sistema não consegue verificar sozinho (banco, contas a pagar/receber, folha e impostos): você confirma depois de conferir. O servidor ainda aplica suas próprias validações no fechamento.</p>
     </Cartao>
   );

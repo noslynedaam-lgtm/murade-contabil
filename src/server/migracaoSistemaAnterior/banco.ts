@@ -7,7 +7,7 @@ import { urlDoSistema } from '../agentesEntreSistemas';
 import type { DadosContabeisEmpresa } from './conversor';
 import { conferirMigracao, type ReferenciaConferencia, type ResultadoConferencia } from './conferencia';
 import { mesclarMigracao } from './mesclagem';
-import { conferirCamposMigrados, type ResultadoCampos } from './camposSistemaAnterior';
+import { bensDoBackup, cadastroDoBackup, conferirCamposMigrados, txt, type ResultadoCampos } from './camposSistemaAnterior';
 import { analisarMigracao, aplicarAcaoAchado, resumoAnalise, type AchadoMigracao } from './analiseSistemaAnterior';
 import { converterClassificacao } from './conversor';
 
@@ -206,6 +206,89 @@ export async function aplicarAchadoEmpresaMigrada(banco: BancoTransacional, cnpj
       : acao === 'desfazer_ajuste' ? 'Ajuste estornado (o lançamento continua no Diário, com o estorno).' : acao === 'desfazer' ? 'Desfeito: voltou como veio do sistema anterior.'
         : acao === 'corrigir_todos' ? `${alvos.length} correção(ões) aplicada(s).` : acao === 'aceitar' ? 'Sugestão aceita e aplicada.' : 'Corrigido.';
     return { mensagem, achados: depois, resumo: resumoAnalise(depois), conferencia };
+  });
+}
+
+const semValor = (v: unknown) => v === undefined || v === null || (typeof v === 'string' && v.trim() === '') || (Array.isArray(v) && v.length === 0);
+
+/**
+ * Completa, a partir do registro guardado do sistema anterior, os campos que ficaram VAZIOS no Murade (empresas migradas
+ * antes de existirem os campos novos). Nunca sobrescreve nada; não mexe em lançamento de competência fechada. Pura.
+ */
+export function completarPayloadDoRegistro(payload: Record<string, any>, blocos: Record<string, any[]>, mapa: Record<string, string>, cdempresa: number, fechadas: Set<string> = new Set()): { payload: Record<string, any>; preenchidos: string[] } {
+  const p = JSON.parse(JSON.stringify(payload || {}));
+  const preenchidos: string[] = [];
+  p.empresa = p.empresa && typeof p.empresa === 'object' ? p.empresa : {};
+  const contas: any[] = Array.isArray(p.contas) ? p.contas : [];
+  const porCodigo = new Map(contas.map((c) => [String(c.codigo), c]));
+  if (blocos.cadastro_empresa?.length || blocos.contador?.length || blocos.empresa_contabil?.length) {
+    const campos = cadastroDoBackup({
+      empresa: blocos.cadastro_empresa?.[0], empcont: blocos.empresa_contabil?.[0], contador: blocos.contador?.[0], sociosEmpresa: blocos.socios_empresa || [], socios: blocos.socios || [],
+      municipio: blocos.municipio?.[0], pcont: blocos.plano_cadastro?.[0], mapaContas: mapa, tipoConta: (c) => porCodigo.get(c)?.tipo,
+      historicoCnae: blocos.cadastro_historico_cnae || [], historicoNire: blocos.historico_nire || [],
+    });
+    for (const c of campos) if (c.campo !== 'cnpj' && semValor(p.empresa[c.campo])) { p.empresa[c.campo] = c.valor; preenchidos.push(`empresa.${String(c.campo)}`); }
+  }
+  for (const c of blocos.plano_contas || []) {
+    const codigo = mapa[String(Number(c.idconta))]; const red = txt(c.cdchamada);
+    const m = codigo ? porCodigo.get(codigo) : undefined;
+    if (m && red && semValor(m.codigoReduzido)) { m.codigoReduzido = red.slice(0, 40); preenchidos.push(`conta ${codigo}: código reduzido`); }
+  }
+  const hist: any[] = Array.isArray(p.historicosPadrao) ? p.historicosPadrao : [];
+  for (const h of blocos.historicos_padrao || []) {
+    if (txt(h.stcomplemento).toUpperCase() !== 'S') continue;
+    const codigo = (txt(h.cdchamada) || txt(h.idhistoricopadrao)).replace(/[^A-Za-z0-9._-]/g, '').slice(0, 12);
+    const m = hist.find((x) => String(x.id) === `sa-hist-${txt(h.idhistoricopadrao).slice(0, 40)}` || String(x.codigo).toUpperCase() === codigo.toUpperCase());
+    if (m && m.exigeComplemento === undefined) { m.exigeComplemento = true; preenchidos.push(`histórico ${codigo}: pede complemento`); }
+  }
+  const lotePorId = new Map((blocos.lotes || []).map((l) => [txt(l.idlote), l]));
+  const linhaPorId = new Map((blocos.lancamentos_originais || []).map((m) => [txt(m.idmovimento), m]));
+  const prefixo = `sa-${cdempresa}-`;
+  let nLanc = 0;
+  for (const l of Array.isArray(p.lancamentos) ? p.lancamentos : []) {
+    if (l?.origem !== 'Sistema anterior' || !String(l.id || '').startsWith(prefixo) || fechadas.has(String(l.data || '').slice(0, 7))) continue;
+    const resto = String(l.id).slice(prefixo.length);
+    const linha = linhaPorId.get(resto) || linhaPorId.get(resto.replace(/-\d+$/, ''));
+    if (!linha) continue;
+    const lote = lotePorId.get(txt(linha.idlote));
+    let mudou = false;
+    if (lote && txt(lote.dslote) && semValor(l.loteDescricao)) { l.loteDescricao = txt(lote.dslote).slice(0, 200); mudou = true; }
+    const seq = Number(linha.identificador_sequencial);
+    if (Number.isInteger(seq) && seq > 0 && l.numeroSequencial === undefined) { l.numeroSequencial = seq; mudou = true; }
+    if (mudou) nLanc++;
+  }
+  if (nLanc) preenchidos.push(`${nLanc} lançamento(s): descrição do lote / número sequencial`);
+  const bens: any[] = Array.isArray(p.bensImobilizado) ? p.bensImobilizado : [];
+  for (const b of bensDoBackup(cdempresa, blocos.imobilizado_bens || [], mapa).bens) {
+    const m = bens.find((x) => x.id === b.id);
+    if (!m) { if (!bens.some((x) => txt(x.descricao) === b.descricao)) { bens.push(b); preenchidos.push(`bem ${b.descricao}`); } continue; }
+    for (const [k, v] of Object.entries(b)) if (m[k] === undefined) { m[k] = v; preenchidos.push(`bem ${b.descricao}: ${k}`); }
+  }
+  if (bens.length) p.bensImobilizado = bens;
+  return { payload: p, preenchidos };
+}
+
+const BLOCOS_COMPLETAR = ['cadastro_empresa', 'empresa_contabil', 'contador', 'socios_empresa', 'socios', 'municipio', 'plano_cadastro', 'plano_contas', 'historicos_padrao', 'lotes', 'lancamentos_originais', 'imobilizado_bens', 'cadastro_historico_cnae', 'historico_nire'];
+
+/** Robô: completa os campos vazios de UMA empresa migrada a partir do registro guardado (transação; nunca sobrescreve). */
+export async function completarEmpresaMigrada(banco: BancoTransacional, cnpj: string, validar: (p: Record<string, unknown>) => boolean): Promise<string[]> {
+  return banco.transacao(async (q) => {
+    await q('SELECT pg_advisory_xact_lock(hashtext($1))', [cnpj]);
+    const { resumo } = await lerRegistroSistemaAnterior(q, cnpj);
+    if (!resumo) return [];
+    const ws = await q('SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1 FOR UPDATE', [cnpj]);
+    if (!ws.rows.length) return [];
+    const r = await q(`SELECT bloco, linhas FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 AND bloco = ANY($2::text[])`, [cnpj, BLOCOS_COMPLETAR]);
+    const blocos: Record<string, any[]> = {};
+    for (const x of r.rows) blocos[String(x.bloco)] = Array.isArray(x.linhas) ? x.linhas : [];
+    let mapa = resumo.mapaContas;
+    if (!mapa) { mapa = {}; for (const c of blocos.plano_contas || []) { const cod = converterClassificacao(c.cdclassinterna); if (cod) mapa[String(Number(c.idconta))] = cod; } }
+    const fechadas = new Set((await q('SELECT competencia FROM contabil_period_closures WHERE cnpj=$1', [cnpj])).rows.map((x) => String(x.competencia)));
+    const c = completarPayloadDoRegistro(ws.rows[0].payload, blocos, mapa, Number(resumo.cdempresa), fechadas);
+    if (!c.preenchidos.length) return [];
+    if (!validar(c.payload)) { console.error(`Completar campos da migração: ${cnpj} não passou na validação; nada foi gravado.`); return []; }
+    await q('UPDATE contabil_company_workspaces SET payload=$2::jsonb,version=version+1,updated_at=now() WHERE cnpj=$1', [cnpj, JSON.stringify(c.payload)]);
+    return c.preenchidos;
   });
 }
 
