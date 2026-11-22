@@ -8,7 +8,7 @@ import type { DadosContabeisEmpresa } from './conversor';
 import { conferirMigracao, type ReferenciaConferencia, type ResultadoConferencia } from './conferencia';
 import { gravarTitulosECartoesMigrados, listarCartoes, listarTitulos } from '../titulosCartoesStore';
 import { mesclarMigracao } from './mesclagem';
-import { bensDoBackup, cadastroDoBackup, cartoesDoBackup, conferirCamposMigrados, titulosDoBackup, txt, type ResultadoCampos } from './camposSistemaAnterior';
+import { bensDoBackup, cadastroDoBackup, cartoesDoBackup, conferirCamposMigrados, modelosDoBackup, titulosDoBackup, txt, type ResultadoCampos } from './camposSistemaAnterior';
 import { analisarMigracao, aplicarAcaoAchado, resumoAnalise, type AchadoMigracao } from './analiseSistemaAnterior';
 import { converterClassificacao } from './conversor';
 
@@ -124,7 +124,7 @@ export async function conferirEmpresaMigrada(consultar: ConsultaSql, cnpj: strin
 }
 
 /** Blocos usados pelo conferidor campo a campo. */
-export const BLOCOS_CONFERENCIA_CAMPOS: string[] = ['cadastro_empresa', 'empresa_contabil', 'contador', 'socios_empresa', 'socios', 'municipio', 'plano_cadastro', 'plano_contas', 'historicos_padrao', 'lotes', 'lancamentos_originais', 'imobilizado_bens', 'cadastro_historico_cnae', 'historico_nire', 'titulos', 'titulos_baixas', 'titulos_provisao', 'cartao_estabelecimentos', 'cartao_movimentos', 'cartao_operadoras'];
+export const BLOCOS_CONFERENCIA_CAMPOS: string[] = ['cadastro_empresa', 'empresa_contabil', 'contador', 'socios_empresa', 'socios', 'municipio', 'plano_cadastro', 'plano_contas', 'historicos_padrao', 'lotes', 'lancamentos_originais', 'imobilizado_bens', 'cadastro_historico_cnae', 'historico_nire', 'titulos', 'titulos_baixas', 'titulos_provisao', 'cartao_estabelecimentos', 'cartao_movimentos', 'cartao_operadoras', 'lancamentos_automaticos', 'lancamentos_automaticos_contas'];
 
 /** Conferência campo a campo de uma empresa já migrada: cada campo preenchido no backup x o que está no Murade hoje. Só lê. */
 export async function conferirCamposEmpresaMigrada(consultar: ConsultaSql, cnpj: string): Promise<ResultadoCampos | null> {
@@ -270,10 +270,18 @@ export function completarPayloadDoRegistro(payload: Record<string, any>, blocos:
     for (const [k, v] of Object.entries(b)) if (m[k] === undefined) { m[k] = v; preenchidos.push(`bem ${b.descricao}: ${k}`); }
   }
   if (bens.length) p.bensImobilizado = bens;
+  const padroes: any[] = Array.isArray(p.lancamentosPadrao) ? p.lancamentosPadrao : [];
+  const nomes = new Set(padroes.map((x) => String(x?.nome || '').trim().toUpperCase()));
+  let nMod = 0;
+  for (const m of modelosDoBackup(blocos, mapa, (c) => porCodigo.get(c)?.tipo, new Date().toISOString().slice(0, 7)).modelos) {
+    if (padroes.length >= 200 || padroes.some((x) => x.id === m.id) || nomes.has(m.nome.trim().toUpperCase())) continue;
+    padroes.push(m); nMod++;
+  }
+  if (nMod) { p.lancamentosPadrao = padroes; preenchidos.push(`${nMod} modelo(s) de lançamento`); }
   return { payload: p, preenchidos };
 }
 
-const BLOCOS_COMPLETAR = ['titulos', 'titulos_baixas', 'titulos_provisao', 'cartao_estabelecimentos', 'cartao_movimentos', 'cartao_operadoras', 'cadastro_empresa', 'empresa_contabil', 'contador', 'socios_empresa', 'socios', 'municipio', 'plano_cadastro', 'plano_contas', 'historicos_padrao', 'lotes', 'lancamentos_originais', 'imobilizado_bens', 'cadastro_historico_cnae', 'historico_nire'];
+const BLOCOS_COMPLETAR = ['lancamentos_automaticos', 'lancamentos_automaticos_contas', 'titulos', 'titulos_baixas', 'titulos_provisao', 'cartao_estabelecimentos', 'cartao_movimentos', 'cartao_operadoras', 'cadastro_empresa', 'empresa_contabil', 'contador', 'socios_empresa', 'socios', 'municipio', 'plano_cadastro', 'plano_contas', 'historicos_padrao', 'lotes', 'lancamentos_originais', 'imobilizado_bens', 'cadastro_historico_cnae', 'historico_nire'];
 
 /** Robô: completa os campos vazios de UMA empresa migrada a partir do registro guardado (transação; nunca sobrescreve). */
 export async function completarEmpresaMigrada(banco: BancoTransacional, cnpj: string, validar: (p: Record<string, unknown>) => boolean): Promise<string[]> {

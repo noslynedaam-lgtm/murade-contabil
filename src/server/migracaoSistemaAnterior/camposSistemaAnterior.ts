@@ -9,6 +9,7 @@ import type { ContaPlano, EmpresaDados } from '../../types';
 import type { BemImobilizado } from '../../utils/imobilizado';
 import { validarBem } from '../../utils/imobilizado';
 import type { EstabelecimentoCartao, Titulo } from '../titulosCartoesStore';
+import type { LancamentoPadrao } from '../../types';
 
 export type Linha = Record<string, any>;
 
@@ -320,8 +321,8 @@ export const DESTINO_COLUNAS: Record<string, DestinoTabela> = {
   'wcont.sd': { bloco: 'saldos', padrao: consulta('usados para conferir o balancete do Murade com o do sistema anterior'), colunas: {} },
   'wcont.lt': { bloco: 'lotes', padrao: consulta('controle do lote no programa antigo (totais, situação, versão, usuário)'), colunas: { cdchamada: campo('Lançamentos › Documento ("Lote 00001")'), idlote: campo('liga o lançamento ao lote'), dslote: campo('Lançamentos › Descrição do lote') } },
   'wcont.lancamento': { bloco: 'lancamentos_lote_aberto', padrao: consulta('lançamento em lote ABERTO, não efetivado no sistema anterior: não entra no balancete'), colunas: {} },
-  'wcont.lauto': { bloco: 'lancamentos_automaticos', padrao: consulta('modelos de integração por tipo de documento; os lançamentos padrão do Murade têm outro formato (mensais, com valor)'), colunas: {} },
-  'wcont.lcontas': { bloco: 'lancamentos_automaticos_contas', padrao: consulta('contas dos modelos de integração'), colunas: {} },
+  'wcont.lauto': { bloco: 'lancamentos_automaticos', padrao: campo('Lançamentos › Modelos (botão "Usar modelo")'), colunas: { idlancautomatico: campo('identificação do modelo'), nmobs: consulta('observação interna do programa antigo'), sttipo: consulta('tipo interno do programa antigo'), stconcifornecedor: consulta('opção de conciliação do programa antigo') } },
+  'wcont.lcontas': { bloco: 'lancamentos_automaticos_contas', padrao: consulta('opção de importação do programa antigo'), colunas: { idlancautomatico: campo('liga as contas ao modelo'), idplanodecontas: campo('escolhe o plano da empresa'), idcontadevedora: campo('Modelo › Conta a débito'), idcontacredora: campo('Modelo › Conta a crédito'), idhistoricopadrao: campo('Modelo › Histórico padrão') } },
   'wcont.titulos': { bloco: 'titulos', padrao: campo('Gestão › Títulos a pagar e receber'), colunas: {
     idempresa: consulta('código interno'), idempresafiscal: consulta('código interno do módulo fiscal do programa antigo'), stnotapendente: consulta('controle do programa antigo'),
     codigo_ecf: consulta('código interno do programa antigo'), servico_codigo: consulta('código de serviço do programa antigo'), aliquota_iss: consulta('alíquota de ISS do programa antigo'),
@@ -429,6 +430,34 @@ export function cartoesDoBackup(cdempresa: number, b: Record<string, Linha[]>): 
   });
 }
 
+
+/** Modelos de lançamento (lançamentos automáticos do sistema anterior) → modelos do lançamento manual do Contábil. */
+export function modelosDoBackup(b: Record<string, Linha[]>, mapaContas: Record<string, string>, tipoConta: (c: string) => string | undefined, competencia: string): { modelos: LancamentoPadrao[]; avisos: string[] } {
+  const hist = new Map((b.historicos_padrao || []).map((h) => [txt(h.idhistoricopadrao), h]));
+  const contasPorLauto = new Map<string, Linha>();
+  for (const c of b.lancamentos_automaticos_contas || []) if (!contasPorLauto.has(txt(c.idlancautomatico))) contasPorLauto.set(txt(c.idlancautomatico), c);
+  const modelos: LancamentoPadrao[] = []; const avisos: string[] = [];
+  for (const la of [...(b.lancamentos_automaticos || [])].sort((x, y) => txt(x.cdchamada).localeCompare(txt(y.cdchamada)))) {
+    const lc = contasPorLauto.get(txt(la.idlancautomatico));
+    const nome = txt(la.dslancautomatico);
+    const d = lc ? mapaContas[String(Number(lc.idcontadevedora))] : undefined; const c = lc ? mapaContas[String(Number(lc.idcontacredora))] : undefined;
+    if (!nome || !d || !c || d === c || tipoConta(d) !== 'analitica' || tipoConta(c) !== 'analitica') {
+      avisos.push(`Modelo ${txt(la.cdchamada)} "${nome}" ficou só no registro do sistema anterior: ${!lc ? 'sem contas neste plano' : 'conta a débito ou a crédito sem conta analítica no plano'}.`);
+      continue;
+    }
+    const h = hist.get(txt(lc!.idhistoricopadrao));
+    const m: LancamentoPadrao = {
+      id: `sa-lauto-${txt(la.idlancautomatico)}`.slice(0, 64), nome: nome.slice(0, 80), ativo: false, dia: 1, historico: (txt(h?.dshistoricopadrao) || nome).slice(0, 240),
+      forma: '1xN', contaUnica: d, partidas: [{ conta: c, valorCentavos: 0 }], inicio: competencia, criadoEm: '2000-01-01T00:00:00.000Z', uso: 'modelo',
+    };
+    if (txt(la.cdchamada)) m.codigo = txt(la.cdchamada).slice(0, 20);
+    if (h && txt(h.cdchamada)) m.historicoPadraoCodigo = txt(h.cdchamada).slice(0, 20);
+    if (h && txt(h.stcomplemento).toUpperCase() === 'S') m.pedeComplemento = true;
+    modelos.push(m);
+  }
+  return { modelos, avisos };
+}
+
 /** Tabela do catálogo para um nome do backup (wcont.mv00023 → wcont.mv). */
 export function destinoDaTabela(nome: string): { chave: string; destino: DestinoTabela } | null {
   const n = nome.toLowerCase();
@@ -458,7 +487,7 @@ export const TABELAS_FORA: Array<{ tabelas: string; motivo: string }> = [
 // Conferidor campo a campo: o que estava preenchido no backup e tem destino no Contábil tem de estar lá, igual.
 
 export interface PendenciaCampo {
-  grupo: 'cadastro' | 'plano_contas' | 'historicos_padrao' | 'lancamentos' | 'imobilizado' | 'titulos' | 'cartoes';
+  grupo: 'cadastro' | 'plano_contas' | 'historicos_padrao' | 'lancamentos' | 'imobilizado' | 'titulos' | 'cartoes' | 'modelos';
   item: string;
   rotulo: string;
   origem: string;
@@ -467,7 +496,7 @@ export interface PendenciaCampo {
   tipo: 'faltou' | 'diferente';
 }
 export interface ResultadoCampos {
-  conferidos: { camposCadastro: number; contas: number; historicos: number; lancamentos: number; bens: number; titulos?: number; cartoes?: number };
+  conferidos: { camposCadastro: number; contas: number; historicos: number; lancamentos: number; bens: number; titulos?: number; cartoes?: number; modelos?: number };
   pendencias: PendenciaCampo[];
   semCadastroNoRegistro: boolean;
   resumo: string;
@@ -611,6 +640,19 @@ export function conferirCamposMigrados(ent: EntradaConferenciaCampos): Resultado
     }
   }
 
+  // Modelos de lançamento: cada modelo do backup no lançamento padrão (modelo) do Murade.
+  let nMod = 0;
+  const padroes: any[] = Array.isArray(ent.payload?.lancamentosPadrao) ? ent.payload.lancamentosPadrao : [];
+  for (const e of modelosDoBackup(b, ent.mapaContas, (c) => porCodigo.get(c)?.tipo, '2000-01').modelos) {
+    nMod++;
+    const m = padroes.find((x) => x.id === e.id);
+    const item = `Modelo ${e.codigo || ''} ${e.nome}`.trim();
+    if (!m) { p.push({ grupo: 'modelos', item, rotulo: 'modelo', origem: 'wcont.lauto', noSistemaAnterior: `${e.nome}: D ${e.contaUnica} / C ${e.partidas[0].conta}`, noMurade: '', tipo: 'faltou' }); continue; }
+    for (const [k, rot, v, atual] of [['nome', 'nome', e.nome, m.nome], ['codigo', 'código', e.codigo, m.codigo], ['contaUnica', 'conta a débito', e.contaUnica, m.contaUnica], ['credito', 'conta a crédito', e.partidas[0].conta, m.partidas?.[0]?.conta], ['historico', 'histórico', e.historico, m.historico], ['pedeComplemento', 'pede complemento', e.pedeComplemento, m.pedeComplemento]] as Array<[string, string, unknown, unknown]>) {
+      if (v !== undefined && mostrar(v) !== mostrar(atual)) add({ grupo: 'modelos', item, rotulo: rot, origem: `wcont.lauto/lcontas (${k})`, noSistemaAnterior: mostrar(v) }, atual);
+    }
+  }
+
   // Títulos a pagar/receber e cartões (antiga DIRF): cada campo que veio do backup tem de estar na tabela própria.
   let nTit = 0; let nCart = 0;
   if (ent.titulos) {
@@ -645,8 +687,8 @@ export function conferirCamposMigrados(ent: EntradaConferenciaCampos): Resultado
 
   const semCadastro = Boolean(ent.registroAntigo) && !b.cadastro_empresa?.length;
   const faltou = p.filter((x) => x.tipo === 'faltou').length; const dif = p.length - faltou;
-  const conferidos = { camposCadastro: cadastro.length, contas: nContas, historicos: nHist, lancamentos: nLanc, bens: esperados.length, titulos: nTit, cartoes: nCart };
-  const base = `${cadastro.length} campo(s) do cadastro, ${nContas} conta(s), ${nHist} histórico(s) padrão, ${nLanc} lançamento(s)${esperados.length ? `, ${esperados.length} bem(ns)` : ''}${nTit ? `, ${nTit} título(s)` : ''}${nCart ? `, ${nCart} estabelecimento(s) de cartão` : ''}`;
+  const conferidos = { camposCadastro: cadastro.length, contas: nContas, historicos: nHist, lancamentos: nLanc, bens: esperados.length, titulos: nTit, cartoes: nCart, modelos: nMod };
+  const base = `${cadastro.length} campo(s) do cadastro, ${nContas} conta(s), ${nHist} histórico(s) padrão, ${nLanc} lançamento(s)${esperados.length ? `, ${esperados.length} bem(ns)` : ''}${nTit ? `, ${nTit} título(s)` : ''}${nCart ? `, ${nCart} estabelecimento(s) de cartão` : ''}${nMod ? `, ${nMod} modelo(s) de lançamento` : ''}`;
   const resumo = p.length
     ? `Campo a campo: ${p.length} pendência(s) — ${faltou} campo(s) preenchido(s) no sistema anterior que estão vazios no Murade e ${dif} diferente(s). Conferidos ${base}.${ent.registroAntigo ? ' Esta empresa foi migrada antes da conferência campo a campo: migre de novo pela tela Migração para completar (só preenche o que está vazio; o que a equipe fez fica).' : ''}`
     : `Campo a campo: tudo igual ao sistema anterior (${base}).${semCadastro ? ' O cadastro da empresa não estava no registro desta migração: migre de novo para conferir também o cadastro.' : ''}`;

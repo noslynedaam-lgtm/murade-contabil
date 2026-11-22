@@ -104,7 +104,13 @@ export function validarHistoricoPadrao(h: unknown): h is HistoricoPadrao {
 export function validarLancamentoPadrao(p: unknown, contasAnaliticas?: Set<string>): p is LancamentoPadrao {
   if (!p || typeof p !== "object" || Array.isArray(p)) return false;
   const x = p as Record<string, any>;
-  const campos = ["id", "nome", "ativo", "dia", "historico", "forma", "contaUnica", "partidas", "inicio", "fim", "criadoEm"];
+  const campos = ["id", "nome", "ativo", "dia", "historico", "forma", "contaUnica", "partidas", "inicio", "fim", "criadoEm", "uso", "codigo", "historicoPadraoCodigo", "pedeComplemento"];
+  if (x.uso !== undefined && x.uso !== "recorrente" && x.uso !== "modelo") return false;
+  const modelo = x.uso === "modelo";
+  if (modelo && x.ativo !== false) return false; // modelo nunca é preparado pelo robô
+  if (x.codigo !== undefined && (typeof x.codigo !== "string" || x.codigo.length > 20)) return false;
+  if (x.historicoPadraoCodigo !== undefined && (typeof x.historicoPadraoCodigo !== "string" || x.historicoPadraoCodigo.length > 20)) return false;
+  if (x.pedeComplemento !== undefined && typeof x.pedeComplemento !== "boolean") return false;
   if (Object.keys(x).some((k) => !campos.includes(k))) return false;
   if (typeof x.id !== "string" || !x.id || x.id.length > 64) return false;
   if (typeof x.nome !== "string" || !x.nome.trim() || x.nome.length > 80) return false;
@@ -116,7 +122,7 @@ export function validarLancamentoPadrao(p: unknown, contasAnaliticas?: Set<strin
   for (const it of x.partidas) {
     if (!it || typeof it !== "object" || Object.keys(it).some((k) => !["conta", "valorCentavos"].includes(k))) return false;
     if (typeof it.conta !== "string" || it.conta === x.contaUnica || (contasAnaliticas && !contasAnaliticas.has(it.conta))) return false;
-    if (!Number.isSafeInteger(it.valorCentavos) || it.valorCentavos <= 0) return false;
+    if (!Number.isSafeInteger(it.valorCentavos) || it.valorCentavos < 0 || (!modelo && it.valorCentavos === 0)) return false;
   }
   if (typeof x.inicio !== "string" || !COMP.test(x.inicio)) return false;
   if (x.fim !== undefined && (typeof x.fim !== "string" || !COMP.test(x.fim) || x.fim < x.inicio)) return false;
@@ -144,7 +150,7 @@ export function prepararRecorrentesDoMes(entrada: { padroes: LancamentoPadrao[];
   if (!COMP.test(entrada.competencia) || entrada.fechadas?.has(entrada.competencia)) return { novos, avisos };
   const refs = new Set(entrada.lancamentos.map((l) => String(l.documentoRef || "")));
   for (const p of entrada.padroes) {
-    if (!p?.ativo || entrada.competencia < p.inicio || (p.fim && entrada.competencia > p.fim)) continue;
+    if (!p?.ativo || p.uso === "modelo" || entrada.competencia < p.inicio || (p.fim && entrada.competencia > p.fim)) continue;
     const ref = referenciaRecorrente(p.id, entrada.competencia);
     if (refs.has(ref)) continue;
     const lote = montarLoteMultipartida(

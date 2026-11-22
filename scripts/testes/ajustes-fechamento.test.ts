@@ -235,3 +235,66 @@ test('modelo de lançamento automático com o mesmo significado de uma origem do
   assert.match(server, /registrarRobo\(\{ id: "titulos"/); assert.match(server, /registrarRotinaManual\("titulos"/); assert.match(server, /registrarRotasTitulosCartoes\(app/);
   assert.ok(ROBOS_APRESENTACAO.some((r) => r.id === 'titulos'));
 });
+
+test('modelos de lançamento: todos os do backup viram modelo do lançamento manual, idênticos; robô não prepara; equipe fica', async () => {
+  const { validarLancamentoPadrao, prepararRecorrentesDoMes } = await import('../../src/utils/escrituracaoAvancada');
+  const { conferirCamposMigrados } = await import('../../src/server/migracaoSistemaAnterior/camposSistemaAnterior');
+  const idx = await indexarDump(path.join(AQUI, 'fixtures', 'backup-contabil-anonimizado.sql'));
+  const cache = new Map<string, any>();
+  const ler = async (n: string) => { if (!cache.has(n)) cache.set(n, await carregarTabelaDump(idx, n)); return cache.get(n); };
+  const d = await montarDadosEmpresa(ler, 49);
+  assert.equal(d.modelos.length, 2, '"Venda à vista" também vem (não só os do DP)');
+  const venda = d.modelos.find((m) => m.codigo === '00047')!;
+  assert.equal(venda.nome, 'Venda de Mercadoria à Vista', 'texto idêntico, com acento');
+  assert.deepEqual([venda.uso, venda.ativo, venda.contaUnica, venda.partidas], ['modelo', false, d.mapaContas['164'], [{ conta: d.mapaContas['188'], valorCentavos: 0 }]]);
+  assert.ok(d.modelos.every((m) => validarLancamentoPadrao(m)), 'passam na validação (valor do modelo pode ser zero)');
+  assert.equal(validarLancamentoPadrao({ ...venda, uso: 'recorrente', ativo: true }), false, 'recorrente continua exigindo valor');
+  assert.equal(validarLancamentoPadrao({ ...venda, ativo: true }), false, 'modelo nunca fica ativo para o robô');
+  assert.equal(prepararRecorrentesDoMes({ padroes: [{ ...venda, ativo: true } as any], lancamentos: [], contas: [], competencia: '2026-11', novoId: () => 'x' }).novos.length, 0);
+  const daEquipe = { id: 'padrao-equipe', nome: 'Aluguel', ativo: true, dia: 10, historico: 'Aluguel {mes}', forma: '1xN', contaUnica: venda.contaUnica, partidas: [{ conta: venda.partidas[0].conta, valorCentavos: 150000 }], inicio: '2026-01', criadoEm: '2026-01-01T00:00:00.000Z' };
+  const atual = { empresa: { cnpj: d.cnpj }, contas: [], centrosCusto: [], lancamentos: [], livros: [], lembretes: [], lancamentosPadrao: [daEquipe] };
+  const m: any = mesclarMigracao(atual, d, { modelo: planoContasModelo, competenciaAtual: '2026-11' }).payload;
+  assert.equal(m.lancamentosPadrao.length, 3); assert.deepEqual(m.lancamentosPadrao[0], daEquipe);
+  assert.ok(workspaceValido(JSON.parse(JSON.stringify(m))));
+  const de_novo: any = mesclarMigracao(m, d, { modelo: planoContasModelo, competenciaAtual: '2026-11' }).payload;
+  assert.equal(de_novo.lancamentosPadrao.length, 3, 'remigrar troca, não duplica');
+  const base = { cdempresa: 49, blocos: JSON.parse(JSON.stringify(d.blocos)), mapaContas: d.mapaContas };
+  assert.deepEqual(conferirCamposMigrados({ ...base, payload: m }).pendencias.filter((x) => x.grupo === 'modelos'), []);
+  const sem = JSON.parse(JSON.stringify(m)); sem.lancamentosPadrao = sem.lancamentosPadrao.filter((x: any) => x.codigo !== '00047');
+  assert.ok(conferirCamposMigrados({ ...base, payload: sem }).pendencias.some((x) => x.grupo === 'modelos' && x.tipo === 'faltou'));
+  // Empresa migrada antes: o robô completa os modelos sem mexer nos da equipe.
+  const r = completarPayloadDoRegistro({ ...atual, contas: m.contas }, JSON.parse(JSON.stringify(d.blocos)), d.mapaContas, 49);
+  assert.ok(r.preenchidos.some((x) => /modelo/.test(x))); assert.equal(r.payload.lancamentosPadrao.length, 3);
+  assert.equal(kitContabil.ferramentas.find((f) => f.declaracao.name === 'lancar_pelo_modelo')?.tipo, 'acao');
+  const tela = fs.readFileSync(path.join(AQUI, '..', '..', 'src', 'components', 'tabs', 'LancamentosTab.tsx'), 'utf8');
+  assert.match(tela, /data-campo="lancamento-usar-modelo"/);
+});
+
+test('remigração com ajuste de migração lançado: avisa e só migra se o contador desfizer (estorno), nunca deixa sobrando', async () => {
+  const { aplicarAcaoAchado, analisarMigracao } = await import('../../src/server/migracaoSistemaAnterior/analiseSistemaAnterior');
+  const { conferirMigracao } = await import('../../src/server/migracaoSistemaAnterior/conferencia');
+  const { ajustesDeMigracaoLancados } = await import('../../src/server/migracaoSistemaAnterior/mesclagem');
+  const idx = await indexarDump(path.join(AQUI, 'fixtures', 'backup-contabil-anonimizado.sql'));
+  const cache = new Map<string, any>();
+  const ler = async (n: string) => { if (!cache.has(n)) cache.set(n, await carregarTabelaDump(idx, n)); return cache.get(n); };
+  const d = await montarDadosEmpresa(ler, 23);
+  const ref = { esperado: d.esperado, esperadoLancamentos: d.esperadoLancamentos, saldoFinalEsperado: d.saldoFinalEsperado, lancamentosGravados: d.lancamentos.length, semSaldosParaConferir: d.semSaldosParaConferir, linhasQueNaoEntraram: d.naoEntraram.length };
+  let p: any = JSON.parse(JSON.stringify(mesclarMigracao(null, d, { modelo: planoContasModelo, competenciaAtual: '2026-11' }).payload));
+  const an = p.contas.filter((c: any) => c.tipo === 'analitica');
+  p.empresa.contaContrapartidaAberturaCodigo = an[an.length - 1].codigo;
+  const l = p.lancamentos.find((x: any) => !x.loteId && x.contaDebitoCodigo !== p.empresa.contaContrapartidaAberturaCodigo && x.contaCreditoCodigo !== p.empresa.contaContrapartidaAberturaCodigo);
+  l.valor = Number((l.valor + 0.01).toFixed(2));
+  const ajustes = analisarMigracao({ cdempresa: 23, blocos: JSON.parse(JSON.stringify(d.blocos)), mapaContas: d.mapaContas, payload: p, naoEntraram: [], conferencia: conferirMigracao(p.contas, p.lancamentos, ref), decisoes: {}, hoje: '2026-11-22' }).filter((x) => x.tipo === 'ajuste');
+  for (const a of ajustes) p = aplicarAcaoAchado(p, a, 'lancar_ajuste', 'contadora');
+  assert.equal(ajustesDeMigracaoLancados(p).length, 2);
+  const bloqueada = mesclarMigracao(p, d, { modelo: planoContasModelo, competenciaAtual: '2026-11' });
+  assert.equal(bloqueada.payload, null); assert.equal(bloqueada.ajustesMigracaoLancados, 2);
+  assert.match(String(bloqueada.bloqueio), /Desfazer os ajustes e migrar de novo/);
+  const ok = mesclarMigracao(p, { ...d, desfazerAjustesMigracao: true }, { modelo: planoContasModelo, competenciaAtual: '2026-11' });
+  assert.ok(ok.payload, ok.bloqueio);
+  assert.equal(ajustesDeMigracaoLancados(ok.payload).length, 0, 'nenhum ajuste velho sobrando');
+  assert.equal(ok.payload!.lancamentos.filter((x: any) => String(x.documentoRef || '').endsWith(':ESTORNO')).length, 2, 'desfeitos por estorno, nada apagado');
+  assert.equal(conferirMigracao(ok.payload!.contas, ok.payload!.lancamentos, ref).bate, true, 'depois de migrar de novo, bate (valor original de volta)');
+  const tela = fs.readFileSync(path.join(AQUI, '..', '..', 'src', 'components', 'MigracaoBackupContabil.tsx'), 'utf8');
+  assert.match(tela, /Desfazer os ajustes e migrar de novo/); assert.match(tela, /data-campo="remigrar-ajustes"/);
+});

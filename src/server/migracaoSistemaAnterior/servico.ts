@@ -139,11 +139,14 @@ export interface PreviaEmpresa {
   jaExisteNoMurade: boolean; lidos: Record<string, number>; contas: number; contasNovas: number; contasAtualizadas: number; contasDoModeloRetiradas: number;
   historicos: number; historicosNovos: number; lancamentos: number; lancamentosSubstituidos: number; lancamentosDaEquipe: number; naoEntraram: number;
   blocos: Array<{ bloco: string; quantidade: number }>; periodo: string; conferencia: string; bate: boolean; totalAvisos: number; avisos: string[];
+  /** Remigração: ajustes de migração já lançados nesta empresa e se o contador escolheu desfazê-los. */
+  ajustesMigracaoLancados?: number; desfazerAjustes?: boolean;
 }
 
 const normalizar = (v: unknown) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-export async function gerarPreviaContabil(token: string, userId: string, cdempresas: unknown, cnpjsInformados: unknown, dep: DependenciasPrevia): Promise<PreviaEmpresa[]> {
+export async function gerarPreviaContabil(token: string, userId: string, cdempresas: unknown, cnpjsInformados: unknown, dep: DependenciasPrevia, desfazerAjustes: unknown = []): Promise<PreviaEmpresa[]> {
+  const comDesfazer = new Set((Array.isArray(desfazerAjustes) ? desfazerAjustes : []).map(Number));
   const s = obter(token, userId);
   const lista = [...new Set((Array.isArray(cdempresas) ? cdempresas : []).map(Number).filter((n) => Number.isInteger(n) && n > 0 && n < 100000))];
   if (!lista.length) throw new Error('Marque ao menos uma empresa.');
@@ -164,6 +167,7 @@ export async function gerarPreviaContabil(token: string, userId: string, cdempre
       if (e.semCadastro && !informado) { saida.push({ ...base, ...vazio, cnpj: '', podeGravar: false, motivo: 'No sistema anterior esta empresa não tem mais cadastro (nem CNPJ). Digite o CNPJ dela para trazer.' }); continue; }
       if (e.semCadastro && cnpjsDoBackup.has(informado)) { saida.push({ ...base, ...vazio, cnpj: informado, podeGravar: false, motivo: 'Este CNPJ é de outra empresa do mesmo arquivo. Confira o CNPJ digitado.' }); continue; }
       const dados = await montarDadosEmpresa(ler, cd, { cnpjInformado: informado });
+      if (comDesfazer.has(cd)) dados.desfazerAjustesMigracao = true;
       const cnpj = normalizar(dados.cnpj);
       dados.cnpj = cnpj;
       const comum = {
@@ -188,6 +192,7 @@ export async function gerarPreviaContabil(token: string, userId: string, cdempre
         contasNovas: m.contasNovas, contasAtualizadas: m.contasAtualizadas, contasDoModeloRetiradas: m.contasDoModeloRetiradas, historicosNovos: m.historicosNovos,
         lancamentosSubstituidos: m.lancamentosSubstituidos, lancamentosDaEquipe: m.lancamentosDaEquipe,
         conferencia: conf?.resumo || '', bate: Boolean(conf?.bate), totalAvisos: avisos.length, avisos: avisos.slice(0, 15),
+        ajustesMigracaoLancados: m.ajustesMigracaoLancados || 0, desfazerAjustes: Boolean(dados.desfazerAjustesMigracao),
       });
       if (!motivo) s.previas.set(cd, dados); else s.previas.delete(cd);
     }

@@ -231,6 +231,12 @@ export interface LancamentoPadrao {
   /** Última competência (AAAA-MM), opcional. */
   fim?: string;
   criadoEm: string;
+  /** "modelo": modelo para o lançamento manual (botão "Usar modelo"); o robô não prepara e o valor (fixo) é opcional. */
+  uso?: "recorrente" | "modelo";
+  /** Código do modelo (ex.: 00047), histórico padrão usado e se pede complemento no histórico. */
+  codigo?: string;
+  historicoPadraoCodigo?: string;
+  pedeComplemento?: boolean;
 }
 
 /** Regra de conciliação bancária: quando o histórico do extrato tiver o texto, sugere a conta. */

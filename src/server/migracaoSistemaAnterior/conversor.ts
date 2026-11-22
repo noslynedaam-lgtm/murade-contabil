@@ -12,7 +12,7 @@
 import type { ContaPlano, EmpresaDados, HistoricoPadrao, LancamentoContabil } from '../../types';
 import { COLUNAS_NUNCA_GUARDAR, tabelaDaEmpresa } from '../../utils/tabelasSistemaAnteriorContabil';
 import type { BemImobilizado } from '../../utils/imobilizado';
-import { bensDoBackup, cadastroDoBackup, cartoesDoBackup, historicoEsperado, titulosDoBackup } from './camposSistemaAnterior';
+import { bensDoBackup, cadastroDoBackup, cartoesDoBackup, historicoEsperado, modelosDoBackup, titulosDoBackup } from './camposSistemaAnterior';
 import type { EstabelecimentoCartao, Titulo } from '../titulosCartoesStore';
 
 export type Linha = Record<string, any>;
@@ -41,6 +41,10 @@ export interface DadosContabeisEmpresa {
   /** Títulos a pagar/receber e informações de cartões (antiga DIRF), para as tabelas próprias do Contábil. */
   titulos: Titulo[];
   cartoes: EstabelecimentoCartao[];
+  /** Modelos de lançamento (botão "Usar modelo" no lançamento manual). */
+  modelos: import('../../types').LancamentoPadrao[];
+  /** Na remigração: o contador escolheu "Desfazer os ajustes e migrar de novo" (estorna os ajustes de migração antes). */
+  desfazerAjustesMigracao?: boolean;
   idPlano: number | null;
   nomePlano: string;
   contas: ContaConvertida[];
@@ -447,6 +451,9 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
   const empresa: Partial<EmpresaDados> = { cnpj };
   for (const c of campos) (empresa as any)[c.campo] = c.valor;
   const titulosMigrados = titulosDoBackup(cdempresa, blocos, mapaContas);
+  const mod = modelosDoBackup(blocos, mapaContas, (codigo) => porCodigo.get(codigo)?.tipo, new Date().toISOString().slice(0, 7));
+  avisos.push(...mod.avisos);
+  if (mod.modelos.length) avisos.push(`${mod.modelos.length} modelo(s) de lançamento vieram para o lançamento manual (botão "Usar modelo").`);
   const cartoes = cartoesDoBackup(cdempresa, blocos);
   if (titulosMigrados.length) avisos.push(`${titulosMigrados.length} título(s) a pagar/receber vieram para Gestão › Títulos (as baixas e provisões que já estavam contabilizadas no sistema anterior não geram lançamento de novo).`);
   if (cartoes.length) avisos.push(`${cartoes.length} estabelecimento(s) de cartão vieram para Gestão › Cartões (antiga DIRF), com ${cartoes.reduce((s2, c) => s2 + c.movimentos.length, 0)} informação(ões) mensal(is).`);
@@ -456,7 +463,7 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
 
   return {
     cdempresa, cnpj, razaoSocial: empresa.razaoSocial || txt(cadastro?.nmempresa) || (pcont ? txt(pcont.nmplanodecontas) : '') || `Empresa código ${cdempresa}`,
-    semCadastroNoBackup: !cadastro, empresa, substituiveis, mapaContas, bensImobilizado: imob.bens, titulos: titulosMigrados, cartoes, idPlano, nomePlano: txt(pcont?.nmplanodecontas),
+    semCadastroNoBackup: !cadastro, empresa, substituiveis, mapaContas, bensImobilizado: imob.bens, titulos: titulosMigrados, cartoes, modelos: mod.modelos, idPlano, nomePlano: txt(pcont?.nmplanodecontas),
     contas: contas.sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR', { numeric: true })),
     historicosPadrao, lancamentos, naoEntraram, esperado: [...esperadoMapa.values()].filter((e) => e.debitoCentavos || e.creditoCentavos),
     esperadoLancamentos: [...esperadoLancMapa.values()],

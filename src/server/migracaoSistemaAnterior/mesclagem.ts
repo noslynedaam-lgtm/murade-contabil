@@ -14,6 +14,15 @@ import type { ContaPlano, HistoricoPadrao } from '../../types';
 import { compararCodigosContabeis } from '../../utils/planoContasUtils';
 import type { DadosContabeisEmpresa } from './conversor';
 import { ehLancamentoDoSistemaAnterior } from './conferencia';
+import { PREFIXO_AJUSTE } from './analiseSistemaAnterior';
+import { ajusteLancado, estornarAjuste } from '../../utils/ajustesPropostos';
+
+/** Ajustes de migração já lançados (e não estornados) no workspace. */
+export function ajustesDeMigracaoLancados(payload: Record<string, any> | null): string[] {
+  const lancs: any[] = Array.isArray(payload?.lancamentos) ? payload!.lancamentos : [];
+  const refs = [...new Set(lancs.map((l) => String(l?.documentoRef || '')).filter((r) => r.startsWith(PREFIXO_AJUSTE) && !r.endsWith(':ESTORNO')))];
+  return refs.filter((r) => ajusteLancado(lancs, r));
+}
 
 export interface ResultadoMesclagem {
   payload: Record<string, any> | null;
@@ -25,6 +34,8 @@ export interface ResultadoMesclagem {
   historicosNovos: number;
   lancamentosSubstituidos: number;
   lancamentosDaEquipe: number;
+  /** Quantos ajustes de migração estavam lançados (remigração). */
+  ajustesMigracaoLancados?: number;
 }
 
 const LIMITE_LANCAMENTOS = 20000;
@@ -94,7 +105,15 @@ export function mesclarMigracao(
 ): ResultadoMesclagem {
   const avisos: string[] = [];
   const r: ResultadoMesclagem = { payload: null, avisos, contasNovas: 0, contasAtualizadas: 0, contasDoModeloRetiradas: 0, historicosNovos: 0, lancamentosSubstituidos: 0, lancamentosDaEquipe: 0 };
-  const payload: Record<string, any> = atual ? JSON.parse(JSON.stringify(atual)) : workspaceVazio(dados, opcoes.cadastroCompartilhado ?? null, opcoes.competenciaAtual);
+  let payload: Record<string, any> = atual ? JSON.parse(JSON.stringify(atual)) : workspaceVazio(dados, opcoes.cadastroCompartilhado ?? null, opcoes.competenciaAtual);
+  // Ajuste de migração já lançado: nunca fica sobrando sem avisar. Só migra de novo com a escolha explícita do contador,
+  // e aí cada ajuste é estornado antes (o lançamento original continua no Diário, com o estorno).
+  const ajustes = ajustesDeMigracaoLancados(payload);
+  if (ajustes.length && !dados.desfazerAjustesMigracao) {
+    return { ...r, ajustesMigracaoLancados: ajustes.length, bloqueio: `Esta empresa tem ${ajustes.length} ajuste(s) de migração lançado(s). Escolha "Desfazer os ajustes e migrar de novo" (estorna os ajustes e depois analisa de novo) ou "Cancelar".` };
+  }
+  for (const ref of ajustes) payload = estornarAjuste(payload, ref);
+  if (ajustes.length) avisos.push(`${ajustes.length} ajuste(s) de migração estornado(s) antes de migrar de novo; a análise é refeita depois de gravar.`);
   for (const k of ['contas', 'centrosCusto', 'lancamentos', 'livros', 'lembretes']) if (!Array.isArray(payload[k])) payload[k] = [];
 
   // ---- cadastro da empresa: só o que está em branco
@@ -180,6 +199,17 @@ export function mesclarMigracao(
   if (foraDoLimite) avisos.push(`${foraDoLimite} histórico(s) padrão não couberam (o Murade guarda até ${LIMITE_HISTORICOS} por empresa); estão no registro do sistema anterior.`);
   payload.historicosPadrao = hist;
 
+  // ---- modelos de lançamento (os da equipe ficam; os de uma migração anterior são trocados; nome igual a um da equipe não entra)
+  if ((dados.modelos || []).length || (Array.isArray(payload.lancamentosPadrao) && payload.lancamentosPadrao.some((x: any) => String(x?.id || '').startsWith('sa-lauto-')))) {
+    const atuais: any[] = Array.isArray(payload.lancamentosPadrao) ? payload.lancamentosPadrao : [];
+    const daEquipe = atuais.filter((x) => !String(x?.id || '').startsWith('sa-lauto-'));
+    const nomes = new Set(daEquipe.map((x) => String(x?.nome || '').trim().toUpperCase()));
+    const cabem = Math.max(0, 200 - daEquipe.length);
+    const entram = (dados.modelos || []).filter((m) => !nomes.has(m.nome.trim().toUpperCase()));
+    payload.lancamentosPadrao = [...daEquipe, ...entram.slice(0, cabem)];
+    if (entram.length > cabem) avisos.push(`${entram.length - cabem} modelo(s) de lançamento não couberam (o Murade guarda até 200 por empresa); estão no registro do sistema anterior.`);
+  }
+
   // ---- imobilizado
   if ((dados.bensImobilizado || []).length || (Array.isArray(payload.bensImobilizado) && payload.bensImobilizado.some((b: any) => String(b?.id || '').startsWith('sa-bem-')))) {
     const j = juntarBens(payload.bensImobilizado, dados.bensImobilizado);
@@ -199,5 +229,6 @@ export function mesclarMigracao(
     return { ...r, bloqueio: `Os dados desta empresa ficariam com ${(bytes / 1e6).toFixed(1)} MB e o Murade guarda até 4 MB por empresa. Nada foi gravado; o caso foi registrado para o suporte ampliar o limite.` };
   }
   r.payload = payload;
+  r.ajustesMigracaoLancados = ajustes.length;
   return r;
 }

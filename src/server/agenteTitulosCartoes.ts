@@ -7,6 +7,7 @@ const cnpjDe = (v: unknown): string | null => { const d = String(v ?? '').toUppe
 const reais = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 export const INSTRUCAO_TITULOS_CARTOES = `
+MODELOS DE LANÇAMENTO: para "lança pelo modelo X, valor Y" use lancar_pelo_modelo (cartão; o lançamento vai para aprovação). Se houver mais de um modelo parecido, pergunte qual.
 TÍTULOS A PAGAR E RECEBER (Gestão › Títulos): use listar_titulos para "o que tenho a pagar/receber", "o que venceu". Baixar (pagamento/recebimento) é baixar_titulo e gerar a provisão é gerar_provisao_titulo, sempre por cartão; o lançamento vai para aprovação. Títulos que vieram do sistema anterior já estavam contabilizados lá. CARTÕES: informacoes_cartoes mostra as informações de cartões que vieram do sistema anterior (antiga DIRF); diga que a DIRF foi extinta para fatos a partir de 01/01/2025 (IN RFB nº 2.181/2024) e que pagamentos e retenções passaram para a EFD-Reinf e o eSocial.`;
 
 export const FERRAMENTAS_TITULOS_CARTOES: Ferramenta[] = [
@@ -71,6 +72,36 @@ export const FERRAMENTAS_TITULOS_CARTOES: Ferramenta[] = [
         for (const m of e.movimentos || []) { const a = String(m.referencia).slice(0, 4); anos[a] = anos[a] || { rendimento: 0, ir: 0 }; anos[a].rendimento += m.rendimentoCentavos; anos[a].ir += m.irCentavos; }
         return { operadora: e.operadora, estabelecimento: e.codigoEstabelecimento, porAno: Object.fromEntries(Object.entries(anos).map(([a, x]) => [a, { rendimento: reais(x.rendimento), ir: reais(x.ir) }])) };
       }), tela: 'Gestão › Cartões (antiga DIRF)' };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'lancar_pelo_modelo', description: 'LANÇAMENTOS: propõe um lançamento manual a partir de um MODELO de lançamento da empresa (pelo nome ou código, ex.: "Venda de Mercadoria à Vista" ou "00047"), com o valor, a data e um complemento opcional do histórico. O lançamento vai para aprovação. Vira cartão.', parameters: { type: 'OBJECT', properties: { cnpj: { type: 'STRING' }, modelo: { type: 'STRING', description: 'Nome ou código do modelo.' }, valor: { type: 'STRING', description: 'Ex.: 1.234,56. Sem ele, vale o valor fixo do modelo.' }, data: { type: 'STRING', description: 'AAAA-MM-DD (padrão: hoje).' }, complemento: { type: 'STRING', description: 'Opcional: texto que completa o histórico (ex.: número da nota).' } }, required: ['cnpj', 'modelo'] } },
+    async preparar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const r = await ctx.chamarApi('GET', `/api/workspaces/${q(cnpj)}`);
+      if (!ok(r)) return { erro: erroApi(r).erro };
+      const semAc = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+      const busca = semAc(String(args.modelo || ''));
+      const modelos: any[] = (r.corpo?.dados?.lancamentosPadrao || []).filter((p: any) => p.uso === 'modelo');
+      const achados = modelos.filter((m) => semAc(String(m.codigo || '')) === busca || semAc(m.nome) === busca);
+      const lista = achados.length ? achados : modelos.filter((m) => semAc(m.nome).includes(busca));
+      if (!lista.length) return { erro: `Não achei o modelo "${args.modelo}". Modelos desta empresa: ${modelos.slice(0, 8).map((m) => `${m.codigo || ''} ${m.nome}`.trim()).join('; ') || 'nenhum'}.` };
+      if (lista.length > 1) return { erro: `Há ${lista.length} modelos parecidos: ${lista.slice(0, 6).map((m) => `${m.codigo || ''} ${m.nome}`.trim()).join('; ')}. Diga qual.` };
+      const m = lista[0];
+      const fixo = (m.partidas || []).reduce((t: number, x: any) => t + Number(x.valorCentavos || 0), 0);
+      const valor = args.valor ? textoParaCentavos(args.valor) : fixo;
+      if (!valor || valor <= 0) return { erro: 'Diga o valor do lançamento (o modelo não tem valor fixo).' };
+      if ((m.partidas || []).length !== 1 && !args.valor) return { erro: 'Este modelo tem várias partidas: lance pela tela.' };
+      const data = /^\d{4}-\d{2}-\d{2}$/.test(String(args.data || '')) ? String(args.data) : new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
+      const historico = `${m.historico}${args.complemento ? ` ${String(args.complemento).trim()}` : ''}`.slice(0, 240);
+      const partidas = (m.partidas || []).length === 1 ? [{ conta: m.partidas[0].conta, valorCentavos: valor }] : m.partidas;
+      return { cnpj, params: { cnpj, data, historico, forma: m.forma, contaUnica: m.contaUnica, partidas, totalCentavos: valor }, titulo: `Lançar pelo modelo ${m.codigo ? `${m.codigo} — ` : ''}${m.nome}`,
+        descricao: [`${m.forma === '1xN' ? 'D' : 'C'} ${m.contaUnica} / ${m.forma === '1xN' ? 'C' : 'D'} ${partidas.map((x: any) => x.conta).join(', ')}`, `Valor: ${reais(valor)} em ${data.split('-').reverse().join('/')}`, `Histórico: ${historico}`, 'O lançamento vai para aprovação.'], resumo: `Lançamento pelo modelo ${m.nome} ${cnpj}`.slice(0, 160) };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', `/api/workspaces/${q(String(params.cnpj))}/lancamentos-compostos`, params);
+      return ok(r) ? { sucesso: true, mensagem: String(r.corpo?.mensagem || 'Lançamento enviado para aprovação.') } : { sucesso: false, mensagem: erroApi(r).erro };
     },
   },
 ];

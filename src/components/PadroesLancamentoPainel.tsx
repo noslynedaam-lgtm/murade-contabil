@@ -34,11 +34,12 @@ export const PadroesLancamentoPainel: React.FC<Props> = ({ contas, historicosPad
     if (!await pedir({ titulo: "Remover este histórico padrão?", oQue: `o histórico padrão ${h.codigo} ("${h.texto}")`, consequencias: ["Só este histórico sai da lista.", "Os lançamentos que já usaram o texto não mudam."], rotuloFinal: "Sim, remover" })) return;
     await onRota("DELETE", `historicos-padrao/${encodeURIComponent(h.id)}`);
   };
+  const [ehModelo, setEhModelo] = useState(false);
   const gravarPadrao = async () => {
     setErro("");
-    const partidas = linhas.map((l) => ({ conta: l.conta, valorCentavos: textoParaCentavos(l.valor) }));
-    if (!nome.trim() || !unica || !hist.trim() || partidas.some((p) => !p.conta || !p.valorCentavos || p.valorCentavos <= 0)) { setErro("Preencha nome, conta, histórico e o valor de cada partida (ex.: 1.500,00)."); return; }
-    const r = await onRota("POST", "lancamentos-padrao", { nome, dia: Number(dia), forma, contaUnica: unica, historico: hist, inicio, fim: fim || undefined, partidas });
+    const partidas = linhas.map((l) => ({ conta: l.conta, valorCentavos: ehModelo && !l.valor.trim() ? 0 : textoParaCentavos(l.valor) }));
+    if (!nome.trim() || !unica || !hist.trim() || partidas.some((p) => !p.conta || p.valorCentavos === null || (!ehModelo && !p.valorCentavos) || (p.valorCentavos || 0) < 0)) { setErro(ehModelo ? "Preencha nome, contas e histórico (o valor do modelo pode ficar em branco)." : "Preencha nome, conta, histórico e o valor de cada partida (ex.: 1.500,00)."); return; }
+    const r = await onRota("POST", "lancamentos-padrao", { nome, dia: Number(dia), forma, contaUnica: unica, historico: hist, inicio, fim: fim || undefined, partidas, ...(ehModelo ? { uso: "modelo" } : {}) });
     if (r.ok) { setNome(""); setHist(""); setUnica(""); setLinhas([{ conta: "", valor: "" }]); setFim(""); }
   };
   const tirarPadrao = async (p: LancamentoPadrao) => {
@@ -69,8 +70,8 @@ export const PadroesLancamentoPainel: React.FC<Props> = ({ contas, historicosPad
         <ul className="mt-2 space-y-1">{lancamentosPadrao.map((p) => {
           const total = p.partidas.reduce((t, x) => t + x.valorCentavos, 0);
           return <li key={p.id} className="flex flex-col gap-1 border-b border-slate-100 py-1 sm:flex-row sm:items-center sm:justify-between">
-            <span><strong>{p.nome}</strong> · dia {p.dia} · {moedaContabil(total)} · {p.forma === "1xN" ? `D ${p.contaUnica}` : `C ${p.contaUnica}`} · desde {p.inicio.split("-").reverse().join("/")}{p.fim ? ` até ${p.fim.split("-").reverse().join("/")}` : ""} {p.ativo ? <span className="rounded bg-emerald-100 px-1.5 font-bold text-emerald-900">ativo</span> : <span className="rounded bg-slate-200 px-1.5 font-bold text-slate-700">pausado</span>}</span>
-            <span className="flex gap-1"><button type="button" disabled={!podeGravar} onClick={() => void onRota("POST", `lancamentos-padrao/${encodeURIComponent(p.id)}/ativo`, { ativo: !p.ativo })} className="rounded border px-2 py-0.5 font-bold disabled:opacity-40">{p.ativo ? "Pausar" : "Ligar"}</button><button type="button" disabled={!podeGravar} onClick={() => void tirarPadrao(p)} className="rounded border border-rose-200 px-2 py-0.5 font-bold text-rose-800 disabled:opacity-40">Remover</button></span>
+            <span>{p.uso === "modelo" && <span className="mr-1 rounded bg-sky-100 px-1.5 font-bold text-sky-900">modelo{p.codigo ? ` ${p.codigo}` : ""}</span>}<strong>{p.nome}</strong> · {p.uso === "modelo" ? "lançamento manual" : `dia ${p.dia}`} · {moedaContabil(total)} · {p.forma === "1xN" ? `D ${p.contaUnica}` : `C ${p.contaUnica}`}{p.uso === "modelo" ? "" : ` · desde ${p.inicio.split("-").reverse().join("/")}${p.fim ? ` até ${p.fim.split("-").reverse().join("/")}` : ""}`} {p.uso === "modelo" ? null : p.ativo ? <span className="rounded bg-emerald-100 px-1.5 font-bold text-emerald-900">ativo</span> : <span className="rounded bg-slate-200 px-1.5 font-bold text-slate-700">pausado</span>}</span>
+            <span className="flex gap-1">{p.uso !== "modelo" && <button type="button" disabled={!podeGravar} onClick={() => void onRota("POST", `lancamentos-padrao/${encodeURIComponent(p.id)}/ativo`, { ativo: !p.ativo })} className="rounded border px-2 py-0.5 font-bold disabled:opacity-40">{p.ativo ? "Pausar" : "Ligar"}</button>}<button type="button" disabled={!podeGravar} onClick={() => void tirarPadrao(p)} className="rounded border border-rose-200 px-2 py-0.5 font-bold text-rose-800 disabled:opacity-40">Remover</button></span>
           </li>;
         })}{!lancamentosPadrao.length && <li className="text-slate-500">Nenhum lançamento padrão cadastrado.</li>}</ul>
         <div className="mt-2 flex flex-wrap items-end gap-2 rounded border border-dashed border-slate-300 p-2">
@@ -79,6 +80,7 @@ export const PadroesLancamentoPainel: React.FC<Props> = ({ contas, historicosPad
         </div>
         <fieldset className="mt-3 grid gap-2 rounded border border-slate-200 p-2">
           <legend className="px-1 font-bold">Novo lançamento padrão</legend>
+          <label className="flex items-center gap-2"><input type="checkbox" data-campo="padrao-modelo" checked={ehModelo} onChange={(e) => setEhModelo(e.target.checked)} /> Modelo para o lançamento manual (botão "Usar modelo"; o robô não prepara e o valor pode ficar em branco)</label>
           <div className="grid gap-2 sm:grid-cols-4">
             <label className="grid gap-1 sm:col-span-2">Nome<input data-campo="padrao-nome" value={nome} onChange={(e) => setNome(e.target.value)} maxLength={80} placeholder="Aluguel da loja" className="rounded border px-2 py-1" /></label>
             <label className="grid gap-1">Dia do mês<input data-campo="padrao-dia" type="number" min={1} max={31} value={dia} onChange={(e) => setDia(e.target.value)} className="rounded border px-2 py-1" /></label>

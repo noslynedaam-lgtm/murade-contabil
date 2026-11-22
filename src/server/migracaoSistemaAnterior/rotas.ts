@@ -75,7 +75,7 @@ export function registrarRotasMigracaoSistemaAnterior(app: express.Express, dep:
         validarWorkspace: (p) => dep.workspaceValido(p),
         modelo: dep.modelo,
         competenciaAtual: competenciaDoBrasil(),
-      });
+      }, req.body?.desfazerAjustes);
       res.json({ sucesso: true, empresas });
     } catch (e) { res.status(400).json({ sucesso: false, motivo: motivo(e) }); }
   });

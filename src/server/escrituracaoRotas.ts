@@ -198,11 +198,13 @@ export function registrarRotasEscrituracao(app: express.Express, deps: Deps): vo
           contaUnica: String(req.body?.contaUnica || "").trim(), partidas: partidas.map((p) => ({ conta: p.conta, valorCentavos: p.valorCentavos })),
           inicio: String(req.body?.inicio || "").trim(), ...(req.body?.fim ? { fim: String(req.body.fim).trim() } : {}), criadoEm: new Date().toISOString(),
         };
-        if (!validarLancamentoPadrao(novo, analiticasDe(payload))) throw new ErroAlteracaoWorkspace(422, "Confira o lançamento padrão: nome, dia (1 a 31), histórico, contas analíticas diferentes, valores maiores que zero e competência de início (AAAA-MM).");
+        if (req.body?.uso === "modelo") { novo.uso = "modelo"; novo.ativo = false; if (!novo.dia) novo.dia = 1; if (!/^\d{4}-\d{2}$/.test(novo.inicio)) novo.inicio = new Date().toISOString().slice(0, 7); if (req.body?.pedeComplemento === true) novo.pedeComplemento = true; }
+        const ehModelo = novo.uso === "modelo";
+        if (!validarLancamentoPadrao(novo, analiticasDe(payload))) throw new ErroAlteracaoWorkspace(422, ehModelo ? "Confira o modelo: nome, histórico e contas analíticas diferentes (o valor pode ficar em branco)." : "Confira o lançamento padrão: nome, dia (1 a 31), histórico, contas analíticas diferentes, valores maiores que zero e competência de início (AAAA-MM).");
         const lista: LancamentoPadrao[] = Array.isArray(payload.lancamentosPadrao) ? payload.lancamentosPadrao : [];
         return { payload: { ...payload, lancamentosPadrao: [...lista, novo] }, resultado: { padrao: novo } };
       });
-      return res.json(respostaAlteracao(r, { ...r.resultado, mensagem: "Lançamento padrão cadastrado. O robô prepara todo mês, para aprovação." }));
+      return res.json(respostaAlteracao(r, { ...r.resultado, mensagem: (r.resultado as any)?.padrao?.uso === "modelo" ? "Modelo cadastrado: use no lançamento manual pelo botão \"Usar modelo\"." : "Lançamento padrão cadastrado. O robô prepara todo mês, para aprovação." }));
     } catch (e) { return erroHttp(res, e, "Não foi possível cadastrar o lançamento padrão."); }
   });
   app.post("/api/workspaces/:cnpj/lancamentos-padrao/:id/ativo", origem, sessaoMw, async (req, res) => {
@@ -212,6 +214,7 @@ export function registrarRotasEscrituracao(app: express.Express, deps: Deps): vo
       const r = await alterarWorkspaceNoServidorContabil(a.cnpj, (payload) => {
         const lista: LancamentoPadrao[] = Array.isArray(payload.lancamentosPadrao) ? payload.lancamentosPadrao : [];
         if (!lista.some((p) => p.id === id)) throw new ErroAlteracaoWorkspace(404, "Lançamento padrão não encontrado.");
+        if (lista.find((p) => p.id === id)?.uso === "modelo") throw new ErroAlteracaoWorkspace(409, "Modelo do lançamento manual não é preparado pelo robô; para virar recorrente, cadastre um lançamento padrão com valor e dia.");
         return { payload: { ...payload, lancamentosPadrao: lista.map((p) => (p.id === id ? { ...p, ativo } : p)) }, resultado: {} };
       });
       return res.json(respostaAlteracao(r, { mensagem: ativo ? "Lançamento padrão ligado." : "Lançamento padrão pausado: o robô não prepara mais até você ligar de novo." }));

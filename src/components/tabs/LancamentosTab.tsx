@@ -95,6 +95,26 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
     const iso = normalizarDataContabil(dataLan);
     setHistLan(aplicarHistoricoPadrao(h.texto, iso ? iso.slice(0, 7) : new Date().toISOString().slice(0, 7)));
   };
+  // "Usar modelo": preenche contas, histórico e o valor fixo (se houver) a partir de um modelo de lançamento.
+  const modelos = (lancamentosPadrao || []).filter((p) => p.uso === "modelo");
+  const usarModelo = (id: string) => {
+    const m = modelos.find((x) => x.id === id);
+    if (!m) return;
+    const iso = normalizarDataContabil(dataLan);
+    const hist = aplicarHistoricoPadrao(m.historico, iso ? iso.slice(0, 7) : new Date().toISOString().slice(0, 7));
+    if (m.partidas.length === 1) {
+      setFormaLan("simples");
+      const [d, c] = m.forma === "1xN" ? [m.contaUnica, m.partidas[0].conta] : [m.partidas[0].conta, m.contaUnica];
+      handleSelecionarDebito(d); handleSelecionarCredito(c);
+      if (m.partidas[0].valorCentavos > 0) setValorLan((m.partidas[0].valorCentavos / 100).toFixed(2).replace(".", ","));
+    } else {
+      setFormaLan(m.forma); setContaUnica(m.contaUnica);
+      setLinhasLan(m.partidas.map((x) => ({ conta: x.conta, valor: x.valorCentavos > 0 ? (x.valorCentavos / 100).toFixed(2).replace(".", ",") : "" })));
+      const total = m.partidas.reduce((t, x) => t + x.valorCentavos, 0);
+      if (total > 0) setValorLan((total / 100).toFixed(2).replace(".", ","));
+    }
+    setHistLan(m.pedeComplemento ? `${hist} ` : hist);
+  };
   const tamanhoLote = (loteId?: string) => (loteId ? lancamentos.filter((x) => x.loteId === loteId).length : 1);
 
   // Atualizar conta a débito a partir da seleção no plano de contas sequencial
@@ -560,6 +580,7 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                 </div>
               </div>}
               <div>
+                {modelos.length > 0 && <select data-campo="lancamento-usar-modelo" value="" onChange={(e) => usarModelo(e.target.value)} className="mb-2 w-full rounded-lg border border-sky-300 bg-sky-50 p-2 text-xs font-bold text-sky-900"><option value="">Usar modelo…</option>{modelos.map((m) => <option key={m.id} value={m.id}>{m.codigo ? `${m.codigo} — ` : ""}{m.nome}</option>)}</select>}
                 <label className="block text-slate-700 font-semibold mb-1">Histórico da Operação</label>
                 {historicosPadrao.length > 0 && <select data-campo="lancamento-historico-padrao" value="" onChange={(e) => usarHistoricoPadrao(e.target.value)} className="mb-1 w-full rounded-lg border border-slate-300 bg-white p-2 text-xs"><option value="">Usar um histórico padrão…</option>{historicosPadrao.map((h) => <option key={h.id} value={h.id}>{h.codigo} — {h.texto}</option>)}</select>}
                 <textarea

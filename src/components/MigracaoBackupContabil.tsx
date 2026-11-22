@@ -11,7 +11,7 @@ type Previa = {
   cdempresa: number; nome: string; cnpj: string; semCadastroNoBackup: boolean; podeGravar: boolean; motivo?: string; excluidaAntes: boolean; jaExisteNoMurade: boolean;
   lidos: Record<string, number>; contas: number; contasNovas: number; contasAtualizadas: number; contasDoModeloRetiradas: number; historicos: number; historicosNovos: number;
   lancamentos: number; lancamentosSubstituidos: number; lancamentosDaEquipe: number; naoEntraram: number; blocos: Array<{ bloco: string; quantidade: number }>;
-  periodo: string; conferencia: string; bate: boolean; totalAvisos: number; avisos: string[];
+  periodo: string; conferencia: string; bate: boolean; totalAvisos: number; avisos: string[]; ajustesMigracaoLancados?: number; desfazerAjustes?: boolean;
 };
 type Resultado = { cdempresa: number; cnpj: string; gravado: boolean; motivo?: string; lancamentos: number; contas: number; conferencia?: string; bate?: boolean };
 
@@ -89,7 +89,7 @@ export const MigracaoBackupContabil: React.FC<{ aoTerminar?: () => void }> = ({ 
       const todos: Previa[] = [];
       for (let i = 0; i < cds.length; i += LOTE) {
         setOcupado(`Conferindo os dados (nada é gravado ainda)… ${Math.min(cds.length, i + LOTE)} de ${cds.length}`);
-        const r = await chamar("/api/migracao-sistema-anterior/previa", { token, cdempresas: cds.slice(i, i + LOTE), cnpjs });
+        const r = await chamar("/api/migracao-sistema-anterior/previa", { token, cdempresas: cds.slice(i, i + LOTE), cnpjs, desfazerAjustes: [...desfazer] });
         todos.push(...(r.empresas || []));
       }
       setPrevias(todos); setEtapa("previa");
@@ -97,6 +97,19 @@ export const MigracaoBackupContabil: React.FC<{ aoTerminar?: () => void }> = ({ 
     finally { setOcupado(""); }
   };
 
+  // Remigração com ajuste de migração lançado: o contador escolhe desfazer (estorno) e migrar de novo, ou cancelar.
+  const [desfazer, setDesfazer] = useState<Set<number>>(new Set());
+  const desfazerEMigrar = async (cd: number, n: number) => {
+    if (!(await confirmarNaTela(`Desfazer os ${n} ajuste(s) de migração desta empresa (vou lançar o estorno de cada um; os originais continuam no Diário) e migrar de novo? Depois de gravar, a análise do que veio é refeita.`))) return;
+    const lista = new Set(desfazer); lista.add(cd); setDesfazer(lista);
+    setOcupado("Conferindo de novo esta empresa (nada é gravado ainda)…");
+    try {
+      const r = await chamar("/api/migracao-sistema-anterior/previa", { token, cdempresas: [cd], cnpjs, desfazerAjustes: [...lista] });
+      const nova = (r.empresas || [])[0];
+      if (nova) setPrevias((ps) => ps.map((x) => (x.cdempresa === cd ? nova : x)));
+    } catch (e: any) { setErro(e?.message || "Falha ao conferir."); } finally { setOcupado(""); }
+  };
+  const cancelarEmpresa = (cd: number) => { setPrevias((ps) => ps.filter((x) => x.cdempresa !== cd)); setMarcadas((m) => { const n = new Set(m); n.delete(cd); return n; }); };
   const gravaveis = previas.filter((p) => p.podeGravar && (umaAUma || !p.excluidaAntes));
   const gravar = async () => {
     setErro("");
@@ -198,10 +211,19 @@ export const MigracaoBackupContabil: React.FC<{ aoTerminar?: () => void }> = ({ 
                 <div key={p.cdempresa} className={`border-b border-slate-100 px-3 py-2 ${fora ? "bg-amber-50" : ""}`}>
                   <div className="font-bold">{p.nome} <span className="font-normal text-slate-500">{formatarCnpj(p.cnpj)}</span>{p.jaExisteNoMurade ? <span className="ml-1 rounded bg-slate-200 px-1 font-normal">já existe no Murade: junta sem apagar nada da equipe</span> : null}</div>
                   {fora ? (
-                    <div className="text-amber-900">Não entra agora: {!p.podeGravar ? p.motivo : 'esta empresa foi excluída antes. Para trazer de volta, use "Não, quero escolher" e marque ela uma por uma.'}</div>
+                    <>
+                      <div className="text-amber-900">Não entra agora: {!p.podeGravar ? p.motivo : 'esta empresa foi excluída antes. Para trazer de volta, use "Não, quero escolher" e marque ela uma por uma.'}</div>
+                      {!p.podeGravar && (p.ajustesMigracaoLancados || 0) > 0 && (
+                        <div data-campo="remigrar-ajustes" className="mt-1 flex flex-wrap gap-2">
+                          <button type="button" disabled={!!ocupado} onClick={() => void desfazerEMigrar(p.cdempresa, p.ajustesMigracaoLancados || 0)} className="min-h-[40px] rounded border border-amber-500 bg-white px-3 font-bold text-amber-900 disabled:opacity-50">Desfazer os ajustes e migrar de novo</button>
+                          <button type="button" disabled={!!ocupado} onClick={() => cancelarEmpresa(p.cdempresa)} className="min-h-[40px] rounded border border-slate-300 bg-white px-3 disabled:opacity-50">Cancelar</button>
+                        </div>
+                      )}
+                    </>
                   ) : (
                     <>
                       <div className="text-slate-700">{p.contas} contas ({p.contasNovas} novas{p.contasAtualizadas ? `, ${p.contasAtualizadas} ajustadas` : ""}{p.contasDoModeloRetiradas ? `, ${p.contasDoModeloRetiradas} do modelo sem uso trocadas pelo plano real` : ""}) • {p.historicos} históricos padrão ({p.historicosNovos} novos) • <b>{p.lancamentos}</b> lançamentos{p.periodo ? ` de ${p.periodo}` : ""}{p.lancamentosSubstituidos ? ` (substituem ${p.lancamentosSubstituidos} de uma migração anterior)` : ""}{p.lancamentosDaEquipe ? ` • ${p.lancamentosDaEquipe} lançamento(s) da equipe ficam como estão` : ""}</div>
+                      {p.desfazerAjustes && (p.ajustesMigracaoLancados || 0) > 0 && <div className="text-amber-900">Os {p.ajustesMigracaoLancados} ajuste(s) de migração desta empresa vão ser estornados antes de gravar; depois a análise é refeita.</div>}
                       <div className={p.bate ? "text-emerald-800" : "text-red-700"}>Conferência: {p.conferencia}</div>
                       {p.naoEntraram > 0 && <div className="text-red-700">{p.naoEntraram} linha(s) do arquivo não viram lançamento (ficam guardadas com o motivo).</div>}
                       <div className="text-slate-500">Guardado para consulta: {p.blocos.map((b) => `${b.bloco.replace(/_/g, " ")} (${b.quantidade})`).join(" • ")}</div>

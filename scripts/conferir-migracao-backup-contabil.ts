@@ -268,6 +268,19 @@ function conferirNoBanco(banco: string, cd: number, d: DadosContabeisEmpresa, pa
     igual(`cartão ${x.cod} movimentos`, JSON.stringify(x.movs), JSON.stringify(m.movimentos.map((v: any) => [v.referencia, v.rendimentoCentavos, v.irCentavos])));
     if (JSON.stringify(m).includes('"senha"')) erros.push(`cartão ${x.cod}: senha não pode vir`);
   }
+  // ---- modelos de lançamento (lauto + lcontas do plano da empresa) x modelos do lançamento manual
+  if (d.idPlano != null) {
+    const mods = new Map((payload.lancamentosPadrao || []).map((m: any) => [m.id, m]));
+    for (const x of json(banco, `select distinct on (l.idlancautomatico) l.idlancautomatico id, regexp_replace(l.dslancautomatico, '^[[:space:]]+|[[:space:]]+\$', '', 'g') nome, regexp_replace(l.cdchamada, '^[[:space:]]+|[[:space:]]+\$', '', 'g') codigo, c.idcontadevedora deb, c.idcontacredora cred, coalesce(nullif(regexp_replace(h.dshistoricopadrao, '^[[:space:]]+|[[:space:]]+\$', '', 'g'),''), regexp_replace(l.dslancautomatico, '^[[:space:]]+|[[:space:]]+\$', '', 'g')) hist
+        from wcont.lauto l join wcont.lcontas c on c.idlancautomatico=l.idlancautomatico left join wcont.hist h on h.idhistoricopadrao=c.idhistoricopadrao
+        where c.idplanodecontas=${d.idPlano} order by l.idlancautomatico, c.idregistro`)) {
+      const m: any = mods.get(`sa-lauto-${x.id}`.slice(0, 64));
+      const deb = d.mapaContas[String(x.deb)]; const cred = d.mapaContas[String(x.cred)];
+      if (!m) { if (deb && cred && deb !== cred && (porCodigo.get(deb) as any)?.tipo === 'analitica' && (porCodigo.get(cred) as any)?.tipo === 'analitica') erros.push(`modelo ${x.codigo} ${x.nome}: não veio`); continue; }
+      igual(`modelo ${x.codigo} nome`, x.nome, m.nome); igual(`modelo ${x.codigo} código`, x.codigo, m.codigo); igual(`modelo ${x.codigo} débito`, deb, m.contaUnica);
+      igual(`modelo ${x.codigo} crédito`, cred, m.partidas[0].conta); igual(`modelo ${x.codigo} histórico`, x.hist, m.historico);
+    }
+  }
   // ---- por tabela: colunas preenchidas e o que fica no registro (cada valor igual ao banco)
   const ec = json(banco, `select contador_id from wcont.empcont where idempresa=${cd}`)[0];
   const usados = new Set([...(d.blocos.lancamentos_originais || []), ...(d.blocos.saldos || [])].map((x: any) => Number(x.idconta)));
