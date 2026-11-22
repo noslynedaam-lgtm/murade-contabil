@@ -35,6 +35,13 @@ export const ORIGENS = [
   { id: "fiscal_cofins_nc", rotulo: "Fiscal — COFINS não cumulativa (débito)" },
   { id: "fiscal_pis_nc_credito", rotulo: "Fiscal — PIS não cumulativo (créditos)" },
   { id: "fiscal_cofins_nc_credito", rotulo: "Fiscal — COFINS não cumulativa (créditos)" },
+  { id: "fiscal_irpj_presumido_pago", rotulo: "Fiscal — IRPJ Presumido (pagamento)" },
+  { id: "fiscal_csll_presumido_pago", rotulo: "Fiscal — CSLL Presumido (pagamento)" },
+  { id: "fiscal_pis_presumido_pago", rotulo: "Fiscal — PIS Presumido (pagamento)" },
+  { id: "fiscal_cofins_presumido_pago", rotulo: "Fiscal — COFINS Presumido (pagamento)" },
+  { id: "fiscal_pis_nc_pago", rotulo: "Fiscal — PIS não cumulativo (pagamento)" },
+  { id: "fiscal_cofins_nc_pago", rotulo: "Fiscal — COFINS não cumulativa (pagamento)" },
+  { id: "fiscal_darf_encargos", rotulo: "Fiscal — DARF (multa e juros)" },
   { id: "fiscal_das_simples", rotulo: "Fiscal — DAS Simples (provisão)" },
   { id: "fiscal_das_simples_pago", rotulo: "Fiscal — DAS Simples (pagamento)" },
   { id: "fiscal_das_simples_encargos", rotulo: "Fiscal — DAS Simples (multa e juros)" },
@@ -63,9 +70,17 @@ export const ORIGEM_POR_TRIBUTO: Record<string, IdOrigem> = {
   COFINS_NAO_CUMULATIVA: "fiscal_cofins_nc",
   PIS_NC_CREDITO: "fiscal_pis_nc_credito",
   COFINS_NC_CREDITO: "fiscal_cofins_nc_credito",
+  IRPJ_PRESUMIDO_PAGO: "fiscal_irpj_presumido_pago",
+  CSLL_PRESUMIDO_PAGO: "fiscal_csll_presumido_pago",
+  PIS_PRESUMIDO_PAGO: "fiscal_pis_presumido_pago",
+  COFINS_PRESUMIDO_PAGO: "fiscal_cofins_presumido_pago",
+  PIS_NC_PAGO: "fiscal_pis_nc_pago",
+  COFINS_NC_PAGO: "fiscal_cofins_nc_pago",
   DAS_SIMPLES: "fiscal_das_simples",
   DAS_SIMPLES_PAGO: "fiscal_das_simples_pago",
 };
+/** Pagamentos de DARF vindos do Fiscal (mesmo tratamento do DAS_SIMPLES_PAGO, com a multa/juros em fiscal_darf_encargos). */
+export const TRIBUTOS_DARF_PAGO = new Set(["IRPJ_PRESUMIDO_PAGO", "CSLL_PRESUMIDO_PAGO", "PIS_PRESUMIDO_PAGO", "COFINS_PRESUMIDO_PAGO", "PIS_NC_PAGO", "COFINS_NC_PAGO"]);
 /** Sufixo da referência da parte de multa e juros de um DAS pago em atraso. */
 export const SUFIXO_ENCARGOS_DAS = "ENCARGOS";
 
@@ -162,6 +177,7 @@ export function origemDaReferencia(referencia: string): OrigemDaReferencia | nul
   if ((p[3] === "Entrada" || p[3] === "Saida") && p.length >= 5 && p[4]) return monta(p[3] === "Entrada" ? "fiscal_entrada" : "fiscal_saida", p[2]);
   if (p[3] === "APURACAO" && p.length >= 6 && p[5]) {
     if (p[4] === "DAS_SIMPLES_PAGO" && p.length >= 7 && p[p.length - 1] === SUFIXO_ENCARGOS_DAS) return monta("fiscal_das_simples_encargos", p[2]);
+    if (TRIBUTOS_DARF_PAGO.has(p[4]) && p.length >= 7 && p[p.length - 1] === SUFIXO_ENCARGOS_DAS) return monta("fiscal_darf_encargos", p[2]);
     return monta(ORIGEM_POR_TRIBUTO[p[4]], p[2]);
   }
   return null;

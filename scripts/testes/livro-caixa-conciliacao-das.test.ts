@@ -141,7 +141,11 @@ test("DAS: provisão no último dia do período; pagamento na data paga; multa/j
   assert.equal(dataDaApuracao({ tributo: "DAS_SIMPLES", competencia: "2026-02", versaoOrigem: "decl:1" }), "2026-02-28");
   assert.equal(dataDaApuracao({ tributo: "DAS_SIMPLES_PAGO", competencia: "2026-11", versaoOrigem: "pago:2026-11-19:123456" }), "2026-11-19");
   assert.equal(dataDaApuracao({ tributo: "DAS_SIMPLES_PAGO", competencia: "2026-11", versaoOrigem: "pago:2026-10-19:1" }), "2026-11-01", "data fora do mês não vale");
-  assert.equal(dataDaApuracao({ tributo: "PIS_PRESUMIDO", competencia: "2026-11", versaoOrigem: "x" }), "2026-11-01", "as outras apurações não mudam");
+  // provisão do Presumido e do PIS/COFINS não cumulativos: último dia do mês (o IRPJ/CSLL vem com a competência do último mês do trimestre)
+  assert.equal(dataDaApuracao({ tributo: "PIS_PRESUMIDO", competencia: "2026-11", versaoOrigem: "x" }), "2026-11-30");
+  assert.equal(dataDaApuracao({ tributo: "IRPJ_PRESUMIDO", competencia: "2026-09", versaoOrigem: "x" }), "2026-09-30");
+  assert.equal(dataDaApuracao({ tributo: "COFINS_NAO_CUMULATIVA", competencia: "2026-02", versaoOrigem: "x" }), "2026-02-28");
+  assert.equal(dataDaApuracao({ tributo: "ICMS_DIFAL_CONSUMO", competencia: "2026-11", versaoOrigem: "x" }), "2026-11-01", "DIFAL não muda");
   assert.deepEqual(partesDoPagamentoDas(130000, 123456), [{ parte: "principal", centavos: 123456 }, { parte: "encargos", centavos: 6544 }]);
   assert.deepEqual(partesDoPagamentoDas(123456, null), [{ parte: "principal", centavos: 123456 }]);
   const r = gerarRascunhosApuracoes(cnpj, [
@@ -167,4 +171,19 @@ test("DAS: provisão no último dia do período; pagamento na data paga; multa/j
   const semBase = gerarRascunhosApuracoes(cnpj, [ap({ tributo: "DAS_SIMPLES_PAGO", competencia: "2026-11", referencia: "DAS:pagamento:2026-10", valorCentavos: 130000, versaoOrigem: "pago:2026-11-25:130000" })], contas, mapeamentos.slice(0, 2), "x");
   assert.deepEqual([semBase.length, semBase[0].valor], [1, 1300]);
   assert.match(semBase[0].historico, /não informou o principal/);
+});
+
+test("DARF pago no Fiscal (Presumido e Lucro Real): principal baixa o a recolher na data paga; multa e juros na origem própria", () => {
+  for (const [t, o] of [["IRPJ_PRESUMIDO_PAGO", "fiscal_irpj_presumido_pago"], ["CSLL_PRESUMIDO_PAGO", "fiscal_csll_presumido_pago"], ["PIS_PRESUMIDO_PAGO", "fiscal_pis_presumido_pago"], ["COFINS_PRESUMIDO_PAGO", "fiscal_cofins_presumido_pago"], ["PIS_NC_PAGO", "fiscal_pis_nc_pago"], ["COFINS_NC_PAGO", "fiscal_cofins_nc_pago"]]) {
+    assert.equal(ORIGEM_POR_TRIBUTO[t], o, t);
+    assert.match(readFileSync("src/server/apuracoesFiscaisStore.ts", "utf8"), new RegExp(`"${t}"`));
+  }
+  assert.equal(origemDaReferencia(`FISCAL:${cnpj}:2026-10:APURACAO:IRPJ_PRESUMIDO_PAGO:DARF:pagamento:x:ENCARGOS`)?.id, "fiscal_darf_encargos");
+  assert.equal(dataDaApuracao({ tributo: "PIS_NC_PAGO", competencia: "2026-10", versaoOrigem: "pago:2026-10-23:100" }), "2026-10-23");
+  const maps = [mapa("fiscal_irpj_presumido_pago", "2.1.08", "1.1.02"), mapa("fiscal_darf_encargos", "4.1.02", "1.1.02")];
+  // IRPJ de R$ 3.600,00 pago com R$ 61,20 de multa e juros (R$ 3.661,20): principal 3.600,00 e encargos 61,20
+  const r = gerarRascunhosApuracoes(cnpj, [ap({ tributo: "IRPJ_PRESUMIDO_PAGO", competencia: "2026-11", referencia: "DARF:pagamento:irpj:2026-T3", valorCentavos: 366120, baseCentavos: 360000, versaoOrigem: "pago:2026-11-05:366120" })], contas, maps, "x");
+  assert.deepEqual(r.map((x) => [x.data, x.contaDebitoCodigo, x.contaCreditoCodigo, x.valor]), [["2026-11-05", "2.1.08", "1.1.02", 3600], ["2026-11-05", "4.1.02", "1.1.02", 61.2]]);
+  // com encargos e sem conta de encargos mapeada: não lança pela metade
+  assert.equal(gerarRascunhosApuracoes(cnpj, [ap({ tributo: "IRPJ_PRESUMIDO_PAGO", competencia: "2026-11", referencia: "DARF:pagamento:irpj:2026-T3", valorCentavos: 366120, baseCentavos: 360000, versaoOrigem: "pago:2026-11-05:366120" })], contas, maps.slice(0, 1), "x").length, 0);
 });

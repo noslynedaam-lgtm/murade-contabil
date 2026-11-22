@@ -1,5 +1,5 @@
 import type { OrigemMapeadaContabil } from "../types";
-import { ROTULO_PARA_ID, ID_PARA_ROTULO, ORIGEM_POR_TRIBUTO as ORIGEM_POR_TRIBUTO_ID, ITENS_FOLHA_DP, SUFIXO_ENCARGOS_DAS, conciliarResumoFolhaDP } from "../utils/origensContabeis";
+import { ROTULO_PARA_ID, ID_PARA_ROTULO, ORIGEM_POR_TRIBUTO as ORIGEM_POR_TRIBUTO_ID, ITENS_FOLHA_DP, SUFIXO_ENCARGOS_DAS, TRIBUTOS_DARF_PAGO, conciliarResumoFolhaDP } from "../utils/origensContabeis";
 import { lerDocumentosFiscais, fiscalStoreConfigurado } from "./documentosFiscaisStore";
 import { lerApuracoesFiscais, apuracoesStoreConfigurado, type ApuracaoFiscalArmazenada } from "./apuracoesFiscaisStore";
 import { lerResumosDP, dpStoreConfigurado } from "./dadosDpStore";
@@ -117,6 +117,13 @@ const HISTORICO_POR_TRIBUTO: Record<string, string> = {
   PIS_NC_CREDITO: "Créditos de PIS não cumulativo do mês confirmados no Fiscal",
   COFINS_NC_CREDITO: "Créditos de COFINS não cumulativa do mês confirmados no Fiscal",
   DAS_SIMPLES_PAGO: "Pagamento do DAS do Simples Nacional confirmado no Fiscal",
+  IRPJ_PRESUMIDO_PAGO: "IRPJ do Lucro Presumido — pagamento do DARF registrado no Fiscal",
+  CSLL_PRESUMIDO_PAGO: "CSLL do Lucro Presumido — pagamento do DARF registrado no Fiscal",
+  PIS_PRESUMIDO_PAGO: "PIS do Lucro Presumido — pagamento do DARF registrado no Fiscal",
+  COFINS_PRESUMIDO_PAGO: "COFINS do Lucro Presumido — pagamento do DARF registrado no Fiscal",
+  PIS_NC_PAGO: "PIS não cumulativo — pagamento do DARF 6912 registrado no Fiscal",
+  COFINS_NC_PAGO: "COFINS não cumulativa — pagamento do DARF 5856 registrado no Fiscal",
+
 };
 
 const mapeamentoValido = (mapeamentos: Registro[], idOrigem: string, analiticas: Set<unknown>) => {
@@ -126,14 +133,17 @@ const mapeamentoValido = (mapeamentos: Registro[], idOrigem: string, analiticas:
 
 /**
  * Data do pré-lançamento da apuração. Provisão do DAS: último dia do período de apuração. Pagamento do DAS: a data do pagamento,
- * que o Fiscal manda na versão de origem ("pago:AAAA-MM-DD:<valor>"), se cair no mês do pagamento. As demais apurações seguem no dia 1º.
+ * que o Fiscal manda na versão de origem ("pago:AAAA-MM-DD:<valor>"), se cair no mês do pagamento — vale também para o pagamento dos
+ * DARF (tributos *_PAGO). Provisões do Lucro Presumido e do PIS/COFINS não cumulativos: último dia do mês da competência (o tributo é
+ * do período; para IRPJ/CSLL a competência é o último mês do trimestre). As demais (DIFAL) seguem no dia 1º.
  */
+const PROVISAO_NO_FIM_DO_MES = new Set(["IRPJ_PRESUMIDO", "CSLL_PRESUMIDO", "PIS_PRESUMIDO", "COFINS_PRESUMIDO", "PIS_NAO_CUMULATIVO", "COFINS_NAO_CUMULATIVA", "PIS_NC_CREDITO", "COFINS_NC_CREDITO"]);
 export function dataDaApuracao(apuracao: Pick<ApuracaoFiscalArmazenada, "tributo" | "competencia" | "versaoOrigem">): string {
-  if (apuracao.tributo === "DAS_SIMPLES") {
+  if (apuracao.tributo === "DAS_SIMPLES" || PROVISAO_NO_FIM_DO_MES.has(apuracao.tributo)) {
     const [a, m] = apuracao.competencia.split("-").map(Number);
     return `${apuracao.competencia}-${String(new Date(Date.UTC(a, m, 0)).getUTCDate()).padStart(2, "0")}`;
   }
-  if (apuracao.tributo === "DAS_SIMPLES_PAGO") {
+  if (apuracao.tributo === "DAS_SIMPLES_PAGO" || TRIBUTOS_DARF_PAGO.has(apuracao.tributo)) {
     const d = /^pago:(\d{4}-\d{2}-\d{2}):/.exec(String(apuracao.versaoOrigem || ""))?.[1];
     if (d && d.slice(0, 7) === apuracao.competencia && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d) return d;
   }
@@ -173,18 +183,20 @@ export function gerarRascunhosApuracoes(cnpj: string, apuracoes: ApuracaoFiscalA
     if (!mapping) continue;
     const referencia = `FISCAL:${cnpj}:${apuracao.competencia}:APURACAO:${apuracao.tributo}:${apuracao.referencia}`;
     const base = { competencia: apuracao.competencia, data: dataDaApuracao(apuracao), criadoEm: agora };
-    if (apuracao.tributo === "DAS_SIMPLES_PAGO") {
+    if (apuracao.tributo === "DAS_SIMPLES_PAGO" || TRIBUTOS_DARF_PAGO.has(apuracao.tributo)) {
+      const ehDas = apuracao.tributo === "DAS_SIMPLES_PAGO";
+      const origemEnc = ehDas ? "fiscal_das_simples_encargos" : "fiscal_darf_encargos";
       const partes = partesDoPagamentoDas(valor, valorNumerico(apuracao.baseCentavos));
-      const mapEnc = mapeamentoValido(mapeamentos, "fiscal_das_simples_encargos", contasAnaliticas);
+      const mapEnc = mapeamentoValido(mapeamentos, origemEnc, contasAnaliticas);
       if (partes.length > 1 && !mapEnc) continue; // não lança o pagamento pela metade
       for (const p of partes) {
         const ref = p.parte === "principal" ? referencia : `${referencia}:${SUFIXO_ENCARGOS_DAS}`;
         const m = p.parte === "principal" ? mapping : mapEnc!;
-        candidatos.push({ id: ref, referenciaOrigem: ref, ...base, origem: p.parte === "principal" ? origem : ID_PARA_ROTULO.fiscal_das_simples_encargos,
+        candidatos.push({ id: ref, referenciaOrigem: ref, ...base, origem: p.parte === "principal" ? origem : ID_PARA_ROTULO[origemEnc],
           contaDebitoCodigo: String(m.contaDebitoCodigo), contaCreditoCodigo: String(m.contaCreditoCodigo), valor: reais(p.centavos),
           historico: p.parte === "principal"
-            ? `${HISTORICO_POR_TRIBUTO.DAS_SIMPLES_PAGO}${partes.length === 1 && apuracao.baseCentavos == null ? " (valor pago; o Fiscal não informou o principal)" : ""} — pré-lançamento para conferência`
-            : "Multa e juros do DAS do Simples Nacional pagos em atraso — pré-lançamento para conferência" });
+            ? `${HISTORICO_POR_TRIBUTO[apuracao.tributo]}${partes.length === 1 && apuracao.baseCentavos == null ? " (valor pago; o Fiscal não informou o principal)" : ""} — pré-lançamento para conferência`
+            : `Multa e juros ${ehDas ? "do DAS do Simples Nacional" : "do DARF"} pagos em atraso — pré-lançamento para conferência` });
       }
       continue;
     }

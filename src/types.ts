@@ -303,6 +303,13 @@ export type OrigemMapeadaContabil =
   | "fiscal_cofins_nc_credito"
   | "fiscal_das_simples"
   | "fiscal_das_simples_pago"
+  | "fiscal_irpj_presumido_pago"
+  | "fiscal_csll_presumido_pago"
+  | "fiscal_pis_presumido_pago"
+  | "fiscal_cofins_presumido_pago"
+  | "fiscal_pis_nc_pago"
+  | "fiscal_cofins_nc_pago"
+  | "fiscal_darf_encargos"
   | "fiscal_das_simples_encargos";
 
 export interface MapeamentoOrigemContabil {

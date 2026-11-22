@@ -89,6 +89,13 @@ export const SUGESTOES_CONTAS_POR_ORIGEM: Record<OrigemMapeadaContabil, RegraOri
   fiscal_das_simples: [],
   fiscal_das_simples_pago: [],
   fiscal_das_simples_encargos: [],
+  fiscal_irpj_presumido_pago: [],
+  fiscal_csll_presumido_pago: [],
+  fiscal_pis_presumido_pago: [],
+  fiscal_cofins_presumido_pago: [],
+  fiscal_pis_nc_pago: [],
+  fiscal_cofins_nc_pago: [],
+  fiscal_darf_encargos: [],
 };
 
 /** Mantido por compatibilidade: primeira regra de cada origem (plano simples/Ferragista). */
