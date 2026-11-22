@@ -80,6 +80,10 @@ export const SUGESTOES_CONTAS_POR_ORIGEM: Record<OrigemMapeadaContabil, RegraOri
   fiscal_csll_presumido: [],
   fiscal_pis_presumido: [],
   fiscal_cofins_presumido: [],
+  fiscal_pis_nc: [],
+  fiscal_cofins_nc: [],
+  fiscal_pis_nc_credito: [],
+  fiscal_cofins_nc_credito: [],
   // DAS do Simples: não usa regra de código fixo; as contas são procuradas pelo NOME no plano da empresa
   // (ver contasDasSimples, mais abaixo). Pagamento e multa/juros só quando a empresa já tem conta de caixa/banco mapeada.
   fiscal_das_simples: [],

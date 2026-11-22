@@ -112,6 +112,10 @@ const HISTORICO_POR_TRIBUTO: Record<string, string> = {
   PIS_PRESUMIDO: "PIS do Lucro Presumido (mês) confirmado no Fiscal",
   COFINS_PRESUMIDO: "COFINS do Lucro Presumido (mês) confirmado no Fiscal",
   DAS_SIMPLES: "DAS do Simples Nacional (provisão do período) confirmado no Fiscal",
+  PIS_NAO_CUMULATIVO: "PIS não cumulativo (débito do mês) confirmado no Fiscal",
+  COFINS_NAO_CUMULATIVA: "COFINS não cumulativa (débito do mês) confirmada no Fiscal",
+  PIS_NC_CREDITO: "Créditos de PIS não cumulativo do mês confirmados no Fiscal",
+  COFINS_NC_CREDITO: "Créditos de COFINS não cumulativa do mês confirmados no Fiscal",
   DAS_SIMPLES_PAGO: "Pagamento do DAS do Simples Nacional confirmado no Fiscal",
 };
 

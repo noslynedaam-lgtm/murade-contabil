@@ -297,6 +297,10 @@ export type OrigemMapeadaContabil =
   | "fiscal_csll_presumido"
   | "fiscal_pis_presumido"
   | "fiscal_cofins_presumido"
+  | "fiscal_pis_nc"
+  | "fiscal_cofins_nc"
+  | "fiscal_pis_nc_credito"
+  | "fiscal_cofins_nc_credito"
   | "fiscal_das_simples"
   | "fiscal_das_simples_pago"
   | "fiscal_das_simples_encargos";

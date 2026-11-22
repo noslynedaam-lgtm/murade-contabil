@@ -11,6 +11,8 @@ const TRIBUTOS_ACEITOS = new Set([
   "ICMS_DIFAL_ATIVO", "ICMS_DIFAL_CONSUMO", "IRPJ_PRESUMIDO", "CSLL_PRESUMIDO", "PIS_PRESUMIDO", "COFINS_PRESUMIDO",
   // DAS do Simples Nacional (contrato do Fiscal em src/server/dasContabil.ts de lá): provisão e pagamento.
   "DAS_SIMPLES", "DAS_SIMPLES_PAGO",
+  // Lucro Real — PIS/COFINS não cumulativos do mês (Lei 10.637/2002 e Lei 10.833/2003): débito sobre a receita e créditos do mês.
+  "PIS_NAO_CUMULATIVO", "COFINS_NAO_CUMULATIVA", "PIS_NC_CREDITO", "COFINS_NC_CREDITO",
 ]);
 
 let pool: Pool | null | undefined;

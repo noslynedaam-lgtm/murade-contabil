@@ -31,6 +31,10 @@ export const ORIGENS = [
   { id: "fiscal_csll_presumido", rotulo: "Fiscal — CSLL Presumido" },
   { id: "fiscal_pis_presumido", rotulo: "Fiscal — PIS Presumido" },
   { id: "fiscal_cofins_presumido", rotulo: "Fiscal — COFINS Presumido" },
+  { id: "fiscal_pis_nc", rotulo: "Fiscal — PIS não cumulativo (débito)" },
+  { id: "fiscal_cofins_nc", rotulo: "Fiscal — COFINS não cumulativa (débito)" },
+  { id: "fiscal_pis_nc_credito", rotulo: "Fiscal — PIS não cumulativo (créditos)" },
+  { id: "fiscal_cofins_nc_credito", rotulo: "Fiscal — COFINS não cumulativa (créditos)" },
   { id: "fiscal_das_simples", rotulo: "Fiscal — DAS Simples (provisão)" },
   { id: "fiscal_das_simples_pago", rotulo: "Fiscal — DAS Simples (pagamento)" },
   { id: "fiscal_das_simples_encargos", rotulo: "Fiscal — DAS Simples (multa e juros)" },
@@ -55,6 +59,10 @@ export const ORIGEM_POR_TRIBUTO: Record<string, IdOrigem> = {
   // DAS do Simples Nacional vindo do Fiscal pela mesma rota das apurações: provisão (competência do DAS) e pagamento (mês do pagamento).
   // A multa e os juros de um pagamento em atraso não são um tributo à parte: saem do próprio DAS_SIMPLES_PAGO (valor pago − principal)
   // e usam a origem fiscal_das_simples_encargos, com a referência terminada em ":ENCARGOS" (ver origemDaReferencia).
+  PIS_NAO_CUMULATIVO: "fiscal_pis_nc",
+  COFINS_NAO_CUMULATIVA: "fiscal_cofins_nc",
+  PIS_NC_CREDITO: "fiscal_pis_nc_credito",
+  COFINS_NC_CREDITO: "fiscal_cofins_nc_credito",
   DAS_SIMPLES: "fiscal_das_simples",
   DAS_SIMPLES_PAGO: "fiscal_das_simples_pago",
 };
