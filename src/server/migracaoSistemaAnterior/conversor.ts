@@ -12,7 +12,8 @@
 import type { ContaPlano, EmpresaDados, HistoricoPadrao, LancamentoContabil } from '../../types';
 import { COLUNAS_NUNCA_GUARDAR, tabelaDaEmpresa } from '../../utils/tabelasSistemaAnteriorContabil';
 import type { BemImobilizado } from '../../utils/imobilizado';
-import { bensDoBackup, cadastroDoBackup, historicoEsperado } from './camposSistemaAnterior';
+import { bensDoBackup, cadastroDoBackup, cartoesDoBackup, historicoEsperado, titulosDoBackup } from './camposSistemaAnterior';
+import type { EstabelecimentoCartao, Titulo } from '../titulosCartoesStore';
 
 export type Linha = Record<string, any>;
 /** Lê uma tabela do arquivo (null = a tabela não está no arquivo). */
@@ -37,6 +38,9 @@ export interface DadosContabeisEmpresa {
   /** idconta do sistema anterior → código da conta no Murade. */
   mapaContas: Record<string, string>;
   bensImobilizado: BemImobilizado[];
+  /** Títulos a pagar/receber e informações de cartões (antiga DIRF), para as tabelas próprias do Contábil. */
+  titulos: Titulo[];
+  cartoes: EstabelecimentoCartao[];
   idPlano: number | null;
   nomePlano: string;
   contas: ContaConvertida[];
@@ -401,6 +405,7 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
   const idsEstab = new Set(estab.map((e) => txt(e.id)));
   guardar('cartao_estabelecimentos', estab);
   guardar('cartao_movimentos', (await tabela('wcont.movimento_cartao_credito')).filter((m) => idsEstab.has(txt(m.estabelecimento_cartao_credito_id))));
+  if (estab.length) { const ops = new Set(estab.map((e) => String(e.operadora))); guardar('cartao_operadoras', (await tabela('wcont.operadora_cartao_de_credito')).filter((o) => ops.has(String(o.id)))); }
   guardar('identificador_sequencial', daEmpresa(await tabela('wcont.lancamento_identificador_sequencial'), 'empresa_id'));
   guardar('ecf_linhas_contas', daEmpresa(await tabela('wcont.ecf_linha_conta'), 'empresa_id'));
   guardar('ecf_configuracao_contas', (await tabela('wcont.ecf_conta_configuracao')).filter((c) => contasIds.has(Number(c.conta_id))));
@@ -441,13 +446,17 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
   });
   const empresa: Partial<EmpresaDados> = { cnpj };
   for (const c of campos) (empresa as any)[c.campo] = c.valor;
+  const titulosMigrados = titulosDoBackup(cdempresa, blocos, mapaContas);
+  const cartoes = cartoesDoBackup(cdempresa, blocos);
+  if (titulosMigrados.length) avisos.push(`${titulosMigrados.length} título(s) a pagar/receber vieram para Gestão › Títulos (as baixas e provisões que já estavam contabilizadas no sistema anterior não geram lançamento de novo).`);
+  if (cartoes.length) avisos.push(`${cartoes.length} estabelecimento(s) de cartão vieram para Gestão › Cartões (antiga DIRF), com ${cartoes.reduce((s2, c) => s2 + c.movimentos.length, 0)} informação(ões) mensal(is).`);
   const substituiveis: DadosContabeisEmpresa['substituiveis'] = {};
   if (cadastro && txt(cadastro.bairro_completo) && txt(cadastro.nmbairro) && txt(cadastro.nmbairro) !== empresa.bairro) substituiveis.bairro = txt(cadastro.nmbairro);
   if (cadastro && txt(cadastro.nmempresa) && txt(cadastro.nmempresa) !== empresa.razaoSocial) substituiveis.razaoSocial = txt(cadastro.nmempresa);
 
   return {
     cdempresa, cnpj, razaoSocial: empresa.razaoSocial || txt(cadastro?.nmempresa) || (pcont ? txt(pcont.nmplanodecontas) : '') || `Empresa código ${cdempresa}`,
-    semCadastroNoBackup: !cadastro, empresa, substituiveis, mapaContas, bensImobilizado: imob.bens, idPlano, nomePlano: txt(pcont?.nmplanodecontas),
+    semCadastroNoBackup: !cadastro, empresa, substituiveis, mapaContas, bensImobilizado: imob.bens, titulos: titulosMigrados, cartoes, idPlano, nomePlano: txt(pcont?.nmplanodecontas),
     contas: contas.sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR', { numeric: true })),
     historicosPadrao, lancamentos, naoEntraram, esperado: [...esperadoMapa.values()].filter((e) => e.debitoCentavos || e.creditoCentavos),
     esperadoLancamentos: [...esperadoLancMapa.values()],

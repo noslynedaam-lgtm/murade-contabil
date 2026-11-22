@@ -39,6 +39,8 @@ function bancoFalso() {
     if (sql.startsWith('DELETE FROM contabil_atividade_equipe')) return apagar(t.atividade);
     if (sql.includes("to_regclass('contabil_sistema_anterior')")) return { rows: [{ t: 'contabil_sistema_anterior' }] };
     if (sql.startsWith('DELETE FROM contabil_sistema_anterior')) return apagar(t.sistemaAnterior);
+    if (/to_regclass\('contabil_(titulos|cartoes|extrato_movimentos)'\)/.test(sql)) return { rows: [{ t: (t as any).extras ? 'sim' : null }] };
+    if (/^DELETE FROM contabil_(titulos|cartoes|extrato_movimentos)/.test(sql)) return { rows: [], rowCount: 1 };
     throw new Error(`SQL não previsto no teste: ${sql.slice(0, 80)}`);
   };
   const banco: BancoTransacional = {
@@ -57,7 +59,7 @@ test('remove a empresa de TODOS os usuários, do cadastro compartilhado, do work
   const f = bancoFalso();
   const r = await removerEmpresaCompleta(f.banco, '10.368.859/0001-01', { por: 'dono', origem: 'fiscal' });
   assert.equal(r.sucesso, true); assert.equal(r.cnpj, ALVO);
-  assert.deepEqual(r.apagados, { acessosDeUsuarios: 3, empresaCompartilhada: 1, workspace: 1, atividadeEquipe: 2, sistemaAnterior: 2 });
+  assert.deepEqual(r.apagados, { acessosDeUsuarios: 3, empresaCompartilhada: 1, workspace: 1, atividadeEquipe: 2, sistemaAnterior: 2, titulos: 0, cartoes: 0, extrato: 0 });
   assert.deepEqual(f.t.sistemaAnterior, [{ cnpj: OUTRA, bloco: 'lotes' }], 'o registro do sistema anterior sai junto e a outra empresa fica');
   assert.equal(r.jaNaoExistia, false);
   assert.deepEqual(f.t.acesso, [{ user_id: 'u1', cnpj: OUTRA }]);
@@ -84,7 +86,7 @@ test('é idempotente: repetir devolve zeros e não cria outra cópia; CNPJ inexi
   const f = bancoFalso();
   await removerEmpresaCompleta(f.banco, ALVO);
   const de_novo = await removerEmpresaCompleta(f.banco, ALVO);
-  assert.deepEqual(de_novo.apagados, { acessosDeUsuarios: 0, empresaCompartilhada: 0, workspace: 0, atividadeEquipe: 0, sistemaAnterior: 0 });
+  assert.deepEqual(de_novo.apagados, { acessosDeUsuarios: 0, empresaCompartilhada: 0, workspace: 0, atividadeEquipe: 0, sistemaAnterior: 0, titulos: 0, cartoes: 0, extrato: 0 });
   assert.equal(de_novo.jaNaoExistia, true); assert.equal(f.t.arquivo.length, 1);
   assert.equal((await removerEmpresaCompleta(f.banco, '99999999000199')).jaNaoExistia, true);
 });

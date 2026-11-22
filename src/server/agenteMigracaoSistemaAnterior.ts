@@ -21,11 +21,11 @@ export const NOMES_BLOCOS_SISTEMA_ANTERIOR: Record<string, string> = {
   lancamentos_lote_aberto: 'Lançamentos em lote aberto (não efetivados lá)',
   lancamentos_automaticos: 'Lançamentos automáticos (modelos)',
   lancamentos_automaticos_contas: 'Contas dos lançamentos automáticos',
-  titulos: 'Títulos (contas a pagar/receber)',
+  titulos: 'Títulos a pagar/receber (estão em Gestão › Títulos)',
   titulos_baixas: 'Baixas de títulos',
   titulos_provisao: 'Provisões de títulos',
   cartao_estabelecimentos: 'Estabelecimentos de cartão de crédito (sem senha)',
-  cartao_movimentos: 'Movimentos de cartão de crédito (DIRF)',
+  cartao_movimentos: 'Informações de cartões (antiga DIRF; estão em Gestão › Cartões)',
   identificador_sequencial: 'Numeração sequencial dos lançamentos',
   ecf_linhas_contas: 'Contas ligadas às linhas da ECF',
   ecf_configuracao_contas: 'Configuração das contas para a ECF (Parte A/B)',
@@ -45,6 +45,7 @@ export const NOMES_BLOCOS_SISTEMA_ANTERIOR: Record<string, string> = {
   historico_retencao: 'Histórico de retenção do IR dos sócios',
   trava_contabil: 'Data de trava do sistema anterior',
   textos_assinatura: 'Modelos de assinatura dos livros e do balanço',
+  cartao_operadoras: 'Operadoras de cartão',
 };
 
 export const INSTRUCAO_MIGRACAO_SISTEMA_ANTERIOR = `

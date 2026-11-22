@@ -81,13 +81,13 @@ export function planejarEncerramento(payload: Record<string, any>, ano: number, 
 
 interface Deps { exigirOrigemNavegador: Mw; exigirSessaoContabil: Mw; consultar: Consultar }
 
-function erroHttp(res: express.Response, erro: any, padrao: string) {
+export function erroHttp(res: express.Response, erro: any, padrao: string) {
   const status = erro instanceof ErroAlteracaoWorkspace || erro instanceof ErroExtrato ? erro.status : 503;
   if (status === 503) console.error(padrao, erro?.message || erro);
   return res.status(status).json({ sucesso: false, motivo: status === 503 ? padrao : erro.message });
 }
 
-function acessoEmpresa(req: express.Request, res: express.Response, escrever: boolean): { sessao: SessaoContabil; cnpj: string } | null {
+export function acessoEmpresa(req: express.Request, res: express.Response, escrever: boolean): { sessao: SessaoContabil; cnpj: string } | null {
   res.setHeader("Cache-Control", "no-store");
   const sessao = sessaoDaRequisicaoContabil(req);
   const cnpj = normalizarCnpjAcesso(req.params.cnpj);
@@ -97,7 +97,7 @@ function acessoEmpresa(req: express.Request, res: express.Response, escrever: bo
   return { sessao, cnpj };
 }
 
-const respostaAlteracao = (r: { dados: Record<string, any> | null; versao: number | null; atualizadoEm: string | null }, extra: Record<string, unknown>) =>
+export const respostaAlteracao = (r: { dados: Record<string, any> | null; versao: number | null; atualizadoEm: string | null }, extra: Record<string, unknown>) =>
   ({ sucesso: true, persistencia: "postgresql", alterado: Boolean(r.dados), dados: r.dados, versao: r.versao, atualizadoEm: r.atualizadoEm, ...extra });
 
 function partidasDoCorpo(lista: unknown): Array<{ conta: string; valorCentavos: number; historico?: string }> | { erro: string } {

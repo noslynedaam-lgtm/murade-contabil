@@ -246,6 +246,28 @@ function conferirNoBanco(banco: string, cd: number, d: DadosContabeisEmpresa, pa
       igual(`bem ${b.ds} vida útil`, b.vida, m.vidaUtilMeses); igual(`bem ${b.ds} início`, b.ini, m.inicioDepreciacao);
     }
   }
+  // ---- títulos a pagar/receber (com baixas) e cartões (antiga DIRF): SQL próprio x estrutura do Contábil
+  const titulos = new Map(d.titulos.map((t) => [t.origemId, t]));
+  for (const x of json(banco, `select t.idtitulo id, case when t.tipodocumento='S' then 'receber' else 'pagar' end tipo, regexp_replace(t.nrdocumento, '^[[:space:]]+|[[:space:]]+\$', '', 'g') numero, nullif(regexp_replace(t.nmserienf, '^[[:space:]]+|[[:space:]]+\$', '', 'g'),'') serie, nullif(regexp_replace(t.idmoddocfiscal, '^[[:space:]]+|[[:space:]]+\$', '', 'g'),'') modelo,
+      coalesce(nullif(regexp_replace(t.cnpj_cpf, '^[[:space:]]+|[[:space:]]+\$', '', 'g'),''), nullif(regexp_replace(t.cdforcli, '^[[:space:]]+|[[:space:]]+\$', '', 'g'),'')) doc, regexp_replace(t.nmfornecedor, '^[[:space:]]+|[[:space:]]+\$', '', 'g') nome, t.dtcontabil::text data, round(t.vltitulo::numeric*100)::bigint valor,
+      (select coalesce(json_agg(json_build_array(b.dtbaixa::date::text, round(b.vlbaixa::numeric*100)::bigint, nullif(regexp_replace(b.nrdocbaixa, '^[[:space:]]+|[[:space:]]+\$', '', 'g'),''), nullif(regexp_replace(b.historico_padrao_descricao, '^[[:space:]]+|[[:space:]]+\$', '', 'g'),'')) order by b.dtbaixa), '[]') from wcont.baixa_titulos b where b.idtitulo=t.idtitulo) baixas
+      from wcont.titulos t where t.idempresa=${cd}`)) {
+    const m: any = titulos.get(x.id);
+    if (!m) { erros.push(`título ${x.numero}: não veio`); continue; }
+    igual(`título ${x.numero} tipo`, x.tipo, m.tipo); igual(`título ${x.numero} número`, x.numero, m.numero); igual(`título ${x.numero} série`, x.serie ?? '', m.serie ?? '');
+    igual(`título ${x.numero} modelo`, x.modelo ?? '', m.modelo ?? ''); igual(`título ${x.numero} documento`, x.doc ?? '', m.participanteDocumento ?? ''); igual(`título ${x.numero} nome`, x.nome, m.participanteNome);
+    igual(`título ${x.numero} data`, x.data, m.dataEmissao); igual(`título ${x.numero} valor`, Number(x.valor), m.valorCentavos);
+    igual(`título ${x.numero} baixas`, JSON.stringify(x.baixas), JSON.stringify(m.baixas.map((b: any) => [b.data, b.valorCentavos, b.documento ?? null, b.historico ?? null])));
+  }
+  const cartoes = new Map(d.cartoes.map((c) => [c.origemId, c]));
+  for (const x of json(banco, `select e.id::text id, o.nome operadora, regexp_replace(e.codigo_estabelecimento, '^[[:space:]]+|[[:space:]]+\$', '', 'g') cod, (select coalesce(json_agg(json_build_array(m.referencia::text, round(m.valor_rendimento::numeric*100)::bigint, round(m.valor_ir::numeric*100)::bigint) order by m.referencia, m.id), '[]') from wcont.movimento_cartao_credito m where m.estabelecimento_cartao_credito_id=e.id) movs
+      from wcont.estabelecimento_cartao_credito e left join wcont.operadora_cartao_de_credito o on o.id=e.operadora where e.empresa_id=${cd}`)) {
+    const m: any = cartoes.get(x.id);
+    if (!m) { erros.push(`cartão ${x.cod}: não veio`); continue; }
+    igual(`cartão ${x.cod} operadora`, x.operadora, m.operadora); igual(`cartão ${x.cod} estabelecimento`, x.cod, m.codigoEstabelecimento);
+    igual(`cartão ${x.cod} movimentos`, JSON.stringify(x.movs), JSON.stringify(m.movimentos.map((v: any) => [v.referencia, v.rendimentoCentavos, v.irCentavos])));
+    if (JSON.stringify(m).includes('"senha"')) erros.push(`cartão ${x.cod}: senha não pode vir`);
+  }
   // ---- por tabela: colunas preenchidas e o que fica no registro (cada valor igual ao banco)
   const ec = json(banco, `select contador_id from wcont.empcont where idempresa=${cd}`)[0];
   const usados = new Set([...(d.blocos.lancamentos_originais || []), ...(d.blocos.saldos || [])].map((x: any) => Number(x.idconta)));
@@ -265,7 +287,7 @@ function conferirNoBanco(banco: string, cd: number, d: DadosContabeisEmpresa, pa
     ['wcont.lcontas', d.idPlano != null ? `idplanodecontas=${d.idPlano}` : 'false'],
     ['wcont.lauto', d.idPlano != null ? `idlancautomatico in (select idlancautomatico from wcont.lcontas where idplanodecontas=${d.idPlano})` : 'false'],
     ['wcont.titulos', `idempresa=${cd}`], ['wcont.baixa_titulos', `idtitulo in (select idtitulo from wcont.titulos where idempresa=${cd})`], ['wcont.titulos_provisao', `idempresa=${cd}`],
-    ['wcont.estabelecimento_cartao_credito', `empresa_id=${cd}`], ['wcont.movimento_cartao_credito', `estabelecimento_cartao_credito_id in (select id from wcont.estabelecimento_cartao_credito where empresa_id=${cd})`],
+    ['wcont.estabelecimento_cartao_credito', `empresa_id=${cd}`], ['wcont.operadora_cartao_de_credito', `id in (select operadora from wcont.estabelecimento_cartao_credito where empresa_id=${cd})`], ['wcont.movimento_cartao_credito', `estabelecimento_cartao_credito_id in (select id from wcont.estabelecimento_cartao_credito where empresa_id=${cd})`],
     ['wcont.lancamento_identificador_sequencial', `empresa_id=${cd}`], ['wcont.ecf_linha_conta', `empresa_id=${cd}`],
     ['wcont.ecf_conta_configuracao', d.idPlano != null ? `conta_id in (select idconta from wcont.contas where idplanodecontas=${d.idPlano})` : 'false'],
     ['wcont.demonstrativo_contabil_configuracao', d.idPlano != null ? `plano_de_contas_id=${d.idPlano}` : 'false'],

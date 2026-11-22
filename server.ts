@@ -46,6 +46,7 @@ import { criarStoreEscritorio, preencherCnpjsDosEscritorios, registrarRotasEscri
 import { conferirCadastrosDosEscritorios, registrarRotaCadastroEscritorioContabil } from "./src/server/cadastroEscritorioContabil";
 import { criarStoreServicoCompleto, registrarRotasServicoCompleto, resumoRodadaServicos, rodarConferidorServicos, tenantServico, type ResultadoRodadaServicos } from "./src/server/servicoCompletoStore";
 import { chaveServico, descreverRegistro, tenantDaSessao } from "./src/server/servicoFeito";
+import { registrarRotasTitulosCartoes, roboTitulos } from "./src/server/titulosCartoesRotas";
 import { registrarRotasEscrituracao, roboAjustesFechamento, roboConciliacao, roboEncerramento, roboLancamentosPadrao, roboLivroCaixa } from "./src/server/escrituracaoRotas";
 import { criarRevisorContabil, registrarRotasRevisor, INTERVALO_ROBO_REVISOR_MS } from "./src/server/revisorContabil";
 import { conferirFolhasDP } from "./src/server/conferidorFolhaDP";
@@ -1346,6 +1347,7 @@ const reconciliacaoRascunhosStatus: {
   });
   // Escrituração avançada: várias partidas, histórico e lançamento padrão, encerramento, Livro Caixa e conciliação bancária.
   registrarRotasEscrituracao(app, { exigirOrigemNavegador, exigirSessaoContabil, consultar: (sql, params) => consultaBancoContabil(sql, params) });
+  registrarRotasTitulosCartoes(app, { exigirOrigemNavegador, exigirSessaoContabil, consultar: (sql, params) => consultaBancoContabil(sql, params) });
   // CNPJ do escritório e liberação do adicional "Consultor Murade completo" (Consultor + serviço completo), por escritório.
   registrarRotasEscritorioConsultor(app, { exigirSessao: exigirSessaoContabil, exigirOrigem: exigirOrigemNavegador }, {
     store: storeEscritorio,
@@ -1777,7 +1779,11 @@ const reconciliacaoRascunhosStatus: {
   const rodarConciliacao = () => bancoContabilConfigurado() ? executarRobo("conciliacao", async () => registrarResultadoRobo("conciliacao", await roboConciliacao(consultarEscrituracao))).catch((e) => console.error("Falha no Robô da Conciliação:", e?.message || e)) : undefined;
   registrarRobo({ id: "ajustes_fechamento", nome: "Robô Conferidor do Fechamento (ajustes)", posto: "conferidor", missao: "Conferir em cada empresa se Diário, Razão, balancete e Balanço/DRE fecham: saldos iniciais sem contrapartida, lançamento fora do Diário (conta sintética, competência diferente da data, fração de centavo), conta de resultado que não zerou no encerramento. Acha a causa e deixa o ajuste pronto para o contador dizer \"Sim\" na tela Fechamento ou pela Agente IA. Nunca lança sozinho.", ...(bancoContabilConfigurado() ? { intervaloMs: 2 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
   const rodarAjustesFechamento = () => bancoContabilConfigurado() ? executarRobo("ajustes_fechamento", async () => registrarResultadoRobo("ajustes_fechamento", await roboAjustesFechamento())).catch((e) => console.error("Falha no Robô dos ajustes do fechamento:", e?.message || e)) : undefined;
+  registrarRobo({ id: "titulos", nome: "Robô dos Títulos a Pagar e Receber", posto: "calculador", missao: "Em cada empresa com títulos: põe os vencimentos na Agenda, avisa os vencidos e os que vencem em até 3 dias, e prepara sozinho, PENDENTE DE APROVAÇÃO, a provisão dos títulos cadastrados no Murade que já têm as duas contas. Nunca aprova nada e nunca lança de novo o que veio contabilizado do sistema anterior.", ...(bancoContabilConfigurado() ? { intervaloMs: 2 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  const rodarTitulos = () => bancoContabilConfigurado() ? executarRobo("titulos", async () => registrarResultadoRobo("titulos", await roboTitulos(consultarEscrituracao))).catch((e) => console.error("Falha no Robô dos Títulos:", e?.message || e)) : undefined;
   if (bancoContabilConfigurado()) {
+    setTimeout(() => void rodarTitulos(), 270_000).unref(); setInterval(() => void rodarTitulos(), 2 * 60 * 60_000).unref();
+    registrarRotinaManual("titulos", rodarTitulos);
     setTimeout(() => void rodarAjustesFechamento(), 250_000).unref(); setInterval(() => void rodarAjustesFechamento(), 2 * 60 * 60_000).unref();
     registrarRotinaManual("ajustes_fechamento", rodarAjustesFechamento);
     setTimeout(() => void rodarLancamentosPadrao(), 150_000).unref(); setInterval(() => void rodarLancamentosPadrao(), 60 * 60_000).unref();

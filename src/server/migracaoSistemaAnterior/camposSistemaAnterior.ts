@@ -8,6 +8,7 @@
 import type { ContaPlano, EmpresaDados } from '../../types';
 import type { BemImobilizado } from '../../utils/imobilizado';
 import { validarBem } from '../../utils/imobilizado';
+import type { EstabelecimentoCartao, Titulo } from '../titulosCartoesStore';
 
 export type Linha = Record<string, any>;
 
@@ -321,11 +322,15 @@ export const DESTINO_COLUNAS: Record<string, DestinoTabela> = {
   'wcont.lancamento': { bloco: 'lancamentos_lote_aberto', padrao: consulta('lançamento em lote ABERTO, não efetivado no sistema anterior: não entra no balancete'), colunas: {} },
   'wcont.lauto': { bloco: 'lancamentos_automaticos', padrao: consulta('modelos de integração por tipo de documento; os lançamentos padrão do Murade têm outro formato (mensais, com valor)'), colunas: {} },
   'wcont.lcontas': { bloco: 'lancamentos_automaticos_contas', padrao: consulta('contas dos modelos de integração'), colunas: {} },
-  'wcont.titulos': { bloco: 'titulos', padrao: consulta('o Contábil não tem contas a pagar/receber'), colunas: {} },
-  'wcont.baixa_titulos': { bloco: 'titulos_baixas', padrao: consulta('o Contábil não tem contas a pagar/receber'), colunas: {} },
-  'wcont.titulos_provisao': { bloco: 'titulos_provisao', padrao: consulta('o Contábil não tem contas a pagar/receber'), colunas: {} },
-  'wcont.estabelecimento_cartao_credito': { bloco: 'cartao_estabelecimentos', padrao: consulta('cartão de crédito (DIRF de cartões)'), colunas: { senha: naoVem('senha da operadora: nunca é guardada'), usuario: naoVem('usuário da operadora: nunca é guardado'), codigo_acesso_operadora: naoVem('código de acesso da operadora: nunca é guardado') } },
-  'wcont.movimento_cartao_credito': { bloco: 'cartao_movimentos', padrao: consulta('cartão de crédito (DIRF de cartões)'), colunas: {} },
+  'wcont.titulos': { bloco: 'titulos', padrao: campo('Gestão › Títulos a pagar e receber'), colunas: {
+    idempresa: consulta('código interno'), idempresafiscal: consulta('código interno do módulo fiscal do programa antigo'), stnotapendente: consulta('controle do programa antigo'),
+    codigo_ecf: consulta('código interno do programa antigo'), servico_codigo: consulta('código de serviço do programa antigo'), aliquota_iss: consulta('alíquota de ISS do programa antigo'),
+    cdforcli: campo('Títulos › Documento do fornecedor/cliente (quando não há CNPJ/CPF)') } },
+  'wcont.baixa_titulos': { bloco: 'titulos_baixas', padrao: campo('Títulos › Baixas'), colunas: { idtitulo: campo('liga a baixa ao título'), idlancautomatico: consulta('modelo de integração usado na baixa'), idcontrolebaixa: consulta('controle interno do programa antigo'), historico_padrao_id: consulta('código interno do histórico (o texto vem)') } },
+  'wcont.titulos_provisao': { bloco: 'titulos_provisao', padrao: campo('Títulos › Provisão'), colunas: { idempresa: consulta('código interno'), idtitulo: campo('liga a provisão ao título') } },
+  'wcont.operadora_cartao_de_credito': { bloco: 'cartao_operadoras', padrao: campo('Cartões › Nome da operadora'), colunas: {} },
+  'wcont.estabelecimento_cartao_credito': { bloco: 'cartao_estabelecimentos', padrao: campo('Gestão › Cartões (antiga DIRF) › Estabelecimento'), colunas: { empresa_id: consulta('código interno'), dirfcartoes_web_id: consulta('código do serviço web da antiga DIRF de cartões'), dirfcartoes_web_mensagem: consulta('mensagem do serviço web da antiga DIRF'), dirfcartoes_web_tipo_mensagem: consulta('tipo da mensagem do serviço web'), senha: naoVem('senha da operadora: nunca é guardada'), usuario: naoVem('usuário da operadora: nunca é guardado'), codigo_acesso_operadora: naoVem('código de acesso da operadora: nunca é guardado') } },
+  'wcont.movimento_cartao_credito': { bloco: 'cartao_movimentos', padrao: campo('Gestão › Cartões (antiga DIRF) › Informações por mês'), colunas: { id: consulta('código interno'), estabelecimento_cartao_credito_id: campo('liga ao estabelecimento') } },
   'wcont.lancamento_identificador_sequencial': { bloco: 'identificador_sequencial', padrao: consulta('numeração interna dos lançamentos'), colunas: {} },
   'wcont.ecf_linha_conta': { bloco: 'ecf_linhas_contas', padrao: consulta('ligação conta x linha do e-Lalur (M300/M350) de anos antigos'), colunas: {} },
   'wcont.ecf_conta_configuracao': { bloco: 'ecf_configuracao_contas', padrao: consulta('configuração da conta para a ECF'), colunas: {} },
@@ -347,6 +352,82 @@ export const DESTINO_COLUNAS: Record<string, DestinoTabela> = {
     },
   },
 };
+
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Títulos a pagar/receber e informações de cartões (antiga DIRF): do backup para as estruturas do Contábil.
+const centavosSA = (v: unknown) => { const n = Number(v); if (!Number.isFinite(n)) return 0; const c = Math.round(Number((Math.abs(n) * 100).toPrecision(15))); return n < 0 ? -c : c; };
+
+export function titulosDoBackup(cdempresa: number, b: Record<string, Linha[]>, mapaContas: Record<string, string>): Titulo[] {
+  const mvPorId = new Map((b.lancamentos_originais || []).map((m) => [txt(m.idmovimento), m]));
+  const contaDoMv = (id: unknown) => { const m = mvPorId.get(txt(id)); return m ? mapaContas[String(Number(m.idconta))] : undefined; };
+  const baixas = new Map<string, Linha[]>(); for (const x of b.titulos_baixas || []) { const k = txt(x.idtitulo); baixas.set(k, [...(baixas.get(k) || []), x]); }
+  const provs = new Map<string, Linha[]>(); for (const x of b.titulos_provisao || []) { const k = txt(x.idtitulo); provs.set(k, [...(provs.get(k) || []), x]); }
+  const saida: Titulo[] = [];
+  for (const t of b.titulos || []) {
+    const id = txt(t.idtitulo);
+    const pagar = txt(t.tipodocumento).toUpperCase() !== 'S';
+    const bx = (baixas.get(id) || []).sort((x, y) => dataIsoSA(x.dtbaixa).localeCompare(dataIsoSA(y.dtbaixa)));
+    const pv = provs.get(id) || [];
+    // Contas pelo lançamento que o próprio sistema anterior fez (baixa: D fornecedor / C caixa; provisão: D despesa / C fornecedor).
+    const contaTitulo = (pagar ? contaDoMv(bx[0]?.idlanccontdeb) || contaDoMv(pv[0]?.idlanccontcred) : contaDoMv(bx[0]?.idlanccontcred) || contaDoMv(pv[0]?.idlanccontdeb));
+    const contaContrapartida = pagar ? contaDoMv(pv[0]?.idlanccontdeb) : contaDoMv(pv[0]?.idlanccontcred);
+    const titulo: Titulo = {
+      id: `sa-tit-${cdempresa}-${id}`.slice(0, 80), tipo: pagar ? 'pagar' : 'receber', numero: txt(t.nrdocumento), participanteNome: txt(t.nmfornecedor) || '(sem nome no sistema anterior)',
+      dataEmissao: dataIsoSA(t.dtcontabil), valorCentavos: centavosSA(t.vltitulo), baixas: [], provisoes: [], origem: 'sistema_anterior', origemId: id,
+    };
+    if (txt(t.nmserienf)) titulo.serie = txt(t.nmserienf);
+    if (txt(t.idmoddocfiscal)) titulo.modelo = txt(t.idmoddocfiscal);
+    if (txt(t.cnpj_cpf) || txt(t.cdforcli)) titulo.participanteDocumento = txt(t.cnpj_cpf) || txt(t.cdforcli);
+    if (txt(t.dsstatus)) titulo.situacaoOrigem = txt(t.dsstatus);
+    if (contaTitulo) titulo.contaTitulo = contaTitulo;
+    if (contaContrapartida) titulo.contaContrapartida = contaContrapartida;
+    for (const x of bx) {
+      const disp = pagar ? contaDoMv(x.idlanccontcred) : contaDoMv(x.idlanccontdeb);
+      const baixa: Titulo['baixas'][number] = { id: `sa-bx-${txt(x.idbaixa_titulos)}`.slice(0, 80), data: dataIsoSA(x.dtbaixa), valorCentavos: centavosSA(x.vlbaixa), origem: 'sistema_anterior', origemId: txt(x.idbaixa_titulos) };
+      if (txt(x.nrdocbaixa)) baixa.documento = txt(x.nrdocbaixa);
+      if (txt(x.historico_padrao_descricao)) baixa.historico = txt(x.historico_padrao_descricao);
+      if (txt(x.tpbaixa)) baixa.tipo = txt(x.tpbaixa);
+      if (txt(x.stbaixa)) baixa.situacao = txt(x.stbaixa);
+      if (disp) baixa.contaDisponibilidade = disp;
+      const lanc = [txt(x.idlanccontdeb), txt(x.idlanccontcred)].filter(Boolean);
+      if (lanc.length) baixa.lancamentosSistemaAnterior = lanc;
+      titulo.baixas.push(baixa);
+    }
+    for (const x of pv) {
+      const p: Titulo['provisoes'][number] = { origem: 'sistema_anterior', origemId: txt(x.idtitulo_provisao) };
+      if (txt(x.idnota)) p.documento = txt(x.idnota);
+      const lanc = [txt(x.idlanccontdeb), txt(x.idlanccontcred)].filter(Boolean);
+      if (lanc.length) p.lancamentosSistemaAnterior = lanc;
+      titulo.provisoes.push(p);
+    }
+    if (titulo.dataEmissao && titulo.valorCentavos > 0) saida.push(titulo);
+  }
+  return saida;
+}
+
+export function cartoesDoBackup(cdempresa: number, b: Record<string, Linha[]>): EstabelecimentoCartao[] {
+  const operadoras = new Map((b.cartao_operadoras || []).map((o) => [String(o.id), txt(o.nome)]));
+  const movs = new Map<string, Linha[]>(); for (const m of b.cartao_movimentos || []) { const k = String(m.estabelecimento_cartao_credito_id); movs.set(k, [...(movs.get(k) || []), m]); }
+  return (b.cartao_estabelecimentos || []).map((e) => {
+    const c: EstabelecimentoCartao = {
+      id: `sa-cartao-${cdempresa}-${e.id}`.slice(0, 80), operadora: operadoras.get(String(e.operadora)) || `Operadora ${txt(e.operadora)}`, codigoEstabelecimento: txt(e.codigo_estabelecimento),
+      movimentos: (movs.get(String(e.id)) || []).sort((x, y) => dataIsoSA(x.referencia).localeCompare(dataIsoSA(y.referencia)) || Number(x.id) - Number(y.id)).map((m) => {
+        const mv: EstabelecimentoCartao['movimentos'][number] = { referencia: dataIsoSA(m.referencia), rendimentoCentavos: centavosSA(m.valor_rendimento), irCentavos: centavosSA(m.valor_ir) };
+        if (txt(m.beneficiario_cnpj)) mv.beneficiarioDocumento = txt(m.beneficiario_cnpj);
+        if (txt(m.beneficiario_nome)) mv.beneficiarioNome = txt(m.beneficiario_nome);
+        if (m.data_importacao) mv.importadoEm = String(m.data_importacao instanceof Date ? m.data_importacao.toISOString() : m.data_importacao);
+        return mv;
+      }),
+      origem: 'sistema_anterior', origemId: String(e.id),
+    };
+    if (e.operadora !== null && e.operadora !== undefined) c.operadoraCodigo = String(e.operadora);
+    for (const [k, col] of [['banco', 'banco'], ['agencia', 'agencia'], ['conta', 'conta']] as const) if (txt(e[col])) c[k] = txt(e[col]);
+    if (e.inativo === true) c.inativo = true;
+    if (dataIsoSA(e.data_inatividade)) c.dataInatividade = dataIsoSA(e.data_inatividade);
+    return c;
+  });
+}
 
 /** Tabela do catálogo para um nome do backup (wcont.mv00023 → wcont.mv). */
 export function destinoDaTabela(nome: string): { chave: string; destino: DestinoTabela } | null {
@@ -377,7 +458,7 @@ export const TABELAS_FORA: Array<{ tabelas: string; motivo: string }> = [
 // Conferidor campo a campo: o que estava preenchido no backup e tem destino no Contábil tem de estar lá, igual.
 
 export interface PendenciaCampo {
-  grupo: 'cadastro' | 'plano_contas' | 'historicos_padrao' | 'lancamentos' | 'imobilizado';
+  grupo: 'cadastro' | 'plano_contas' | 'historicos_padrao' | 'lancamentos' | 'imobilizado' | 'titulos' | 'cartoes';
   item: string;
   rotulo: string;
   origem: string;
@@ -386,7 +467,7 @@ export interface PendenciaCampo {
   tipo: 'faltou' | 'diferente';
 }
 export interface ResultadoCampos {
-  conferidos: { camposCadastro: number; contas: number; historicos: number; lancamentos: number; bens: number };
+  conferidos: { camposCadastro: number; contas: number; historicos: number; lancamentos: number; bens: number; titulos?: number; cartoes?: number };
   pendencias: PendenciaCampo[];
   semCadastroNoRegistro: boolean;
   resumo: string;
@@ -408,6 +489,9 @@ export interface EntradaConferenciaCampos {
   payload: Record<string, any>;
   /** Migração gravada antes desta conferência (o registro não tem o cadastro da empresa). */
   registroAntigo?: boolean;
+  /** Títulos e cartões gravados nas tabelas próprias (sem eles, não confere esta parte). */
+  titulos?: Titulo[];
+  cartoes?: EstabelecimentoCartao[];
 }
 
 /** Histórico que o lançamento migrado deve ter (mesma regra da conversão). */
@@ -527,10 +611,42 @@ export function conferirCamposMigrados(ent: EntradaConferenciaCampos): Resultado
     }
   }
 
+  // Títulos a pagar/receber e cartões (antiga DIRF): cada campo que veio do backup tem de estar na tabela própria.
+  let nTit = 0; let nCart = 0;
+  if (ent.titulos) {
+    const guardados = new Map(ent.titulos.map((t) => [t.id, t]));
+    for (const e of titulosDoBackup(ent.cdempresa, b, ent.mapaContas)) {
+      nTit++;
+      const m: any = guardados.get(e.id);
+      const item = `Título ${e.numero}${e.serie ? `/${e.serie}` : ''} (${e.participanteNome})`;
+      if (!m) { p.push({ grupo: 'titulos', item, rotulo: 'título', origem: 'wcont.titulos', noSistemaAnterior: `${e.numero} — ${(e.valorCentavos / 100).toFixed(2)}`, noMurade: '', tipo: 'faltou' }); continue; }
+      for (const k of ['tipo', 'numero', 'serie', 'modelo', 'participanteDocumento', 'participanteNome', 'dataEmissao', 'valorCentavos', 'contaTitulo', 'contaContrapartida', 'situacaoOrigem'] as const) {
+        if ((e as any)[k] !== undefined && mostrar((e as any)[k]) !== mostrar(m[k])) add({ grupo: 'titulos', item, rotulo: k, origem: 'wcont.titulos', noSistemaAnterior: mostrar((e as any)[k]) }, m[k]);
+      }
+      for (const bx of e.baixas) {
+        const mb = (m.baixas || []).find((x: any) => x.id === bx.id);
+        if (!mb) { p.push({ grupo: 'titulos', item, rotulo: 'baixa', origem: 'wcont.baixa_titulos', noSistemaAnterior: `${bx.data} ${(bx.valorCentavos / 100).toFixed(2)}`, noMurade: '', tipo: 'faltou' }); continue; }
+        for (const k of ['data', 'valorCentavos', 'documento', 'historico', 'contaDisponibilidade', 'tipo', 'situacao'] as const) if ((bx as any)[k] !== undefined && mostrar((bx as any)[k]) !== mostrar(mb[k])) add({ grupo: 'titulos', item, rotulo: `baixa › ${k}`, origem: 'wcont.baixa_titulos', noSistemaAnterior: mostrar((bx as any)[k]) }, mb[k]);
+      }
+      if (e.provisoes.length && (m.provisoes || []).length < e.provisoes.length) add({ grupo: 'titulos', item, rotulo: 'provisão', origem: 'wcont.titulos_provisao', noSistemaAnterior: String(e.provisoes.length) }, (m.provisoes || []).length || '');
+    }
+  }
+  if (ent.cartoes) {
+    const guardados = new Map(ent.cartoes.map((c) => [c.id, c]));
+    for (const e of cartoesDoBackup(ent.cdempresa, b)) {
+      nCart++;
+      const m: any = guardados.get(e.id);
+      const item = `Cartão ${e.operadora} ${e.codigoEstabelecimento}`;
+      if (!m) { p.push({ grupo: 'cartoes', item, rotulo: 'estabelecimento', origem: 'wcont.estabelecimento_cartao_credito', noSistemaAnterior: e.codigoEstabelecimento, noMurade: '', tipo: 'faltou' }); continue; }
+      for (const k of ['operadora', 'codigoEstabelecimento', 'banco', 'agencia', 'conta', 'inativo', 'dataInatividade'] as const) if ((e as any)[k] !== undefined && mostrar((e as any)[k]) !== mostrar(m[k])) add({ grupo: 'cartoes', item, rotulo: k, origem: 'wcont.estabelecimento_cartao_credito', noSistemaAnterior: mostrar((e as any)[k]) }, m[k]);
+      if (JSON.stringify(e.movimentos) !== JSON.stringify(m.movimentos || [])) add({ grupo: 'cartoes', item, rotulo: 'informações mensais', origem: 'wcont.movimento_cartao_credito', noSistemaAnterior: `${e.movimentos.length} mês(es)` }, `${(m.movimentos || []).length} mês(es)${(m.movimentos || []).length === e.movimentos.length ? ' com valor diferente' : ''}`);
+    }
+  }
+
   const semCadastro = Boolean(ent.registroAntigo) && !b.cadastro_empresa?.length;
   const faltou = p.filter((x) => x.tipo === 'faltou').length; const dif = p.length - faltou;
-  const conferidos = { camposCadastro: cadastro.length, contas: nContas, historicos: nHist, lancamentos: nLanc, bens: esperados.length };
-  const base = `${cadastro.length} campo(s) do cadastro, ${nContas} conta(s), ${nHist} histórico(s) padrão, ${nLanc} lançamento(s)${esperados.length ? ` e ${esperados.length} bem(ns)` : ''}`;
+  const conferidos = { camposCadastro: cadastro.length, contas: nContas, historicos: nHist, lancamentos: nLanc, bens: esperados.length, titulos: nTit, cartoes: nCart };
+  const base = `${cadastro.length} campo(s) do cadastro, ${nContas} conta(s), ${nHist} histórico(s) padrão, ${nLanc} lançamento(s)${esperados.length ? `, ${esperados.length} bem(ns)` : ''}${nTit ? `, ${nTit} título(s)` : ''}${nCart ? `, ${nCart} estabelecimento(s) de cartão` : ''}`;
   const resumo = p.length
     ? `Campo a campo: ${p.length} pendência(s) — ${faltou} campo(s) preenchido(s) no sistema anterior que estão vazios no Murade e ${dif} diferente(s). Conferidos ${base}.${ent.registroAntigo ? ' Esta empresa foi migrada antes da conferência campo a campo: migre de novo pela tela Migração para completar (só preenche o que está vazio; o que a equipe fez fica).' : ''}`
     : `Campo a campo: tudo igual ao sistema anterior (${base}).${semCadastro ? ' O cadastro da empresa não estava no registro desta migração: migre de novo para conferir também o cadastro.' : ''}`;

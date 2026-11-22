@@ -158,3 +158,80 @@ test('empresa migrada antes dos campos novos: o robô completa só o que está v
   const f = completarPayloadDoRegistro(antigo, JSON.parse(JSON.stringify(d.blocos)), d.mapaContas, 49, fechadas as Set<string>);
   assert.ok(f.payload.lancamentos.every((l: any) => l.numeroSequencial === undefined && l.loteDescricao === undefined));
 });
+
+test('títulos e cartões do backup: vêm idênticos, com as contas pelos lançamentos que o sistema anterior fez; senha nunca vem', async () => {
+  const idx = await indexarDump(path.join(AQUI, 'fixtures', 'backup-contabil-anonimizado.sql'));
+  const cache = new Map<string, any>();
+  const ler = async (n: string) => { if (!cache.has(n)) cache.set(n, await carregarTabelaDump(idx, n)); return cache.get(n); };
+  const d = await montarDadosEmpresa(ler, 49);
+  assert.equal(d.titulos.length, 2);
+  const t = d.titulos.find((x) => x.numero === '000739')!;
+  assert.equal(t.tipo, 'pagar'); assert.equal(t.serie, 'D-1'); assert.equal(t.modelo, '55');
+  assert.equal(t.participanteNome, 'FORNECEDOR . TESTE IND COM LTDA-EPP', 'ponto e hífen');
+  assert.equal(t.participanteDocumento, '99888777/0001-66', 'sem CNPJ, vale o código formatado');
+  assert.equal(t.valorCentavos, 14520); assert.equal(t.dataEmissao, '2023-09-15');
+  assert.equal(t.contaTitulo, d.mapaContas['188']); assert.equal(t.baixas[0].contaDisponibilidade, d.mapaContas['164']);
+  assert.deepEqual({ ...t.baixas[0], contaDisponibilidade: undefined }, { id: 'sa-bx-ZZZTESTEBX000000000000000000000B1', data: '2023-09-30', valorCentavos: 14520, origem: 'sistema_anterior', origemId: 'ZZZTESTEBX000000000000000000000B1', documento: '1175', historico: 'Compra de mercadoria avista conforme NF.', tipo: 'B', situacao: 'C', contaDisponibilidade: undefined, lancamentosSistemaAnterior: ['990cf740-437a-44bf-9aa8-3e287ca7ecb1', '946876be-e243-4dd3-b648-3be7ddc3c4e3'] });
+  assert.equal(t.provisoes.length, 1);
+  const r = d.titulos.find((x) => x.numero === '10051')!;
+  assert.equal(r.tipo, 'receber'); assert.equal(r.participanteNome, 'CLIENTE TESTE, ME', 'vírgula'); assert.equal(r.participanteDocumento, '99888777000166');
+  assert.equal(d.cartoes.length, 1);
+  const c = d.cartoes[0];
+  assert.equal(c.operadora, 'Cielo'); assert.equal(c.codigoEstabelecimento, '0001032745', 'zeros à esquerda'); assert.equal(c.agencia, '0667');
+  assert.deepEqual(c.movimentos.map((m) => [m.referencia, m.rendimentoCentavos, m.irCentavos, m.beneficiarioNome]), [['2023-01-31', 150, 2, 'BANCO TESTE S/A'], ['2023-02-28', 1107, 16, 'BANCO TESTE S/A']]);
+  assert.ok(!JSON.stringify(d.blocos.cartao_estabelecimentos).includes('senha-secreta'), 'senha nunca é guardada');
+  assert.ok(!JSON.stringify(d.cartoes).includes('usuario-secreto'));
+  // Conferidor campo a campo: igual quando gravado; aponta o que faltou.
+  const { conferirCamposMigrados } = await import('../../src/server/migracaoSistemaAnterior/camposSistemaAnterior');
+  const payload: any = mesclarMigracao(null, d, { modelo: planoContasModelo, competenciaAtual: '2026-11' }).payload;
+  const base = { cdempresa: 49, blocos: JSON.parse(JSON.stringify(d.blocos)), mapaContas: d.mapaContas, payload };
+  assert.deepEqual(conferirCamposMigrados({ ...base, titulos: d.titulos, cartoes: d.cartoes }).pendencias.filter((p) => p.grupo === 'titulos' || p.grupo === 'cartoes'), []);
+  const faltou = conferirCamposMigrados({ ...base, titulos: [{ ...t, numero: '739' }], cartoes: [] }).pendencias;
+  assert.ok(faltou.some((p) => p.grupo === 'titulos' && p.rotulo === 'numero' && p.noSistemaAnterior === '000739'), 'zero à esquerda conta');
+  assert.ok(faltou.some((p) => p.grupo === 'titulos' && p.rotulo === 'título' && p.tipo === 'faltou'));
+  assert.ok(faltou.some((p) => p.grupo === 'cartoes' && p.tipo === 'faltou'));
+});
+
+test('título no Murade: baixa e provisão viram lançamento pendente de aprovação com as contas certas; lembrete de vencimento', async () => {
+  const { lancamentoDaBaixa, lancamentoDaProvisao, lembreteDoTitulo, situacaoTitulo, validarTitulo } = await import('../../src/server/titulosCartoesStore');
+  const { lembretesDeTitulos } = await import('../../src/server/titulosCartoesRotas');
+  const p = ws([]);
+  const t = validarTitulo({ id: 'T1', tipo: 'pagar', numero: '123', participanteNome: 'Fornecedor X', dataEmissao: '2026-11-10', vencimento: '2026-11-25', valorCentavos: 50000, contaTitulo: '2.3.03', contaContrapartida: '4.1.01', baixas: [], provisoes: [], origem: 'murade' });
+  const prov = lancamentoDaProvisao(p, t);
+  assert.deepEqual([prov.contaDebitoCodigo, prov.contaCreditoCodigo, prov.valor, prov.statusManual, prov.documentoRef], ['4.1.01', '2.3.03', 500, 'pendente_aprovacao', 'TITULO:T1:PROVISAO']);
+  const bx = lancamentoDaBaixa(p, t, { id: 'B1', data: '2026-11-20', valorCentavos: 20000, contaDisponibilidade: '1.1.02', origem: 'murade' });
+  assert.deepEqual([bx.contaDebitoCodigo, bx.contaCreditoCodigo, bx.valor, bx.statusManual], ['2.3.03', '1.1.02', 200, 'pendente_aprovacao']);
+  const receber = { ...t, tipo: 'receber' as const, contaTitulo: '1.1.01', contaContrapartida: '3.1.01' };
+  assert.deepEqual([lancamentoDaProvisao(p, receber).contaDebitoCodigo, lancamentoDaProvisao(p, receber).contaCreditoCodigo], ['1.1.01', '3.1.01']);
+  assert.throws(() => lancamentoDaBaixa(p, t, { id: 'B2', data: '2026-11-20', valorCentavos: 1, contaDisponibilidade: '1.1', origem: 'murade' }), /caixa ou banco/);
+  assert.equal(situacaoTitulo({ ...t, baixas: [{ id: 'x', data: '2026-11-20', valorCentavos: 20000, origem: 'murade' }] }, '2026-11-22'), 'parcial');
+  assert.equal(situacaoTitulo(t, '2026-11-26'), 'vencido');
+  assert.equal(lembreteDoTitulo(t, '2026-11-22')!.tipo, 'proximo');
+  assert.equal(lembreteDoTitulo({ ...t, baixas: [{ id: 'x', data: '2026-11-20', valorCentavos: 50000, origem: 'murade' }] }, '2026-11-22'), null, 'baixado sai da Agenda');
+  const comLembrete = lembretesDeTitulos({ ...p, lembretes: [{ id: 'outro' }] }, [t], '2026-11-22')!;
+  assert.equal(comLembrete.lembretes.length, 2);
+  assert.equal(lembretesDeTitulos(comLembrete, [t], '2026-11-23'), null, 'a contagem de dias não reescreve o workspace');
+  assert.throws(() => validarTitulo({ id: 'T2', tipo: 'pagar', participanteNome: '', dataEmissao: 'x', valorCentavos: 0 }), /Confira/);
+});
+
+test('modelo de lançamento automático com o mesmo significado de uma origem do DP vira sugestão de integração (aceitar aplica)', async () => {
+  const { analisarMigracao, aplicarAcaoAchado } = await import('../../src/server/migracaoSistemaAnterior/analiseSistemaAnterior');
+  const idx = await indexarDump(path.join(AQUI, 'fixtures', 'backup-contabil-anonimizado.sql'));
+  const cache = new Map<string, any>();
+  const ler = async (n: string) => { if (!cache.has(n)) cache.set(n, await carregarTabelaDump(idx, n)); return cache.get(n); };
+  const d = await montarDadosEmpresa(ler, 49);
+  const payload: any = mesclarMigracao(null, d, { modelo: planoContasModelo, competenciaAtual: '2026-11' }).payload;
+  const a = analisarMigracao({ cdempresa: 49, blocos: JSON.parse(JSON.stringify(d.blocos)), mapaContas: d.mapaContas, payload, naoEntraram: [], conferencia: null, decisoes: {}, hoje: '2026-11-22' });
+  const m = a.find((x) => x.id === 'mapeamento:dp_fgts')!;
+  assert.ok(m, 'FGTS casou'); assert.equal(m.tipo, 'conferir');
+  assert.ok(!a.some((x) => x.id.startsWith('mapeamento:fiscal')), '"Venda à vista" não é igual a nenhuma origem: não sugere');
+  const q: any = aplicarAcaoAchado(payload, m, 'aceitar', 'contadora');
+  assert.deepEqual(q.mapeamentosOrigem.find((x: any) => x.origem === 'dp_fgts') && [q.mapeamentosOrigem.find((x: any) => x.origem === 'dp_fgts').contaDebitoCodigo, q.mapeamentosOrigem.find((x: any) => x.origem === 'dp_fgts').contaCreditoCodigo], [d.mapaContas['188'], d.mapaContas['164']]);
+  assert.ok(workspaceValido(JSON.parse(JSON.stringify(q))));
+  assert.ok(!analisarMigracao({ cdempresa: 49, blocos: JSON.parse(JSON.stringify(d.blocos)), mapaContas: d.mapaContas, payload: q, naoEntraram: [], conferencia: null, decisoes: {}, hoje: '2026-11-22' }).some((x) => x.id === m.id), 'aceito, some');
+  const kitNomes = kitContabil.ferramentas.map((f) => f.declaracao.name);
+  for (const n of ['listar_titulos', 'baixar_titulo', 'gerar_provisao_titulo', 'informacoes_cartoes']) assert.ok(kitNomes.includes(n), n);
+  const server = fs.readFileSync(path.join(AQUI, '..', '..', 'server.ts'), 'utf8');
+  assert.match(server, /registrarRobo\(\{ id: "titulos"/); assert.match(server, /registrarRotinaManual\("titulos"/); assert.match(server, /registrarRotasTitulosCartoes\(app/);
+  assert.ok(ROBOS_APRESENTACAO.some((r) => r.id === 'titulos'));
+});

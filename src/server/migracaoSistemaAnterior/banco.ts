@@ -6,8 +6,9 @@ import type { BancoTransacional, ConsultaSql } from '../exclusaoEmpresaCascata';
 import { urlDoSistema } from '../agentesEntreSistemas';
 import type { DadosContabeisEmpresa } from './conversor';
 import { conferirMigracao, type ReferenciaConferencia, type ResultadoConferencia } from './conferencia';
+import { gravarTitulosECartoesMigrados, listarCartoes, listarTitulos } from '../titulosCartoesStore';
 import { mesclarMigracao } from './mesclagem';
-import { bensDoBackup, cadastroDoBackup, conferirCamposMigrados, txt, type ResultadoCampos } from './camposSistemaAnterior';
+import { bensDoBackup, cadastroDoBackup, cartoesDoBackup, conferirCamposMigrados, titulosDoBackup, txt, type ResultadoCampos } from './camposSistemaAnterior';
 import { analisarMigracao, aplicarAcaoAchado, resumoAnalise, type AchadoMigracao } from './analiseSistemaAnterior';
 import { converterClassificacao } from './conversor';
 
@@ -83,6 +84,7 @@ export async function gravarEmpresaMigrada(
       linhasGuardadas += linhas.length;
     }
     await q(`INSERT INTO ${TABELA_SISTEMA_ANTERIOR}(cnpj,bloco,linhas,quantidade,migrado_por) VALUES($1,$2,$3::jsonb,$4,$5)`, [cnpj, BLOCO_RESUMO, JSON.stringify(resumo), 1, quem.login]);
+    if ((dados.titulos || []).length || (dados.cartoes || []).length) await gravarTitulosECartoesMigrados(q, cnpj, dados.titulos || [], dados.cartoes || []);
     return {
       cnpj, contasNovas: m.contasNovas, contasAtualizadas: m.contasAtualizadas, contasDoModeloRetiradas: m.contasDoModeloRetiradas, historicosNovos: m.historicosNovos,
       lancamentos: dados.lancamentos.length, lancamentosSubstituidos: m.lancamentosSubstituidos, lancamentosDaEquipe: m.lancamentosDaEquipe,
@@ -122,7 +124,7 @@ export async function conferirEmpresaMigrada(consultar: ConsultaSql, cnpj: strin
 }
 
 /** Blocos usados pelo conferidor campo a campo. */
-export const BLOCOS_CONFERENCIA_CAMPOS: string[] = ['cadastro_empresa', 'empresa_contabil', 'contador', 'socios_empresa', 'socios', 'municipio', 'plano_cadastro', 'plano_contas', 'historicos_padrao', 'lotes', 'lancamentos_originais', 'imobilizado_bens', 'cadastro_historico_cnae', 'historico_nire'];
+export const BLOCOS_CONFERENCIA_CAMPOS: string[] = ['cadastro_empresa', 'empresa_contabil', 'contador', 'socios_empresa', 'socios', 'municipio', 'plano_cadastro', 'plano_contas', 'historicos_padrao', 'lotes', 'lancamentos_originais', 'imobilizado_bens', 'cadastro_historico_cnae', 'historico_nire', 'titulos', 'titulos_baixas', 'titulos_provisao', 'cartao_estabelecimentos', 'cartao_movimentos', 'cartao_operadoras'];
 
 /** Conferência campo a campo de uma empresa já migrada: cada campo preenchido no backup x o que está no Murade hoje. Só lê. */
 export async function conferirCamposEmpresaMigrada(consultar: ConsultaSql, cnpj: string): Promise<ResultadoCampos | null> {
@@ -139,13 +141,16 @@ export async function conferirCamposEmpresaMigrada(consultar: ConsultaSql, cnpj:
     mapa = {};
     for (const c of blocos.plano_contas || []) { const cod = converterClassificacao(c.cdclassinterna); if (cod) mapa[String(Number(c.idconta))] = cod; }
   }
-  return conferirCamposMigrados({ cdempresa: Number(resumo.cdempresa), blocos, mapaContas: mapa, payload, registroAntigo });
+  const temTitulos = (blocos.titulos || []).length > 0; const temCartoes = (blocos.cartao_estabelecimentos || []).length > 0;
+  const titulos = temTitulos ? await listarTitulos(consultar, cnpj).catch(() => []) : undefined;
+  const cartoes = temCartoes ? await listarCartoes(consultar, cnpj).catch(() => []) : undefined;
+  return conferirCamposMigrados({ cdempresa: Number(resumo.cdempresa), blocos, mapaContas: mapa, payload, registroAntigo, titulos, cartoes });
 }
 
 async function carregarParaAnalise(consultar: ConsultaSql, cnpj: string, payloadAtual?: Record<string, any>) {
   const { resumo } = await lerRegistroSistemaAnterior(consultar, cnpj);
   if (!resumo) return null;
-  const nomes = [...BLOCOS_CONFERENCIA_CAMPOS, 'lancamentos_lote_aberto', BLOCO_DECISOES];
+  const nomes = [...BLOCOS_CONFERENCIA_CAMPOS, 'lancamentos_lote_aberto', 'lancamentos_automaticos', 'lancamentos_automaticos_contas', BLOCO_DECISOES];
   const r = await consultar(`SELECT bloco, linhas FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 AND bloco = ANY($2::text[])`, [cnpj, nomes]);
   const blocos: Record<string, any[]> = {}; let decisoes: Record<string, any> = {};
   for (const x of r.rows) { if (x.bloco === BLOCO_DECISOES) decisoes = x.linhas && typeof x.linhas === 'object' && !Array.isArray(x.linhas) ? x.linhas : {}; else blocos[String(x.bloco)] = Array.isArray(x.linhas) ? x.linhas : []; }
@@ -268,7 +273,7 @@ export function completarPayloadDoRegistro(payload: Record<string, any>, blocos:
   return { payload: p, preenchidos };
 }
 
-const BLOCOS_COMPLETAR = ['cadastro_empresa', 'empresa_contabil', 'contador', 'socios_empresa', 'socios', 'municipio', 'plano_cadastro', 'plano_contas', 'historicos_padrao', 'lotes', 'lancamentos_originais', 'imobilizado_bens', 'cadastro_historico_cnae', 'historico_nire'];
+const BLOCOS_COMPLETAR = ['titulos', 'titulos_baixas', 'titulos_provisao', 'cartao_estabelecimentos', 'cartao_movimentos', 'cartao_operadoras', 'cadastro_empresa', 'empresa_contabil', 'contador', 'socios_empresa', 'socios', 'municipio', 'plano_cadastro', 'plano_contas', 'historicos_padrao', 'lotes', 'lancamentos_originais', 'imobilizado_bens', 'cadastro_historico_cnae', 'historico_nire'];
 
 /** Robô: completa os campos vazios de UMA empresa migrada a partir do registro guardado (transação; nunca sobrescreve). */
 export async function completarEmpresaMigrada(banco: BancoTransacional, cnpj: string, validar: (p: Record<string, unknown>) => boolean): Promise<string[]> {
@@ -285,7 +290,19 @@ export async function completarEmpresaMigrada(banco: BancoTransacional, cnpj: st
     if (!mapa) { mapa = {}; for (const c of blocos.plano_contas || []) { const cod = converterClassificacao(c.cdclassinterna); if (cod) mapa[String(Number(c.idconta))] = cod; } }
     const fechadas = new Set((await q('SELECT competencia FROM contabil_period_closures WHERE cnpj=$1', [cnpj])).rows.map((x) => String(x.competencia)));
     const c = completarPayloadDoRegistro(ws.rows[0].payload, blocos, mapa, Number(resumo.cdempresa), fechadas);
+    // Títulos e cartões (antiga DIRF) de empresas migradas antes destes módulos: entram nas tabelas próprias.
+    const titulos = titulosDoBackup(Number(resumo.cdempresa), blocos, mapa); const cartoes = cartoesDoBackup(Number(resumo.cdempresa), blocos);
+    if (titulos.length || cartoes.length) {
+      await gravarTitulosECartoesMigrados(q, cnpj, [], []).catch(() => undefined); // garante as tabelas
+      const ja = new Set((await q("SELECT id FROM contabil_titulos WHERE cnpj=$1 UNION ALL SELECT id FROM contabil_cartoes WHERE cnpj=$1", [cnpj])).rows.map((x) => String(x.id)));
+      const faltamT = titulos.filter((t) => !ja.has(t.id)); const faltamC = cartoes.filter((x) => !ja.has(x.id));
+      for (const t of faltamT) await q("INSERT INTO contabil_titulos(cnpj,id,dados,origem) VALUES($1,$2,$3::jsonb,'sistema_anterior') ON CONFLICT (cnpj,id) DO NOTHING", [cnpj, t.id, JSON.stringify(t)]);
+      for (const x of faltamC) await q("INSERT INTO contabil_cartoes(cnpj,id,dados,origem) VALUES($1,$2,$3::jsonb,'sistema_anterior') ON CONFLICT (cnpj,id) DO NOTHING", [cnpj, x.id, JSON.stringify(x)]);
+      if (faltamT.length) c.preenchidos.push(`${faltamT.length} título(s)`);
+      if (faltamC.length) c.preenchidos.push(`${faltamC.length} estabelecimento(s) de cartão`);
+    }
     if (!c.preenchidos.length) return [];
+    if (JSON.stringify(c.payload) === JSON.stringify(ws.rows[0].payload)) return c.preenchidos;
     if (!validar(c.payload)) { console.error(`Completar campos da migração: ${cnpj} não passou na validação; nada foi gravado.`); return []; }
     await q('UPDATE contabil_company_workspaces SET payload=$2::jsonb,version=version+1,updated_at=now() WHERE cnpj=$1', [cnpj, JSON.stringify(c.payload)]);
     return c.preenchidos;

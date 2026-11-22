@@ -17,7 +17,18 @@ export const PREFIXO_AJUSTE = 'AJUSTE-MIGRACAO:';
 
 export type TipoAchado = 'corrigido' | 'conferir' | 'verificar' | 'ajuste';
 export type SituacaoAchado = 'corrigido' | 'desfeito' | 'alterado' | 'pendente' | 'aceito' | 'mantido' | 'lancado';
-export interface Alvo { tipo: 'empresa' | 'conta' | 'historico' | 'lancamentos'; campo: string; codigo?: string; ids?: string[] }
+export interface Alvo { tipo: 'empresa' | 'conta' | 'historico' | 'lancamentos' | 'mapeamento'; campo: string; codigo?: string; ids?: string[] }
+
+/** Modelos de lançamento automático do sistema anterior que têm o MESMO significado de uma origem do Fiscal/DP no Murade. */
+const LAUTO_PARA_ORIGEM: Array<[RegExp, string, string]> = [
+  [/^provisao de salarios e ordenados/, 'dp_folha_bruta', 'DP — Folha'],
+  [/^provisao de fgts empresa/, 'dp_fgts', 'DP — FGTS'],
+  [/^provisao do inss$/, 'dp_descontos_inss', 'DP — INSS'],
+  [/^provisao de ir a recolher/, 'dp_descontos_irrf', 'DP — IRRF'],
+  [/^provisao de ferias$/, 'dp_provisao_ferias', 'DP — Provisão de férias'],
+  [/^provisao de decimo terceiro/, 'dp_provisao_13', 'DP — Provisão de 13º'],
+  [/^provisao multa fgts/, 'dp_multa_fgts_rescisoria', 'DP — Multa FGTS rescisória'],
+];
 export interface AchadoMigracao {
   id: string;
   tipo: TipoAchado;
@@ -213,6 +224,28 @@ export function analisarMigracao(ent: EntradaAnalise): AchadoMigracao[] {
   if (foraAntes.length) out.push({ id: 'data-antes-abertura', tipo: 'verificar', situacao: decidido('data-antes-abertura') === 'mantido' ? 'mantido' : 'pendente', titulo: `${foraAntes.length} lançamento(s) antes da data de abertura (${empresa.dataAbertura})`, veio: `ex.: ${foraAntes[0].data.split('-').reverse().join('/')}`, certo: 'verificar a data do fato ou a data de abertura do cadastro', base: 'ITG 2000 (R1): o lançamento leva a data da ocorrência do fato.' });
   if ((b.lancamentos_lote_aberto || []).length) out.push({ id: 'lote-aberto', tipo: 'verificar', situacao: decidido('lote-aberto') === 'mantido' ? 'mantido' : 'pendente', titulo: `${b.lancamentos_lote_aberto.length} lançamento(s) em lote aberto no sistema anterior`, veio: 'não efetivados lá (fora do balancete)', certo: 'verificar se deviam ter sido lançados', base: 'No programa antigo o lote aberto não entra no balancete; o Murade seguiu o mesmo.' });
 
+  // ---- modelos de lançamento automático → mapeamento de origem do Fiscal/DP (sugestão; o contador aceita ou mantém)
+  const lcontasPorLauto = new Map<string, Linha>();
+  for (const c of b.lancamentos_automaticos_contas || []) if (!lcontasPorLauto.has(txt(c.idlancautomatico))) lcontasPorLauto.set(txt(c.idlancautomatico), c);
+  const mapeamentos: any[] = Array.isArray(ent.payload?.mapeamentosOrigem) ? ent.payload.mapeamentosOrigem : [];
+  const vistosOrigem = new Set<string>();
+  for (const la of b.lancamentos_automaticos || []) {
+    const nome = semAcento(txt(la.dslancautomatico)).replace(/\s+/g, ' ');
+    const regra = LAUTO_PARA_ORIGEM.find(([re]) => re.test(nome));
+    const lc = lcontasPorLauto.get(txt(la.idlancautomatico));
+    if (!regra || !lc || vistosOrigem.has(regra[1])) continue;
+    const d = ent.mapaContas[String(Number(lc.idcontadevedora))]; const c = ent.mapaContas[String(Number(lc.idcontacredora))];
+    if (!d || !c || d === c || porCodigo.get(d)?.tipo !== 'analitica' || porCodigo.get(c)?.tipo !== 'analitica') continue;
+    vistosOrigem.add(regra[1]);
+    const atual = mapeamentos.find((m) => m.origem === regra[1]);
+    if (atual && atual.contaDebitoCodigo === d && atual.contaCreditoCodigo === c) continue;
+    const id = `mapeamento:${regra[1]}`;
+    conferir({ id, tipo: 'conferir', titulo: `Integração "${regra[2]}"`, veio: `modelo ${txt(la.cdchamada)} "${txt(la.dslancautomatico)}": D ${d} / C ${c}`,
+      certo: `usar no Murade, em Integração Fiscal/DP › ${regra[2]}: D ${d} (${porCodigo.get(d)?.descricao}) / C ${c} (${porCodigo.get(c)?.descricao})${atual ? ` — hoje está D ${atual.contaDebitoCodigo} / C ${atual.contaCreditoCodigo}` : ''}`,
+      base: 'Modelo de lançamento automático do próprio sistema anterior desta empresa (mesmo fato contábil da origem do Murade). Aceitar muda os rascunhos que o DP mandar daqui em diante.',
+      alvo: { tipo: 'mapeamento', campo: regra[1] }, valorVeio: atual ? { contaDebitoCodigo: atual.contaDebitoCodigo, contaCreditoCodigo: atual.contaCreditoCodigo } : null, valorCerto: { contaDebitoCodigo: d, contaCreditoCodigo: c } });
+  }
+
   // ---- 3. ajuste proposto quando o balancete não bate -------------------------------------------------------------------
   const contrapartida = contas.find((c) => c.tipo === 'analitica' && /ajustes? de exercicios anteriores/.test(semAcento(String(c.descricao || ''))))?.codigo
     || (empresa.contaContrapartidaAberturaCodigo && porCodigo.get(empresa.contaContrapartidaAberturaCodigo)?.tipo === 'analitica' ? empresa.contaContrapartidaAberturaCodigo : '');
@@ -260,6 +293,11 @@ export function aplicarAcaoAchado(payload: Record<string, any>, achado: AchadoMi
     if (a.tipo === 'empresa') { p.empresa = { ...(p.empresa || {}), [a.campo]: valor }; }
     else if (a.tipo === 'conta') { const c = (p.contas || []).find((x: any) => String(x.codigo) === a.codigo); if (!c) throw new Error(`A conta ${a.codigo} não está mais no plano.`); c[a.campo] = valor; }
     else if (a.tipo === 'historico') { const h = (p.historicosPadrao || []).find((x: any) => String(x.codigo).toUpperCase() === String(a.codigo).toUpperCase()); if (!h) throw new Error(`O histórico ${a.codigo} não está mais cadastrado.`); h[a.campo] = valor; }
+    else if (a.tipo === 'mapeamento') {
+      const v = valor as { contaDebitoCodigo: string; contaCreditoCodigo: string };
+      const lista: any[] = Array.isArray(p.mapeamentosOrigem) ? p.mapeamentosOrigem.filter((m: any) => m.origem !== a.campo) : [];
+      p.mapeamentosOrigem = [...lista, { origem: a.campo, contaDebitoCodigo: v.contaDebitoCodigo, contaCreditoCodigo: v.contaCreditoCodigo, revisadoEm: agora.toISOString() }];
+    }
     else if (a.tipo === 'lancamentos') { const mapa = (valor || {}) as Record<string, string>; for (const l of p.lancamentos || []) if (mapa[l.id] !== undefined) l[a.campo] = mapa[l.id]; }
     return p;
   }

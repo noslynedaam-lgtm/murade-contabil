@@ -5,6 +5,7 @@ import React, { useMemo, useState } from "react";
 import { CentroCustoContabil, ContaPlano, EmpresaDados, LancamentoContabil, PreLancamentoContabil, RegraConciliacao } from "../../types";
 import { ConciliacaoBancariaPainel } from "../ConciliacaoBancariaPainel";
 import { AjustesFechamentoPainel } from "../AjustesFechamentoPainel";
+import { CartoesPainel, TitulosPainel } from "../TitulosCartoesPainel";
 import { compararPeriodos, explicarVariacoes, resultadoPorCentroCusto } from "../../utils/analiseContabil";
 import { BemImobilizado, definirAjusteQuota, depreciacaoAcumulada, filialAtual, quotaAutomatica, quotaDoMes, quotaFoiAjustada, removerAjusteQuota, resultadoDaBaixa, totalQuotasDoMes, validarBem, valorContabilLiquido } from "../../utils/imobilizado";
 import { centavosParaTexto, liquidoLancado, montarComplemento, paraCentavos, valorEfetivoCentavos } from "../../utils/ajusteManual";
@@ -34,7 +35,7 @@ interface Props {
   regrasConciliacao?: RegraConciliacao[];
 }
 
-type Secao = "comparativo" | "centros" | "imobilizado" | "extrato" | "provisoes" | "dlpa" | "fechamento";
+type Secao = "comparativo" | "centros" | "imobilizado" | "extrato" | "provisoes" | "dlpa" | "fechamento" | "titulos" | "cartoes";
 const mesAtual = () => new Date().toISOString().slice(0, 7);
 const pct = (v: number | null) => (v === null ? "—" : `${v > 0 ? "+" : ""}${v.toLocaleString("pt-BR")}%`);
 const reais = (s: string) => { const n = Number(String(s).replace(/\./g, "").replace(",", ".")); return Number.isFinite(n) ? Math.round(n * 100) : NaN; };
@@ -55,6 +56,8 @@ export const GestaoContabilTab: React.FC<Props> = (p) => {
           {aba("comparativo", "Comparativo e explicações")}{aba("centros", "Centros de custo")}<BotaoAba data-campo="gestao-aba-imobilizado" data-piloto-abrir="" ativo={secao === "imobilizado"} onClick={() => setSecao("imobilizado")}>Ativo imobilizado</BotaoAba>
           <BotaoAba data-campo="gestao-aba-extrato" data-piloto-abrir="" ativo={secao === "extrato"} onClick={() => setSecao("extrato")}>Extrato e conciliação</BotaoAba>
           {aba("provisoes", "Provisões")}{aba("dlpa", "Lucros acumulados (DLPA)")}
+          {p.onRota && <BotaoAba data-campo="gestao-aba-titulos" data-piloto-abrir="" ativo={secao === "titulos"} onClick={() => setSecao("titulos")}>Títulos a pagar e receber</BotaoAba>}
+          {p.onRota && aba("cartoes", "Cartões (antiga DIRF)")}
           <BotaoAba data-campo="gestao-aba-fechamento" data-piloto-abrir="" ativo={secao === "fechamento"} onClick={() => setSecao("fechamento")}>Fechamento guiado</BotaoAba>
           <label className="ml-auto text-xs font-bold text-slate-700">Competência
             <input type="month" data-campo="gestao-periodo" value={periodo} onChange={(e) => setPeriodo(e.target.value)} className="ml-2 rounded-md border border-slate-300 px-2 py-1 text-sm font-medium" />
@@ -70,6 +73,8 @@ export const GestaoContabilTab: React.FC<Props> = (p) => {
           {secao === "provisoes" && <Provisoes {...p} analiticas={analiticas} periodo={periodo} />}
           {secao === "dlpa" && <Dlpa {...p} periodo={periodo} />}
           {secao === "fechamento" && <Fechamento {...p} periodo={periodo} />}
+          {secao === "titulos" && p.onRota && <TitulosPainel onRota={p.onRota} contas={p.contas} podeGravar={p.workspacePersistido} />}
+          {secao === "cartoes" && p.onRota && <CartoesPainel onRota={p.onRota} />}
         </>
       )}
     </div>

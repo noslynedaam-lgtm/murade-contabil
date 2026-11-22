@@ -28,6 +28,7 @@ export const TABELAS_FIXAS_CONTABIL = [
   'wcont.titulos_provisao',
   'wcont.estabelecimento_cartao_credito',
   'wcont.movimento_cartao_credito',
+  'wcont.operadora_cartao_de_credito',
   'wcont.lancamento_identificador_sequencial',
   'wcont.ecf_linha_conta',
   'wcont.ecf_conta_configuracao',

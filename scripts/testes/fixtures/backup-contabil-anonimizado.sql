@@ -7083,3 +7083,134 @@ CREATE TABLE wativo.be00049 (
 COPY wativo.be00049 (idbem, cdchamada, dsbem, stcalcbem, dtaquisicao, vloriginalmoeda, txdepreciacao, nmfornecedor, dtcompra, vlcompra, dtinidepreciacao, dtbaixa, vlbaixa) FROM stdin;
 1	0000000001	BALCAO 235 X 200 C/3 GAVETAS	D	2023-07-30 00:00:00	1600	10	FORNECEDOR TESTE	2023-07-30 00:00:00	1600	2023-08-01 00:00:00	\N	\N
 \.
+
+CREATE TABLE wcont.titulos (
+    idtitulo character varying(40) NOT NULL,
+    idempresa integer,
+    tipodocumento character varying(1),
+    nrdocumento character varying(20),
+    cnpj_cpf character varying(20),
+    nmfornecedor character varying(100),
+    dtcontabil date,
+    vltitulo double precision,
+    dsstatus character varying(1),
+    stnotapendente character varying(1),
+    nmserienf character varying(5),
+    cdforcli character varying(20),
+    idempresafiscal integer,
+    idmoddocfiscal character varying(2)
+);
+
+COPY wcont.titulos (idtitulo, idempresa, tipodocumento, nrdocumento, cnpj_cpf, nmfornecedor, dtcontabil, vltitulo, dsstatus, stnotapendente, nmserienf, cdforcli, idempresafiscal, idmoddocfiscal) FROM stdin;
+ZZZTESTE0000000000000000000000T01	49	E	000739	\N	FORNECEDOR . TESTE IND COM LTDA-EPP	2023-09-15	145.199999999999989	P	\N	D-1	99888777/0001-66	49	55
+ZZZTESTE0000000000000000000000T02	49	S	10051	99888777000166	CLIENTE TESTE, ME	2023-10-02	300	P	\N	0	99888777/0001-66	49	55
+\.
+
+CREATE TABLE wcont.baixa_titulos (
+    idbaixa_titulos character varying(40) NOT NULL,
+    idtitulo character varying(40),
+    dtbaixa timestamp without time zone,
+    vlbaixa double precision,
+    stbaixa character varying(1),
+    tpbaixa character varying(1),
+    idlancautomatico character varying(40),
+    idlanccontdeb character varying(40),
+    idlanccontcred character varying(40),
+    idcontrolebaixa character varying(40),
+    nrdocbaixa character varying(20),
+    historico_padrao_id character varying(40),
+    historico_padrao_descricao text
+);
+
+COPY wcont.baixa_titulos (idbaixa_titulos, idtitulo, dtbaixa, vlbaixa, stbaixa, tpbaixa, idlancautomatico, idlanccontdeb, idlanccontcred, idcontrolebaixa, nrdocbaixa, historico_padrao_id, historico_padrao_descricao) FROM stdin;
+ZZZTESTEBX000000000000000000000B1	ZZZTESTE0000000000000000000000T01	2023-09-30 00:00:00	145.199999999999989	C	B	001000002S	990cf740-437a-44bf-9aa8-3e287ca7ecb1	946876be-e243-4dd3-b648-3be7ddc3c4e3	ZZZCONTROLE1	1175	001000001T	Compra de mercadoria avista conforme NF.
+\.
+
+CREATE TABLE wcont.titulos_provisao (
+    idtitulo_provisao character varying(40) NOT NULL,
+    idtitulo character varying(40),
+    idempresa integer,
+    idnota character varying(40),
+    idlanccontcred character varying(40),
+    idlanccontdeb character varying(40)
+);
+
+COPY wcont.titulos_provisao (idtitulo_provisao, idtitulo, idempresa, idnota, idlanccontcred, idlanccontdeb) FROM stdin;
+ZZZTESTEPRV00000000000000000000P1	ZZZTESTE0000000000000000000000T01	49	462	\N	\N
+\.
+
+CREATE TABLE wcont.estabelecimento_cartao_credito (
+    id integer NOT NULL,
+    empresa_id integer,
+    codigo_estabelecimento character varying(20),
+    operadora integer,
+    usuario character varying(60),
+    senha character varying(60),
+    inativo boolean,
+    data_inatividade date,
+    banco character varying(10),
+    agencia character varying(10),
+    dirfcartoes_web_id bigint,
+    codigo_acesso_operadora integer,
+    conta integer
+);
+
+COPY wcont.estabelecimento_cartao_credito (id, empresa_id, codigo_estabelecimento, operadora, usuario, senha, inativo, data_inatividade, banco, agencia, dirfcartoes_web_id, codigo_acesso_operadora, conta) FROM stdin;
+900	49	0001032745	0	usuario-secreto	senha-secreta	f	\N	341	0667	3011	12345	\N
+\.
+
+CREATE TABLE wcont.movimento_cartao_credito (
+    id integer NOT NULL,
+    estabelecimento_cartao_credito_id integer,
+    referencia date,
+    beneficiario_cnpj character varying(14),
+    beneficiario_nome character varying(60),
+    valor_rendimento double precision,
+    valor_ir double precision,
+    data_importacao timestamp without time zone
+);
+
+COPY wcont.movimento_cartao_credito (id, estabelecimento_cartao_credito_id, referencia, beneficiario_cnpj, beneficiario_nome, valor_rendimento, valor_ir, data_importacao) FROM stdin;
+9001	900	2023-01-31	00000000000191	BANCO TESTE S/A    	1.5	0.02	2024-02-22 10:38:32.214
+9002	900	2023-02-28	00000000000191	BANCO TESTE S/A    	11.07	0.16	2024-02-22 10:38:32.214
+\.
+
+CREATE TABLE wcont.operadora_cartao_de_credito (
+    nome character varying(40),
+    id integer NOT NULL
+);
+
+COPY wcont.operadora_cartao_de_credito (nome, id) FROM stdin;
+Cielo	0
+Redecard	1
+\.
+
+CREATE TABLE wcont.lauto (
+    idlancautomatico character varying(40) NOT NULL,
+    dslancautomatico character varying(60),
+    nmobs character varying(60),
+    sttipo character varying(2),
+    cdchamada character varying(5),
+    stconcifornecedor character varying(1)
+);
+
+COPY wcont.lauto (idlancautomatico, dslancautomatico, nmobs, sttipo, cdchamada, stconcifornecedor) FROM stdin;
+ZZZLAUTO00000000000000000000000L1	Provisão de FGTS Empresa	\N	\N	00036	\N
+ZZZLAUTO00000000000000000000000L2	Venda de Mercadoria à Vista	\N	\N	00047	\N
+\.
+
+CREATE TABLE wcont.lcontas (
+    idregistro character varying(40) NOT NULL,
+    idlancautomatico character varying(40),
+    idplanodecontas integer,
+    idcontacredora integer,
+    idhistoricopadrao character varying(40),
+    idcontadevedora integer,
+    nmobs character varying(60),
+    stimportacao character varying(1)
+);
+
+COPY wcont.lcontas (idregistro, idlancautomatico, idplanodecontas, idcontacredora, idhistoricopadrao, idcontadevedora, nmobs, stimportacao) FROM stdin;
+ZZZLC1	ZZZLAUTO00000000000000000000000L1	6	164	\N	188	\N	N
+ZZZLC2	ZZZLAUTO00000000000000000000000L2	6	188	\N	164	\N	N
+\.

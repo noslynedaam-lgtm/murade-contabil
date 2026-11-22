@@ -10,7 +10,7 @@ export type ConsultaSql = (sql: string, params?: unknown[]) => Promise<{ rows: a
 export interface BancoTransacional { transacao<T>(fn: (consultar: ConsultaSql) => Promise<T>): Promise<T>; consultar: ConsultaSql }
 
 /** O que a exclusão apaga (chave = nome mostrado na resposta). */
-export interface Apagados { acessosDeUsuarios: number; empresaCompartilhada: number; workspace: number; atividadeEquipe: number; sistemaAnterior: number }
+export interface Apagados { acessosDeUsuarios: number; empresaCompartilhada: number; workspace: number; atividadeEquipe: number; sistemaAnterior: number; titulos: number; cartoes: number; extrato: number }
 
 /** Tabelas por CNPJ que a exclusão NÃO toca. A escrituração mora no payload do workspace: por isso ele é copiado para o arquivo antes de apagar. */
 export const PRESERVADOS = [
@@ -72,9 +72,14 @@ export async function removerEmpresaCompleta(banco: BancoTransacional, cnpjBruto
     // O que veio do sistema anterior (registro por bloco) sai junto: só existe depois da primeira migração.
     const existeAnterior = await q("SELECT to_regclass('contabil_sistema_anterior') AS t", []);
     const anterior = existeAnterior.rows[0]?.t ? await n('DELETE FROM contabil_sistema_anterior WHERE cnpj=$1') : 0;
-    return { acessosDeUsuarios: acessos, empresaCompartilhada: comp, workspace: work, atividadeEquipe: ativ, sistemaAnterior: anterior } as Apagados;
+    // Títulos, cartões (antiga DIRF) e extrato guardado também saem (cada tabela só existe depois do primeiro uso).
+    const seExiste = async (tabela: string) => ((await q(`SELECT to_regclass('${tabela}') AS t`, [])).rows[0]?.t ? n(`DELETE FROM ${tabela} WHERE cnpj=$1`) : 0);
+    const titulos = await seExiste('contabil_titulos');
+    const cartoes = await seExiste('contabil_cartoes');
+    const extrato = await seExiste('contabil_extrato_movimentos');
+    return { acessosDeUsuarios: acessos, empresaCompartilhada: comp, workspace: work, atividadeEquipe: ativ, sistemaAnterior: anterior, titulos, cartoes, extrato } as Apagados;
   });
-  const total = apagados.acessosDeUsuarios + apagados.empresaCompartilhada + apagados.workspace + apagados.atividadeEquipe + apagados.sistemaAnterior;
+  const total = apagados.acessosDeUsuarios + apagados.empresaCompartilhada + apagados.workspace + apagados.atividadeEquipe + apagados.sistemaAnterior + apagados.titulos + apagados.cartoes + apagados.extrato;
   return { sucesso: true, cnpj, apagados, preservados: [...PRESERVADOS], jaNaoExistia: total === 0 };
 }
 

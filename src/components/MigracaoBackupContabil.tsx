@@ -318,7 +318,7 @@ const NOMES: Record<string, string> = {
   plano_cadastro: "Cadastro do plano", imobilizado_empresa: "Imobilizado — configuração", imobilizado_configuracao: "Imobilizado — método por ano", imobilizado_bens: "Imobilizado — bens",
   cadastro_empresa: "Cadastro da empresa", socios_empresa: "Sócios da empresa", socios: "Cadastro dos sócios", municipio: "Município (IBGE)",
   cadastro_historico_cnae: "Histórico de CNAE", historico_nire: "Histórico de NIRE", historico_retencao: "Retenção do IR dos sócios", trava_contabil: "Data de trava",
-  textos_assinatura: "Modelos de assinatura",
+  textos_assinatura: "Modelos de assinatura", cartao_operadoras: "Cartão — operadoras",
 };
 
 /** Consulta do que veio do sistema anterior para a empresa aberta (só leitura). */
