@@ -332,6 +332,24 @@ export function gerarRascunhosProLabore(cnpj: string, resumos: Array<{ competenc
 }
 
 /** Prepares and saves drafts after an authenticated source update; never posts definitive entries. */
+/**
+ * Nota que veio do backup do sistema anterior pelo Fiscal (origemDocumento "sistema-anterior") numa competência que JÁ tem
+ * lançamentos migrados do sistema anterior aqui no Contábil não gera pré-lançamento: ela já está contabilizada pela migração
+ * contábil (seria lançamento em dobro). Fica só para consulta e conferência. Competência sem contabilidade migrada segue o fluxo
+ * normal Fiscal → Contábil (pré-lançamento para aprovação). Notas de outras origens não mudam nada.
+ */
+export function notasSemLancamentoEmDobro(documentos: Registro[], workspace: Record<string, unknown>): Registro[] {
+  const lancamentos = Array.isArray(workspace.lancamentos) ? workspace.lancamentos as Registro[] : [];
+  const migradas = new Set<string>();
+  for (const l of lancamentos) if (l?.origem === "Sistema anterior") { const c = String(l.competencia || l.data || "").slice(0, 7); if (/^\d{4}-\d{2}$/.test(c)) migradas.add(c); }
+  if (!migradas.size) return documentos;
+  return documentos.filter((d) => {
+    if (d?.origemDocumento !== "sistema-anterior") return true;
+    const c = dataCompetencia(d.dataEmissao || d.emissao)?.competencia;
+    return !(c && migradas.has(c));
+  });
+}
+
 export async function gerarCandidatosRascunhosAutomaticos(cnpj: string, workspaceOverride?: Record<string, unknown>): Promise<RascunhoAutomaticoContabil[]> {
   if (!fiscalStoreConfigurado() || !dpStoreConfigurado()) return [];
   const workspace = workspaceOverride || await lerWorkspaceInternoContabil(cnpj);
@@ -349,7 +367,7 @@ export async function gerarCandidatosRascunhosAutomaticos(cnpj: string, workspac
   ]);
   const agora = new Date().toISOString();
   const candidatos = [
-    ...gerarRascunhosFiscal(cnpj, documentos as Registro[], contas, mapeamentos, agora, regimeSimplesNacional((workspace.empresa as Registro | undefined)?.regime)),
+    ...gerarRascunhosFiscal(cnpj, notasSemLancamentoEmDobro(documentos as Registro[], workspace), contas, mapeamentos, agora, regimeSimplesNacional((workspace.empresa as Registro | undefined)?.regime)),
     ...gerarRascunhosFolha(cnpj, folhas, contas, mapeamentos, agora),
     ...gerarRascunhosProLabore(cnpj, proLabores, contas, mapeamentos, agora),
     ...gerarRascunhosEventosDP(cnpj, eventos, contas, mapeamentos, agora),
