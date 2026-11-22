@@ -134,11 +134,11 @@ export function mesclarMigracao(
   const daEquipe = lancAtuais.filter((l) => !ehLancamentoDoSistemaAnterior(l));
   const idsAnteriores = new Set(anteriores.map((l) => String(l.id)));
   if (daEquipe.some((l) => l?.estornoDe && idsAnteriores.has(String(l.estornoDe)))) {
-    return { ...r, bloqueio: 'A equipe já estornou no Murade um lançamento que veio do sistema anterior. Para não desfazer esse trabalho, esta empresa não foi migrada de novo.' };
+    return { ...r, bloqueio: 'A equipe já estornou no Murad um lançamento que veio do sistema anterior. Para não desfazer esse trabalho, esta empresa não foi migrada de novo.' };
   }
   const fechadas = opcoes.fechadas || new Set<string>();
   const mexeEmFechada = [...anteriores, ...dados.lancamentos].find((l) => fechadas.has(String(l.data || '').slice(0, 7)));
-  if (mexeEmFechada) return { ...r, bloqueio: `A competência ${String(mexeEmFechada.data).slice(0, 7)} está fechada no Murade e tem lançamentos do sistema anterior. Reabra a competência (ou deixe como está) antes de migrar esta empresa.` };
+  if (mexeEmFechada) return { ...r, bloqueio: `A competência ${String(mexeEmFechada.data).slice(0, 7)} está fechada no Murad e tem lançamentos do sistema anterior. Reabra a competência (ou deixe como está) antes de migrar esta empresa.` };
   r.lancamentosSubstituidos = anteriores.length;
   r.lancamentosDaEquipe = daEquipe.length;
 
@@ -160,11 +160,11 @@ export function mesclarMigracao(
       r.contasAtualizadas++;
       continue;
     }
-    if (e.tipo !== limpa.tipo) { conflitos.push(`${nova.codigo} (no Murade "${e.descricao}", ${e.tipo}; no sistema anterior "${limpa.descricao}", ${limpa.tipo})`); continue; }
-    if (e.descricao !== limpa.descricao) avisos.push(`A conta ${nova.codigo} já é usada no Murade como "${e.descricao}"; ficou com esse nome (no sistema anterior era "${limpa.descricao}").`);
+    if (e.tipo !== limpa.tipo) { conflitos.push(`${nova.codigo} (no Murad "${e.descricao}", ${e.tipo}; no sistema anterior "${limpa.descricao}", ${limpa.tipo})`); continue; }
+    if (e.descricao !== limpa.descricao) avisos.push(`A conta ${nova.codigo} já é usada no Murad como "${e.descricao}"; ficou com esse nome (no sistema anterior era "${limpa.descricao}").`);
   }
   if (conflitos.length) {
-    return { ...r, bloqueio: `Conta(s) já usada(s) no Murade com o mesmo código, mas de outro tipo no sistema anterior: ${conflitos.slice(0, 5).join('; ')}${conflitos.length > 5 ? ` e mais ${conflitos.length - 5}` : ''}. Para não mudar o trabalho da equipe, esta empresa não foi gravada. Ajuste o código no Plano de Contas e tente de novo.` };
+    return { ...r, bloqueio: `Conta(s) já usada(s) no Murad com o mesmo código, mas de outro tipo no sistema anterior: ${conflitos.slice(0, 5).join('; ')}${conflitos.length > 5 ? ` e mais ${conflitos.length - 5}` : ''}. Para não mudar o trabalho da equipe, esta empresa não foi gravada. Ajuste o código no Plano de Contas e tente de novo.` };
   }
   // Retira as contas do modelo padrão que ninguém usou, quando o plano real da empresa chegou (sem deixar conta usada sem a conta-mãe).
   const codigosNovos = new Set(dados.contas.map((c) => c.codigo));
@@ -179,7 +179,7 @@ export function mesclarMigracao(
   const contas = [...existentes.values()].sort((a, b) => compararCodigosContabeis(String(a.codigo), String(b.codigo)) || String(a.codigo).localeCompare(String(b.codigo)));
   // Conta analítica que ficou com contas-filhas por causa da junção: só avisa (o histórico continua válido).
   const codigos = new Set(contas.map((c) => String(c.codigo)));
-  for (const c of contas) if (c.tipo === 'analitica' && [...codigos].some((x) => x.startsWith(`${c.codigo}.`)) && !dados.contas.some((d) => d.codigo === c.codigo)) avisos.push(`A conta analítica ${c.codigo} (${c.descricao}) do Murade ficou com contas-filhas vindas do sistema anterior; confira no Plano de Contas.`);
+  for (const c of contas) if (c.tipo === 'analitica' && [...codigos].some((x) => x.startsWith(`${c.codigo}.`)) && !dados.contas.some((d) => d.codigo === c.codigo)) avisos.push(`A conta analítica ${c.codigo} (${c.descricao}) do Murad ficou com contas-filhas vindas do sistema anterior; confira no Plano de Contas.`);
   payload.contas = contas;
 
   // ---- históricos padrão
@@ -190,13 +190,13 @@ export function mesclarMigracao(
   for (const h of dados.historicosPadrao) {
     if (codigosHist.has(h.codigo.toUpperCase())) {
       const e = hist.find((x) => String(x.codigo).toUpperCase() === h.codigo.toUpperCase());
-      if (e && e.texto !== h.texto && !idsHist.has(h.id)) avisos.push(`O histórico padrão ${h.codigo} já existe no Murade com outro texto; ficou o do Murade.`);
+      if (e && e.texto !== h.texto && !idsHist.has(h.id)) avisos.push(`O histórico padrão ${h.codigo} já existe no Murad com outro texto; ficou o do Murad.`);
       continue;
     }
     if (hist.length >= LIMITE_HISTORICOS) { foraDoLimite++; continue; }
     hist.push(h); codigosHist.add(h.codigo.toUpperCase()); idsHist.add(h.id); r.historicosNovos++;
   }
-  if (foraDoLimite) avisos.push(`${foraDoLimite} histórico(s) padrão não couberam (o Murade guarda até ${LIMITE_HISTORICOS} por empresa); estão no registro do sistema anterior.`);
+  if (foraDoLimite) avisos.push(`${foraDoLimite} histórico(s) padrão não couberam (o Murad guarda até ${LIMITE_HISTORICOS} por empresa); estão no registro do sistema anterior.`);
   payload.historicosPadrao = hist;
 
   // ---- modelos de lançamento (os da equipe ficam; os de uma migração anterior são trocados; nome igual a um da equipe não entra)
@@ -207,7 +207,7 @@ export function mesclarMigracao(
     const cabem = Math.max(0, 200 - daEquipe.length);
     const entram = (dados.modelos || []).filter((m) => !nomes.has(m.nome.trim().toUpperCase()));
     payload.lancamentosPadrao = [...daEquipe, ...entram.slice(0, cabem)];
-    if (entram.length > cabem) avisos.push(`${entram.length - cabem} modelo(s) de lançamento não couberam (o Murade guarda até 200 por empresa); estão no registro do sistema anterior.`);
+    if (entram.length > cabem) avisos.push(`${entram.length - cabem} modelo(s) de lançamento não couberam (o Murad guarda até 200 por empresa); estão no registro do sistema anterior.`);
   }
 
   // ---- imobilizado
@@ -222,11 +222,11 @@ export function mesclarMigracao(
   const novos = dados.lancamentos.map((l) => ({ ...l, contaDebitoNome: porCodigo.get(l.contaDebitoCodigo)?.descricao || l.contaDebitoNome, contaCreditoNome: porCodigo.get(l.contaCreditoCodigo)?.descricao || l.contaCreditoNome }));
   payload.lancamentos = [...daEquipe, ...novos];
   if (payload.lancamentos.length > LIMITE_LANCAMENTOS) {
-    return { ...r, bloqueio: `Esta empresa ficaria com ${payload.lancamentos.length} lançamentos e o Murade guarda até ${LIMITE_LANCAMENTOS} por empresa. Nada foi gravado; o caso foi registrado para o suporte ampliar o limite.` };
+    return { ...r, bloqueio: `Esta empresa ficaria com ${payload.lancamentos.length} lançamentos e o Murad guarda até ${LIMITE_LANCAMENTOS} por empresa. Nada foi gravado; o caso foi registrado para o suporte ampliar o limite.` };
   }
   const bytes = Buffer.byteLength(JSON.stringify(payload), 'utf8');
   if (bytes > LIMITE_BYTES) {
-    return { ...r, bloqueio: `Os dados desta empresa ficariam com ${(bytes / 1e6).toFixed(1)} MB e o Murade guarda até 4 MB por empresa. Nada foi gravado; o caso foi registrado para o suporte ampliar o limite.` };
+    return { ...r, bloqueio: `Os dados desta empresa ficariam com ${(bytes / 1e6).toFixed(1)} MB e o Murad guarda até 4 MB por empresa. Nada foi gravado; o caso foi registrado para o suporte ampliar o limite.` };
   }
   r.payload = payload;
   r.ajustesMigracaoLancados = ajustes.length;

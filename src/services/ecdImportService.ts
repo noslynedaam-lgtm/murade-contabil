@@ -84,7 +84,7 @@ export function lerArquivoEcd(texto: string, cnpjAtivo: string): LeituraEcd {
     vistos.add(c.cod);
     if (!["A", "S"].includes(c.ind)) { erros.push(`I050 ${c.cod}: indicador de conta inválido (${c.ind}).`); continue; }
     let nivel = Number.isInteger(c.nivel) && c.nivel >= 1 ? c.nivel : 1;
-    if (nivel > 5) { avisos.push(`Conta ${c.cod}: nível ${nivel} da ECD guardado como 5 (o Murade usa até 5 níveis; a hierarquia continua pelo código).`); nivel = 5; }
+    if (nivel > 5) { avisos.push(`Conta ${c.cod}: nível ${nivel} da ECD guardado como 5 (o Murad usa até 5 níveis; a hierarquia continua pelo código).`); nivel = 5; }
     // Natureza (D/C): 01 ativo = D; 02 passivo e 03 PL = C; 04 resultado: receita = C, despesa/custo = D; 05/09 = D.
     let natureza: "D" | "C" = "D";
     if (c.nat === "02" || c.nat === "03") natureza = "C";
@@ -184,6 +184,6 @@ export function lerArquivoEcd(texto: string, cnpjAtivo: string): LeituraEcd {
   if (lancamentos.length > 20000) erros.push(`A ECD gerou ${lancamentos.length} partidas; o limite por empresa é 20.000. Importe um ano por vez ou fale com o suporte.`);
   const centrosCusto: CentroCustoContabil[] = [...centros].map(([codigo, nomeCc]) => ({ id: `cc-${codigo}`, codigo, nome: (nomeCc || codigo).slice(0, 240) }));
   const resumo: ResumoImportacaoEcd = { cnpj, nome, dtIni, dtFin, ano, contas: contas.length, analiticas: contas.filter((c) => c.tipo === "analitica").length, saldosAbertura, centros: centrosCusto.length, lancamentosEcd, partidasGeradas: lancamentos.length, encerramentos, recusados, competenciaAbertura };
-  avisos.push(`ECD de ${nome || cnpj}, ${dtIni.split("-").reverse().join("/")} a ${dtFin.split("-").reverse().join("/")}: ${contas.length} contas, ${saldosAbertura} saldo(s) de abertura em ${competenciaAbertura.split("-").reverse().join("/")}, ${lancamentosEcd} lançamento(s) da ECD → ${lancamentos.length} partida(s) no Murade${encerramentos ? ` (${encerramentos} de encerramento)` : ""}.`);
+  avisos.push(`ECD de ${nome || cnpj}, ${dtIni.split("-").reverse().join("/")} a ${dtFin.split("-").reverse().join("/")}: ${contas.length} contas, ${saldosAbertura} saldo(s) de abertura em ${competenciaAbertura.split("-").reverse().join("/")}, ${lancamentosEcd} lançamento(s) da ECD → ${lancamentos.length} partida(s) no Murad${encerramentos ? ` (${encerramentos} de encerramento)` : ""}.`);
   return { ok: erros.length === 0, erros, avisos, contas, centrosCusto, lancamentos, resumo };
 }

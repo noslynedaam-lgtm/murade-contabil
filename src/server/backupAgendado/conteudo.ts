@@ -115,8 +115,8 @@ export async function montarConteudo(
   };
   zip.file('manifesto.json', JSON.stringify(manifesto, null, 2));
   zip.file('LEIA-ME.txt', [
-    'Backup do escritório no Murade — só os dados deste escritório.',
-    'Formato próprio do Murade, cifrado com a chave deste escritório: só abre e só é restaurado dentro do Murade,',
+    'Backup do escritório no Murad — só os dados deste escritório.',
+    'Formato próprio do Murad, cifrado com a chave deste escritório: só abre e só é restaurado dentro do Murad,',
     'pelo administrador do escritório (tela Backup > Restaurar). Não contém certificado digital nem senha de ninguém.',
   ].join('\n'));
   const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } });
@@ -131,7 +131,7 @@ export async function lerConteudo(zipBuffer: Buffer, esperado?: { sistema?: Sist
   const m = zip.file('manifesto.json');
   if (!m) throw new Error('O manifesto não foi encontrado dentro do backup.');
   const manifesto = JSON.parse(await m.async('string')) as Manifesto;
-  if (manifesto.formato !== FORMATO_CONTEUDO) throw new Error('O conteúdo do backup não é do formato do Murade.');
+  if (manifesto.formato !== FORMATO_CONTEUDO) throw new Error('O conteúdo do backup não é do formato do Murad.');
   if (esperado?.sistema && manifesto.sistema !== esperado.sistema) throw new Error('O conteúdo do backup é de outro sistema.');
   if (esperado?.id && manifesto.id !== esperado.id) throw new Error('O manifesto não corresponde a este backup.');
   const tabelas: Record<string, any[]> = {};

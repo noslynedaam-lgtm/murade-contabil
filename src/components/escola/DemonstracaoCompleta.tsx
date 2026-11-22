@@ -438,7 +438,7 @@ export const DemonstracaoCompleta: React.FC<{ onFechar: () => void; onMudou?: ()
             <div className="min-h-[260px] flex-1 p-3">
               {etapaTela
                 ? <TelaReplica etapa={etapaTela} valores={valores} aberto={aberto} digitando={digitando} destaque={destaque} resultado={resultado} interativo={modo === 'sua_vez'} onBotao={cliqueSuaVez} />
-                : <p className="py-10 text-center text-sm text-slate-500">Mural Principal (treino)</p>}
+                : <p className="py-10 text-center text-sm text-slate-500">Início (treino)</p>}
             </div>
           </div>
           {/* cursor animado */}

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useExclusaoDuasEtapas } from '../ConfirmaExclusaoDuasEtapas';
 import { useContabilAuth } from '../ContabilAccessGate';
+import { CampoData } from '../CampoData';
 
 // Tarefas da equipe: "Pedidos para mim" (o que a contadora pediu) e "Que eu pedi" (acompanhar se foi visto e feito).
 // Excluir é sempre uma tarefa por vez, com segunda confirmação. Não existe botão de apagar tudo.
@@ -121,7 +122,7 @@ export function TarefasEquipeTab() {
               <select value={cnpj} onChange={(e) => setCnpj(e.target.value)} className="mt-1 w-full rounded-lg border p-2 text-sm"><option value="">Nenhuma</option>{empresas.map((e) => <option key={e.cnpj} value={e.cnpj}>{e.nome}</option>)}</select>
             </label>
             <label className="block text-xs font-semibold">Prazo (opcional)
-              <input type="date" value={prazo} onChange={(e) => setPrazo(e.target.value)} className="mt-1 w-full rounded-lg border p-2 text-sm" />
+              <CampoData value={prazo} onChange={(e) => setPrazo(e.target.value)} className="mt-1 w-full rounded-lg border p-2 text-sm" />
             </label>
           </div>
           <button disabled={enviando} className="w-full rounded-lg bg-emerald-700 px-3 py-2.5 text-sm font-bold text-white disabled:opacity-50 sm:w-auto">{enviando ? 'Enviando…' : adm ? 'Enviar pedido' : 'Anotar'}</button>

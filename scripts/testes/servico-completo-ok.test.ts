@@ -1,4 +1,4 @@
-// Ponto de OK do contador e CNPJ do escritório preenchido pelos outros sistemas Murade.
+// Ponto de OK do contador e CNPJ do escritório preenchido pelos outros sistemas Murad.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { levantarFechamentoMensal, pontoDeOk } from '../../src/server/servicoCompleto';

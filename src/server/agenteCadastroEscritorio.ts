@@ -13,7 +13,7 @@ export const FERRAMENTAS_CADASTRO_ESCRITORIO: Ferramenta[] = [
       return {
         cnpjNoContabil: c.cnpjNoContabil || null, origem: c.origemNoContabil === 'manual' ? 'digitado no Contábil' : c.origemNoContabil ? `preenchido pelo ${c.origemNoContabil === 'dp' ? 'DP' : 'Fisco IA'}` : null,
         ligadoAoDP: c.ligadoAoDP === true, cadastroNoDP: c.dp ? { cnpj: c.dp.cnpj, completo: c.dp.completo, falta: c.dp.faltando, certificadoValidoAte: c.dp.certificado?.validoAte || null, diasParaVencer: c.dp.certificado?.dias ?? null } : null,
-        avisos: c.avisos || [], ondeFazer: { texto: 'Cadastro do escritório no Murade DP (Configurações > Cadastro do escritório), com a lista "Você tem procuração?".', link: c.linkDP },
+        avisos: c.avisos || [], ondeFazer: { texto: 'Cadastro do escritório no Murad DP (Configurações > Cadastro do escritório), com a lista "Você tem procuração?".', link: c.linkDP },
         observacao: 'Não peça certificado nem senha pelo chat. Se não houver ligação com o DP (outro login ou outro banco), o CNPJ do escritório pode ser informado aqui no campo manual.',
       };
     },

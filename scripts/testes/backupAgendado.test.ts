@@ -1,4 +1,4 @@
-// Backup agendado do escritório — núcleo comum aos três sistemas Murade (mesmo arquivo de teste no DP, Fiscal e Contábil).
+// Backup agendado do escritório — núcleo comum aos três sistemas Murad (mesmo arquivo de teste no DP, Fiscal e Contábil).
 // As regras puras (agenda, formato .murade, diferencial, retenção) rodam sempre. O serviço completo (gravar, conferir,
 // nuvem, retenção, restauração, isolamento, robôs) roda contra um Postgres de teste em TEST_DATABASE_URL.
 import test from 'node:test';
@@ -93,12 +93,12 @@ test('formato: arquivo próprio cifrado — abre só no mesmo sistema e escritó
   assert.equal(lerCabecalho(arquivo).id, cabecalho.id);
   assert.deepEqual(abrirArquivo(arquivo, 'dp', 'esc-A', env).conteudo, conteudo);
   assert.throws(() => abrirArquivo(arquivo, 'dp', 'esc-B', env), /outro escritório/);
-  assert.throws(() => abrirArquivo(arquivo, 'fiscal', 'esc-A', env), /Murade DP/);
+  assert.throws(() => abrirArquivo(arquivo, 'fiscal', 'esc-A', env), /Murad DP/);
   const alterado = Buffer.from(arquivo); alterado[alterado.length - 3] ^= 1;
   assert.throws(() => abrirArquivo(alterado, 'dp', 'esc-A', env), /alterado ou está corrompido/);
   const cab = Buffer.from(arquivo); cab[20] = cab[20] === 0x61 ? 0x62 : 0x61;
   assert.throws(() => abrirArquivo(cab, 'dp', 'esc-A', env));
-  assert.throws(() => lerCabecalho(Buffer.from('PK\u0003\u0004qualquer zip')), /não é um backup do Murade/);
+  assert.throws(() => lerCabecalho(Buffer.from('PK\u0003\u0004qualquer zip')), /não é um backup do Murad/);
   assert.throws(() => abrirArquivo(arquivo, 'dp', 'esc-A', { MURADE_BACKUP_MASTER_KEY: 'c'.repeat(64) } as any), /corrompido/);
   assert.ok(nomeArquivo('dp', 'completo', new Date('2026-11-20T21:00:00Z'), 'abcdef12-0000').endsWith(EXTENSAO));
   assert.match(nomeArquivo('dp', 'completo', new Date('2026-11-20T21:00:00Z'), 'abcdef12-0000'), /^murade-dp-20261120-1800-completo-abcdef12\.murade$/);
@@ -163,7 +163,7 @@ test('retenção: N completos + alterações da semana com base guardada + cópi
 // ===== Ferramentas da Agente =====
 
 test('agente: agendar vira cartão com o texto certo e só grava depois de confirmar; só administrador', async () => {
-  const [, agora, agendar] = ferramentasBackupEscritorio('/api/x/backup-agendado', 'Murade X') as any[];
+  const [, agora, agendar] = ferramentasBackupEscritorio('/api/x/backup-agendado', 'Murad X') as any[];
   const chamadas: Array<[string, string, any]> = [];
   const ctx: any = { chamarApi: async (m: string, c: string, b: any) => { chamadas.push([m, c, b]); return { status: 200, corpo: { sucesso: true, voce: { administrador: true }, chaveConfigurada: true, perfil: { nome: 'Completo todo dia às 18:00' } } }; } };
   const p = await agendar.preparar(ctx, { frequencia: 'todo dia', hora: '18h' });
@@ -204,7 +204,7 @@ async function montarServico(opcoes: { agora?: () => Date; nuvem?: Map<string, B
     async lerBuffer(chave) { const b = nuvem.get(chave); if (!b) throw new Error('não achei'); return b; },
   });
   const servico = criarServicoBackupAgendado({
-    sistema: 'dp', nomeSistema: 'Murade Teste', prefixo, consultar, env, agora: opcoes.agora,
+    sistema: 'dp', nomeSistema: 'Murad Teste', prefixo, consultar, env, agora: opcoes.agora,
     async cnpjsDoEscritorio(t) { return t === 'esc-sem' ? [] : ['11111111000111']; },
     async coletar(t) { return { dados: (await consultar(`SELECT id, valor FROM ${prefixo}_dados WHERE tenant = $1 ORDER BY id`, [t])).rows }; },
     async escritorios() { return escritorios; },

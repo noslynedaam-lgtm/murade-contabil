@@ -107,7 +107,7 @@ export function registrarGestaoEquipe(app: Express, cfg: ConfigGestaoEquipe, par
         const token = crypto.randomBytes(32).toString('base64url');
         await db().query(`DELETE FROM ${tabelaReset} WHERE user_id=$1`, [u.rows[0].id]);
         await db().query(`INSERT INTO ${tabelaReset}(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '24 hours')`, [hash(token), u.rows[0].id]);
-        await enviarEmail(lg, 'Murade: criar nova senha', `Olá!\n\nRecebemos um pedido para criar uma nova senha no Murade.\nAbra o link abaixo (vale 24 horas e só pode ser usado uma vez):\n\n${linkConvite(req, token, lg)}\n\nSe não foi você, ignore este e-mail: sua senha continua a mesma.`);
+        await enviarEmail(lg, 'Murad: criar nova senha', `Olá!\n\nRecebemos um pedido para criar uma nova senha no Murad.\nAbra o link abaixo (vale 24 horas e só pode ser usado uma vez):\n\n${linkConvite(req, token, lg)}\n\nSe não foi você, ignore este e-mail: sua senha continua a mesma.`);
       }
       res.json(resposta);
     } catch (e) { console.error('Falha no envio de recuperação de senha:', e instanceof Error ? e.message : e); res.json(resposta); }

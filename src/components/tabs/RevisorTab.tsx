@@ -3,6 +3,7 @@
 // pelo plano, competência pela data, histórico sem espaços); o resto tem "Me leva lá" e "Deixar assim". Nada é aprovado nem fechado.
 import React, { useCallback, useEffect, useState } from "react";
 import { confirmarNaTela } from "../../utils/dialogoNaTela";
+import { CampoMes } from '../CampoData';
 
 interface Achado { regra: string; nivel: "bloqueia" | "atencao"; texto: string; tela: string; corrigivel: boolean }
 interface EmpresaRevisada { cnpj: string; nome: string; regime: string; competencia: string; certo: string[]; risco: Achado[]; falta: Achado[] }
@@ -105,7 +106,7 @@ export const RevisorTab: React.FC<{ onNavegar: (tela: string, cnpj: string) => v
       <div className="rounded-lg border border-slate-200 p-2.5" data-campo="revisor-geral">
         <div className="flex flex-wrap items-end gap-2">
           <label className="flex flex-col text-[11px] font-semibold text-slate-600">Competência da revisão
-            <input data-campo="revisor-competencia" type="month" className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm" value={competencia} onChange={(e) => setCompetencia(e.target.value)} />
+            <CampoMes data-campo="revisor-competencia" className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm" value={competencia} onChange={(e) => setCompetencia(e.target.value)} />
           </label>
           <button type="button" className={botao} data-campo="revisor-revisar" disabled={ocupado === "geral" || !/^\d{4}-\d{2}$/.test(competencia)} onClick={() => void revisar()}>{ocupado === "geral" ? "Revisando…" : "Revisar todas as empresas"}</button>
         </div>

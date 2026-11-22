@@ -466,8 +466,8 @@ test('nome: saneado (curto, sem HTML, sem símbolos, máx 40) e aceita a frase f
 });
 test('nome: pergunta fixa, boas-vindas com o nome só depois dele e sem nome continuam as mesmas', () => {
   assert.equal(PERGUNTA_NOME, 'Como posso te chamar?');
-  assert.match(textoBoasVindas(1, false, 'Ana')!, /^Boas-vindas ao Murade Contábil, Ana!/); assert.match(textoBoasVindas(3, false, 'Ana')!, /^Que bom ter você de volta, Ana!/);
-  assert.match(textoBoasVindas(1)!, /^Boas-vindas ao Murade Contábil! /); assert.equal(textoBoasVindas(6, false, 'Ana'), null);
+  assert.match(textoBoasVindas(1, false, 'Ana')!, /^Boas-vindas ao Murad Contábil, Ana!/); assert.match(textoBoasVindas(3, false, 'Ana')!, /^Que bom ter você de volta, Ana!/);
+  assert.match(textoBoasVindas(1)!, /^Boas-vindas ao Murad Contábil! /); assert.equal(textoBoasVindas(6, false, 'Ana'), null);
   assert.equal(textoBoasVindas(5, true, 'Ana'), textoBoasVindas(1, false, 'Ana'));
 });
 test('Agente: "mudar meu nome" vira cartão, só grava depois do sim e recusa nome inválido', async () => {

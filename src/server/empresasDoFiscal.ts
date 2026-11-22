@@ -36,8 +36,8 @@ export async function buscarEmpresasDoFiscal(env: Record<string, string | undefi
   if (!token) return { ok: false, motivo: "Token de integração (MURADE_INTEGRATION_TOKEN) não configurado neste sistema.", empresas: [] };
   try {
     const r = await buscar(`${urlDoSistema("fiscal", env)}/api/integracao/fiscal/empresas`, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30000) });
-    if (!r.ok) return { ok: false, motivo: `O Murade Fiscal respondeu com erro (${r.status}).`, empresas: [] };
+    if (!r.ok) return { ok: false, motivo: `O Murad Fiscal respondeu com erro (${r.status}).`, empresas: [] };
     const corpo: any = await r.json().catch(() => null);
     return { ok: true, empresas: Array.isArray(corpo?.empresas) ? corpo.empresas : [], excluidas: cnpjsExcluidosNoFiscal(corpo) };
-  } catch { return { ok: false, motivo: "O Murade Fiscal não respondeu a tempo.", empresas: [] }; }
+  } catch { return { ok: false, motivo: "O Murad Fiscal não respondeu a tempo.", empresas: [] }; }
 }

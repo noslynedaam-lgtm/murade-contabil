@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { perguntar, perguntarDuasVezes } from './perguntaNaTela';
 import { escolherPasta, esquecerPasta, estadoPasta, liberarPasta, pastaSuportada, sincronizarPasta, type EstadoPasta } from './pastaBackup';
+import { CampoData } from '../CampoData';
 
 // Tela "Backup" do escritório — igual nos três sistemas Murade (muda só o endereço da API e o nome do sistema).
 // Tudo aqui é do escritório de quem está logado; o servidor filtra pelo escritório em cada consulta.
@@ -91,7 +92,7 @@ export function PainelBackupEscritorio({ api, sistema, nomeSistema, onVoltar, no
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
           <h1 className="text-lg font-black text-[#0F2B5B]">Backup do escritório</h1>
-          <p className="text-xs text-slate-600">Arquivo próprio do Murade (.murade), cifrado com a chave do seu escritório: só abre e só é restaurado dentro do {nomeSistema}.</p>
+          <p className="text-xs text-slate-600">Arquivo próprio do Murad (.murade), cifrado com a chave do seu escritório: só abre e só é restaurado dentro do {nomeSistema}.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {onVoltar && <Botao onClick={onVoltar}>{nomeVoltar || 'Voltar'}</Botao>}
@@ -101,7 +102,7 @@ export function PainelBackupEscritorio({ api, sistema, nomeSistema, onVoltar, no
 
       {erro && <div className="rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-900">{erro}</div>}
       {aviso && <div className="rounded-lg bg-slate-100 p-3 text-sm font-semibold text-slate-800">{aviso}</div>}
-      {resumo && !resumo.chaveConfigurada && <div className="rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-900">O backup cifrado ainda não foi ativado neste servidor. Avise o suporte do Murade.</div>}
+      {resumo && !resumo.chaveConfigurada && <div className="rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-900">O backup cifrado ainda não foi ativado neste servidor. Avise o suporte do Murad.</div>}
 
       {resumo && (
         <div className={`rounded-xl border-2 p-3 text-sm ${resumo.diasDesdeUltimo !== null && resumo.diasDesdeUltimo <= (resumo.config.avisos.diasSemBackup || 7) ? 'border-emerald-300 bg-emerald-50' : 'border-amber-300 bg-amber-50'}`}>
@@ -233,7 +234,7 @@ function Agenda({ cfg, perfis, admin, ocupado, salvar }: { cfg: Config; perfis: 
           <label className="text-xs">"Só alterações" em rodízio por (dias)<br /><input type="number" min={1} max={31} disabled={!admin} className={sel} value={dias} onChange={(e) => setDias(Number(e.target.value))} /></label>
           <label className="flex items-center gap-2 text-xs sm:col-span-2"><input type="checkbox" disabled={!admin} checked={validar} onChange={(e) => setValidar(e.target.checked)} /> Conferir cada backup logo depois de fazer (abre o arquivo, confere o checksum e as contagens). Recomendado: deixe ligado.</label>
         </div>
-        <p className="mt-1 text-[11px] text-slate-500">No servidor do Murade ficam no máximo 5 completos; na sua nuvem fica a quantidade escolhida.</p>
+        <p className="mt-1 text-[11px] text-slate-500">No servidor do Murad ficam no máximo 5 completos; na sua nuvem fica a quantidade escolhida.</p>
         {admin && <Botao forte className="mt-2" disabled={ocupado} onClick={() => salvar({ ...cfg, retencaoCompletos: retencao, diasAlteracoes: dias, validar })}>Gravar</Botao>}
       </Cartao>
     </div>
@@ -264,7 +265,7 @@ function Destino({ api, sistema, cfg, admin, ocupado, salvar, recarregar }: { ap
   return (
     <div className="space-y-3">
       <Cartao titulo="No meu computador">
-        <p className="text-xs text-slate-700">Todo backup pode ser baixado na aba Backups (botão Baixar). Para gravar <b>sozinho</b> numa pasta do computador (ex.: Documentos\Backup Murade), escolha a pasta uma vez:</p>
+        <p className="text-xs text-slate-700">Todo backup pode ser baixado na aba Backups (botão Baixar). Para gravar <b>sozinho</b> numa pasta do computador (ex.: Documentos\Backup Murad), escolha a pasta uma vez:</p>
         {pasta && !pasta.suportado && <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-900">Este navegador não deixa o sistema gravar numa pasta (isso funciona no Google Chrome e no Microsoft Edge do computador). Aqui, use o botão Baixar.</p>}
         {pasta?.suportado && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -276,7 +277,7 @@ function Destino({ api, sistema, cfg, admin, ocupado, salvar, recarregar }: { ap
           </div>
         )}
         {msgPasta && <p className="mt-2 text-xs font-semibold text-slate-800">{msgPasta}</p>}
-        <p className="mt-2 text-[11px] text-slate-500">Importante: a gravação automática só acontece com o sistema aberto neste computador. Com o sistema fechado, o backup fica guardado no Murade e é gravado na pasta na próxima vez que você abrir. A escolha da pasta vale só para este navegador.</p>
+        <p className="mt-2 text-[11px] text-slate-500">Importante: a gravação automática só acontece com o sistema aberto neste computador. Com o sistema fechado, o backup fica guardado no Murad e é gravado na pasta na próxima vez que você abrir. A escolha da pasta vale só para este navegador.</p>
       </Cartao>
 
       <Cartao titulo="Na minha nuvem">
@@ -299,7 +300,7 @@ function Destino({ api, sistema, cfg, admin, ocupado, salvar, recarregar }: { ap
             <div className="flex flex-wrap gap-2 sm:col-span-2">
               <Botao disabled={testando || ocupado} onClick={() => void nuvem('testar')}>{testando ? 'Testando…' : 'Testar'}</Botao>
               <Botao forte disabled={testando || ocupado} onClick={() => void nuvem('gravar')}>Testar e gravar</Botao>
-              {cfg.nuvem && <Botao disabled={testando || ocupado} onClick={async () => { if (await perguntarDuasVezes('Tirar a nuvem do backup?', 'Os arquivos que já estão lá continuam lá; os próximos backups ficam só no Murade e no computador.')) void nuvem('tirar'); }}>Tirar a nuvem</Botao>}
+              {cfg.nuvem && <Botao disabled={testando || ocupado} onClick={async () => { if (await perguntarDuasVezes('Tirar a nuvem do backup?', 'Os arquivos que já estão lá continuam lá; os próximos backups ficam só no Murad e no computador.')) void nuvem('tirar'); }}>Tirar a nuvem</Botao>}
             </div>
           </div>
         ) : <p className="mt-2 text-xs text-slate-600">Só o administrador do escritório configura a nuvem.</p>}
@@ -368,8 +369,8 @@ function Relatorio({ api, nomeSistema }: { api: string; nomeSistema: string }) {
   return (
     <Cartao titulo="Relatório dos backups" extra={dados ? <div className="flex gap-1.5 print:hidden"><a className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold" download={`relatorio-backup-${de}-${ate}.csv`} href={`data:text/csv;charset=utf-8,${encodeURIComponent('﻿' + csv)}`}>Baixar planilha</a><Botao onClick={() => window.print()}>Imprimir</Botao></div> : undefined}>
       <div className="flex flex-wrap items-end gap-2 print:hidden">
-        <label className="text-xs">De<br /><input type="date" className="rounded-lg border border-slate-300 px-2 py-2 text-sm" value={de} onChange={(e) => setDe(e.target.value)} /></label>
-        <label className="text-xs">Até<br /><input type="date" className="rounded-lg border border-slate-300 px-2 py-2 text-sm" value={ate} onChange={(e) => setAte(e.target.value)} /></label>
+        <label className="text-xs">De<br /><CampoData className="rounded-lg border border-slate-300 px-2 py-2 text-sm" value={de} onChange={(e) => setDe(e.target.value)} /></label>
+        <label className="text-xs">Até<br /><CampoData className="rounded-lg border border-slate-300 px-2 py-2 text-sm" value={ate} onChange={(e) => setAte(e.target.value)} /></label>
         <Botao forte onClick={() => void ver()}>Ver</Botao>
       </div>
       {erro && <p className="mt-2 text-xs font-semibold text-red-700">{erro}</p>}
@@ -421,7 +422,7 @@ function Restaurar({ api, admin, alvo, limparAlvo, execucoes, mensais, aoTermina
 
   const confirmar = async () => {
     if (!previa) return;
-    if (!(await perguntar({ titulo: 'Última confirmação', texto: `Restaurar "${rotulo}" agora? Antes, o Murade guarda uma cópia de como está hoje.`, sim: 'Sim, restaurar', perigo: true, inverterBotoes: true }))) return;
+    if (!(await perguntar({ titulo: 'Última confirmação', texto: `Restaurar "${rotulo}" agora? Antes, o Murad guarda uma cópia de como está hoje.`, sim: 'Sim, restaurar', perigo: true, inverterBotoes: true }))) return;
     setOcupado(true); setMsg('');
     try { const d = await chamar(`${api}/restaurar/confirmar`, 'POST', { token: previa.token, confirmacao: texto }); setResultado(d); setPrevia(null); aoTerminar(); }
     catch (e: any) { setMsg(e.message); } finally { setOcupado(false); }
@@ -469,7 +470,7 @@ function Restaurar({ api, admin, alvo, limparAlvo, execucoes, mensais, aoTermina
           {previa.totalMudancas === 0 ? <p className="mt-3 rounded-lg bg-emerald-50 p-2 text-sm font-semibold text-emerald-900">Nada a restaurar: os dados de hoje já estão iguais aos do backup.</p> : (
             <div className="mt-3 space-y-2 rounded-lg border-2 border-red-200 bg-red-50 p-2.5">
               <p className="text-xs font-bold text-red-900">3. Confirmação</p>
-              <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={entendi} onChange={(e) => setEntendi(e.target.checked)} /> Entendi: {previa.totalMudancas} registro(s) voltam a ficar como no backup. Antes, o Murade guarda sozinho uma cópia de como está hoje.</label>
+              <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={entendi} onChange={(e) => setEntendi(e.target.checked)} /> Entendi: {previa.totalMudancas} registro(s) voltam a ficar como no backup. Antes, o Murad guarda sozinho uma cópia de como está hoje.</label>
               <label className="block text-xs">Para confirmar, digite RESTAURAR<br /><input className="mt-1 w-full rounded-lg border border-red-300 bg-white px-2 py-2 text-sm sm:w-60" value={texto} onChange={(e) => setTexto(e.target.value)} autoComplete="off" /></label>
               <Botao perigo disabled={!entendi || texto.trim().toUpperCase() !== 'RESTAURAR' || ocupado} onClick={() => void confirmar()}>Restaurar este backup</Botao>
               <p className="text-[11px] text-red-900">A prévia vale por {previa.expiraEmMin} minutos.</p>

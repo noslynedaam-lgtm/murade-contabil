@@ -25,7 +25,7 @@ const origens: Array<{ id: OrigemMigracaoContabil; nome: string; detalhe: string
   { id: "ALTERDATA", nome: "Sistema anterior — Contábil", detalhe: "Plano de contas, centros e diário exportados em CSV/TXT" },
   { id: "DOMINIO", nome: "Domínio — Contábil", detalhe: "Plano, centros de custo e lançamentos delimitados" },
   { id: "ATRON", nome: "Atron — Contábil", detalhe: "Arquivos contábeis exportados em CSV/TXT" },
-  { id: "CSV", nome: "Planilha / CSV Genérica", detalhe: "Importação por cabeçalho reconhecido ou pacote Murade JSON" },
+  { id: "CSV", nome: "Planilha / CSV Genérica", detalhe: "Importação por cabeçalho reconhecido ou pacote Murad JSON" },
 ];
 
 const etapas = ["Sistema de Origem", "Arquivos e Leitura", "Validação e Relatório", "Importação Concluída"];
@@ -164,13 +164,13 @@ export const MigracaoContabilTab: React.FC<Props> = ({ empresa, contas, centrosC
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-xl font-black text-[#0F2B5B]">📦 MURADE CONTÁBIL — MIGRAÇÃO DE DADOS</h1>
+            <h1 className="text-xl font-black text-[#0F2B5B]">📦 MURAD CONTÁBIL — MIGRAÇÃO DE DADOS</h1>
             <span className="rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">4 ETAPAS</span>
           </div>
           <p className="mt-1 text-xs text-slate-500">Transfira plano de contas, centros de custo e lançamentos para {empresa.razaoSocial || "a empresa ativa"}.</p>
         </div>
-        <button type="button" onClick={baixar} disabled={!empresaPronta} className="flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-800 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50" title={!empresaPronta ? "Cadastre uma empresa antes de exportar" : "Baixar dados contábeis em arquivo Murade JSON"}>
-          <FolderOpen size={15} /> Exportar arquivo Murade
+        <button type="button" onClick={baixar} disabled={!empresaPronta} className="flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-800 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50" title={!empresaPronta ? "Cadastre uma empresa antes de exportar" : "Baixar dados contábeis em arquivo Murad JSON"}>
+          <FolderOpen size={15} /> Exportar arquivo Murad
         </button>
       </div>
 
@@ -197,12 +197,12 @@ export const MigracaoContabilTab: React.FC<Props> = ({ empresa, contas, centrosC
             <span className="mt-1 block text-xs text-slate-500">{item.detalhe}</span>
           </button>)}
         </div>
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">A leitura reconhece cabeçalhos comuns de CSV/TXT. Também lê lançamentos TXT do sistema anterior nos modelos 1 e 2 e o arquivo TXT oficial da ECD (Sped Contábil) gerado por qualquer sistema (o sistema anterior, Domínio…): traz plano de contas, saldos de abertura, centros de custo e lançamentos do ano, sem duplicar. Para plano de contas e centros de custo, exporte como arquivo delimitado com cabeçalho. Os demais layouts proprietários variam por versão e precisam ser exportados para CSV/TXT ou convertidos para pacote Murade.</div>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">A leitura reconhece cabeçalhos comuns de CSV/TXT. Também lê lançamentos TXT do sistema anterior nos modelos 1 e 2 e o arquivo TXT oficial da ECD (Sped Contábil) gerado por qualquer sistema (o sistema anterior, Domínio…): traz plano de contas, saldos de abertura, centros de custo e lançamentos do ano, sem duplicar. Para plano de contas e centros de custo, exporte como arquivo delimitado com cabeçalho. Os demais layouts proprietários variam por versão e precisam ser exportados para CSV/TXT ou convertidos para pacote Murad.</div>
         <div className="flex justify-end"><button type="button" onClick={() => setEtapa(2)} className="inline-flex items-center gap-2 rounded-lg bg-[#0F2B5B] px-4 py-2 text-xs font-bold text-white hover:bg-blue-900">Continuar <ArrowRight size={15} /></button></div>
       </section>}
 
       {etapa === 2 && <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div><h2 className="text-sm font-black uppercase tracking-wide text-slate-800">2. Arquivos e Leitura</h2><p className="mt-1 text-xs text-slate-500">Selecione CSV/TXT delimitado, XML de NF-e ou pacote JSON Murade. CSV/TXT aceita ponto e vírgula, vírgula, tabulação ou barra vertical. Para XML, escolha explicitamente as contas analíticas; notas com tributos destacados ou campos fiscais ausentes ficam pendentes para classificação detalhada.</p></div>
+        <div><h2 className="text-sm font-black uppercase tracking-wide text-slate-800">2. Arquivos e Leitura</h2><p className="mt-1 text-xs text-slate-500">Selecione CSV/TXT delimitado, XML de NF-e ou pacote JSON Murad. CSV/TXT aceita ponto e vírgula, vírgula, tabulação ou barra vertical. Para XML, escolha explicitamente as contas analíticas; notas com tributos destacados ou campos fiscais ausentes ficam pendentes para classificação detalhada.</p></div>
         <div className="rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/60 p-6 text-center">
           <UploadCloud className="mx-auto text-blue-700" size={30} />
           <p className="mt-2 text-sm font-bold text-slate-800">Arquivos do {origens.find((item) => item.id === origem)?.nome}</p>

@@ -20,7 +20,7 @@ const ler = (c: string) => { try { return fs.readFileSync(path.join(RAIZ, c), 'u
 
 // ---------------------------------------------------------------- conteúdo
 test('Escola (Contábil): as 9 trilhas pedidas existem, cada uma com aulas', () => {
-  assert.deepEqual(TRILHAS.map((t) => t.titulo), ['Primeiros passos no Murade Contábil', 'Plano de contas e partidas dobradas', 'Lançamentos', 'Conciliação bancária', 'Fechamento do mês', 'Balancete, DRE e Balanço', 'Livro Caixa do Simples', 'ECD e ECF', 'Encerramento do exercício']);
+  assert.deepEqual(TRILHAS.map((t) => t.titulo), ['Primeiros passos no Murad Contábil', 'Plano de contas e partidas dobradas', 'Lançamentos', 'Conciliação bancária', 'Fechamento do mês', 'Balancete, DRE e Balanço', 'Livro Caixa do Simples', 'ECD e ECF', 'Encerramento do exercício']);
   for (const t of TRILHAS) assert.ok(AULAS.some((a) => a.trilha === t.id), `trilha sem aula: ${t.id}`);
   assert.ok(AULAS.length >= 18, `${AULAS.length} aulas`);
 });
@@ -269,11 +269,11 @@ test('Escola (Contábil): robô — aluno parado há 7 dias avisa o gestor; quem
 
 test('Escola (Contábil): server.ts registra robô, "Rodar agora" e rotas; a apresentação e o jeito padrão falam da Escola', () => {
   const src = ler('server.ts')!;
-  assert.match(src, /registrarRobo\(\{ id: "conferidor_escola", nome: "Robô Conferidor da Escola Murade"/);
+  assert.match(src, /registrarRobo\(\{ id: "conferidor_escola", nome: "Robô Conferidor da Escola Murad"/);
   assert.match(src, /registrarRotinaManual\("conferidor_escola"/);
   assert.match(src, /registrarRotasEscola\(/);
-  assert.match(ler('src/data/apresentacaoSistema.ts')!, /id: 'conferidor_escola', nome: 'Robô Conferidor da Escola Murade', intervaloMs: 6 \* 60 \* 60_000/);
-  assert.doesNotMatch(ler('src/data/jeitoPadraoContabil.ts')!, /id: 'escola', rotulo: '🎓 Escola Murade'/, 'a Escola não é item do menu (só por link)');
+  assert.match(ler('src/data/apresentacaoSistema.ts')!, /id: 'conferidor_escola', nome: 'Robô Conferidor da Escola Murad', intervaloMs: 6 \* 60 \* 60_000/);
+  assert.doesNotMatch(ler('src/data/jeitoPadraoContabil.ts')!, /id: 'escola', rotulo: '🎓 Escola Murad'/, 'a Escola não é item do menu (só por link)');
 });
 
 // ---------------------------------------------------------------- Agente

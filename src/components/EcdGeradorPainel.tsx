@@ -7,6 +7,7 @@ import { LancamentoValidado } from "../utils/livrosContabeis";
 import { codPlanRefECD, contasReferenciais, existeContaReferencialAnalitica, FONTE_PLANO_REFERENCIAL, regimeReferencial, sugerirMapeamento } from "../services/planoReferencialService";
 import { conferirBlocoL, registrosBlocoL } from "../services/ecfBlocoLService";
 import { analisarObrigatoriedadeECD, naturezasDasContas, CodigoNaturezaConta, ecdParaLatin1, gerarArquivoECD, montarParametrosECD, ParametrosECD, prazoEntregaECD } from "../services/ecdService";
+import { CampoData } from './CampoData';
 
 interface Props {
   empresa: EmpresaDados;
@@ -159,7 +160,7 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
         <label>Natureza do livro<input className={campo} value={f.naturezaLivro} onChange={set("naturezaLivro")} /></label>
         <label>Município<input className={campo} value={f.municipio} onChange={set("municipio")} /></label>
         <label>Código IBGE do município (opcional)<input className={campo} inputMode="numeric" value={f.ibge} onChange={set("ibge")} /></label>
-        <label>Arquivamento dos atos (ou abertura)<input className={campo} type="date" value={f.dataAtos} onChange={set("dataAtos")} /></label>
+        <label>Arquivamento dos atos (ou abertura)<CampoData className={campo} value={f.dataAtos} onChange={set("dataAtos")} /></label>
       </div>
       <p className="mt-2 text-[11px]">Assinatura e identificação vêm do cadastro da empresa (CRC, CPF, e-mail, certidão e NIRE). Preencha uma vez em Empresa → Contador e valerá para todas as ECDs.</p>
       {regimeRef && (

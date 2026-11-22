@@ -149,7 +149,7 @@ export const CalculadoraTab: React.FC<CalculadoraTabProps> = ({ empresaPadrao })
 
   // Copiar resumo
   const copiarResumo = () => {
-    const texto = `MURADE CONTÁBIL — RESUMO CALCULADORA 3D\n` +
+    const texto = `MURAD CONTÁBIL — RESUMO CALCULADORA 3D\n` +
       `Empresa: ${empresaAtual}\n` +
       `Total Acumulado: ${formatarMoeda(totalEmpresaAtual)}\n` +
       `Total Geral de Todas as Empresas: ${formatarMoeda(totalGeral)}`;
@@ -233,7 +233,7 @@ export const CalculadoraTab: React.FC<CalculadoraTabProps> = ({ empresaPadrao })
 
             {/* Marca Superior */}
             <div className="text-center text-[#B39DDB] text-[11px] font-black tracking-[3px] uppercase mb-3 opacity-90">
-              MURADE • CONTÁBIL 3D
+              MURAD • CONTÁBIL 3D
             </div>
 
             {/* Empresa ativa cadastrada na tela de empresa */}

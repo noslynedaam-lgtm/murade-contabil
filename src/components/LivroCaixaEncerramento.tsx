@@ -8,6 +8,7 @@ import { dataLegivelContabil, gerarWorkbookExcel, moedaContabil } from "../utils
 import { calcularEncerramento, contaApuracaoPadrao, ehErro, encerramentoGravadoConfere, encerramentosDoAno } from "../utils/escrituracaoAvancada";
 import { naturezasDasContas } from "../services/ecdService";
 import { confirmarNaTela } from "../utils/dialogoNaTela";
+import { CampoMes } from './CampoData';
 
 type Rota = RotaEscrituracao;
 const escapar = (v: unknown) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -44,7 +45,7 @@ export const LivroCaixaPainel: React.FC<{ empresa: EmpresaDados; contas: ContaPl
       ${meses}
       <div class="termo quebra">${escapar(termos.encerramento)}</div>
       <div class="ass">${termos.assinaturas.map((a) => `<div>${escapar(a)}</div>`).join("")}</div>
-      <p><small>Gerado pelo Murade Contábil em ${new Date().toLocaleString("pt-BR")} a partir de lançamentos aprovados. Res. CGSN nº 140/2018, art. 63.</small></p>
+      <p><small>Gerado pelo Murad Contábil em ${new Date().toLocaleString("pt-BR")} a partir de lançamentos aprovados. Res. CGSN nº 140/2018, art. 63.</small></p>
       <script>window.onload=function(){window.print()}</script></body></html>`);
     w.document.close();
     void registrar();
@@ -74,8 +75,8 @@ export const LivroCaixaPainel: React.FC<{ empresa: EmpresaDados; contas: ContaPl
         {!ehSimplesNacional(empresa.regime) && <span className="mt-1 block font-bold">Esta empresa não está cadastrada no Simples Nacional; o relatório sai mesmo assim, para conferência.</span>}
       </div>
       <div className="flex flex-wrap items-end gap-2">
-        <label className="grid gap-1 font-bold">De<input type="month" data-campo="livro-caixa-de" value={de} onChange={(e) => setDe(e.target.value)} className="rounded border px-2 py-1" /></label>
-        <label className="grid gap-1 font-bold">Até<input type="month" value={ate} onChange={(e) => setAte(e.target.value)} className="rounded border px-2 py-1" /></label>
+        <label className="grid gap-1 font-bold">De<CampoMes data-campo="livro-caixa-de" value={de} onChange={(e) => setDe(e.target.value)} className="rounded border px-2 py-1" /></label>
+        <label className="grid gap-1 font-bold">Até<CampoMes value={ate} onChange={(e) => setAte(e.target.value)} className="rounded border px-2 py-1" /></label>
         <button type="button" disabled={!livro.disponivel} onClick={imprimir} className="rounded bg-blue-700 px-3 py-2 font-bold text-white disabled:opacity-40">Imprimir / Salvar PDF</button>
         <button type="button" disabled={!livro.disponivel} onClick={excel} className="rounded border border-emerald-300 bg-emerald-50 px-3 py-2 font-bold text-emerald-900 disabled:opacity-40">Exportar Excel</button>
         {onRota && <button type="button" disabled={!livro.disponivel || !podeGravar} onClick={() => void registrar()} className="rounded border px-3 py-2 font-bold disabled:opacity-40">Registrar como emitido</button>}

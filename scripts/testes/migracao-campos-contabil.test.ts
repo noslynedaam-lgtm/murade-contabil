@@ -197,7 +197,7 @@ test('gravado: o registro guarda o mapa das contas; o robô conferidor e a Agent
   assert.ok(f.t.registro.find((r) => r.bloco === BLOCO_RESUMO).linhas.mapaContas, 'mapa das contas guardado');
   const ok = await conferirCamposEmpresaMigrada(f.consultar, d.cnpj);
   assert.equal(ok!.pendencias.length, 0, JSON.stringify(ok!.pendencias.slice(0, 3)));
-  // A equipe (ou algo) apagou o NIRE no Murade: o robô avisa.
+  // A equipe (ou algo) apagou o NIRE no Murad: o robô avisa.
   delete f.t.workspaces.get(d.cnpj)!.payload.empresa.nire;
   const r = await conferirCamposEmpresaMigrada(f.consultar, d.cnpj);
   assert.deepEqual(r!.pendencias.map((x) => [x.rotulo, x.tipo, x.noSistemaAnterior]), [['NIRE', 'faltou', '52-2-0247806-1']]);

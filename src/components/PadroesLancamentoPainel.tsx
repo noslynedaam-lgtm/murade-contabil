@@ -6,6 +6,7 @@ import type { ContaPlano, HistoricoPadrao, LancamentoPadrao } from "../types";
 import { useExclusaoDuasEtapas } from "./ConfirmaExclusaoDuasEtapas";
 import { textoParaCentavos } from "../utils/escrituracaoAvancada";
 import { moedaContabil } from "../utils/livrosContabeis";
+import { CampoMes } from './CampoData';
 
 type Rota = RotaEscrituracao;
 interface Props { contas: ContaPlano[]; historicosPadrao: HistoricoPadrao[]; lancamentosPadrao: LancamentoPadrao[]; onRota: Rota; podeGravar: boolean }
@@ -75,7 +76,7 @@ export const PadroesLancamentoPainel: React.FC<Props> = ({ contas, historicosPad
           </li>;
         })}{!lancamentosPadrao.length && <li className="text-slate-500">Nenhum lançamento padrão cadastrado.</li>}</ul>
         <div className="mt-2 flex flex-wrap items-end gap-2 rounded border border-dashed border-slate-300 p-2">
-          <label className="grid gap-1">Competência<input type="month" value={compPreparar} onChange={(e) => setCompPreparar(e.target.value)} className="rounded border px-2 py-1" /></label>
+          <label className="grid gap-1">Competência<CampoMes value={compPreparar} onChange={(e) => setCompPreparar(e.target.value)} className="rounded border px-2 py-1" /></label>
           <button type="button" disabled={!podeGravar || !lancamentosPadrao.some((p) => p.ativo)} onClick={() => void onRota("POST", "lancamentos-padrao/preparar", { competencia: compPreparar })} className="rounded border border-blue-300 bg-blue-50 px-3 py-1.5 font-bold text-blue-900 disabled:opacity-40">Preparar agora (sem esperar o robô)</button>
         </div>
         <fieldset className="mt-3 grid gap-2 rounded border border-slate-200 p-2">
@@ -97,8 +98,8 @@ export const PadroesLancamentoPainel: React.FC<Props> = ({ contas, historicosPad
             {historicosPadrao.length > 0 && <select value="" onChange={(e) => { const h = historicosPadrao.find((x) => x.id === e.target.value); if (h) setHist(h.texto); }} className="rounded border px-2 py-1"><option value="">Usar um histórico padrão…</option>{historicosPadrao.map((h) => <option key={h.id} value={h.id}>{h.codigo} — {h.texto}</option>)}</select>}
           </label>
           <div className="grid gap-2 sm:grid-cols-2">
-            <label className="grid gap-1">A partir de<input type="month" value={inicio} onChange={(e) => setInicio(e.target.value)} className="rounded border px-2 py-1" /></label>
-            <label className="grid gap-1">Até (opcional)<input type="month" value={fim} onChange={(e) => setFim(e.target.value)} className="rounded border px-2 py-1" /></label>
+            <label className="grid gap-1">A partir de<CampoMes value={inicio} onChange={(e) => setInicio(e.target.value)} className="rounded border px-2 py-1" /></label>
+            <label className="grid gap-1">Até (opcional)<CampoMes value={fim} onChange={(e) => setFim(e.target.value)} className="rounded border px-2 py-1" /></label>
           </div>
           <button type="button" data-campo="padrao-gravar" disabled={!podeGravar} onClick={() => void gravarPadrao()} className="justify-self-end rounded bg-blue-700 px-3 py-1.5 font-bold text-white disabled:opacity-40">Cadastrar lançamento padrão</button>
         </fieldset>

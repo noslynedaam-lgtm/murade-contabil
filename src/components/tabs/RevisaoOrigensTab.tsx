@@ -4,6 +4,7 @@ import { confirmarNaTela } from "../../utils/dialogoNaTela";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowDownToLine, CheckCircle2, ClipboardCheck, Download, RefreshCw, Save } from "lucide-react";
 import type { ContaPlano, LancamentoContabil, MapeamentoOrigemContabil, OrigemMapeadaContabil, PreLancamentoContabil } from "../../types";
+import { CampoMes } from '../CampoData';
 
 type DocumentoFiscal = Record<string, unknown>;
 type ResumoFolha = { competencia: string; processamentoId?: string; calculadoEm: string; recebidoEm: string; atualizadoEm?: string; resumo: Record<string, number | null> };
@@ -669,8 +670,8 @@ export const RevisaoOrigensTab: React.FC<{
       </header>
 
       <section className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4">
-        <label className="text-xs font-semibold text-slate-600">Competência inicial<input type="month" value={desde} max={ate} onChange={(event) => setDesde(event.target.value)} className="mt-1 block rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900" /></label>
-        <label className="text-xs font-semibold text-slate-600">Competência final<input type="month" value={ate} min={desde} onChange={(event) => setAte(event.target.value)} className="mt-1 block rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900" /></label>
+        <label className="text-xs font-semibold text-slate-600">Competência inicial<CampoMes value={desde} max={ate} onChange={(event) => setDesde(event.target.value)} className="mt-1 block rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900" /></label>
+        <label className="text-xs font-semibold text-slate-600">Competência final<CampoMes value={ate} min={desde} onChange={(event) => setAte(event.target.value)} className="mt-1 block rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900" /></label>
         {atualizadoEm && <span className="text-xs text-slate-500">Consultado em {atualizadoEm}</span>}
       </section>
 

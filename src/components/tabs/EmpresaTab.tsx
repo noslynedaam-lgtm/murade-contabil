@@ -196,10 +196,10 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     setTimeout(() => setToastMsg(null), 5000);
   };
 
-  // Puxar empresa registrada no Mural de Fiscal
+  // Puxar empresa registrada no Murade Fiscal
   const handlePuxarEmpresaDoMuradFiscal = async () => {
     setLoadingCnpj(true);
-    showToast("🔄 Conectando ao Mural de Fiscal e buscando empresa cadastrada...");
+    showToast("🔄 Conectando ao Murad Fiscal e buscando empresa cadastrada...");
     try {
       const res = await conectarEPuxarEmpresaMuradFiscal();
       if (res.sucesso && res.empresa) {
@@ -223,7 +223,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
 
         showToast(res.mensagem || `Empresa recebida: ${res.empresa.razaoSocial}. Dados fiscais e de DP não foram importados.`);
       } else {
-        showToast("⚠️ Nenhuma empresa localizada no Mural de Fiscal.");
+        showToast("⚠️ Nenhuma empresa localizada no Murad Fiscal.");
       }
     } catch (e) {
       console.warn("Erro ao puxar do Fiscal:", e);
@@ -283,9 +283,9 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
         onUpdateEmpresa(importadas[0]);
         localStorage.setItem('murad_empresa_salva', JSON.stringify(importadas[0]));
       }
-      showToast(`${importadas.length} empresa(s) importada(s) do pacote Murade. Revise os campos fiscais antes de usar.`);
+      showToast(`${importadas.length} empresa(s) importada(s) do pacote Murad. Revise os campos fiscais antes de usar.`);
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Não foi possível importar o pacote Murade.');
+      showToast(error instanceof Error ? error.message : 'Não foi possível importar o pacote Murad.');
     }
     if (migrationInputRef.current) migrationInputRef.current.value = '';
   };
@@ -776,7 +776,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
 
         <div className="flex items-center gap-2 flex-wrap">
           <input ref={migrationInputRef} type="file" accept=".json,application/json" className="hidden" onChange={(event) => void handleImportarPacoteMurade(event.target.files?.[0])} />
-          <button type="button" onClick={() => migrationInputRef.current?.click()} className="px-3 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50 text-blue-800 text-xs font-semibold">Importar pacote Murade</button>
+          <button type="button" onClick={() => migrationInputRef.current?.click()} className="px-3 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50 text-blue-800 text-xs font-semibold">Importar pacote Murad</button>
           {empresasCadastradas.length > 0 && <button type="button" onClick={() => baixarPacoteEmpresasMurade(empresasCadastradas.map((item) => ({
             id: item.id, cnpj: item.cnpj, razaoSocial: item.razaoSocial, nomeFantasia: item.nomeFantasia,
             uf: item.uf, municipio: item.municipio, cidade: item.municipio, regime: item.regime,
@@ -832,7 +832,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-sm sm:text-base font-black tracking-tight text-white flex items-center gap-1.5">
-                  <span>Conexão Murad: Puxar Empresas do Mural Fiscal & DP</span>
+                  <span>Conexão Murad: puxar empresas do Murad Fiscal e do Murad DP</span>
                 </h3>
                 <span className="text-[10px] bg-amber-300 text-amber-950 font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
                   Não configurada
@@ -871,11 +871,11 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-3 text-xs">
           <div className="bg-black/20 rounded-lg p-2 border border-white/10 flex items-center justify-between">
-            <span className="text-[11px] text-blue-100">Murade Fiscal:</span>
+            <span className="text-[11px] text-blue-100">Murad Fiscal:</span>
             <span className="font-bold text-amber-200">Não conectado</span>
           </div>
           <div className="bg-black/20 rounded-lg p-2 border border-white/10 flex items-center justify-between">
-            <span className="text-[11px] text-blue-100">Mural DP:</span>
+            <span className="text-[11px] text-blue-100">Murad DP:</span>
             <span className="font-bold text-amber-200">Não conectado</span>
           </div>
           <div className="bg-black/20 rounded-lg p-2 border border-white/10 flex items-center justify-between">
@@ -1062,7 +1062,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
                         Contabilidade Responsável
                       </span>
                       <p className="font-semibold text-slate-800 truncate">
-                        {emp.contadorNome || "Murade Contábil"}
+                        {emp.contadorNome || "Murad Contábil"}
                       </p>
                       <p className="text-[11px] text-slate-500">
                         CRC: {emp.contadorCrc || "GO-024589/O-1"}
@@ -1538,8 +1538,8 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
           </div>
 
           <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-[11px] text-blue-900 leading-relaxed">
-            <strong>Onde coloco o certificado e a senha?</strong> No <strong>Murade Fiscal</strong>, no botão <strong>Certificado A1</strong> do topo. O certificado é cadastrado uma única vez lá, com a senha, e o Fiscal o usa para as notas. Aqui no Contábil não é preciso enviar nada, por isso não há campo de senha.
-            <a href="https://murade-fiscal-1.onrender.com" target="_blank" rel="noopener noreferrer" className="ml-1 font-bold text-blue-800 underline">Abrir o Murade Fiscal</a>
+            <strong>Onde coloco o certificado e a senha?</strong> No <strong>Murad Fiscal</strong>, no botão <strong>Certificado A1</strong> do topo. O certificado é cadastrado uma única vez lá, com a senha, e o Fiscal o usa para as notas. Aqui no Contábil não é preciso enviar nada, por isso não há campo de senha.
+            <a href="https://murade-fiscal-1.onrender.com" target="_blank" rel="noopener noreferrer" className="ml-1 font-bold text-blue-800 underline">Abrir o Murad Fiscal</a>
           </div>
 
           {/* ÁREA DE SELEÇÃO / DRAG & DROP DO COMPUTADOR */}
@@ -1574,7 +1574,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
                     <span className="text-[10px] text-slate-500 font-mono">({formCertTamanho || "arquivo"})</span>
                   </div>
                   <p className="text-[11px] text-amber-700 font-semibold">
-                    Arquivo escolhido só para conferência. O certificado e a senha são cadastrados no Murade Fiscal, não aqui.
+                    Arquivo escolhido só para conferência. O certificado e a senha são cadastrados no Murad Fiscal, não aqui.
                   </p>
                   <div className="flex items-center justify-center gap-2 pt-1">
                     <button
@@ -1605,7 +1605,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
                     Arraste o arquivo do Certificado Digital (.pfx / .p12) aqui
                   </p>
                   <p className="text-[11px] text-slate-500">
-                    Opcional: escolher o arquivo aqui só serve para conferência. O certificado com senha vai no Murade Fiscal.
+                    Opcional: escolher o arquivo aqui só serve para conferência. O certificado com senha vai no Murad Fiscal.
                   </p>
                   <button
                     type="button"

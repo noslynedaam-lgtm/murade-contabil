@@ -99,7 +99,7 @@ export function conferirMigracao(contas: ContaPlano[], lancamentos: any[], ref: 
     resumo = `Bate: ${migrados.length} lançamento(s) do sistema anterior; débitos e créditos de ${contasConferidas} conta(s) em ${competenciasConferidas} competência(s) iguais aos lançamentos originais`;
     if (semSaldos) resumo += ' (o backup não tinha a tabela de saldos para comparar).';
     else if (bateComSaldos) resumo += ' e aos saldos do sistema anterior, inclusive o saldo final de cada conta.';
-    else resumo += `. Atenção: em ${contasDesatualizadas} conta(s) a tabela de saldos antiga do próprio sistema anterior estava desatualizada (meses sem total gravado lá); o Murade seguiu os lançamentos, que são a fonte.`;
+    else resumo += `. Atenção: em ${contasDesatualizadas} conta(s) a tabela de saldos antiga do próprio sistema anterior estava desatualizada (meses sem total gravado lá); o Murad seguiu os lançamentos, que são a fonte.`;
   } else {
     const partes: string[] = [];
     if (naoEntraram) partes.push(`${naoEntraram} linha(s) de lançamento do arquivo não puderam entrar (estão no registro do sistema anterior, com o motivo)`);

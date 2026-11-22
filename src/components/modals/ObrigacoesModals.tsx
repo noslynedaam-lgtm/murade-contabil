@@ -351,7 +351,7 @@ export const PrepararModal: React.FC<PrepararModalProps> = ({ item, empresa, onC
         <button type="button" onClick={onClose} aria-label="Fechar"><X className="h-5 w-5" /></button>
       </div>
       <div className="space-y-3 p-6 text-sm">
-        <div role="note" className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-950"><strong>O arquivo da ECD é gerado na tela Livros Fiscais &amp; ECD.</strong><p className="mt-2">Lá o gerador monta o TXT do leiaute 9 (Blocos 0, I, J e 9, com Balanço, DRE, encerramento do resultado, termo de encerramento e signatários) a partir dos lançamentos aprovados. A validação, a assinatura e a transmissão continuam sendo feitas por você no PGE da Receita; o Murade não transmite.</p></div>
+        <div role="note" className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-950"><strong>O arquivo da ECD é gerado na tela Livros Fiscais &amp; ECD.</strong><p className="mt-2">Lá o gerador monta o TXT do leiaute 9 (Blocos 0, I, J e 9, com Balanço, DRE, encerramento do resultado, termo de encerramento e signatários) a partir dos lançamentos aprovados. A validação, a assinatura e a transmissão continuam sendo feitas por você no PGE da Receita; o Murad não transmite.</p></div>
         <p className="text-xs text-slate-600">Competência: {item.competencia || "não informada"}. Antes de gerar, confira se não há pré-lançamentos pendentes e se o plano de contas está com natureza e plano referencial.</p>
       </div>
       <div className="flex justify-end border-t bg-slate-50 p-4"><button type="button" onClick={onClose} className="rounded-lg bg-slate-800 px-4 py-2 text-xs font-bold text-white">Fechar</button></div>

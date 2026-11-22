@@ -13,7 +13,7 @@ export function baixarPacoteEmpresasMurade(empresas: EmpresaMuradeMigracao[]): v
 export async function lerPacoteEmpresasMurade(arquivo: File): Promise<EmpresaMuradeMigracao[]> {
   if (arquivo.size > 20 * 1024 * 1024) throw new Error('O pacote excede o limite de 20 MB.');
   const pacote = JSON.parse(await arquivo.text());
-  if (pacote?.formato !== FORMATO || pacote?.versao !== 1 || !Array.isArray(pacote.empresas)) throw new Error('Arquivo Murade inválido ou versão não suportada.');
+  if (pacote?.formato !== FORMATO || pacote?.versao !== 1 || !Array.isArray(pacote.empresas)) throw new Error('Arquivo Murad inválido ou versão não suportada.');
   const empresas = pacote.empresas as EmpresaMuradeMigracao[];
   if (!empresas.length) throw new Error('O pacote não contém empresas.');
   const invalidas = empresas.filter((e) => !e?.cnpj?.trim() || !e?.razaoSocial?.trim());

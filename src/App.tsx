@@ -529,7 +529,7 @@ function AppWorkspace() {
       ["revisao-origens", "Revisar dados recebidos", "origens fiscal dp revisao notas folha conciliacao mapeamento"],
       ["calculadora", "Calculadora 3D", "calculadora tributos imposto calcular zerar historico"],
       ["agente", "Agentes & Robô", "robos agente conferidor automatico"],
-      ["ia-premium", "IA Murade Premium", "inteligencia artificial assistente pergunta voz"],
+      ["ia-premium", "IA Murad Premium", "inteligencia artificial assistente pergunta voz"],
     ];
     // Assuntos dentro das telas: abrem a tela e piscam o título da parte procurada.
     const assuntos: [TabId, string, string, string][] = [
@@ -848,7 +848,7 @@ function AppWorkspace() {
 
   // 8. CONECTAR AO MURADE FISCAL E PUXAR EMPRESA REAL DO MURADE FISCAL
   const handleConectarMuradFiscal = async () => {
-    showToast("🔄 Conectando ao Murade Fiscal e buscando empresa cadastrada...", "info");
+    showToast("🔄 Conectando ao Murad Fiscal e buscando empresa cadastrada...", "info");
     try {
       const res = await conectarEPuxarEmpresaMuradFiscal();
       if (res.sucesso && res.empresa) {
@@ -887,10 +887,10 @@ function AppWorkspace() {
 
         showToast(res.mensagem, "info");
       } else {
-        showToast("⚠️ Nenhuma empresa encontrada no Murade Fiscal.", "info");
+        showToast("⚠️ Nenhuma empresa encontrada no Murad Fiscal.", "info");
       }
     } catch (e) {
-      console.error("Erro ao conectar ao Murade Fiscal:", e);
+      console.error("Erro ao conectar ao Murad Fiscal:", e);
       showToast(e instanceof Error ? e.message : "Integração com Murad Fiscal indisponível.", "info");
     }
   };

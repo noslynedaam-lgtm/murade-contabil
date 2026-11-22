@@ -35,8 +35,8 @@ export interface EscritorioParaConferirBackup { id: string; cnpjs: string[]; log
 
 function textoEmailBackup(periodo: string): { assunto: string; texto: string } {
   return {
-    assunto: `Murade Contábil: backup de ${periodo} pronto`,
-    texto: `Olá!\n\nO backup mensal dos dados do seu escritório no Murade Contábil referente a ${periodo} foi gerado e conferido com sucesso.\n\nPara baixar, entre no sistema e acesse a tela "Backups". Por segurança, o arquivo só pode ser aberto de dentro do Murade, com o seu login — ele não funciona fora do sistema.\n\nEste é só um aviso automático; não é preciso responder.`,
+    assunto: `Murad Contábil: backup de ${periodo} pronto`,
+    texto: `Olá!\n\nO backup mensal dos dados do seu escritório no Murad Contábil referente a ${periodo} foi gerado e conferido com sucesso.\n\nPara baixar, entre no sistema e acesse a tela "Backups". Por segurança, o arquivo só pode ser aberto de dentro do Murad, com o seu login — ele não funciona fora do sistema.\n\nEste é só um aviso automático; não é preciso responder.`,
   };
 }
 

@@ -246,7 +246,7 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
     if (!texto || !codigo) { avisos.push(`Histórico padrão ${txt(h.cdchamada) || txt(h.idhistoricopadrao)} sem texto ou sem código: guardado só no registro do sistema anterior.`); continue; }
     if (codigosHist.has(codigo.toUpperCase())) { avisos.push(`Histórico padrão com código repetido (${codigo}) no sistema anterior: o segundo ficou só no registro do sistema anterior.`); continue; }
     codigosHist.add(codigo.toUpperCase());
-    if (texto.length > 240) avisos.push(`O histórico padrão ${codigo} tem ${texto.length} letras; no Murade ficaram as 240 primeiras (o texto inteiro está no registro do sistema anterior).`);
+    if (texto.length > 240) avisos.push(`O histórico padrão ${codigo} tem ${texto.length} letras; no Murad ficaram as 240 primeiras (o texto inteiro está no registro do sistema anterior).`);
     const hp: HistoricoPadrao = { id: `${PREFIXO_ID_MIGRACAO}hist-${txt(h.idhistoricopadrao).slice(0, 40)}`, codigo, texto: texto.slice(0, 240) };
     if (txt(h.stcomplemento).toUpperCase() === 'S') hp.exigeComplemento = true;
     historicosPadrao.push(hp);

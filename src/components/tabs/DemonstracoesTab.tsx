@@ -14,6 +14,7 @@ import { escaparHtml, htmlRelatorioCliente, svgEvolucao, valorIndice } from "../
 import { saldosParteB, type ComplementosEcfAno, type ContaParteB, type EstabY540, type SocioY600 } from "../../services/ecfComplementosService";
 import { confirmarNaTela, perguntarNaTela } from "../../utils/dialogoNaTela";
 import { useExclusaoDuasEtapas } from "../ConfirmaExclusaoDuasEtapas";
+import { CampoData, CampoMes } from '../CampoData';
 
 type Aba = "dfc" | "dmpl" | "notas" | "indices" | "cliente" | "classificacao" | "ecf" | "painel";
 const ABAS: Array<[Aba, string]> = [["dfc", "DFC"], ["dmpl", "DMPL"], ["notas", "Notas explicativas"], ["indices", "Índices e gráficos"], ["cliente", "Relatório para o cliente"], ["classificacao", "Classificação das contas"], ["ecf", "ECF: Bloco Y e Parte B"], ["painel", "Painel do escritório"]];
@@ -218,7 +219,7 @@ export const DemonstracoesTab: React.FC<Props> = ({ empresa, contas, lancamentos
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <label className="text-[11px] font-semibold text-slate-600">Competência (até)
-            <input data-campo="demonstracoes-competencia" type="month" className={campo} value={competencia} onChange={(e) => e.target.value && setCompetencia(e.target.value)} />
+            <CampoMes data-campo="demonstracoes-competencia" className={campo} value={competencia} onChange={(e) => e.target.value && setCompetencia(e.target.value)} />
           </label>
           <button type="button" className={botaoClaro} data-campo="demonstracoes-rodar-agora" onClick={() => void rodarAgora()}><RefreshCw className="h-3.5 w-3.5" /> Rodar agora (conferência)</button>
         </div>
@@ -235,7 +236,7 @@ export const DemonstracoesTab: React.FC<Props> = ({ empresa, contas, lancamentos
       {aba === "dfc" && dfc && totaisDfc && <div className="space-y-2">
         <h3 className="text-sm font-bold">Demonstração dos Fluxos de Caixa (DFC)</h3>
         <div className="flex flex-wrap items-end gap-2">
-          <label className="text-[11px] font-semibold text-slate-600">De<input type="month" className={campo} value={de} max={competencia} onChange={(e) => e.target.value && setDe(e.target.value)} /></label>
+          <label className="text-[11px] font-semibold text-slate-600">De<CampoMes className={campo} value={de} max={competencia} onChange={(e) => e.target.value && setDe(e.target.value)} /></label>
           <label className="text-[11px] font-semibold text-slate-600">Método<select data-campo="dfc-metodo" className={campo} value={metodo} onChange={(e) => setMetodo(e.target.value as "indireto" | "direto")}><option value="indireto">Indireto (parte do resultado)</option><option value="direto">Direto (entradas e saídas do caixa)</option></select></label>
           <button type="button" className={botao} data-campo="dfc-pdf" onClick={() => exportarDfc("pdf")}><Printer className="h-3.5 w-3.5" /> PDF</button>
           <button type="button" className={botaoClaro} data-campo="dfc-excel" onClick={() => exportarDfc("excel")}><FileSpreadsheet className="h-3.5 w-3.5" /> Excel</button>
@@ -360,8 +361,8 @@ export const DemonstracoesTab: React.FC<Props> = ({ empresa, contas, lancamentos
             <label>CPF/CNPJ<input className={campo} value={s.cpfCnpj} onChange={(e) => setSocio(i, { cpfCnpj: e.target.value })} /></label>
             <label>País (Brasil = 105)<input className={campo} value={s.pais} onChange={(e) => setSocio(i, { pais: e.target.value })} /></label>
             <label>Qualificação (código)<input className={campo} maxLength={2} value={s.qualif} onChange={(e) => setSocio(i, { qualif: e.target.value.replace(/\D/g, "") })} /></label>
-            <label>Última alteração no quadro<input type="date" className={campo} value={s.dtAlt} onChange={(e) => setSocio(i, { dtAlt: e.target.value })} /></label>
-            <label>Saída (só se no ano)<input type="date" className={campo} value={s.dtFim || ""} onChange={(e) => setSocio(i, { dtFim: e.target.value || undefined })} /></label>
+            <label>Última alteração no quadro<CampoData className={campo} value={s.dtAlt} onChange={(e) => setSocio(i, { dtAlt: e.target.value })} /></label>
+            <label>Saída (só se no ano)<CampoData className={campo} value={s.dtFim || ""} onChange={(e) => setSocio(i, { dtFim: e.target.value || undefined })} /></label>
             <label>% capital total<input type="number" step="0.0001" className={campo} value={s.percCapTot} onChange={(e) => setSocio(i, { percCapTot: Number(e.target.value) })} /></label>
             <label>% capital votante<input type="number" step="0.0001" className={campo} value={s.percCapVot} onChange={(e) => setSocio(i, { percCapVot: Number(e.target.value) })} /></label>
             <label>Pró-labore/aluguel (R$)<input inputMode="decimal" className={campo} value={reais(s.remTrabCentavos)} onChange={(e) => setSocio(i, { remTrabCentavos: centavos(e.target.value) })} /></label>
@@ -390,7 +391,7 @@ export const DemonstracoesTab: React.FC<Props> = ({ empresa, contas, lancamentos
               <label>Código da conta<input className={campo} value={c.codigo} onChange={(e) => setContaB(i, { codigo: e.target.value })} /></label>
               <label className="sm:col-span-2">Descrição<input className={campo} value={c.descricao} onChange={(e) => setContaB(i, { descricao: e.target.value })} /></label>
               <label>Tributo<select className={campo} value={c.tributo} onChange={(e) => setContaB(i, { tributo: e.target.value as "I" | "C" })}><option value="I">IRPJ (e-Lalur)</option><option value="C">CSLL (e-Lacs)</option></select></label>
-              <label>Criada em<input type="date" className={campo} value={c.dtAp} onChange={(e) => setContaB(i, { dtAp: e.target.value })} /></label>
+              <label>Criada em<CampoData className={campo} value={c.dtAp} onChange={(e) => setContaB(i, { dtAp: e.target.value })} /></label>
               <label>Código padrão (COD_PB_RFB)<input className={campo} maxLength={6} value={c.codPbRfb} onChange={(e) => setContaB(i, { codPbRfb: e.target.value })} /></label>
               <label>Saldo inicial declarado (R$)<input inputMode="decimal" className={campo} value={reais(c.saldoInicialCentavos)} onChange={(e) => setContaB(i, { saldoInicialCentavos: centavos(e.target.value) })} /></label>
               <label>D/C do saldo inicial<select className={campo} value={c.indSaldoInicial} onChange={(e) => setContaB(i, { indSaldoInicial: e.target.value as "D" | "C" })}><option value="D">D</option><option value="C">C</option></select></label>

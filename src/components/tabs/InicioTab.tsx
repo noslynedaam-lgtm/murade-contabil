@@ -28,6 +28,7 @@ import {
 import { IbsCbsReformaCard } from "../IbsCbsReformaCard";
 import { PainelProntosParaConferir } from "../PainelProntosParaConferir";
 import { lembretesIniciais } from "../../data/mockData";
+import { PainelIntegracoesReais } from "../PainelIntegracoesReais";
 import {
   VisualizarModal,
   ApurarModal,
@@ -161,7 +162,7 @@ export const InicioTab: React.FC<InicioTabProps> = ({
     },
     {
       id: "ia-premium",
-      titulo: "IA Murade Premium",
+      titulo: "IA Murad Premium",
       subtitulo: "Assistente contábil e tributário com interação por voz, pareceres e diagnósticos.",
       icone: Sparkles,
       tag: "Voz v3.0",
@@ -204,13 +205,9 @@ export const InicioTab: React.FC<InicioTabProps> = ({
                 <Home className="w-3.5 h-3.5 text-blue-600" />
                 <span>Painel Principal</span>
               </span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-100 text-amber-900 border border-amber-300">
-                <AlertTriangle className="w-3 h-3 text-amber-700" />
-                <span>Robôs aguardando fontes</span>
-              </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-              <span>Bem-vindo à Tela Inicial do Murade Contábil</span>
+              <span>Bem-vindo à Tela Inicial do Murad Contábil</span>
             </h1>
             <p className="text-xs sm:text-sm text-slate-600 max-w-3xl leading-relaxed">
               Visão geral centralizada para gerenciar a escrituração, conciliação bancária,
@@ -236,9 +233,6 @@ export const InicioTab: React.FC<InicioTabProps> = ({
                 </div>
                 <div className="text-xs text-slate-600 font-mono mt-0.5 flex items-center justify-between">
                   <span>CNPJ: {empresa.cnpj || "Não informado"}</span>
-                  <span className="text-[10px] bg-amber-100 text-amber-900 font-bold px-1.5 py-0.2 rounded border border-amber-300">
-                    Integrações pendentes
-                  </span>
                 </div>
                 <div className="flex items-center justify-between text-[11px] mt-2 pt-2 border-t border-slate-100 text-slate-500">
                   <span>{empresa.regime || "Regime não informado"}</span>
@@ -256,7 +250,7 @@ export const InicioTab: React.FC<InicioTabProps> = ({
                       className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-black transition cursor-pointer shadow-2xs flex items-center justify-center gap-1"
                     >
                       <Zap className="w-3.5 h-3.5 text-amber-300" />
-                      <span>Verificar conexão com Murade Fiscal</span>
+                      <span>Verificar conexão com Murad Fiscal</span>
                     </button>
                   )}
                   <button
@@ -275,96 +269,8 @@ export const InicioTab: React.FC<InicioTabProps> = ({
 
       {onAbrirEmpresaParaConferir && <PainelProntosParaConferir onAbrir={onAbrirEmpresaParaConferir} />}
 
-      {/* BARRAMENTO DE CONEXÃO MURADE: FISCAL • DP • GOV (RECEITA, SEFAZ, SERPRO) */}
-      <div className="bg-[#082B66] text-white rounded-xl p-4 sm:p-5 shadow-sm border border-[#0A357D]">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-white/15">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-lg bg-white/15 text-white flex items-center justify-center shrink-0 border border-white/20 shadow-xs">
-              <Zap className="w-5 h-5 text-amber-300 animate-pulse" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-sm sm:text-base font-black tracking-tight text-white flex items-center gap-1.5">
-                  <span>Integrações: Murade Fiscal • Murade DP • Órgãos Públicos</span>
-                </h3>
-                <span className="text-[10px] bg-amber-300 text-slate-950 font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
-                  Integrações pendentes
-                </span>
-              </div>
-              <p className="text-xs text-blue-100 mt-0.5">
-                Conexões com Murade Fiscal, Departamento Pessoal e órgãos públicos aguardam URLs, autenticação e configuração.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap self-start lg:self-auto">
-            {onConectarFiscal && (
-              <button
-                id="btn-puxar-empresa-fiscal-banner"
-                onClick={onConectarFiscal}
-                className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-md"
-              >
-                <Zap className="w-3.5 h-3.5 text-slate-950" />
-                <span>Verificar Murade Fiscal</span>
-              </button>
-            )}
-
-            {onConectarDP && (
-              <button
-                id="btn-conectar-dp-banner"
-                onClick={onConectarDP}
-                className="bg-white/15 hover:bg-white/25 text-white font-bold text-xs px-3 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer border border-white/20"
-              >
-                <Users className="w-3.5 h-3.5 text-blue-200" />
-                <span>Consultar resumos do DP</span>
-              </button>
-            )}
-
-            <button
-              onClick={() => onNavigateTab("conexoes")}
-              className="bg-white/15 hover:bg-white/25 text-white font-bold text-xs px-3 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer border border-white/20"
-            >
-              <Globe className="w-3.5 h-3.5 text-emerald-300" />
-              <span>Ver Status dos Órgãos</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Indicadores rápidos de canais ativos */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-3 text-xs">
-          <div className="bg-black/20 rounded-lg p-2.5 border border-white/10 flex items-center justify-between">
-            <div>
-              <div className="text-[10px] text-blue-200 uppercase font-bold">Mural do Fiscal</div>
-              <div className="font-bold text-white">Aguardando conexão</div>
-            </div>
-            <AlertTriangle className="w-4 h-4 text-amber-300 shrink-0" />
-          </div>
-
-          <div className="bg-black/20 rounded-lg p-2.5 border border-white/10 flex items-center justify-between">
-            <div>
-              <div className="text-[10px] text-blue-200 uppercase font-bold">Mural do DP</div>
-              <div className="font-bold text-white">Aguardando conexão</div>
-            </div>
-            <AlertTriangle className="w-4 h-4 text-amber-300 shrink-0" />
-          </div>
-
-          <div className="bg-black/20 rounded-lg p-2.5 border border-white/10 flex items-center justify-between">
-            <div>
-              <div className="text-[10px] text-blue-200 uppercase font-bold">Receita Federal / SERPRO</div>
-              <div className="font-bold text-white">Certificado não configurado</div>
-            </div>
-            <AlertTriangle className="w-4 h-4 text-amber-300 shrink-0" />
-          </div>
-
-          <div className="bg-black/20 rounded-lg p-2.5 border border-white/10 flex items-center justify-between">
-            <div>
-              <div className="text-[10px] text-blue-200 uppercase font-bold">SEFAZ Estadual</div>
-              <div className="font-bold text-white">Não conectado</div>
-            </div>
-            <AlertTriangle className="w-4 h-4 text-amber-300 shrink-0" />
-          </div>
-        </div>
-      </div>
+      {/* Integrações com o estado REAL (o que chegou do Fiscal e do DP); só os órgãos públicos aparecem como "a configurar". */}
+      <PainelIntegracoesReais onConectarFiscal={onConectarFiscal} onConectarDP={onConectarDP} onVerOrgaos={() => onNavigateTab("conexoes")} />
 
       {/* 4 Cards de Indicadores Rápidos (Resumo Geral) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">

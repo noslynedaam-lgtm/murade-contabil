@@ -23,6 +23,8 @@ export function CaixaPedirParaAlguem({ onEnviar }: { onEnviar: (frase: string) =
     r.onend = () => setOuvindo(false);
     try { r.start(); } catch { setOuvindo(false); }
   };
+  // Só o administrador do escritório (quem pode pedir serviço à equipe) vê a caixa, igual ao DP; o funcionário usa a Agente IA.
+  if (!auth.administrador) return null;
   return (
     <form onSubmit={(e) => { e.preventDefault(); enviar(texto); }} className="rounded-xl border border-sky-200 bg-sky-50 p-2.5" aria-label={rot.titulo}>
       <label htmlFor="caixa-pedir" className="block text-xs font-extrabold text-sky-900">{rot.titulo}</label>

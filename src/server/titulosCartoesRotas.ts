@@ -98,7 +98,7 @@ export function registrarRotasTitulosCartoes(app: express.Express, deps: { exigi
     try {
       const t = await lerTitulo(consultar, a.cnpj, String(req.params.id));
       if (!t) return res.status(404).json({ sucesso: false, motivo: "Título não encontrado." });
-      if (t.baixas.some((b) => b.origem === "murade" && b.lancamentoId) || t.provisoes.some((p) => p.origem === "murade" && p.lancamentoId)) return res.status(409).json({ sucesso: false, motivo: "Este título já gerou lançamento no Murade. Estorne ou rejeite o lançamento antes de excluir o título." });
+      if (t.baixas.some((b) => b.origem === "murade" && b.lancamentoId) || t.provisoes.some((p) => p.origem === "murade" && p.lancamentoId)) return res.status(409).json({ sucesso: false, motivo: "Este título já gerou lançamento no Murad. Estorne ou rejeite o lançamento antes de excluir o título." });
       await excluirTitulo(consultar, a.cnpj, t.id);
       return res.json({ sucesso: true, mensagem: "Título excluído (só este)." });
     } catch (e) { return erro(res, e, "Não foi possível excluir o título."); }

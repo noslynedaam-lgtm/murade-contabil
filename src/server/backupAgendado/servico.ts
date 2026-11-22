@@ -230,11 +230,11 @@ export function criarServicoBackupAgendado(a: AdaptadorSistema) {
   }
 
   async function salvarNuvem(tenantId: string, entrada: any, login: string): Promise<{ ok: boolean; mensagem: string; nuvem?: ConfigNuvemPublica | null }> {
-    if (!chaveMestraConfigurada(env)) return { ok: false, mensagem: 'O backup cifrado ainda não foi ativado neste servidor (falta a chave mestra). Avise o suporte do Murade.' };
+    if (!chaveMestraConfigurada(env)) return { ok: false, mensagem: 'O backup cifrado ainda não foi ativado neste servidor (falta a chave mestra). Avise o suporte do Murad.' };
     const atual = await lerLinhaAgenda(tenantId);
     if (entrada?.remover === true) {
       await gravarAgenda(tenantId, { ...atual.config, nuvem: null }, null, login);
-      return { ok: true, mensagem: 'Nuvem removida. Os backups continuam no Murade e podem ser baixados para o computador.', nuvem: null };
+      return { ok: true, mensagem: 'Nuvem removida. Os backups continuam no Murad e podem ser baixados para o computador.', nuvem: null };
     }
     const v = validarNuvem(entrada, { publica: atual.config.nuvem, segredo: await segredoAtual(tenantId, atual.nuvemCifrada) });
     if (v.ok === false) return { ok: false, mensagem: v.motivo };
@@ -630,7 +630,7 @@ export function criarServicoBackupAgendado(a: AdaptadorSistema) {
       const itens = await a.restauracao.executar(tenantId, cnpjs, p.tabelas, true);
       await a.consultar(`INSERT INTO ${t.rest} (id, tenant_id, origem, backup_id, backup_criado_em, usuario, copia_seguranca_id, resultado, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,'ok')`,
         [idRest, tenantId, p.origem, p.backupId, p.cabecalho.criadoEm || null, login, copia.registro.id, JSON.stringify(itens)]);
-      return { ok: true as const, itens, copiaSegurancaId: copia.registro.id, mensagem: `Restauração concluída. Antes, o Murade guardou uma cópia de segurança de como estava (${dataHoraBrasilia(copia.registro.iniciadoEm)}); se precisar, restaure essa cópia para voltar.` };
+      return { ok: true as const, itens, copiaSegurancaId: copia.registro.id, mensagem: `Restauração concluída. Antes, o Murad guardou uma cópia de segurança de como estava (${dataHoraBrasilia(copia.registro.iniciadoEm)}); se precisar, restaure essa cópia para voltar.` };
     } catch (e: any) {
       const motivo = String(e?.message || 'Falha ao restaurar.').slice(0, 300);
       await a.consultar(`INSERT INTO ${t.rest} (id, tenant_id, origem, backup_id, backup_criado_em, usuario, copia_seguranca_id, status, erro) VALUES ($1,$2,$3,$4,$5,$6,$7,'falha',$8)`,

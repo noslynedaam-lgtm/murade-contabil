@@ -6,6 +6,7 @@ import { confirmarNaTela } from "../utils/dialogoNaTela";
 import { useExclusaoDuasEtapas } from "./ConfirmaExclusaoDuasEtapas";
 import { moedaContabil } from "../utils/livrosContabeis";
 import { textoParaCentavos } from "../utils/escrituracaoAvancada";
+import { CampoData } from './CampoData';
 
 type Titulo = {
   id: string; tipo: "pagar" | "receber"; numero: string; serie?: string; modelo?: string; participanteDocumento?: string; participanteNome: string; dataEmissao: string; vencimento?: string;
@@ -82,7 +83,7 @@ export const TitulosPainel: React.FC<{ onRota: RotaEscrituracao; contas: ContaPl
               </div>
               {aberto?.id === t.id && aberto.modo === "baixa" && (
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  <label className="text-[11px] text-slate-600">Data<input type="date" value={form.data || ""} onChange={(e) => setForm({ ...form, data: e.target.value })} className={campo} /></label>
+                  <label className="text-[11px] text-slate-600">Data<CampoData value={form.data || ""} onChange={(e) => setForm({ ...form, data: e.target.value })} className={campo} /></label>
                   <label className="text-[11px] text-slate-600">Valor<input inputMode="decimal" value={form.valor || ""} onChange={(e) => setForm({ ...form, valor: e.target.value })} className={campo} /></label>
                   <SeletorConta rotulo="Caixa ou banco" valor={form.disp || ""} contas={analiticas} onChange={(v) => setForm({ ...form, disp: v })} />
                   {!t.contaTitulo && <SeletorConta rotulo={t.tipo === "pagar" ? "Conta do fornecedor" : "Conta do cliente"} valor={form.contaTitulo || ""} contas={analiticas} onChange={(v) => setForm({ ...form, contaTitulo: v })} />}
@@ -95,7 +96,7 @@ export const TitulosPainel: React.FC<{ onRota: RotaEscrituracao; contas: ContaPl
                   {([["numero", "Número", t.numero], ["serie", "Série", t.serie], ["participante", t.tipo === "pagar" ? "Fornecedor" : "Cliente", t.participanteNome], ["documento", "CNPJ/CPF", t.participanteDocumento], ["historico", "Histórico", t.historico]] as Array<[string, string, string | undefined]>).map(([k, rot, v]) => (
                     <label key={k} className="text-[11px] text-slate-600">{rot}<input value={form[k] ?? v ?? ""} onChange={(e) => setForm({ ...form, [k]: e.target.value })} className={campo} /></label>
                   ))}
-                  <label className="text-[11px] text-slate-600">Vencimento<input type="date" value={form.vencimento ?? t.vencimento ?? ""} onChange={(e) => setForm({ ...form, vencimento: e.target.value })} className={campo} /></label>
+                  <label className="text-[11px] text-slate-600">Vencimento<CampoData value={form.vencimento ?? t.vencimento ?? ""} onChange={(e) => setForm({ ...form, vencimento: e.target.value })} className={campo} /></label>
                   <SeletorConta rotulo={t.tipo === "pagar" ? "Conta do fornecedor" : "Conta do cliente"} valor={form.contaTitulo ?? t.contaTitulo ?? ""} contas={analiticas} onChange={(v) => setForm({ ...form, contaTitulo: v })} />
                   <SeletorConta rotulo={t.tipo === "pagar" ? "Conta da despesa/estoque" : "Conta da receita"} valor={form.contaContrapartida ?? t.contaContrapartida ?? ""} contas={analiticas} onChange={(v) => setForm({ ...form, contaContrapartida: v })} />
                   <button type="button" onClick={() => void salvarEdicao(t)} className="min-h-[40px] rounded bg-blue-700 px-3 font-bold text-white">Salvar</button>
@@ -113,8 +114,8 @@ export const TitulosPainel: React.FC<{ onRota: RotaEscrituracao; contas: ContaPl
           {([["numero", "Número"], ["serie", "Série"], ["participante", "Fornecedor ou cliente"], ["documento", "CNPJ/CPF"], ["valor", "Valor (ex.: 1.234,56)"], ["historico", "Histórico (opcional)"]] as Array<[string, string]>).map(([k, rot]) => (
             <label key={k} className="text-[11px] text-slate-600">{rot}<input value={novo[k] || ""} inputMode={k === "valor" ? "decimal" : undefined} onChange={(e) => setNovo({ ...novo, [k]: e.target.value })} className={campo} /></label>
           ))}
-          <label className="text-[11px] text-slate-600">Data<input type="date" value={novo.data || ""} onChange={(e) => setNovo({ ...novo, data: e.target.value })} className={campo} /></label>
-          <label className="text-[11px] text-slate-600">Vencimento<input type="date" value={novo.vencimento || ""} onChange={(e) => setNovo({ ...novo, vencimento: e.target.value })} className={campo} /></label>
+          <label className="text-[11px] text-slate-600">Data<CampoData value={novo.data || ""} onChange={(e) => setNovo({ ...novo, data: e.target.value })} className={campo} /></label>
+          <label className="text-[11px] text-slate-600">Vencimento<CampoData value={novo.vencimento || ""} onChange={(e) => setNovo({ ...novo, vencimento: e.target.value })} className={campo} /></label>
           <SeletorConta rotulo="Conta do fornecedor/cliente" valor={novo.contaTitulo || ""} contas={analiticas} onChange={(v) => setNovo({ ...novo, contaTitulo: v })} />
           <SeletorConta rotulo="Conta da despesa/receita" valor={novo.contaContrapartida || ""} contas={analiticas} onChange={(v) => setNovo({ ...novo, contaContrapartida: v })} />
           <button type="button" disabled={!podeGravar} onClick={() => void cadastrar()} className="min-h-[40px] rounded bg-blue-700 px-3 font-bold text-white disabled:opacity-40">Cadastrar título</button>

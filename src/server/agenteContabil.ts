@@ -156,7 +156,7 @@ const FERRAMENTAS: Ferramenta[] = [
       const ws = await lerWorkspace(ctx, cnpj); if ('erro' in ws) return ws;
       const e = conferirEcdWorkspace(cnpj, ws.dados, new Date());
       if (!e) return { erro: 'A empresa ainda não tem cadastro salvo no Contábil.' };
-      return { cnpj, ano: e.ano, situacao: e.situacao, titulo: e.titulo, prazo: e.prazo, diasParaPrazo: e.diasParaPrazo, pronta: e.pronta, atrasada: e.atrasada, pendencias: e.pendencias.slice(0, 12), totalPendencias: e.pendencias.length, avisos: e.avisos.slice(0, 4), observacao: 'O Murade monta o arquivo; a validação, a assinatura e a transmissão são feitas pelo contador no PGE do Sped Contábil.' };
+      return { cnpj, ano: e.ano, situacao: e.situacao, titulo: e.titulo, prazo: e.prazo, diasParaPrazo: e.diasParaPrazo, pronta: e.pronta, atrasada: e.atrasada, pendencias: e.pendencias.slice(0, 12), totalPendencias: e.pendencias.length, avisos: e.avisos.slice(0, 4), observacao: 'O Murad monta o arquivo; a validação, a assinatura e a transmissão são feitas pelo contador no PGE do Sped Contábil.' };
     },
   },
   {
@@ -208,7 +208,7 @@ const FERRAMENTAS: Ferramenta[] = [
   },
   {
     tipo: 'leitura',
-    declaracao: { name: 'consultar_legislacao', description: 'Responde dúvida contábil/tributária (SPED, ECD, ECF, ICMS, ISS, Simples, Reforma Tributária, prazos, normas NBC/ITG) com o Consultor Murade: o que é certo, por quê, fontes oficiais e aviso de responsabilidade; pode sugerir uma ação que a Agente faz. Também use quando o contador quiser fazer diferente da norma, para trazer a orientação e a fonte.', parameters: { type: 'OBJECT', properties: { pergunta: { type: 'STRING', description: 'A dúvida completa, com competência, UF e município quando relevantes.' }, cnpj: { type: 'STRING', description: 'Opcional: CNPJ da empresa, para a resposta considerar regime, CNAE, UF, município e pendências do fechamento.' } }, required: ['pergunta'] } },
+    declaracao: { name: 'consultar_legislacao', description: 'Responde dúvida contábil/tributária (SPED, ECD, ECF, ICMS, ISS, Simples, Reforma Tributária, prazos, normas NBC/ITG) com o Consultor Murad: o que é certo, por quê, fontes oficiais e aviso de responsabilidade; pode sugerir uma ação que a Agente faz. Também use quando o contador quiser fazer diferente da norma, para trazer a orientação e a fonte.', parameters: { type: 'OBJECT', properties: { pergunta: { type: 'STRING', description: 'A dúvida completa, com competência, UF e município quando relevantes.' }, cnpj: { type: 'STRING', description: 'Opcional: CNPJ da empresa, para a resposta considerar regime, CNAE, UF, município e pendências do fechamento.' } }, required: ['pergunta'] } },
     async executar(ctx, args) {
       const pergunta = typeof args.pergunta === 'string' ? args.pergunta.trim().slice(0, 3900) : '';
       if (!pergunta) return { erro: 'Informe a pergunta.' };
@@ -229,7 +229,7 @@ const FERRAMENTAS: Ferramenta[] = [
         }
         const c = await perguntarAoConsultor({ pergunta, contextoEmpresa, ferramentasDisponiveis: ctx.kit.ferramentas.map((f) => ({ nome: f.declaracao.name, descricao: f.declaracao.description })), usuario: ctx.login, escritorio: lib.escritorio || undefined }, opcoesConsultorParaTeste.atual);
         if (c) return {
-          fonte: 'Consultor Murade', resposta: c.resposta, fontesOficiais: c.fontes, confianca: c.confianca, encaminharContador: c.encaminharContador || undefined, motivoEncaminhamento: c.motivoEncaminhamento,
+          fonte: 'Consultor Murad', resposta: c.resposta, fontesOficiais: c.fontes, confianca: c.confianca, encaminharContador: c.encaminharContador || undefined, motivoEncaminhamento: c.motivoEncaminhamento,
           avisoResponsabilidade: c.avisoResponsabilidade, acoesSugeridas: c.acoesSugeridas.length ? c.acoesSugeridas : undefined, divergencia: c.divergencia, recusado: c.recusado,
           instrucao: [
             'Responda com a orientação, cite as fontes oficiais (título) e diga o aviso de responsabilidade em uma frase.',
@@ -246,7 +246,7 @@ const FERRAMENTAS: Ferramenta[] = [
   },
   {
     tipo: 'leitura',
-    declaracao: { name: 'registrar_decisao_contador', description: 'Registra que o contador CONFIRMOU fazer diferente da orientação do Consultor/da norma (fora de um serviço completo; no serviço completo use decisao_do_contador em fazer_servico_completo). Vai para o registro de decisões do Consultor Murade e para o histórico da Agente: "decisão e responsabilidade do contador".', parameters: { type: 'OBJECT', properties: { pergunta: { type: 'STRING' }, orientacao: { type: 'STRING', description: 'A orientação dada (com a regra).' }, fonte_titulo: { type: 'STRING' }, fonte_url: { type: 'STRING', description: 'Link oficial da fonte, se houver.' }, escolha_do_contador: { type: 'STRING' }, cnpj: { type: 'STRING' } }, required: ['pergunta', 'orientacao', 'escolha_do_contador'] } },
+    declaracao: { name: 'registrar_decisao_contador', description: 'Registra que o contador CONFIRMOU fazer diferente da orientação do Consultor/da norma (fora de um serviço completo; no serviço completo use decisao_do_contador em fazer_servico_completo). Vai para o registro de decisões do Consultor Murad e para o histórico da Agente: "decisão e responsabilidade do contador".', parameters: { type: 'OBJECT', properties: { pergunta: { type: 'STRING' }, orientacao: { type: 'STRING', description: 'A orientação dada (com a regra).' }, fonte_titulo: { type: 'STRING' }, fonte_url: { type: 'STRING', description: 'Link oficial da fonte, se houver.' }, escolha_do_contador: { type: 'STRING' }, cnpj: { type: 'STRING' } }, required: ['pergunta', 'orientacao', 'escolha_do_contador'] } },
     async executar(ctx, args) {
       const t = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
       const pergunta = t(args.pergunta, 500), orientacao = t(args.orientacao, 400), escolha = t(args.escolha_do_contador, 400);
@@ -295,7 +295,7 @@ const FERRAMENTAS: Ferramenta[] = [
       if (!ok(r)) return erroApi(r);
       if (r.corpo?.configurado !== true) return { erro: 'Falta configurar o destino do backup (variáveis MURADE_BACKUP_* no Render). O passo a passo está no painel "Backup completo do banco".' };
       if (r.corpo?.emAndamento) return { erro: 'Já existe um backup em andamento. Aguarde terminar.' };
-      return { cnpj: '', params: {}, titulo: 'Fazer o backup completo do banco agora', descricao: ['Gera a cópia cifrada de todo o banco do Murade Contábil e envia para o destino configurado' + (r.corpo?.destino?.bucket ? ` (bucket ${r.corpo.destino.bucket})` : '') + '.', 'Só lê o banco: nada do sistema é alterado ou apagado. Leva de alguns segundos a poucos minutos.'], resumo: 'Fazer o backup completo do banco agora' };
+      return { cnpj: '', params: {}, titulo: 'Fazer o backup completo do banco agora', descricao: ['Gera a cópia cifrada de todo o banco do Murad Contábil e envia para o destino configurado' + (r.corpo?.destino?.bucket ? ` (bucket ${r.corpo.destino.bucket})` : '') + '.', 'Só lê o banco: nada do sistema é alterado ou apagado. Leva de alguns segundos a poucos minutos.'], resumo: 'Fazer o backup completo do banco agora' };
     },
     async executar(ctx) {
       const r = await ctx.chamarApi('POST', '/api/backup-banco/gerar', {});
@@ -391,9 +391,9 @@ const FERRAMENTAS: Ferramenta[] = [
   },
   {
     tipo: 'acao',
-    declaracao: { name: 'trazer_empresas_do_fiscal', description: 'Propõe TRAZER para o Contábil as empresas cadastradas no Murade Fiscal que ainda não existem aqui. Não altera empresas já cadastradas, não leva certificado nem senha. Só o dono do sistema.', parameters: { type: 'OBJECT', properties: {}, required: [] } },
+    declaracao: { name: 'trazer_empresas_do_fiscal', description: 'Propõe TRAZER para o Contábil as empresas cadastradas no Murad Fiscal que ainda não existem aqui. Não altera empresas já cadastradas, não leva certificado nem senha. Só o dono do sistema.', parameters: { type: 'OBJECT', properties: {}, required: [] } },
     async preparar() {
-      return { params: {}, cnpj: '', titulo: 'Trazer as empresas do Fiscal para o Contábil', descricao: ['Cadastra no Contábil os CNPJs do Murade Fiscal que ainda não estão aqui, para ninguém cadastrar duas vezes.', 'Empresas já cadastradas não mudam.'], resumo: 'Trazer empresas do Fiscal' };
+      return { params: {}, cnpj: '', titulo: 'Trazer as empresas do Fiscal para o Contábil', descricao: ['Cadastra no Contábil os CNPJs do Murad Fiscal que ainda não estão aqui, para ninguém cadastrar duas vezes.', 'Empresas já cadastradas não mudam.'], resumo: 'Trazer empresas do Fiscal' };
     },
     async executar(ctx) {
       const r = await ctx.chamarApi('POST', '/api/empresas/importar-do-fiscal', {});
@@ -695,7 +695,7 @@ const FERRAMENTAS: Ferramenta[] = [
   },
   {
     tipo: 'leitura',
-    declaracao: { name: 'apresentar_sistema', description: 'Conta o que o Murade Contábil faz, a partir do texto FIXO e conferido com o código (sem IA): módulos, o que é automático (robôs e quando rodam), o que depende do contador, integrações e o que o sistema ainda não faz. Use para "o que o sistema faz?", "o que é automático?", "para que serve a tela X?", "o que o sistema não faz?". Informe secao (modulos, automatico, depende, integracoes ou limites) ou modulo (nome da tela). Sem parâmetros devolve só o índice. A apresentação completa em blocos falados, com pausa e "me mostra onde", é iniciada pela própria tela quando a pessoa diz "me conta tudo o que o sistema faz".', parameters: { type: 'OBJECT', properties: { secao: { type: 'STRING', description: 'modulos, automatico, depende, integracoes ou limites.' }, modulo: { type: 'STRING', description: 'Opcional: nome da tela do menu (ex.: Balancete).' } } } },
+    declaracao: { name: 'apresentar_sistema', description: 'Conta o que o Murad Contábil faz, a partir do texto FIXO e conferido com o código (sem IA): módulos, o que é automático (robôs e quando rodam), o que depende do contador, integrações e o que o sistema ainda não faz. Use para "o que o sistema faz?", "o que é automático?", "para que serve a tela X?", "o que o sistema não faz?". Informe secao (modulos, automatico, depende, integracoes ou limites) ou modulo (nome da tela). Sem parâmetros devolve só o índice. A apresentação completa em blocos falados, com pausa e "me mostra onde", é iniciada pela própria tela quando a pessoa diz "me conta tudo o que o sistema faz".', parameters: { type: 'OBJECT', properties: { secao: { type: 'STRING', description: 'modulos, automatico, depende, integracoes ou limites.' }, modulo: { type: 'STRING', description: 'Opcional: nome da tela do menu (ex.: Balancete).' } } } },
     async executar(ctx, args) {
       const robos = await ctx.chamarApi('GET', '/api/robos/status').catch(() => null);
       const ehDono = Boolean(robos && ok(robos) && robos.corpo?.ehDono === true);
@@ -1041,7 +1041,7 @@ const FERRAMENTAS: Ferramenta[] = [
   },
 ];
 
-const INSTRUCAO_BASE = `Você é a Agente IA do Murade Contábil. Trabalha dentro do sistema para o contador, em português do Brasil, com tom calmo, direto e prático. Respostas curtas.
+const INSTRUCAO_BASE = `Você é a Agente IA do Murad Contábil. Trabalha dentro do sistema para o contador, em português do Brasil, com tom calmo, direto e prático. Respostas curtas.
 
 COMO RESPONDER (suas respostas são lidas em voz alta)
 - Escreva em texto simples: sem asteriscos, negrito, tabelas, marcadores, # ou emojis.
@@ -1060,7 +1060,7 @@ COMO ENTENDER QUEM FALA
 - Conversa de rotina ("obrigado", "ok", "tchau") não precisa de consulta: responda em uma frase curta.
 
 MAPA DO SISTEMA (onde fica cada coisa no menu do Contábil)
-Tela Inicial (tem a caixinha "Pedir para alguém"); Cadastro de Empresa; Tarefas da equipe; Agenda e Lembretes; Obrigações e Gestão; Gestão contábil; Conexão Órgãos; Lançamentos; Aprovar lançamentos; Balancete; Livros Fiscais e ECD; Demonstrações e relatórios (DFC, DMPL, notas explicativas, índices e gráficos, relatório para o cliente, Bloco Y e Parte B da ECF, painel do escritório); Plano de Contas; Migração Contábil; Integrações; Revisar dados recebidos; Calculadora; Agentes e Robô; IA Murade.
+Tela Inicial (tem a caixinha "Pedir para alguém"); Cadastro de Empresa; Tarefas da equipe; Agenda e Lembretes; Obrigações e Gestão; Gestão contábil; Conexão Órgãos; Lançamentos; Aprovar lançamentos; Balancete; Livros Fiscais e ECD; Demonstrações e relatórios (DFC, DMPL, notas explicativas, índices e gráficos, relatório para o cliente, Bloco Y e Parte B da ECF, painel do escritório); Plano de Contas; Migração Contábil; Integrações; Revisar dados recebidos; Calculadora; Agentes e Robô; IA Murad.
 Quando perguntarem "onde eu faço X", diga o nome da tela do menu. Não invente telas que não estão nesta lista.
 
 COMO TRABALHAR
@@ -1078,7 +1078,7 @@ COMO TRABALHAR
 
 LIMITES (diga com clareza quando o pedido bater neles)
 - Folha, guias de FGTS/INSS e eSocial são do Departamento Pessoal; DAS e notas fiscais são do Fiscal. Não os faça aqui: consulte ou peça à Agente do outro sistema pelas ferramentas de comunicação.
-- O Murade não transmite SPED, ECD ou ECF automaticamente.
+- O Murad não transmite SPED, ECD ou ECF automaticamente.
 - Nunca invente valores, datas, protocolos ou status. Se uma ferramenta devolver erro, explique o motivo com as palavras do sistema e diga o que falta.
 
 NUNCA ENROLE NEM JOGUE CONVERSA FORA
@@ -1087,4 +1087,4 @@ NUNCA ENROLE NEM JOGUE CONVERSA FORA
 - Se não houver ferramenta, tela, NEM uma resposta clara de quem resolve — ou seja, você realmente não sabe o que fazer com o pedido —, use chamar_supervisor com um resumo da pergunta, e então diga ao usuário, com calma, que você vai levar isso ao seu supervisor e que volta a falar com ele assim que tiver a resposta. Nunca invente um prazo. Isso NÃO é desculpa para pular a busca por uma ferramenta: só chame o supervisor depois de checar tudo o que você tem.
 - Nunca fique repetindo a pergunta, dando respostas vagas, enrolando ou gerando texto sem informação nova só para preencher a resposta — isso gasta crédito sem ajudar.`;
 
-export const kitContabil: KitAgente = { ferramentas: [...FERRAMENTAS, ...FERRAMENTAS_SERVICO_COMPLETO, ...FERRAMENTAS_PILOTO, ...FERRAMENTAS_ENTRE_SISTEMAS, ...FERRAMENTAS_REVISOR, ...FERRAMENTAS_DEMONSTRACOES, ...FERRAMENTAS_ESCOLA, ...FERRAMENTAS_CADASTRO_ESCRITORIO, ...FERRAMENTAS_MIGRACAO_SISTEMA_ANTERIOR, ...FERRAMENTAS_AJUSTES_FECHAMENTO, ...FERRAMENTAS_TITULOS_CARTOES, ...ferramentasBackupEscritorio("/api/contabil/backup-agendado", "Murade Contábil")], instrucao: INSTRUCAO_BASE + INSTRUCAO_SERVICO_COMPLETO + INSTRUCAO_PILOTO + INSTRUCAO_ENTRE_SISTEMAS + INSTRUCAO_REVISOR + INSTRUCAO_DEMONSTRACOES + INSTRUCAO_ESCOLA + INSTRUCAO_CADASTRO_ESCRITORIO + INSTRUCAO_MIGRACAO_SISTEMA_ANTERIOR + INSTRUCAO_AJUSTES_FECHAMENTO + INSTRUCAO_TITULOS_CARTOES + INSTRUCAO_BACKUP_ESCRITORIO };
+export const kitContabil: KitAgente = { ferramentas: [...FERRAMENTAS, ...FERRAMENTAS_SERVICO_COMPLETO, ...FERRAMENTAS_PILOTO, ...FERRAMENTAS_ENTRE_SISTEMAS, ...FERRAMENTAS_REVISOR, ...FERRAMENTAS_DEMONSTRACOES, ...FERRAMENTAS_ESCOLA, ...FERRAMENTAS_CADASTRO_ESCRITORIO, ...FERRAMENTAS_MIGRACAO_SISTEMA_ANTERIOR, ...FERRAMENTAS_AJUSTES_FECHAMENTO, ...FERRAMENTAS_TITULOS_CARTOES, ...ferramentasBackupEscritorio("/api/contabil/backup-agendado", "Murad Contábil")], instrucao: INSTRUCAO_BASE + INSTRUCAO_SERVICO_COMPLETO + INSTRUCAO_PILOTO + INSTRUCAO_ENTRE_SISTEMAS + INSTRUCAO_REVISOR + INSTRUCAO_DEMONSTRACOES + INSTRUCAO_ESCOLA + INSTRUCAO_CADASTRO_ESCRITORIO + INSTRUCAO_MIGRACAO_SISTEMA_ANTERIOR + INSTRUCAO_AJUSTES_FECHAMENTO + INSTRUCAO_TITULOS_CARTOES + INSTRUCAO_BACKUP_ESCRITORIO };

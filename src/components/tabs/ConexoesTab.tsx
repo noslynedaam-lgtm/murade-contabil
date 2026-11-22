@@ -40,7 +40,7 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
 
   const orgaosFiltrados = orgaos.filter((org) => {
     if (filtroEsfera === "todos") return true;
-    if (filtroEsfera === "Murade") {
+    if (filtroEsfera === "Murad") {
       return org.esfera?.toLowerCase().includes("murade");
     }
     return org.esfera?.toLowerCase() === filtroEsfera.toLowerCase();
@@ -54,12 +54,12 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
         return "bg-purple-50 text-purple-700 border-purple-200";
       case "Municipal":
         return "bg-amber-50 text-amber-700 border-amber-200";
-      case "Murade Fiscal":
+      case "Murad Fiscal":
         return "bg-emerald-50 text-emerald-700 border-emerald-200";
-      case "Murade DP":
+      case "Murad DP":
         return "bg-indigo-50 text-indigo-700 border-indigo-200";
-      case "Murade Fisco IA":
-      case "Murade fisco IA":
+      case "Murad Fisco IA":
+      case "Murad fisco IA":
         return "bg-violet-50 text-violet-700 border-violet-200";
       default:
         return "bg-slate-50 text-slate-700 border-slate-200";
@@ -97,7 +97,7 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
               className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-xs"
             >
               <Zap className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
-              <span>Puxar Empresa do Murade Fiscal</span>
+              <span>Puxar Empresa do Murad Fiscal</span>
             </button>
           )}
 
@@ -206,37 +206,37 @@ export const ConexoesTab: React.FC<ConexoesTabProps> = ({
           <span>Municipal (Prefeitura / ISS / CND)</span>
         </button>
         <button
-          onClick={() => setFiltroEsfera("Murade Fiscal")}
+          onClick={() => setFiltroEsfera("Murad Fiscal")}
           className={`px-3 py-1.5 rounded-md text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
-            filtroEsfera === "Murade Fiscal"
+            filtroEsfera === "Murad Fiscal"
               ? "bg-emerald-600 text-white shadow-xs"
               : "text-slate-600 hover:text-slate-900"
           }`}
         >
           <Sparkles className="w-3.5 h-3.5" />
-          <span>Murade fiscal</span>
+          <span>Murad fiscal</span>
         </button>
         <button
-          onClick={() => setFiltroEsfera("Murade DP")}
+          onClick={() => setFiltroEsfera("Murad DP")}
           className={`px-3 py-1.5 rounded-md text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
-            filtroEsfera === "Murade DP"
+            filtroEsfera === "Murad DP"
               ? "bg-indigo-600 text-white shadow-xs"
               : "text-slate-600 hover:text-slate-900"
           }`}
         >
           <Cpu className="w-3.5 h-3.5" />
-          <span>Murade DP</span>
+          <span>Murad DP</span>
         </button>
         <button
-          onClick={() => setFiltroEsfera("Murade fisco IA")}
+          onClick={() => setFiltroEsfera("Murad fisco IA")}
           className={`px-3 py-1.5 rounded-md text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
-            filtroEsfera === "Murade fisco IA"
+            filtroEsfera === "Murad fisco IA"
               ? "bg-purple-700 text-white shadow-xs"
               : "text-slate-600 hover:text-slate-900"
           }`}
         >
           <Bot className="w-3.5 h-3.5" />
-          <span>Murade fisco IA</span>
+          <span>Murad fisco IA</span>
         </button>
       </div>
 

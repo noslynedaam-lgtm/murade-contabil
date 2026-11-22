@@ -135,7 +135,7 @@ export async function extrairTabelasContabeis(ler: LerFatia, total: number, desc
   const partes: Uint8Array[] = [];
   let tamanho = 0;
   const por = (t: string | Uint8Array) => { const b = typeof t === 'string' ? enc.encode(t) : t; partes.push(b); tamanho += b.length; };
-  por('-- Gerado pelo Murade Contábil a partir do backup do sistema anterior (só as tabelas da parte contábil)\n');
+  por('-- Gerado pelo Murad Contábil a partir do backup do sistema anterior (só as tabelas da parte contábil)\n');
   por((idx.encoding || "SET client_encoding = 'UTF8';").trim() + '\n\n');
   for (const t of tabelas) por(t.defn.trim() + '\n\n');
 

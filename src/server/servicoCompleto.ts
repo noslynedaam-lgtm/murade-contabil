@@ -247,7 +247,7 @@ export function levantarEcdAno(e: EntradaAno): Levantamento {
   }
   etapaMesesFechados(e, etapas);
   const enc = etapaEncerramento(e, etapas, preparo);
-  etapas.push({ id: 'arquivo', titulo: 'Gerar, validar, assinar e transmitir', situacao: 'contador', tela: 'livros', detalhe: 'O Murade monta o arquivo (botão "Baixar arquivo ECD"). Validar, assinar e transmitir é com você, no PGE do Sped Contábil: o sistema não transmite ECD.' });
+  etapas.push({ id: 'arquivo', titulo: 'Gerar, validar, assinar e transmitir', situacao: 'contador', tela: 'livros', detalhe: 'O Murad monta o arquivo (botão "Baixar arquivo ECD"). Validar, assinar e transmitir é com você, no PGE do Sped Contábil: o sistema não transmite ECD.' });
   passos.push(pTela('livros', 'Abrindo Livros Fiscais e ECD'));
   passos.push({ tipo: 'preencher', alvo: alvoDoCampo('ecd-ano'), valor: String(e.ano), legenda: `Ano-calendário da ECD: ${e.ano}` });
   passos.push(pDestacarTexto('Balanço Patrimonial', `Balanço Patrimonial de ${e.ano}`));

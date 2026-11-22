@@ -11,7 +11,7 @@ import { pilotoAbrirAula, pilotoAbrirDemonstracao } from '../utils/escolaMeMostr
 import { ETAPAS_DEMO, TITULO_DEMO } from '../data/escolaDemonstracao';
 import { ok, erroApi, type ContextoAgente, type Ferramenta } from './agenteMotor';
 
-export const NAO_LIBERADA = 'A Escola Murade é um adicional. Fale com o seu fornecedor para liberar.';
+export const NAO_LIBERADA = 'A Escola Murad é um adicional. Fale com o seu fornecedor para liberar.';
 async function liberada(ctx: ContextoAgente): Promise<{ liberado: boolean; gestor: boolean; motivo: string }> {
   const r = await ctx.chamarApi('GET', '/api/escola/estado');
   return { liberado: r.corpo?.liberado === true, gestor: r.corpo?.gestor === true, motivo: String(r.corpo?.motivo || NAO_LIBERADA) };
@@ -23,7 +23,7 @@ export const FERRAMENTAS_ESCOLA: Ferramenta[] = [
     tipo: 'leitura',
     declaracao: {
       name: 'abrir_aula_escola',
-      description: 'Abre a Escola Murade (aba do menu) e mostra com a seta a aula pedida (ex.: "abre a aula de conciliação", "quero estudar partidas dobradas"). Só mostra: não grava nada.',
+      description: 'Abre a Escola Murad (aba do menu) e mostra com a seta a aula pedida (ex.: "abre a aula de conciliação", "quero estudar partidas dobradas"). Só mostra: não grava nada.',
       parameters: { type: 'OBJECT', properties: { assunto: { type: 'STRING', description: 'O assunto ou o nome da aula, nas palavras da pessoa.' } }, required: ['assunto'] },
     },
     async executar(ctx, args) {
@@ -39,7 +39,7 @@ export const FERRAMENTAS_ESCOLA: Ferramenta[] = [
     tipo: 'leitura',
     declaracao: {
       name: 'explicar_termo',
-      description: 'Explica um termo pelo glossário "O que é isso?" da Escola Murade (CFOP, CSOSN, RBT12, Fator R, DIFAL, PGDAS-D, partidas dobradas, ECD...), com a fonte oficial. Use para "me explica X", "o que é X", "o que significa X".',
+      description: 'Explica um termo pelo glossário "O que é isso?" da Escola Murad (CFOP, CSOSN, RBT12, Fator R, DIFAL, PGDAS-D, partidas dobradas, ECD...), com a fonte oficial. Use para "me explica X", "o que é X", "o que significa X".',
       parameters: { type: 'OBJECT', properties: { termo: { type: 'STRING', description: 'O termo, como a pessoa falou.' } }, required: ['termo'] },
     },
     async executar(ctx, args) {
@@ -55,7 +55,7 @@ export const FERRAMENTAS_ESCOLA: Ferramenta[] = [
     tipo: 'leitura',
     declaracao: {
       name: 'progresso_aluno_escola',
-      description: 'Mostra o progresso na Escola Murade: aulas feitas, notas, provas, nível e onde mais erra. O administrador do escritório pode pedir de alguém da equipe (pelo usuário/e-mail); os demais veem só o próprio.',
+      description: 'Mostra o progresso na Escola Murad: aulas feitas, notas, provas, nível e onde mais erra. O administrador do escritório pode pedir de alguém da equipe (pelo usuário/e-mail); os demais veem só o próprio.',
       parameters: { type: 'OBJECT', properties: { aluno: { type: 'STRING', description: 'Usuário (login) de quem o gestor quer ver. Vazio = eu mesmo ou a equipe toda (gestor).' } } },
     },
     async executar(ctx, args) {
@@ -75,7 +75,7 @@ export const FERRAMENTAS_ESCOLA: Ferramenta[] = [
     tipo: 'leitura',
     declaracao: {
       name: 'abrir_demonstracao_escola',
-      description: 'Abre a Escola Murade e mostra com a seta o botão "▶ Demonstração completa com a IA": a Agente faz na tela de treino, campo a campo, o serviço do mês (lançamentos, conciliação, fechamento, balancete/DRE e ECD) e depois diz "agora é a sua vez". Use para "me mostra tudo", "faz a demonstração", "quero ver você fazendo". Só mostra: não grava nada.',
+      description: 'Abre a Escola Murad e mostra com a seta o botão "▶ Demonstração completa com a IA": a Agente faz na tela de treino, campo a campo, o serviço do mês (lançamentos, conciliação, fechamento, balancete/DRE e ECD) e depois diz "agora é a sua vez". Use para "me mostra tudo", "faz a demonstração", "quero ver você fazendo". Só mostra: não grava nada.',
       parameters: { type: 'OBJECT', properties: {} },
     },
     async executar(ctx) {
@@ -88,7 +88,7 @@ export const FERRAMENTAS_ESCOLA: Ferramenta[] = [
     tipo: 'acao',
     declaracao: {
       name: 'atribuir_trilha_escola',
-      description: `Propõe atribuir uma trilha da Escola Murade a alguém da equipe ("você vai estudar isto"); a pessoa recebe um aviso ao entrar. Só o administrador do escritório. Trilhas: ${IDS_TRILHAS}.`,
+      description: `Propõe atribuir uma trilha da Escola Murad a alguém da equipe ("você vai estudar isto"); a pessoa recebe um aviso ao entrar. Só o administrador do escritório. Trilhas: ${IDS_TRILHAS}.`,
       parameters: { type: 'OBJECT', properties: { aluno: { type: 'STRING', description: 'Usuário (login/e-mail) da pessoa da equipe.' }, trilha: { type: 'STRING', description: 'Id ou nome da trilha.' } }, required: ['aluno', 'trilha'] },
     },
     async preparar(ctx, args) {
@@ -113,7 +113,7 @@ export const FERRAMENTAS_ESCOLA: Ferramenta[] = [
 
 export const INSTRUCAO_ESCOLA = `
 
-ESCOLA MURADE (aba "Escola Murade" do menu; adicional pago)
+ESCOLA MURAD (aba "Escola Murad" do menu; adicional pago)
 - "Me explica X", "o que é X", "o que significa X" sobre o trabalho fiscal ou contábil: use explicar_termo e responda curto, com a fonte oficial. Nunca invente regra ou artigo de lei.
 - "Quero estudar", "abre a aula de ...": use abrir_aula_escola (a seta mostra a aula).
 - "Me mostra tudo", "faz a demonstração", "quero ver você fazendo": use abrir_demonstracao_escola (a seta mostra o botão "▶ Demonstração completa com a IA").

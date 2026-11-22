@@ -7,7 +7,7 @@ import { criarRoteiroDemo, valoresDemo, type EtapaDemo } from './escolaDemonstra
 
 export * from './escolaDemonstracaoNucleo';
 export const SISTEMA_DEMO = 'contabil';
-export const NOME_SISTEMA_DEMO = 'Murade Contábil';
+export const NOME_SISTEMA_DEMO = 'Murad Contábil';
 
 const campoDaPratica = (praticaId: string, id: string, extra: { rotulo?: string; porque?: string; fixo?: boolean } = {}) => {
   const p = praticaPorId(praticaId)!; const c = p.campos.find((x) => x.id === id)!;

@@ -6,5 +6,5 @@ export function montarFraseParaAgente(texto: string, administrador: boolean): st
   return administrador ? t : `Anote uma tarefa só para mim (não é para outra pessoa): ${t}`;
 }
 export const rotuloCaixaPedir = (administrador: boolean) => (administrador
-  ? { titulo: 'Pedir para alguém', dica: 'Ex.: peça para a Nilva conciliar o banco da empresa X até sexta', botao: 'Pedir' }
+  ? { titulo: 'Pedir para alguém', dica: 'Ex.: pedir para o funcionário conciliar o banco da empresa', botao: 'Pedir' }
   : { titulo: 'Anotar tarefa para mim', dica: 'Ex.: conciliar o banco da empresa X até sexta', botao: 'Anotar' });

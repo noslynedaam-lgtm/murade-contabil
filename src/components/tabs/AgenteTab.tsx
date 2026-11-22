@@ -88,7 +88,7 @@ export const AgenteTab: React.FC<AgenteTabProps> = ({ onRunAudit, isAuditing, cn
             <div className="flex items-center gap-2 flex-wrap mb-1.5">
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-900 border border-blue-300">
                 <Bot className="w-3.5 h-3.5 text-blue-700" />
-                <span>MURADE — SISTEMA DE ROBÔS + AGENTE IA</span>
+                <span>MURAD — SISTEMA DE ROBÔS + AGENTE IA</span>
               </span>
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-mono font-bold bg-slate-200 text-slate-800 border border-slate-300">
                 v{config.versao} • {config.atualizacaoData}

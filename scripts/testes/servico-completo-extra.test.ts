@@ -1,4 +1,4 @@
-// Serviço completo: animação que vira segundo plano quando o contador mexe, Consultor Murade (fetch simulado) e
+// Serviço completo: animação que vira segundo plano quando o contador mexe, Consultor Murad (fetch simulado) e
 // isolamento por escritório/CNPJ das rotas de "A conferir".
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -57,7 +57,7 @@ test('serviço completo sem interferência: a animação passa pelas telas e par
   assert.ok(amb.log.includes('navegar:aprovacoes'));
 });
 
-// ------------------------------------------------------------------ Consultor Murade (fetch simulado)
+// ------------------------------------------------------------------ Consultor Murad (fetch simulado)
 const CNPJ = '11222333000181';
 function agente(falas: Array<{ texto?: string; chamadas?: Array<{ nome: string; args: any }> }>, liberado = true) {
   const chamadas: Array<[string, string, any]> = []; const eventos: EventoAuditoria[] = []; let i = 0;
@@ -96,7 +96,7 @@ test('consultar_legislacao usa o Consultor primeiro: token, sistema contabil, co
   assert.ok(pedidos[0].corpo.ferramentasDisponiveis.some((x: any) => x.nome === 'fazer_servico_completo'));
   assert.equal(pedidos[0].corpo.escritorio, '11444777000161', 'escritório = CNPJ do escritório');
   assert.equal(pedidos[0].corpo.usuario, 'ana');
-  assert.equal(resultado.fonte, 'Consultor Murade');
+  assert.equal(resultado.fonte, 'Consultor Murad');
   assert.equal(resultado.fontesOficiais[0].url, RESPOSTA_OK.fontes[0].url);
   assert.match(resultado.avisoResponsabilidade, /contador responsável/);
   assert.deepEqual(resultado.acoesSugeridas.map((a: any) => a.ferramenta), ['fazer_servico_completo'], 'só ferramenta que existe aqui');

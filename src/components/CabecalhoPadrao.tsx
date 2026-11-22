@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BotoesTamanhoLetra } from './BotoesTamanhoLetra';
 import { Building2, KeyRound, LogOut, UserCircle } from 'lucide-react';
+import { CampoData } from './CampoData';
 
 // Bloco padrão do canto superior direito, igual nos 5 sistemas Murade:
 // Usuário | Empresa | Licença | Sair. Nunca inventa dado: sem licença cadastrada, avisa.
@@ -14,6 +15,8 @@ interface Props {
   empresaCnpj: string | null;
   buscarLicenca: (cnpj: string) => Promise<LicencaEmpresa | null>;
   onSair: () => void;
+  /** Conta e Sair já aparecem na faixa "Conta" do topo: aqui mostra só a empresa (sem repetir e-mail e Sair). */
+  soEmpresa?: boolean;
   onClicarEmpresa?: () => void;
   /** Lista de empresas do escritório: com ela e onEscolherEmpresa, o nome da empresa vira um seletor para trocar de empresa. */
   empresas?: { cnpj: string; nome: string }[];
@@ -31,7 +34,7 @@ function formatarData(iso: string): string {
   return `${d}/${m}/${a}`;
 }
 
-export const CabecalhoPadrao: React.FC<Props> = ({ usuario, empresaNome, empresaCnpj, buscarLicenca, onSair, salvarLicenca, onClicarEmpresa, urlGerenciarLicenca, empresas, onEscolherEmpresa }) => {
+export const CabecalhoPadrao: React.FC<Props> = ({ usuario, soEmpresa, empresaNome, empresaCnpj, buscarLicenca, onSair, salvarLicenca, onClicarEmpresa, urlGerenciarLicenca, empresas, onEscolherEmpresa }) => {
   const [licenca, setLicenca] = useState<LicencaEmpresa | null | undefined>(undefined);
   const [aberto, setAberto] = useState(false);
   const [plano, setPlano] = useState('P50');
@@ -81,10 +84,10 @@ export const CabecalhoPadrao: React.FC<Props> = ({ usuario, empresaNome, empresa
 
   return (
     <div className="flex items-center gap-2 text-[11px] text-slate-100" ref={raiz}>
-      <span className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded bg-white/10 max-w-[150px]" title="Usuário">
+      {!soEmpresa && <span className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded bg-white/10 max-w-[150px]" title="Usuário">
         <UserCircle size={13} className="shrink-0" />
         <span className="truncate">{usuario || '—'}</span>
-      </span>
+      </span>}
       {empresas && empresas.length > 0 && onEscolherEmpresa ? (
         <label className="flex items-center gap-1 px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 max-w-[220px]" title="Trocar de empresa">
           <Building2 size={13} className="shrink-0" />
@@ -109,7 +112,7 @@ export const CabecalhoPadrao: React.FC<Props> = ({ usuario, empresaNome, empresa
           type="button"
           onClick={abrir}
           className={`flex items-center gap-1 px-2 py-0.5 rounded border ${cor} ${(salvarLicenca && empresaCnpj) || urlGerenciarLicenca ? 'cursor-pointer' : 'cursor-default'}`}
-          title={salvarLicenca ? 'Licença da empresa (cadastrada e gerenciada pelo DP) — clique para editar' : urlGerenciarLicenca ? 'Licença da empresa — clique para abrir o Murade DP, onde ela é cadastrada' : 'Licença da empresa (gerenciada pelo Departamento Pessoal)'}
+          title={salvarLicenca ? 'Licença da empresa (cadastrada e gerenciada pelo DP) — clique para editar' : urlGerenciarLicenca ? 'Licença da empresa — clique para abrir o Murad DP, onde ela é cadastrada' : 'Licença da empresa (gerenciada pelo Departamento Pessoal)'}
         >
           <KeyRound size={13} className="shrink-0" />
           <span className="truncate max-w-[210px]">{texto}</span>
@@ -123,7 +126,7 @@ export const CabecalhoPadrao: React.FC<Props> = ({ usuario, empresaNome, empresa
               </select>
             </label>
             <label className="block text-[11px]">Vencimento
-              <input type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} className="w-full border rounded px-1 py-0.5" />
+              <CampoData value={vencimento} onChange={(e) => setVencimento(e.target.value)} className="w-full border rounded px-1 py-0.5" />
             </label>
             <label className="flex items-center gap-1 text-[11px]"><input type="checkbox" checked={ativa} onChange={(e) => setAtiva(e.target.checked)} /> Ativa</label>
             {msg && <div className="text-[11px] text-red-600">{msg}</div>}
@@ -132,10 +135,10 @@ export const CabecalhoPadrao: React.FC<Props> = ({ usuario, empresaNome, empresa
         )}
       </div>
       <BotoesTamanhoLetra />
-      <button type="button" onClick={onSair} className="flex items-center gap-1 px-2 py-1 text-white/90 hover:text-white hover:bg-white/10 rounded transition cursor-pointer" title="Sair">
+      {!soEmpresa && <button type="button" onClick={onSair} className="flex items-center gap-1 px-2 py-1 text-white/90 hover:text-white hover:bg-white/10 rounded transition cursor-pointer" title="Sair">
         <LogOut size={13} />
         <span>Sair</span>
-      </button>
+      </button>}
     </div>
   );
 };

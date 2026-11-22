@@ -187,7 +187,7 @@ export function analisarMigracao(ent: EntradaAnalise): AchadoMigracao[] {
   for (const n of ent.naoEntraram || []) porMotivo.set(n.motivo, (porMotivo.get(n.motivo) || 0) + 1);
   for (const [motivo, n] of porMotivo) {
     const base = /sintética/.test(motivo) ? BASE_ECD_ANALITICA : /fecha/.test(motivo) ? BASE_PARTIDA : 'Sem conta no plano de contas do backup, a linha não tem onde ser lançada.';
-    conferir({ id: `nao-entrou:${motivo}`, tipo: 'conferir', titulo: `${n} linha(s) de lançamento não entraram`, veio: motivo, certo: 'lançar no Murade com conta analítica e débito = crédito (as linhas estão em Migração › "Lançamentos originais")', base });
+    conferir({ id: `nao-entrou:${motivo}`, tipo: 'conferir', titulo: `${n} linha(s) de lançamento não entraram`, veio: motivo, certo: 'lançar no Murad com conta analítica e débito = crédito (as linhas estão em Migração › "Lançamentos originais")', base });
   }
   // saldo credor de caixa (fim de mês) e saldo invertido (verificar)
   const saldo = new Map<string, number>(); const porMes = new Map<string, Map<string, number>>();
@@ -222,7 +222,7 @@ export function analisarMigracao(ent: EntradaAnalise): AchadoMigracao[] {
   const foraAntes = aberturaIso ? lancs.filter((l) => String(l?.id || '').startsWith(prefixo) && String(l.data) < aberturaIso && l.tipoEspecial !== 'encerramento') : [];
   if (foraFuturo.length) out.push({ id: 'data-futura', tipo: 'verificar', situacao: decidido('data-futura') === 'mantido' ? 'mantido' : 'pendente', titulo: `${foraFuturo.length} lançamento(s) com data no futuro`, veio: `ex.: ${foraFuturo[0].data.split('-').reverse().join('/')}`, certo: 'verificar a data do fato', base: 'ITG 2000 (R1): o lançamento leva a data da ocorrência do fato.' });
   if (foraAntes.length) out.push({ id: 'data-antes-abertura', tipo: 'verificar', situacao: decidido('data-antes-abertura') === 'mantido' ? 'mantido' : 'pendente', titulo: `${foraAntes.length} lançamento(s) antes da data de abertura (${empresa.dataAbertura})`, veio: `ex.: ${foraAntes[0].data.split('-').reverse().join('/')}`, certo: 'verificar a data do fato ou a data de abertura do cadastro', base: 'ITG 2000 (R1): o lançamento leva a data da ocorrência do fato.' });
-  if ((b.lancamentos_lote_aberto || []).length) out.push({ id: 'lote-aberto', tipo: 'verificar', situacao: decidido('lote-aberto') === 'mantido' ? 'mantido' : 'pendente', titulo: `${b.lancamentos_lote_aberto.length} lançamento(s) em lote aberto no sistema anterior`, veio: 'não efetivados lá (fora do balancete)', certo: 'verificar se deviam ter sido lançados', base: 'No programa antigo o lote aberto não entra no balancete; o Murade seguiu o mesmo.' });
+  if ((b.lancamentos_lote_aberto || []).length) out.push({ id: 'lote-aberto', tipo: 'verificar', situacao: decidido('lote-aberto') === 'mantido' ? 'mantido' : 'pendente', titulo: `${b.lancamentos_lote_aberto.length} lançamento(s) em lote aberto no sistema anterior`, veio: 'não efetivados lá (fora do balancete)', certo: 'verificar se deviam ter sido lançados', base: 'No programa antigo o lote aberto não entra no balancete; o Murad seguiu o mesmo.' });
 
   // ---- modelos de lançamento automático → mapeamento de origem do Fiscal/DP (sugestão; o contador aceita ou mantém)
   const lcontasPorLauto = new Map<string, Linha>();
@@ -241,8 +241,8 @@ export function analisarMigracao(ent: EntradaAnalise): AchadoMigracao[] {
     if (atual && atual.contaDebitoCodigo === d && atual.contaCreditoCodigo === c) continue;
     const id = `mapeamento:${regra[1]}`;
     conferir({ id, tipo: 'conferir', titulo: `Integração "${regra[2]}"`, veio: `modelo ${txt(la.cdchamada)} "${txt(la.dslancautomatico)}": D ${d} / C ${c}`,
-      certo: `usar no Murade, em Integração Fiscal/DP › ${regra[2]}: D ${d} (${porCodigo.get(d)?.descricao}) / C ${c} (${porCodigo.get(c)?.descricao})${atual ? ` — hoje está D ${atual.contaDebitoCodigo} / C ${atual.contaCreditoCodigo}` : ''}`,
-      base: 'Modelo de lançamento automático do próprio sistema anterior desta empresa (mesmo fato contábil da origem do Murade). Aceitar muda os rascunhos que o DP mandar daqui em diante.',
+      certo: `usar no Murad, em Integração Fiscal/DP › ${regra[2]}: D ${d} (${porCodigo.get(d)?.descricao}) / C ${c} (${porCodigo.get(c)?.descricao})${atual ? ` — hoje está D ${atual.contaDebitoCodigo} / C ${atual.contaCreditoCodigo}` : ''}`,
+      base: 'Modelo de lançamento automático do próprio sistema anterior desta empresa (mesmo fato contábil da origem do Murad). Aceitar muda os rascunhos que o DP mandar daqui em diante.',
       alvo: { tipo: 'mapeamento', campo: regra[1] }, valorVeio: atual ? { contaDebitoCodigo: atual.contaDebitoCodigo, contaCreditoCodigo: atual.contaCreditoCodigo } : null, valorCerto: { contaDebitoCodigo: d, contaCreditoCodigo: c } });
   }
 
@@ -256,14 +256,14 @@ export function analisarMigracao(ent: EntradaAnalise): AchadoMigracao[] {
     const id = `ajuste:${d.codigo}:${d.competencia}`;
     const conta = porCodigo.get(d.codigo);
     const causas = (ent.naoEntraram || []).filter((n) => n.data.slice(0, 7) === d.competencia && ent.mapaContas[String(n.idconta)] === d.codigo);
-    const causa = causas.length ? `${causas.length} linha(s) do arquivo que não entraram (${causas[0].motivo})` : Math.abs(net) <= 2 ? 'diferença de arredondamento de centavos' : 'lançamento do arquivo diferente do que está no Murade';
+    const causa = causas.length ? `${causas.length} linha(s) do arquivo que não entraram (${causas[0].motivo})` : Math.abs(net) <= 2 ? 'diferença de arredondamento de centavos' : 'lançamento do arquivo diferente do que está no Murad';
     const valor = Math.abs(net);
     const cp = contrapartida && contrapartida !== d.codigo ? String(contrapartida) : '';
     const hist = `Ajuste de migração: diferença de ${reais(valor)} na conta ${d.codigo} em ${mesAno(d.competencia)} (${causa})`.slice(0, 240);
     const ajuste = cp ? { data: ultimoDia(d.competencia), contaDebito: net > 0 ? d.codigo : cp, contaCredito: net > 0 ? cp : d.codigo, valorCentavos: valor, historico: hist, competencia: d.competencia } : undefined;
     const feito = lancado(id);
     out.push({ id, tipo: 'ajuste', situacao: feito ? 'lancado' : decidido(id) === 'mantido' ? 'mantido' : 'pendente', titulo: `Conta ${d.codigo}${conta ? ` ${conta.descricao}` : ''} em ${mesAno(d.competencia)}`,
-      veio: `no arquivo: débito ${reais(d.debitoAnterior)} / crédito ${reais(d.creditoAnterior)}; no Murade: débito ${reais(d.debitoMurade)} / crédito ${reais(d.creditoMurade)}`,
+      veio: `no arquivo: débito ${reais(d.debitoAnterior)} / crédito ${reais(d.creditoAnterior)}; no Murad: débito ${reais(d.debitoMurade)} / crédito ${reais(d.creditoMurade)}`,
       certo: ajuste ? `lançar D ${ajuste.contaDebito} / C ${ajuste.contaCredito} ${reais(valor)} — "${hist}"` : 'escolha a conta de contrapartida (crie a conta "Ajustes de exercícios anteriores" no PL ou defina a contrapartida da abertura) para o ajuste ficar pronto',
       base: `Causa: ${causa}. Lei 6.404/1976, art. 186, § 1º: ajustes de exercícios anteriores vão para lucros ou prejuízos acumulados.`, ajuste });
   }
@@ -273,7 +273,7 @@ export function analisarMigracao(ent: EntradaAnalise): AchadoMigracao[] {
     if (!ref.startsWith(PREFIXO_AJUSTE) || ref.endsWith(':ESTORNO') || lancs.some((x) => x?.estornoDe === l.id)) continue;
     const id = ref.slice(PREFIXO_AJUSTE.length);
     if (out.some((a) => a.id === id)) continue;
-    out.push({ id, tipo: 'ajuste', situacao: 'lancado', titulo: `Ajuste lançado em ${String(l.data).split('-').reverse().join('/')}`, veio: 'diferença entre o balancete do Murade e o arquivo',
+    out.push({ id, tipo: 'ajuste', situacao: 'lancado', titulo: `Ajuste lançado em ${String(l.data).split('-').reverse().join('/')}`, veio: 'diferença entre o balancete do Murad e o arquivo',
       certo: `D ${l.contaDebitoCodigo} / C ${l.contaCreditoCodigo} ${reais(Math.round(Number(l.valor) * 100))} — "${l.historico}"`, base: 'Ajuste confirmado pelo contador.',
       ajuste: { data: String(l.data), contaDebito: l.contaDebitoCodigo, contaCredito: l.contaCreditoCodigo, valorCentavos: Math.round(Number(l.valor) * 100), historico: String(l.historico), competencia: String(l.data).slice(0, 7) } });
   }

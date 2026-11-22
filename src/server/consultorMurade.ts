@@ -37,7 +37,7 @@ async function postar(caminho: string, corpo: unknown, o: OpcoesConsultor): Prom
     const r = await f(`${c.url}${caminho}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'x-murade-consultor-token': c.token }, body: JSON.stringify(corpo), signal: AbortSignal.timeout(o.timeoutMs ?? TIMEOUT_CONSULTOR_MS) });
     let json: any = {}; try { json = await r.json(); } catch { /* sem corpo */ }
     return { status: r.status, json };
-  } catch (e: any) { console.error('Consultor Murade indisponível:', e?.message || e); return null; }
+  } catch (e: any) { console.error('Consultor Murad indisponível:', e?.message || e); return null; }
 }
 
 /** Pergunta ao Consultor. null = use a consulta de sempre (sem token, fora do ar, erro, demora ou resposta sem texto). */
@@ -89,7 +89,7 @@ export const opcoesConsultorParaTeste: { atual: OpcoesConsultor } = { atual: {} 
 // fora do ar ou resposta estranha = NÃO liberado (a Agente segue como sempre, sem erro).
 // ---------------------------------------------------------------------------------------------
 export const CACHE_LIBERACAO_MS = 10 * 60_000;
-export const FRASE_NAO_LIBERADO = 'O Consultor Murade completo, que faz o serviço inteiro para você, é um adicional. Fale com o seu fornecedor para liberar.';
+export const FRASE_NAO_LIBERADO = 'O Consultor Murad completo, que faz o serviço inteiro para você, é um adicional. Fale com o seu fornecedor para liberar.';
 const cacheLiberacao = new Map<string, { liberado: boolean; ate: number }>();
 export const limparCacheLiberacaoParaTeste = () => cacheLiberacao.clear();
 
@@ -105,7 +105,7 @@ export async function consultorLiberado(cnpjEscritorio: string | null | undefine
     const r = await f(`${c.url}/api/consultor/liberado?escritorio=${cnpj}`, { method: 'GET', headers: { Accept: 'application/json', 'x-murade-consultor-token': c.token }, signal: AbortSignal.timeout(o.timeoutMs ?? 10_000) });
     let j: any = {}; try { j = await r.json(); } catch { /* sem corpo */ }
     liberado = r.status === 200 && j?.liberado === true;
-  } catch (e: any) { console.error('Consultor Murade: não consegui conferir a liberação:', e?.message || e); }
+  } catch (e: any) { console.error('Consultor Murad: não consegui conferir a liberação:', e?.message || e); }
   if (cacheLiberacao.size > 1000) cacheLiberacao.clear();
   cacheLiberacao.set(`${c.url}|${cnpj}`, { liberado, ate: agora + CACHE_LIBERACAO_MS });
   return liberado;

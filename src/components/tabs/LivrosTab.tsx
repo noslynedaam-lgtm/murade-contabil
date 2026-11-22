@@ -202,7 +202,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
     { titulo: "Saldos iniciais", detalhe: relatoriosECD.saldosIniciaisPendentes.length ? `${relatoriosECD.saldosIniciaisPendentes.length} saldo(s) pendentes ou inconsistentes` : "Nenhum saldo inicial pendente identificado", ok: relatoriosECD.saldosIniciaisPendentes.length === 0 },
     { titulo: "Persistência confirmada", detalhe: workspaceCarregado && workspacePersistido ? "Workspace lido e gravado no banco" : "Aguardando confirmação de leitura e gravação no banco", ok: workspaceCarregado && workspacePersistido },
     { titulo: "Revisão de rascunhos", detalhe: pendentes ? `${pendentes} pré-lançamento(s) ainda aguardam conferência` : "Nenhum pré-lançamento pendente", ok: pendentes === 0 },
-    { titulo: "Arquivo ECD e validação oficial", detalhe: "Pendente: gere o TXT no painel abaixo e valide no PGE/SPED; o Murade não recebe a validação oficial", ok: false },
+    { titulo: "Arquivo ECD e validação oficial", detalhe: "Pendente: gere o TXT no painel abaixo e valide no PGE/SPED; o Murad não recebe a validação oficial", ok: false },
   ];
   const checklistECDLiberado = checksECD.every((item) => item.ok);
 
@@ -560,7 +560,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
 
       <section className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
         <h3 className="font-bold">Autenticação oficial da ECD</h3>
-        <p className="mt-1">A obrigatoriedade depende do enquadramento e das exceções aplicáveis à entidade e ao ano; o sistema não presume a entrega só pelo regime tributário. O leiaute oficial publicado atualmente é o 9 (manual atualizado em janeiro de 2026). O programa validador oficial da ECD está na versão 10.4.1, válida para o ano-calendário 2025, situações especiais de 2026 e anos anteriores. O Murade gera o TXT da ECD no painel abaixo, mas não executa a validação oficial: valide e assine no PGE.</p>
+        <p className="mt-1">A obrigatoriedade depende do enquadramento e das exceções aplicáveis à entidade e ao ano; o sistema não presume a entrega só pelo regime tributário. O leiaute oficial publicado atualmente é o 9 (manual atualizado em janeiro de 2026). O programa validador oficial da ECD está na versão 10.4.1, válida para o ano-calendário 2025, situações especiais de 2026 e anos anteriores. O Murad gera o TXT da ECD no painel abaixo, mas não executa a validação oficial: valide e assine no PGE.</p>
         <div className="mt-3 rounded-md border border-amber-200 bg-white p-3">
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div><h4 className="font-bold">Conferência prévia local da ECD</h4><p className="mt-1 text-[11px]">Verifica dados existentes no workspace desta empresa; o TXT é montado no gerador abaixo. Não confirma obrigatoriedade e não equivale à validação pelo PGE.</p></div>
@@ -594,7 +594,7 @@ export const LivrosTab: React.FC<LivrosTabProps> = ({
         {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcfRealPeriodosPainel empresaRegime={empresa.regime} cnpj={String(empresa.cnpj || "")} ano={Number(anoECD)} receitaPorMesCentavos={receitaPorMesECF} resultadoPorTrimestre={resultadoPorTrimestreECF} onRegistros={guardar(setEcfPeriodos)} />}
         {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcfArquivoPainel empresa={empresa} ano={Number(anoECD)} presumido={ecfPresumido} realAnual={ecfRealAnual} estimativaMensal={ecfPeriodos.estimativa} realTrimestral={ecfPeriodos.trimestral} />}
         {workspaceCarregado && /^\d{4}$/.test(anoECD) && <EcdGeradorPainel empresa={empresa} ano={anoECD} contas={contas} lancamentos={relatoriosECD.validos} onMapeamentoReferencial={onMapeamentoReferencial} />}
-        <p className="mt-2 rounded-md border border-amber-200 bg-white/70 p-2"><strong>Limite atual do Murade:</strong> esta tela exporta relatório interno em PDF para impressão e planilha XLS. O arquivo estruturado TXT da ECD (com Balanço, DRE e encerramento do resultado) é gerado no painel acima. Portanto, estes relatórios em PDF/XLS não devem ser enviados como ECD nem são autenticados por esta exportação.</p>
+        <p className="mt-2 rounded-md border border-amber-200 bg-white/70 p-2"><strong>Limite atual do Murad:</strong> esta tela exporta relatório interno em PDF para impressão e planilha XLS. O arquivo estruturado TXT da ECD (com Balanço, DRE e encerramento do resultado) é gerado no painel acima. Portanto, estes relatórios em PDF/XLS não devem ser enviados como ECD nem são autenticados por esta exportação.</p>
         <a href="https://sped.rfb.gov.br/projeto/show/273" target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-md border border-amber-400 bg-white px-3 py-2 font-bold text-amber-950 hover:bg-amber-100">
           <ExternalLink className="h-3.5 w-3.5" /> Abrir página oficial da ECD no SPED
         </a>

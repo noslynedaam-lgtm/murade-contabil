@@ -266,5 +266,5 @@ test('adicional não liberado para o escritório: a Agente responde a frase do a
   assert.equal(r.piloto, null); assert.equal(r.acoes.length, 0);
   assert.equal(chamadas.filter(([m]) => m === 'POST').length, 0);
   assert.ok(!chamadas.some(([, c]) => c.startsWith('/api/workspaces/')), 'nem levanta nada');
-  assert.equal(FRASE_NAO_LIBERADO, 'O Consultor Murade completo, que faz o serviço inteiro para você, é um adicional. Fale com o seu fornecedor para liberar.');
+  assert.equal(FRASE_NAO_LIBERADO, 'O Consultor Murad completo, que faz o serviço inteiro para você, é um adicional. Fale com o seu fornecedor para liberar.');
 });

@@ -14,7 +14,7 @@ interface Progresso { aulas: Array<{ aulaId: string; quizNota: number | null; co
 interface Demonstracao { etapas: string[]; suaVez: string[]; completaEm: string | null; totalEtapas: number }
 interface Conteudo { trilhas: TrilhaEscola[]; aulas: AulaSemRespostas[]; glossario: TermoGlossario[]; progresso: Progresso; gestor: boolean; demonstracao?: Demonstracao | null }
 
-const MSG_ADICIONAL = 'A Escola Murade é um adicional. Fale com o seu fornecedor para liberar.';
+const MSG_ADICIONAL = 'A Escola Murad é um adicional. Fale com o seu fornecedor para liberar.';
 const semAcento = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 export const TelaEscolaMurade: React.FC<{ onVoltar?: () => void }> = ({ onVoltar }) => {
@@ -43,7 +43,7 @@ export const TelaEscolaMurade: React.FC<{ onVoltar?: () => void }> = ({ onVoltar
   const cabecalho = (
     <div className="mb-3 flex flex-wrap items-center gap-2">
       {onVoltar && <button type="button" onClick={onVoltar} className="rounded-lg px-2 py-1 text-sm font-semibold text-blue-800 hover:bg-blue-50">‹ Voltar</button>}
-      <h2 className="flex items-center gap-2 text-lg font-extrabold text-slate-900 sm:text-xl"><GraduationCap size={22} className="text-blue-700" /> Escola Murade</h2>
+      <h2 className="flex items-center gap-2 text-lg font-extrabold text-slate-900 sm:text-xl"><GraduationCap size={22} className="text-blue-700" /> Escola Murad</h2>
     </div>
   );
 
@@ -53,7 +53,7 @@ export const TelaEscolaMurade: React.FC<{ onVoltar?: () => void }> = ({ onVoltar
     <div className="mx-auto max-w-3xl p-3 sm:p-5" data-campo="escola-painel" data-testid="escola-nao-liberada">
       {cabecalho}
       <section className="rounded-xl bg-white p-4 shadow-sm">
-        <p className="text-sm text-slate-800">A Escola Murade ensina quem está começando — o funcionário novo do escritório e o contador iniciante — a trabalhar no {SISTEMA_ESCOLA} e a entender o básico de cada assunto.</p>
+        <p className="text-sm text-slate-800">A Escola Murad ensina quem está começando — o funcionário novo do escritório e o contador iniciante — a trabalhar no {SISTEMA_ESCOLA} e a entender o básico de cada assunto.</p>
         <ul className="mt-2 list-disc pl-5 text-sm text-slate-700">
           <li>Trilhas curtas: {TRILHAS_DO_SISTEMA.map((t) => t.titulo).join('; ')}.</li>
           <li>Cada regra com a lei e a fonte oficial; exemplos calculados pelo próprio sistema.</li>

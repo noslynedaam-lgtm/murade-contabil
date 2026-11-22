@@ -2015,7 +2015,7 @@ export async function importarCnpjsCompartilhados(itens: Array<{ cnpj: string; e
 
 // ===== Código de segurança (segundo fator) — telas "Segurança" e "Usuários" =====
 
-const EMISSOR_2FA = "Murade Contábil";
+const EMISSOR_2FA = "Murad Contábil";
 const naoColocarEmCache = (res: Response) => res.setHeader("Cache-Control", "no-store");
 
 /** Dono do sistema que ainda não ligou o código só pode ligar o código ou sair; o resto do sistema espera (a pessoa liga na hora, sem ajuda de ninguém). */

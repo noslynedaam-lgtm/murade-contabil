@@ -126,7 +126,7 @@ export const restauracaoContabil: AdaptadorRestauracao = {
 };
 
 export const servicoBackupAgendadoContabil = criarServicoBackupAgendado({
-  sistema: 'contabil', nomeSistema: 'Murade Contábil', prefixo: 'murade_contabil', consultar,
+  sistema: 'contabil', nomeSistema: 'Murad Contábil', prefixo: 'murade_contabil', consultar,
   async cnpjsDoEscritorio(tenantId) { await prepararAuthContabil(); return obterCnpjsDoEscritorio(consultar, tenantId); },
   async coletar(tenantId, cnpjs) { await prepararAuthContabil(); return coletarDadosDoEscritorio(consultar, tenantId, cnpjs); },
   async escritorios() {

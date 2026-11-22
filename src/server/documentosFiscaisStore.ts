@@ -40,7 +40,7 @@ export async function verificarEstadoStoreFiscal(cnpjsAutorizados?: string[]): P
 
 async function inicializar(): Promise<void> {
   const db = obterPool();
-  if (!db) throw new Error("DATABASE_URL não configurada no Murade Contábil.");
+  if (!db) throw new Error("DATABASE_URL não configurada no Murad Contábil.");
   if (!inicializacao) {
     inicializacao = db.query(`
       CREATE TABLE IF NOT EXISTS murade_documentos_fiscais_origem (
@@ -49,7 +49,7 @@ async function inicializar(): Promise<void> {
         competencia char(7) NOT NULL CHECK (competencia ~ '^[0-9]{4}-[0-9]{2}$'),
         tipo varchar(16) NOT NULL CHECK (tipo IN ('Entrada', 'Saída')),
         documento jsonb NOT NULL,
-        origem varchar(40) NOT NULL DEFAULT 'Murade Fiscal',
+        origem varchar(40) NOT NULL DEFAULT 'Murad Fiscal',
         recebido_em timestamptz NOT NULL DEFAULT now(),
         atualizado_em timestamptz NOT NULL DEFAULT now(),
         PRIMARY KEY (cnpj, chave_documento)
@@ -124,7 +124,7 @@ export async function gravarDocumentosFiscais(
   documentos: any[],
 ): Promise<ResultadoGravacaoFiscal> {
   const db = obterPool();
-  if (!db) throw new Error("DATABASE_URL não configurada no Murade Contábil.");
+  if (!db) throw new Error("DATABASE_URL não configurada no Murad Contábil.");
   if (!cnpjContabilValido(cnpj)) throw new ErroValidacaoDocumentoFiscal("CNPJ inválido.");
   if (!Array.isArray(documentos) || documentos.length < 1 || documentos.length > 200) {
     throw new ErroValidacaoDocumentoFiscal("O lote precisa conter de 1 a 200 documentos.");
@@ -239,7 +239,7 @@ export async function lerDocumentosFiscais(
   limite: number,
 ): Promise<any[]> {
   const db = obterPool();
-  if (!db) throw new Error("DATABASE_URL não configurada no Murade Contábil.");
+  if (!db) throw new Error("DATABASE_URL não configurada no Murad Contábil.");
   if (!cnpjContabilValido(cnpj)) throw new Error("CNPJ inválido.");
   await inicializar();
   const resultado = await db.query(`
@@ -256,7 +256,7 @@ export async function lerDocumentosFiscais(
 
 export async function lerVersoesDocumentoFiscal(cnpj: string, chave: string, limite: number): Promise<Record<string, unknown>[]> {
   const db = obterPool();
-  if (!db) throw new Error("DATABASE_URL não configurada no Murade Contábil.");
+  if (!db) throw new Error("DATABASE_URL não configurada no Murad Contábil.");
   if (!cnpjContabilValido(cnpj)) throw new Error("CNPJ inválido.");
   if (!chave.trim() || chave.length > 128 || !Number.isInteger(limite) || limite < 1 || limite > 10) throw new Error("Chave ou limite de versões inválido.");
   await inicializar();

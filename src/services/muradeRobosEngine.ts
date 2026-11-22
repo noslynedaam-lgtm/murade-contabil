@@ -134,7 +134,7 @@ class MuradeRobosEngine {
     // 🧠 AGENTE IA — GERENTE / COORDENADOR
     agenteIA: {
       id: "agente_ia_murade",
-      nome: "Agente IA Murade",
+      nome: "Agente IA Murad",
       funcao: "Coordena os 3 robôs, responde dúvidas, toma decisões, avisa de mudanças",
       tarefas: [
         "Coordena ordem dos robôs — ninguém trabalha ao mesmo tempo",
@@ -267,7 +267,7 @@ class MuradeRobosEngine {
     agente_ia_murade: {
       id: "agente_ia_murade",
       chave: "agenteIA",
-      nome: "Agente IA Murade",
+      nome: "Agente IA Murad",
       funcao: "Coordena os 3 robôs, responde dúvidas, toma decisões, avisa de mudanças",
       ativo: false,
       status: "inativo",
@@ -285,7 +285,7 @@ class MuradeRobosEngine {
     {
       id: "init_1",
       hora: new Date().toLocaleTimeString("pt-BR"),
-      origem: "Sistema Murade",
+      origem: "Sistema Murad",
       tipo: "info",
       mensagem: "Modo de demonstração. Nenhuma rotina ou integração foi executada automaticamente.",
     },
@@ -346,7 +346,7 @@ class MuradeRobosEngine {
 
     console.log(`
 ╔══════════════════════════════════════════════════════════╗
-║   🤖 MURADE — SISTEMA DE ROBÔS + AGENTE IA v${this.versao}       ║
+║   🤖 MURAD — SISTEMA DE ROBÔS + AGENTE IA v${this.versao}       ║
 ║   Programa: ${this.programaAtual.toUpperCase().padEnd(43)}║
 ║                                                          ║
 ║   🤖 Robô 1 → Coletor (busca dados)                      ║
@@ -363,7 +363,7 @@ class MuradeRobosEngine {
       if (win.muradeRobosInicializado) {
         console.log("♻️ Sistema já estava ativo — ATUALIZANDO configurações");
         win.MURADE_ROBOS_CONFIG = this;
-        this.registrarLog("🧠 Agente IA Murade", "Configurações de robôs recarregadas sem duplicação.", "info");
+        this.registrarLog("🧠 Agente IA Murad", "Configurações de robôs recarregadas sem duplicação.", "info");
         return { acao: "ATUALIZADO", programa: this.programaAtual };
       }
 
@@ -371,7 +371,7 @@ class MuradeRobosEngine {
       win.MURADE_ROBOS_CONFIG = this;
     }
 
-    this.registrarLog("Sistema Murade", "Aguardando dados locais para conferência. Fontes externas e integrações não estão configuradas.", "info");
+    this.registrarLog("Sistema Murad", "Aguardando dados locais para conferência. Fontes externas e integrações não estão configuradas.", "info");
     return { acao: "AGUARDANDO_DADOS", programa: this.programaAtual };
   }
 
@@ -400,7 +400,7 @@ class MuradeRobosEngine {
   ) {
     if (this.seguranca.bloqueioEmpresa[cnpjEmpresa]) {
       this.registrarLog(
-        "🧠 Agente IA Murade",
+        "🧠 Agente IA Murad",
         `Já existe um processamento para ${cnpjEmpresa}. Aguarde a fila atual terminar.`,
         "alerta"
       );
@@ -409,7 +409,7 @@ class MuradeRobosEngine {
 
     this.seguranca.bloquearEmpresa(cnpjEmpresa, "pipeline");
     this.registrarLog(
-      "🧠 Agente IA Murade",
+      "🧠 Agente IA Murad",
       `Iniciando conferência local de ${lancamentos.length} lançamento(s). Nenhuma fonte externa será consultada.`,
       "sistema"
     );
@@ -479,7 +479,7 @@ class MuradeRobosEngine {
       executar: () => {
         this.seguranca.desbloquearEmpresa(cnpjEmpresa);
         this.registrarLog(
-          "🧠 Agente IA Murade",
+          "🧠 Agente IA Murad",
           "Conferência local encerrada. Nenhum livro foi fechado ou transmitido.",
           "info"
         );

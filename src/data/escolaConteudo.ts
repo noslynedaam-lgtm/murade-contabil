@@ -14,7 +14,7 @@ import { buscarAulaEm, buscarNoGlossario, normalizarEscola, q, type AulaEscola, 
 
 export * from './escolaNucleo';
 
-export const SISTEMA_ESCOLA = 'Murade Contábil';
+export const SISTEMA_ESCOLA = 'Murad Contábil';
 export const DATA_CONFERENCIA = '2026-11-20';
 
 // ---------------------------------------------------------------- fontes oficiais (uma vez só, reaproveitadas)
@@ -29,14 +29,14 @@ const F = {
   dec6022: lei('Decreto nº 6.022/2007 — institui o SPED (Planalto)', 'https://www.planalto.gov.br/ccivil_03/_ato2007-2010/2007/decreto/d6022.htm'),
   cfc: { nome: 'Conselho Federal de Contabilidade — obrigatoriedade da escrituração contábil e ITG 2000 (R1)', url: 'https://cfc.org.br/tecnica/perguntas-frequentes/obrigatoriedade-de-escrituracao-contabil/', tipo: 'norma' } as FonteAula,
   sped: manual('Portal do SPED (Receita Federal) — ECD e ECF, manuais e prazos', 'https://sped.rfb.gov.br/'),
-  sistema: { nome: 'Mapa de telas do Murade Contábil (o próprio sistema)', url: 'murade:mapaTelasContabil', tipo: 'sistema' } as FonteAula,
+  sistema: { nome: 'Mapa de telas do Murad Contábil (o próprio sistema)', url: 'murade:mapaTelasContabil', tipo: 'sistema' } as FonteAula,
 };
 
 /** Domínios aceitos como fonte oficial (o robô da Escola recusa qualquer outro). */
 export const DOMINIOS_OFICIAIS = ['planalto.gov.br', 'www.planalto.gov.br', 'www2.camara.leg.br', 'legis.senado.leg.br', 'www.gov.br', 'gov.br', 'sped.rfb.gov.br', 'www8.receita.fazenda.gov.br', 'cfc.org.br'];
 
 export const TRILHAS: TrilhaEscola[] = [
-  { id: 'primeiros-passos', titulo: 'Primeiros passos no Murade Contábil', resumo: 'Empresa ativa, menu, robôs, aprovação e a Agente por voz.', icone: '🚀' },
+  { id: 'primeiros-passos', titulo: 'Primeiros passos no Murad Contábil', resumo: 'Empresa ativa, menu, robôs, aprovação e a Agente por voz.', icone: '🚀' },
   { id: 'plano-partidas', titulo: 'Plano de contas e partidas dobradas', resumo: 'Grupos do plano, contas sintéticas e analíticas, débito e crédito.', icone: '🗂️' },
   { id: 'lancamentos', titulo: 'Lançamentos', resumo: 'Os que vêm do Fiscal e do DP, os manuais e os recorrentes.', icone: '✍️' },
   { id: 'conciliacao', titulo: 'Conciliação bancária', resumo: 'Extrato do banco x razão da conta: o que casa e o que falta.', icone: '🏦' },
@@ -49,15 +49,15 @@ export const TRILHAS: TrilhaEscola[] = [
 
 export const AULAS: AulaEscola[] = [
   // ======================================================== PRIMEIROS PASSOS (o próprio sistema)
-  { id: 'como-funciona', trilha: 'primeiros-passos', titulo: 'Como o Murade Contábil funciona',
-    oQueE: 'O Murade Contábil faz a escrituração das empresas do escritório: plano de contas, lançamentos, conciliação, fechamento, balancete, livros, ECD e ECF. Quase toda tela trabalha com a EMPRESA ativa, escolhida no cabeçalho.',
+  { id: 'como-funciona', trilha: 'primeiros-passos', titulo: 'Como o Murad Contábil funciona',
+    oQueE: 'O Murad Contábil faz a escrituração das empresas do escritório: plano de contas, lançamentos, conciliação, fechamento, balancete, livros, ECD e ECF. Quase toda tela trabalha com a EMPRESA ativa, escolhida no cabeçalho.',
     porQue: 'Cada empresa tem o próprio plano, lançamentos e fechamento. Conferir a empresa antes de lançar evita lançar no cliente errado.',
-    regras: ['O menu da esquerda leva a cada tela; no celular ele abre pelo botão do menu.', 'Em Cadastro de Empresa você cadastra e escolhe as empresas; as que já estão no Murade Fiscal são trazidas pelo robô.', 'Nada é apagado de uma vez: excluir é um item por vez, em duas etapas.'],
+    regras: ['O menu da esquerda leva a cada tela; no celular ele abre pelo botão do menu.', 'Em Cadastro de Empresa você cadastra e escolhe as empresas; as que já estão no Murad Fiscal são trazidas pelo robô.', 'Nada é apagado de uma vez: excluir é um item por vez, em duas etapas.'],
     fontes: [F.sistema], conferidoEm: DATA_CONFERENCIA, exemplo: null,
     meMostra: { tela: 'empresa', legenda: 'Aqui ficam as empresas. Escolha a empresa antes de lançar.' }, pratica: null,
     perguntas: [
       q('Antes de lançar, o que precisa estar certo?', ['A cor do menu', 'A empresa ativa', 'O tamanho da tela'], 1, 'As telas mostram os dados da empresa ativa. Confira sempre antes de lançar.'),
-      q('As empresas que já estão no Murade Fiscal:', ['Precisam ser digitadas de novo', 'São trazidas pelo robô', 'Não podem ser usadas'], 1, 'O Robô de Empresas do Fiscal traz as empresas que ainda não estão no Contábil.'),
+      q('As empresas que já estão no Murad Fiscal:', ['Precisam ser digitadas de novo', 'São trazidas pelo robô', 'Não podem ser usadas'], 1, 'O Robô de Empresas do Fiscal traz as empresas que ainda não estão no Contábil.'),
       q('Como funciona excluir algo no sistema?', ['Um botão apaga tudo', 'Um item por vez, em duas etapas', 'Só o robô apaga'], 1, 'Para ninguém errar, excluir é um item por vez e pede duas confirmações.'),
     ] },
   { id: 'robos-aprovar', trilha: 'primeiros-passos', titulo: 'Os robôs e a tela "Aprovar lançamentos"',
@@ -110,7 +110,7 @@ export const AULAS: AulaEscola[] = [
 
   // ======================================================== LANÇAMENTOS
   { id: 'lancamentos-integrados', trilha: 'lancamentos', titulo: 'Lançamentos que vêm do Fiscal e do DP',
-    oQueE: 'As notas do Murade Fiscal (entradas, saídas, impostos) e a folha do Murade DP (salários, INSS, FGTS, IRRF) chegam ao Contábil como pré-lançamentos, já com as contas pelo mapeamento do escritório. Você revisa e aprova.',
+    oQueE: 'As notas do Murad Fiscal (entradas, saídas, impostos) e a folha do Murad DP (salários, INSS, FGTS, IRRF) chegam ao Contábil como pré-lançamentos, já com as contas pelo mapeamento do escritório. Você revisa e aprova.',
     porQue: 'Evita redigitar: o que já foi feito no Fiscal e no DP vira contabilidade, no mês certo (regime de competência).',
     regras: ['As mutações patrimoniais são registradas pelo regime de competência (Lei nº 6.404/1976, art. 177).', 'A escrituração tem de corresponder à documentação (Código Civil, art. 1.179).', 'No sistema, o rascunho do Fiscal e do DP fica em "Revisar dados recebidos" até você conferir; o mês não fecha com rascunho pendente.'],
     fontes: [F.lei6404, F.cc, F.sistema], conferidoEm: DATA_CONFERENCIA, exemplo: null,

@@ -16,7 +16,7 @@ export type TelaJeito = {
 
 export const MODULOS_JEITO_PADRAO: TelaJeito[] = [
   { id: 'inicio', rotulo: 'Tela Inicial', resumo: 'Painel de entrada: mostra o estado das integrações com o Fiscal, o Departamento Pessoal e os órgãos, e tem a caixinha "Pedir para alguém" para passar serviço à equipe.', arquivo: 'InicioTab' },
-  { id: 'empresa', rotulo: 'Cadastro de Empresa', resumo: 'Cadastro e gestão das empresas do escritório (CNPJ, regime e dados fiscais); também puxa as empresas do Murade Fiscal e do DP.', arquivo: 'EmpresaTab' },
+  { id: 'empresa', rotulo: 'Cadastro de Empresa', resumo: 'Cadastro e gestão das empresas do escritório (CNPJ, regime e dados fiscais); também puxa as empresas do Murad Fiscal e do DP.', arquivo: 'EmpresaTab' },
   { id: 'agenda', rotulo: 'Agenda & Lembretes', resumo: 'Calendário de obrigações e lembretes de vencimento, com cadastro de novo lembrete.', arquivo: 'AgendaTab' },
   { id: 'fluxo-previtico', rotulo: 'Fluxo Prevítico', resumo: 'Fluxo de caixa editável na tela; foto ou arquivo anexado fica só no navegador, sem leitura automática, e nada vira lançamento sozinho.', arquivo: 'FluxoPreviticoTab' },
   { id: 'modulos-finais', rotulo: 'Obrigações & Gestão', resumo: 'Painel das obrigações e da gestão da empresa a partir dos lançamentos definitivos; o Contábil não consulta a SEFAZ, só recebe o que o Fiscal capturou.', arquivo: 'ModulosFinaisTab' },
@@ -34,7 +34,7 @@ export const MODULOS_JEITO_PADRAO: TelaJeito[] = [
   { id: 'calculadora', rotulo: 'Calculadora 3D', resumo: 'Calculadora com teclas compactas e acumulado por empresa.', arquivo: 'CalculadoraTab' },
   { id: 'agente', rotulo: 'Agentes & Robô', resumo: 'Painel dos robôs e da Agente IA, com a missão e o estado de cada um.', arquivo: 'AgenteTab' },
   { id: 'tarefas-equipe', rotulo: 'Tarefas da equipe', resumo: 'Pedidos feitos à equipe, com acompanhamento de quando foram vistos e concluídos.', arquivo: 'TarefasEquipeTab' },
-  { id: 'backups', rotulo: 'Backups', resumo: 'Backup do escritório em arquivo próprio do Murade, cifrado: agendar (todo dia, semana ou mês), guardar no computador ou na nuvem do escritório e restaurar; o mensal automático continua.', arquivo: 'BackupsTab' },
+  { id: 'backups', rotulo: 'Backups', resumo: 'Backup do escritório em arquivo próprio do Murad, cifrado: agendar (todo dia, semana ou mês), guardar no computador ou na nuvem do escritório e restaurar; o mensal automático continua.', arquivo: 'BackupsTab' },
   { id: 'meu-jeito', rotulo: 'Meu jeito', resumo: 'O nome pelo qual a Agente te chama e o que ela aprendeu do seu jeito de trabalhar: você vê, muda o nome ou volta ao jeito padrão, uma regra por vez.', arquivo: 'MeuJeitoTab' },
   { id: 'revisor', rotulo: 'Revisor', resumo: 'Confere antes de gravar ou fechar e revisa cada empresa no mês: certo, risco e falta. Em Corrigir fica o que o robô semanal achou; Corrigir para mim só arruma lançamento pendente em mês aberto.', arquivo: 'RevisorTab' },
 ];
@@ -97,7 +97,7 @@ export function textoBoasVindas(sessao: number, legado = false, nome?: string | 
   const n = typeof nome === 'string' && nome.trim() ? nome.trim() : '';
   // Quem já usava o sistema antes do "Meu jeito" conta como já tendo passado por 4 aberturas: vê UMA vez, e com o texto completo.
   if (sessao === 1 || legado) {
-    return `Boas-vindas ao Murade Contábil${n ? `, ${n}` : ''}! Aqui funciona assim: o Fiscal e o DP mandam os dados, você confere em Revisar dados recebidos, aprova os lançamentos, acompanha o Balancete e fecha o mês na Gestão contábil. Mas cada contador trabalha de um jeito, e eu posso aprender o seu: é só me contar como prefere trabalhar, que eu salvo e passo a trabalhar sempre do seu jeito.`;
+    return `Boas-vindas ao Murad Contábil${n ? `, ${n}` : ''}! Aqui funciona assim: o Fiscal e o DP mandam os dados, você confere em Revisar dados recebidos, aprova os lançamentos, acompanha o Balancete e fecha o mês na Gestão contábil. Mas cada contador trabalha de um jeito, e eu posso aprender o seu: é só me contar como prefere trabalhar, que eu salvo e passo a trabalhar sempre do seu jeito.`;
   }
   return `Que bom ter você de volta${n ? `, ${n}` : ''}! Lembre que eu posso aprender o seu jeito de trabalhar, ${DICAS[sessao - 2]}. Para ver o que eu já sei, diga: mostra meu jeito.`;
 }

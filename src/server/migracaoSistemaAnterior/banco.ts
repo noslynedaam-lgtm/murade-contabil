@@ -55,7 +55,7 @@ export async function gravarEmpresaMigrada(
     const fechadas = new Set((await q('SELECT competencia FROM contabil_period_closures WHERE cnpj=$1', [cnpj])).rows.map((r) => String(r.competencia)));
     const comp = ws.rows.length ? null : (await q('SELECT dados FROM contabil_empresas_compartilhadas WHERE cnpj=$1', [cnpj])).rows[0]?.dados ?? null;
     const m = mesclarMigracao(ws.rows[0]?.payload ?? null, dados, { modelo: opcoes.modelo, cadastroCompartilhado: comp, competenciaAtual: opcoes.competenciaAtual, fechadas });
-    if (!m.payload) throw new ErroMigracao(m.bloqueio || 'Não foi possível juntar os dados com o que já existe no Murade.');
+    if (!m.payload) throw new ErroMigracao(m.bloqueio || 'Não foi possível juntar os dados com o que já existe no Murad.');
     if (!opcoes.validar(m.payload)) throw new ErroMigracao('Os dados juntados não passaram na validação do Contábil; nada foi gravado.');
     let versao: number;
     if (ws.rows.length) {
@@ -191,7 +191,7 @@ export async function aplicarAchadoEmpresaMigrada(banco: BancoTransacional, cnpj
     for (const a of alvos) {
       const comp = a.ajuste?.competencia || '';
       const lancsAlvo = a.alvo?.tipo === 'lancamentos' ? (payload.lancamentos || []).filter((l: any) => (a.alvo!.ids || []).includes(l.id)) : [];
-      if ((comp && fechadas.has(comp)) || lancsAlvo.some((l: any) => fechadas.has(String(l.data).slice(0, 7)))) throw new ErroMigracao('A competência está fechada no Murade. Reabra a competência para mudar este item.');
+      if ((comp && fechadas.has(comp)) || lancsAlvo.some((l: any) => fechadas.has(String(l.data).slice(0, 7)))) throw new ErroMigracao('A competência está fechada no Murad. Reabra a competência para mudar este item.');
       if (acao === 'manter') { mensagem = 'Mantido como veio do sistema anterior.'; continue; }
       payload = aplicarAcaoAchado(payload, a, acao === 'corrigir_todos' ? 'corrigir' : acao, quem);
     }

@@ -57,7 +57,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
     {
       id: "msg-0",
       sender: "ia",
-      text: "Olá, quem fala é o Murade Contábil. O que você deseja? Sou sua inteligência tributária e contábil. Posso analisar balancetes, explicar lançamentos de partidas dobradas, orientar sobre o IBS e CBS da Reforma Tributária 2026 ou auditar suas transmissões para a Receita e SEFAZ. Como posso ajudar agora?",
+      text: "Olá, quem fala é o Murad Contábil. O que você deseja? Sou sua inteligência tributária e contábil. Posso analisar balancetes, explicar lançamentos de partidas dobradas, orientar sobre o IBS e CBS da Reforma Tributária 2026 ou auditar suas transmissões para a Receita e SEFAZ. Como posso ajudar agora?",
       timestamp: "Agora",
     },
   ]);
@@ -546,7 +546,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
             </div>
             <div>
               <div className="font-extrabold text-sm flex items-center gap-1.5">
-                <span>IA Murade</span>
+                <span>IA Murad</span>
                 <span className="text-[10px] font-semibold bg-emerald-500 text-white px-1.5 py-0.2 rounded-xs">
                   Voz Natural
                 </span>
@@ -668,7 +668,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
             <div className="flex justify-start">
               <div className="bg-white border border-slate-200 rounded-2xl p-3 rounded-bl-none text-xs text-slate-600 flex items-center gap-2 shadow-2xs">
                 <Sparkles className="w-4 h-4 text-blue-600 animate-spin" />
-                <span>Agente Murade consultando base legal e cruzando dados...</span>
+                <span>Agente Murad consultando base legal e cruzando dados...</span>
               </div>
             </div>
           )}

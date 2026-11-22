@@ -63,8 +63,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
       id: "modulos-finais" as TabId,
       label: "Obrigações & Gestão",
       icon: Briefcase,
-      badge: "Em configuração",
-      badgeColor: "bg-amber-300 text-slate-950 font-bold",
     },
     {
       id: "gestao-contabil" as TabId,
@@ -75,8 +73,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
       id: "conexoes" as TabId,
       label: "Conexão Órgãos",
       icon: Plug,
-      badge: "Pendente",
-      badgeColor: "bg-amber-500/25 text-amber-100",
+      badge: "A configurar",
+      badgeColor: "bg-white/10 text-blue-100",
     },
     {
       id: "lancamentos" as TabId,
@@ -124,8 +122,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
       id: "integracao" as TabId,
       label: "Integrações",
       icon: Network,
-      badge: "Pendente",
-      badgeColor: "bg-amber-400/25 text-amber-100",
     },
     {
       id: "revisao-origens" as TabId,
@@ -178,7 +174,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
     },
     {
       id: "ia-premium" as TabId,
-      label: "IA Murade Premium",
+      label: "IA Murad Premium",
       icon: Sparkles,
       badge: "Voz v3.0",
       badgeColor: "bg-amber-300 text-slate-950 font-bold",
@@ -190,7 +186,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
 
   const copiarCodigo = () => {
     if (navigator?.clipboard?.writeText) {
-      navigator.clipboard.writeText("MURADE-2026-GO");
+      navigator.clipboard.writeText("MURAD-2026-GO");
     }
   };
 
@@ -205,7 +201,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
           </div>
           <div>
             <h1 className="text-xs font-black text-white tracking-tight flex items-center gap-1">
-              <span>MURADE CONTÁBIL</span>
+              <span>MURAD CONTÁBIL</span>
             </h1>
 
           </div>
@@ -220,7 +216,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
           <div className="flex items-center gap-2 text-xs">
             <span className="text-amber-300">🔑</span>
             <span className="font-mono font-bold text-amber-200 tracking-wider text-[11px]">
-              MURADE-2026-GO
+              MURAD-2026-GO
             </span>
           </div>
           <Copy className="w-3.5 h-3.5 text-blue-200 group-hover:text-amber-200 transition" />

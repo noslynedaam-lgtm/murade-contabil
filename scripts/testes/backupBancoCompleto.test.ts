@@ -209,7 +209,7 @@ comPg('banco real: backup cifrado, validação, restauração em banco novo idê
 
   const s3f = await servidorS3Falso();
   try {
-    const svc = criarServicoBackupBanco({ sistema: 'dp', nomeSistema: 'Murade DP', consulta: (sql, p) => o.query(sql, p as any[]), conexaoBanco: () => ({ connectionString: urlOrigem }), env: envS3(s3f.url) });
+    const svc = criarServicoBackupBanco({ sistema: 'dp', nomeSistema: 'Murad DP', consulta: (sql, p) => o.query(sql, p as any[]), conexaoBanco: () => ({ connectionString: urlOrigem }), env: envS3(s3f.url) });
     // duas execuções ao mesmo tempo: só uma roda
     const [a, b] = await Promise.all([svc.executar('manual'), svc.executar('manual')]);
     const feitas = [a, b].filter((r) => r.ok); const barradas = [a, b].filter((r) => !r.ok);
@@ -269,7 +269,7 @@ comPg('banco real: falha no destino vira falha registrada, sem vazar segredo, e 
   await o.query(`CREATE TABLE t (id int primary key)`);
   const s3f = await servidorS3Falso('meu-bucket', { falharEm: (m) => (m === 'PUT' ? 403 : null) });
   try {
-    const svc = criarServicoBackupBanco({ sistema: 'contabil', nomeSistema: 'Murade Contábil', consulta: (sql, p) => o.query(sql, p as any[]), conexaoBanco: () => ({ connectionString: urlOrigem }), env: envS3(s3f.url) });
+    const svc = criarServicoBackupBanco({ sistema: 'contabil', nomeSistema: 'Murad Contábil', consulta: (sql, p) => o.query(sql, p as any[]), conexaoBanco: () => ({ connectionString: urlOrigem }), env: envS3(s3f.url) });
     const r = await svc.executar('automatico');
     assert.equal(r.ok, false); assert.equal(r.codigo, 'falha'); assert.ok(!/SEGREDO-S3|ACESSO/.test(r.motivo || ''), r.motivo);
     const st: any = await svc.status();
@@ -290,7 +290,7 @@ comPg('robô: só roda depois das 3h de Brasília, uma vez por dia, e alerta pas
   const s3f = await servidorS3Falso();
   let agora = new Date('2026-11-17T05:00:00Z'); // 02h em Brasília
   try {
-    const svc = criarServicoBackupBanco({ sistema: 'dp', nomeSistema: 'Murade DP', consulta: (sql, p) => o.query(sql, p as any[]), conexaoBanco: () => ({ connectionString: urlOrigem }), env: envS3(s3f.url), agora: () => agora });
+    const svc = criarServicoBackupBanco({ sistema: 'dp', nomeSistema: 'Murad DP', consulta: (sql, p) => o.query(sql, p as any[]), conexaoBanco: () => ({ connectionString: urlOrigem }), env: envS3(s3f.url), agora: () => agora });
     let r = await svc.rodadaDoRobo(); assert.match(r.resumo, /Aguardando o horário/); assert.equal(s3f.objetos.size, 0);
     agora = new Date('2026-11-17T06:10:00Z'); // 03h10
     r = await svc.rodadaDoRobo(); assert.match(r.resumo, /Backup do banco concluído/); assert.equal([...s3f.objetos.keys()].filter((k) => k.endsWith('.mbk')).length, 1);

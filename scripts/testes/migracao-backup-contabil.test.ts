@@ -75,7 +75,7 @@ test('código repetido no plano do sistema anterior ganha código livre (com avi
   const { ler } = await abrir();
   const d = await montarDadosEmpresa(ler, 49);
   const codigos = d.contas.map((c) => c.codigo);
-  assert.equal(new Set(codigos).size, codigos.length, 'códigos únicos no Murade');
+  assert.equal(new Set(codigos).size, codigos.length, 'códigos únicos no Murad');
   assert.ok(d.avisos.some((a) => /recebeu o código 1\.1\.04\.01\.\d+/.test(a)));
   assert.ok(d.contas.length >= 687);
 });
@@ -165,7 +165,7 @@ test('junção não mexe no trabalho da equipe: lançamento, conta usada e hist�
   const d = await montarDadosEmpresa(ler, 49);
   const conta = d.contas.find((c) => c.tipo === 'analitica')!;
   const outra = d.contas.filter((c) => c.tipo === 'analitica')[1];
-  const daEquipe = { id: 'man-1', data: '2026-10-05', contaDebitoCodigo: conta.codigo, contaDebitoNome: 'Nome da equipe', contaCreditoCodigo: outra.codigo, contaCreditoNome: outra.descricao, valor: 10, historico: 'Feito no Murade', origem: 'Manual', statusManual: 'aprovado' };
+  const daEquipe = { id: 'man-1', data: '2026-10-05', contaDebitoCodigo: conta.codigo, contaDebitoNome: 'Nome da equipe', contaCreditoCodigo: outra.codigo, contaCreditoNome: outra.descricao, valor: 10, historico: 'Feito no Murad', origem: 'Manual', statusManual: 'aprovado' };
   const atual = { empresa: { cnpj: d.cnpj }, contas: [{ codigo: conta.codigo, descricao: 'Nome da equipe', nivel: conta.nivel, tipo: 'analitica', natureza: conta.natureza }, { ...outra }], centrosCusto: [], lancamentos: [daEquipe], livros: [], lembretes: [], historicosPadrao: [{ id: 'h1', codigo: d.historicosPadrao[0].codigo, texto: 'Texto da equipe' }] };
   const m = mesclarMigracao(atual, d, { modelo: planoContasModelo, competenciaAtual: '2026-11' });
   assert.ok(m.payload, m.bloqueio);

@@ -47,7 +47,7 @@ export const ModalConexaoMuradFiscal: React.FC<ModalConexaoMuradFiscalProps> = (
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-xl border border-slate-200 p-4">
               <div className="mb-2 flex items-center gap-2 font-semibold text-slate-800">
-                <FileSpreadsheet className="h-4 w-4" /> Murade Fiscal
+                <FileSpreadsheet className="h-4 w-4" /> Murad Fiscal
               </div>
               {dadosFiscais ? (
                 <p className="text-sm text-slate-600">

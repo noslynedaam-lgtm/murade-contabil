@@ -40,8 +40,8 @@ test('verificação: aceita o passo certo e um vizinho, recusa distante, recusa 
 });
 
 test('uri do aplicativo: traz segredo, emissor, 6 dígitos e 30 s', () => {
-  const uri = uriOtpauth('Murade Fiscal', 'maria@escritorio.com', 'ABCDEFGH');
-  assert.match(uri, /^otpauth:\/\/totp\/Murade%20Fiscal%3Amaria%40escritorio\.com\?secret=ABCDEFGH&issuer=Murade%20Fiscal&algorithm=SHA1&digits=6&period=30$/);
+  const uri = uriOtpauth('Murad Fiscal', 'maria@escritorio.com', 'ABCDEFGH');
+  assert.match(uri, /^otpauth:\/\/totp\/Murad%20Fiscal%3Amaria%40escritorio\.com\?secret=ABCDEFGH&issuer=Murad%20Fiscal&algorithm=SHA1&digits=6&period=30$/);
 });
 
 test('segredo cifrado: volta igual, só abre com a mesma chave e o mesmo usuário, e adulteração é detectada', () => {
@@ -154,7 +154,7 @@ test('banco: ativar o código de segurança, entrar com ele, não repetir o mesm
   try {
     await m.prepararSeguranca(q, p);
     assert.equal(await m.tem2faAtivo(q, p, 'u1'), false);
-    const ini = await m.iniciarAtivacao2fa(q, p, chave, 'u1', 'ana@x.com', 'Murade Teste');
+    const ini = await m.iniciarAtivacao2fa(q, p, chave, 'u1', 'ana@x.com', 'Murad Teste');
     assert.match(ini.uri, /^otpauth:\/\/totp\//);
     const guardado = (await q(`SELECT segredo_cifrado FROM ${p}_2fa WHERE user_id='u1'`)).rows[0].segredo_cifrado;
     assert.ok(!guardado.includes(ini.segredo), 'segredo guardado cifrado');

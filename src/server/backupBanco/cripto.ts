@@ -95,7 +95,7 @@ export function criarDecifrador(chave: string): Transform {
         buffer = buffer.length ? Buffer.concat([buffer, pedaco]) : pedaco;
         if (!k) {
           if (buffer.length < MAGIA_BACKUP.length + TAM_SAL) return cb();
-          if (!buffer.subarray(0, MAGIA_BACKUP.length).equals(MAGIA_BACKUP)) throw new Error('Este arquivo não é um backup do Murade (formato desconhecido).');
+          if (!buffer.subarray(0, MAGIA_BACKUP.length).equals(MAGIA_BACKUP)) throw new Error('Este arquivo não é um backup do Murad (formato desconhecido).');
           k = derivarChave(chave, buffer.subarray(MAGIA_BACKUP.length, MAGIA_BACKUP.length + TAM_SAL));
           buffer = buffer.subarray(MAGIA_BACKUP.length + TAM_SAL);
         }

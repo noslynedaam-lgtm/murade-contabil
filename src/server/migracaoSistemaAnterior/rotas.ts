@@ -45,7 +45,7 @@ export async function resolverEscritorioIntegracao(req: express.Request, integ: 
   if (!escritorio && !dono) return { ok: false, http: 400, motivo: 'Informe o login do escritório.' };
   try {
     const s = await integ.sessaoDoEscritorio(escritorio, dono);
-    if (!s) return { ok: false, http: 409, semEscritorio: true, motivo: `O escritório "${escritorio || 'dono do sistema'}" ainda não tem acesso no Murade Contábil. Crie o acesso do escritório no Contábil (mesmo login do DP) e clique em Reenviar.` };
+    if (!s) return { ok: false, http: 409, semEscritorio: true, motivo: `O escritório "${escritorio || 'dono do sistema'}" ainda não tem acesso no Murad Contábil. Crie o acesso do escritório no Contábil (mesmo login do DP) e clique em Reenviar.` };
     if (!s.administrador) return { ok: false, http: 403, motivo: 'O login informado não é o administrador do escritório no Contábil.' };
     return { ok: true, sessao: s };
   } catch (e) {
@@ -256,15 +256,15 @@ export function rotinaConferidorMigracao(dep: Pick<DependenciasRotasMigracao, 'c
       if (f?.pendencias.length) {
         totalPendencias += f.pendencias.length;
         const ex = f.pendencias[0];
-        camposPendentes.push(`${cnpj}: ${f.pendencias.length} campo(s) (ex.: ${ex.item} › ${ex.rotulo}: "${ex.noSistemaAnterior.slice(0, 60)}" no sistema anterior, "${ex.noMurade.slice(0, 60)}" no Murade)`);
+        camposPendentes.push(`${cnpj}: ${f.pendencias.length} campo(s) (ex.: ${ex.item} › ${ex.rotulo}: "${ex.noSistemaAnterior.slice(0, 60)}" no sistema anterior, "${ex.noMurade.slice(0, 60)}" no Murad)`);
       }
     }
     let texto = !cnpjs.length ? 'Nenhuma empresa migrada pelo backup do sistema anterior ainda.'
       : problemas.length ? `${problemas.length} de ${cnpjs.length} empresa(s) migrada(s) não batem com o sistema anterior. ${problemas.slice(0, 3).join(' | ')}`
-        : `${cnpjs.length} empresa(s) migrada(s) conferida(s): o balancete do Murade bate com o sistema anterior em todas${desatualizados ? ` (em ${desatualizados}, a tabela de saldos antiga do sistema anterior estava desatualizada e valeram os lançamentos de lá)` : ''}.`;
+        : `${cnpjs.length} empresa(s) migrada(s) conferida(s): o balancete do Murad bate com o sistema anterior em todas${desatualizados ? ` (em ${desatualizados}, a tabela de saldos antiga do sistema anterior estava desatualizada e valeram os lançamentos de lá)` : ''}.`;
     if (cnpjs.length) texto += camposPendentes.length
       ? ` Campo a campo: ${totalPendencias} pendência(s) em ${camposPendentes.length} empresa(s) — ${camposPendentes.slice(0, 3).join(' | ')}. Veja na empresa › Migração › "O que veio do sistema anterior".`
-      : ' Campo a campo: todos os campos preenchidos no sistema anterior estão iguais no Murade.';
+      : ' Campo a campo: todos os campos preenchidos no sistema anterior estão iguais no Murad.';
     if (completadas) texto += ` Completei sozinho ${camposCompletados} campo(s) vazio(s) em ${completadas} empresa(s) a partir do registro do sistema anterior (nada foi sobrescrito).`;
     if (cnpjs.length && analises.length) texto += ` Análise do que veio errado do sistema anterior: ${totalConferir} item(ns) para o contador conferir${totalAjustes ? ` e ${totalAjustes} ajuste(s) prontos` : ''} — ${analises.slice(0, 3).join(' | ')}.`;
     dep.robos.registrarResultadoRobo(id, texto);

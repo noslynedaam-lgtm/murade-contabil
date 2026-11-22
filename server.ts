@@ -251,7 +251,7 @@ const reconciliacaoRascunhosStatus: {
     integracao: { autorizado: integracaoAutorizada, configurado: () => Boolean(process.env.MURADE_INTEGRATION_TOKEN), sessaoDoEscritorio: sessaoDoEscritorioParaIntegracaoContabil },
     robos: { executarRobo, registrarResultadoRobo, definirAlertaRobo },
   });
-  registrarRobo({ id: "conferidor_migracao_sistema_anterior", nome: "Robô Conferidor da Migração do Sistema Anterior", posto: "conferidor", missao: "Conferir, em cada empresa migrada pelo backup do sistema anterior, se o balancete do Murade (lançamentos que vieram de lá) bate por conta e competência com os saldos e com os lançamentos originais do sistema anterior, e se nenhum lançamento migrado sumiu ou foi alterado; e, campo a campo, se cada campo preenchido no sistema anterior (cadastro da empresa, responsável, contador, contas, históricos, lançamentos e bens) chegou igual no Murade. Só lê e avisa; nunca altera nada.", intervaloMs: 6 * 60 * 60_000 });
+  registrarRobo({ id: "conferidor_migracao_sistema_anterior", nome: "Robô Conferidor da Migração do Sistema Anterior", posto: "conferidor", missao: "Conferir, em cada empresa migrada pelo backup do sistema anterior, se o balancete do Murad (lançamentos que vieram de lá) bate por conta e competência com os saldos e com os lançamentos originais do sistema anterior, e se nenhum lançamento migrado sumiu ou foi alterado; e, campo a campo, se cada campo preenchido no sistema anterior (cadastro da empresa, responsável, contador, contas, históricos, lançamentos e bens) chegou igual no Murad. Só lê e avisa; nunca altera nada.", intervaloMs: 6 * 60 * 60_000 });
   const rodarConferidorMigracao = rotinaConferidorMigracao({ consultar: (sql, params) => consultaBancoContabil(sql, params), preparar: prepararAuthContabil, bancoConfigurado: bancoContabilConfigurado, robos: { executarRobo, registrarResultadoRobo, definirAlertaRobo }, banco: bancoTransacionalContabil, workspaceValido });
   registrarRotinaManual("conferidor_migracao_sistema_anterior", rodarConferidorMigracao);
   setTimeout(() => void rodarConferidorMigracao(), 7 * 60_000).unref();
@@ -469,7 +469,7 @@ const reconciliacaoRascunhosStatus: {
     return res.json({
       conectado: true,
       sistema: "Murade Contábil",
-      integracao: "Murade Fiscal",
+      integracao: "Murad Fiscal",
       dadosCompartilhados: armazenamento.documentosRecebidos > 0,
       recebimentoFiscalConfigurado: armazenamento.disponivel,
       documentosFiscaisRecebidos: armazenamento.documentosRecebidos,
@@ -488,7 +488,7 @@ const reconciliacaoRascunhosStatus: {
     res.setHeader("Vary", "Authorization");
     if (negarIntegracao(req, res)) return;
     if (!fiscalStoreConfigurado()) {
-      return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil para receber documentos com persistência." });
+      return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murad Contábil para receber documentos com persistência." });
     }
     const cnpj = normalizarCnpjAcesso(req.body?.cnpj);
     if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
@@ -526,7 +526,7 @@ const reconciliacaoRascunhosStatus: {
     res.setHeader("Vary", "Authorization");
     if (negarIntegracao(req, res)) return;
     if (!fiscalStoreConfigurado()) {
-      return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil." });
+      return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murad Contábil." });
     }
     const cnpj = normalizarCnpjAcesso(req.query.cnpj);
     if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
@@ -555,7 +555,7 @@ const reconciliacaoRascunhosStatus: {
     res.setHeader("Vary", "Authorization");
     if (negarIntegracao(req, res)) return;
     if (!apuracoesStoreConfigurado()) {
-      return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil para receber apurações com persistência." });
+      return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murad Contábil para receber apurações com persistência." });
     }
     const cnpj = normalizarCnpjAcesso(req.body?.cnpj);
     if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
@@ -592,7 +592,7 @@ const reconciliacaoRascunhosStatus: {
     res.setHeader("Vary", "Authorization");
     if (negarIntegracao(req, res)) return;
     if (!apuracoesStoreConfigurado()) {
-      return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil." });
+      return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murad Contábil." });
     }
     const cnpj = normalizarCnpjAcesso(req.query.cnpj);
     if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
@@ -619,7 +619,7 @@ const reconciliacaoRascunhosStatus: {
     res.setHeader("Vary", "Authorization");
     if (negarIntegracao(req, res)) return;
     if (!fiscalStoreConfigurado()) {
-      return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil." });
+      return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murad Contábil." });
     }
     // Reject repeated/structured query parameters instead of coercing them to
     // strings (for example ?cnpj[]=... or ?chave=a&chave=b).
@@ -666,7 +666,7 @@ const reconciliacaoRascunhosStatus: {
     return res.json({
       conectado: true,
       sistema: "Murade Contábil",
-      integracao: "Murade Departamento Pessoal",
+      integracao: "Murad Departamento Pessoal",
       recebimentoDPConfigurado: armazenamento.disponivel,
       dadosCompartilhados: armazenamento.folhasRecebidas > 0,
       folhasDPRecebidas: armazenamento.folhasRecebidas,
@@ -682,7 +682,7 @@ const reconciliacaoRascunhosStatus: {
     res.setHeader("Vary", "Authorization");
     if (negarIntegracao(req, res)) return;
     if (!dpStoreConfigurado()) {
-      return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil para receber folhas agregadas com persistência." });
+      return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murad Contábil para receber folhas agregadas com persistência." });
     }
     const cnpj = normalizarCnpjAcesso(req.body?.cnpj);
     if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
@@ -718,7 +718,7 @@ const reconciliacaoRascunhosStatus: {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Vary", "Authorization");
     if (negarIntegracao(req, res)) return;
-    if (!dpStoreConfigurado()) return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil." });
+    if (!dpStoreConfigurado()) return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murad Contábil." });
     const cnpj = normalizarCnpjAcesso(req.body?.cnpj);
     if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
     try {
@@ -741,7 +741,7 @@ const reconciliacaoRascunhosStatus: {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Vary", "Authorization");
     if (negarIntegracao(req, res)) return;
-    if (!dpStoreConfigurado()) return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil." });
+    if (!dpStoreConfigurado()) return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murad Contábil." });
     const cnpj = normalizarCnpjAcesso(req.body?.cnpj);
     if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
     try {
@@ -764,7 +764,7 @@ const reconciliacaoRascunhosStatus: {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Vary", "Authorization");
     if (negarIntegracao(req, res)) return;
-    if (!dpStoreConfigurado()) return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil." });
+    if (!dpStoreConfigurado()) return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murad Contábil." });
     const cnpj = normalizarCnpjAcesso(req.query.cnpj);
     const tipo = req.query.tipo === "decimo" || req.query.tipo === "rescisao" || req.query.tipo === "ferias" ? req.query.tipo : undefined;
     const limite = req.query.limite == null ? 50 : Number(req.query.limite);
@@ -784,7 +784,7 @@ const reconciliacaoRascunhosStatus: {
     res.setHeader("Vary", "Authorization");
     if (negarIntegracao(req, res)) return;
     if (!dpStoreConfigurado()) {
-      return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil." });
+      return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murad Contábil." });
     }
     const cnpj = normalizarCnpjAcesso(req.query.cnpj);
     const desde = String(req.query.desde || "");
@@ -862,7 +862,7 @@ const reconciliacaoRascunhosStatus: {
     if (negarIntegracao(req, res)) return;
     const cnpj = normalizarCnpjAcesso(req.params.cnpj);
     if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
-    if (!bancoContabilConfigurado()) return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil." });
+    if (!bancoContabilConfigurado()) return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murad Contábil." });
     const por = typeof req.body?.por === "string" ? req.body.por.slice(0, 120) : undefined;
     const origem = typeof req.body?.origem === "string" ? req.body.origem.slice(0, 40) : "integracao";
     try {
@@ -1533,13 +1533,13 @@ const reconciliacaoRascunhosStatus: {
     return { tenantId: String(s.tenantId), login: s.login, administrador, equipe: !administrador && Boolean(s.escritorioDe || s.administrador) };
   }, { leitura: [exigirSessaoContabil], escrita: [exigirOrigemNavegador, exigirSessaoContabil] });
   // O backup mensal por escritório acima continua igual; este é o do sistema inteiro, cifrado, em destino S3-compatível.
-  const servicoBackupBanco = criarServicoBackupBanco({ sistema: "contabil", nomeSistema: "Murade Contábil", consulta: (sql, params) => consultaBancoContabil(sql, params), conexaoBanco: () => opcoesConexaoBancoContabil() });
+  const servicoBackupBanco = criarServicoBackupBanco({ sistema: "contabil", nomeSistema: "Murad Contábil", consulta: (sql, params) => consultaBancoContabil(sql, params), conexaoBanco: () => opcoesConexaoBancoContabil() });
   const exigirDonoBackupBanco = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     res.setHeader("Cache-Control", "private, no-store");
     const sessao = sessaoDaRequisicaoContabil(req);
     if (!sessao) return res.status(401).json({ sucesso: false, motivo: "Entre no sistema." });
     if (!sessao.donoSistema) return res.status(403).json({ sucesso: false, motivo: "Somente o dono do sistema acessa o backup completo do banco." });
-    if (!bancoContabilConfigurado()) return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murade Contábil." });
+    if (!bancoContabilConfigurado()) return res.status(503).json({ sucesso: false, motivo: "Configure DATABASE_URL no serviço Murad Contábil." });
     next();
   };
   app.get("/api/backup-banco/status", exigirSessaoContabil, exigirDonoBackupBanco, async (_req, res) => {
@@ -1575,7 +1575,7 @@ const reconciliacaoRascunhosStatus: {
 
   registrarRobo({ id: "reconciliador", nome: "Robô Reconciliador", posto: "integrador", missao: "Trazer do Fiscal e do DP os dados novos e preparar pré-lançamentos para conferência.", intervaloMs: 60_000 });
   registrarRobo({ id: "contabilizador", nome: "Robô Contabilizador", posto: "calculador", missao: "Transformar pré-lançamentos em lançamentos definitivos.", motivoSemRotina: "Sem rotina automática por regra: lançamento definitivo só nasce depois da aprovação de uma pessoa." });
-  registrarRobo({ id: "mensageiro", nome: "Robô Mensageiro", posto: "integrador", missao: "Reenviar pedidos entre as Agentes dos sistemas Murade que não chegaram ao destino.", intervaloMs: 60_000 });
+  registrarRobo({ id: "mensageiro", nome: "Robô Mensageiro", posto: "integrador", missao: "Reenviar pedidos entre as Agentes dos sistemas Murad que não chegaram ao destino.", intervaloMs: 60_000 });
   registrarRobo({ id: "conferidor", nome: "Robô Conferidor", posto: "conferidor", missao: "Conferir todas as empresas: o que falta para fechar o mês (aprovações, rascunhos do Fiscal e do DP, depreciação, partidas) e se a ECD do ano anterior já está pronta para o contador (Balanço, DRE, assinaturas, plano referencial), deixando o resultado para a tela e para a Agente.", intervaloMs: 30 * 60_000 });
   const rodarConferidor = () => executarRobo("conferidor", async () => {
     const r = await rodarConferidorContabil((sql, params) => consultaBancoContabil(sql, params));
@@ -1586,7 +1586,7 @@ const reconciliacaoRascunhosStatus: {
   }).catch((e) => console.error("Falha no Robô Conferidor:", e?.message || e));
   setTimeout(() => void rodarConferidor(), 45_000).unref();
   setInterval(() => void rodarConferidor(), 30 * 60_000).unref();
-  registrarRobo({ id: "empresas_fiscal", nome: "Robô de Empresas do Fiscal", posto: "integrador", missao: "Trazer do Murade Fiscal as empresas que ainda não estão no Contábil, para a equipe não cadastrar duas vezes. Não altera o que já existe e não leva certificado nem senha.", intervaloMs: 10 * 60_000 });
+  registrarRobo({ id: "empresas_fiscal", nome: "Robô de Empresas do Fiscal", posto: "integrador", missao: "Trazer do Murad Fiscal as empresas que ainda não estão no Contábil, para a equipe não cadastrar duas vezes. Não altera o que já existe e não leva certificado nem senha.", intervaloMs: 10 * 60_000 });
   const sincronizarEmpresasDoFiscal = async () => {
     const f = await buscarEmpresasDoFiscal();
     if (!f.ok) return { ok: false, motivo: f.motivo || "Fiscal indisponível.", criadas: [] as string[] };
@@ -1606,7 +1606,7 @@ const reconciliacaoRascunhosStatus: {
   });
   // Robô Conferidor de Empresas Excluídas: se o Fiscal diz que uma empresa foi excluída (lápide) e ela ainda tem acesso, cadastro ou workspace aqui,
   // avisa o dono no painel de Saúde dos robôs. Só lê: apagar é sempre uma empresa por vez, com confirmação de uma pessoa.
-  registrarRobo({ id: "empresas_excluidas", nome: "Robô Conferidor de Empresas Excluídas", posto: "conferidor", missao: "Conferir, só em leitura, se alguma empresa excluída no Murade Fiscal ainda sobrou no Contábil (acesso, cadastro ou workspace) e avisar o dono do sistema aqui. Nunca apaga nada sozinho: a exclusão é uma empresa por vez, com confirmação de uma pessoa, e nunca bloqueia o CNPJ para novo cadastro.", intervaloMs: 60 * 60_000 });
+  registrarRobo({ id: "empresas_excluidas", nome: "Robô Conferidor de Empresas Excluídas", posto: "conferidor", missao: "Conferir, só em leitura, se alguma empresa excluída no Murad Fiscal ainda sobrou no Contábil (acesso, cadastro ou workspace) e avisar o dono do sistema aqui. Nunca apaga nada sozinho: a exclusão é uma empresa por vez, com confirmação de uma pessoa, e nunca bloqueia o CNPJ para novo cadastro.", intervaloMs: 60 * 60_000 });
   const rodarEmpresasExcluidas = () => bancoContabilConfigurado() ? executarRobo("empresas_excluidas", async () => {
     await prepararAuthContabil();
     const f = await buscarEmpresasDoFiscal();
@@ -1808,9 +1808,9 @@ const reconciliacaoRascunhosStatus: {
   }
 
   // Robô Conferidor da Escola Murade: conteúdo com fonte oficial e data; aluno com trilha atribuída e sem progresso há 7 dias avisa o gestor.
-  registrarRobo({ id: "conferidor_escola", nome: "Robô Conferidor da Escola Murade", posto: "conferidor", missao: "A cada 6 horas confere, só em leitura, se toda aula da Escola Murade tem fonte oficial e data de conferência, perguntas bem formadas, exemplo calculado pelo motor do sistema e \"Me mostra\" apontando para tela que existe, e avisa o administrador do escritório quando um aluno com trilha atribuída está sem progresso há 7 dias. Nunca grava em lançamento, plano de contas, livro, ECD ou ECF.", intervaloMs: 6 * 60 * 60_000 });
+  registrarRobo({ id: "conferidor_escola", nome: "Robô Conferidor da Escola Murad", posto: "conferidor", missao: "A cada 6 horas confere, só em leitura, se toda aula da Escola Murad tem fonte oficial e data de conferência, perguntas bem formadas, exemplo calculado pelo motor do sistema e \"Me mostra\" apontando para tela que existe, e avisa o administrador do escritório quando um aluno com trilha atribuída está sem progresso há 7 dias. Nunca grava em lançamento, plano de contas, livro, ECD ou ECF.", intervaloMs: 6 * 60 * 60_000 });
   const rodarConferidorEscola = () => bancoContabilConfigurado() ? executarRobo("conferidor_escola", async () => { const r = await escolaMurade.rodarRobo(); registrarResultadoRobo("conferidor_escola", r.resumo); })
-    .catch((e) => console.error("Falha no Robô Conferidor da Escola Murade:", e?.message || e)) : undefined;
+    .catch((e) => console.error("Falha no Robô Conferidor da Escola Murad:", e?.message || e)) : undefined;
   setTimeout(() => void rodarConferidorEscola(), 290_000).unref();
   setInterval(() => void rodarConferidorEscola(), 6 * 60 * 60_000).unref();
   registrarRotinaManual("conferidor_escola", () => void rodarConferidorEscola());
@@ -1827,7 +1827,7 @@ const reconciliacaoRascunhosStatus: {
   const rodarConciliacao = () => bancoContabilConfigurado() ? executarRobo("conciliacao", async () => registrarResultadoRobo("conciliacao", await roboConciliacao(consultarEscrituracao))).catch((e) => console.error("Falha no Robô da Conciliação:", e?.message || e)) : undefined;
   registrarRobo({ id: "ajustes_fechamento", nome: "Robô Conferidor do Fechamento (ajustes)", posto: "conferidor", missao: "Conferir em cada empresa se Diário, Razão, balancete e Balanço/DRE fecham: saldos iniciais sem contrapartida, lançamento fora do Diário (conta sintética, competência diferente da data, fração de centavo), conta de resultado que não zerou no encerramento. Acha a causa e deixa o ajuste pronto para o contador dizer \"Sim\" na tela Fechamento ou pela Agente IA. Nunca lança sozinho.", ...(bancoContabilConfigurado() ? { intervaloMs: 2 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
   const rodarAjustesFechamento = () => bancoContabilConfigurado() ? executarRobo("ajustes_fechamento", async () => registrarResultadoRobo("ajustes_fechamento", await roboAjustesFechamento())).catch((e) => console.error("Falha no Robô dos ajustes do fechamento:", e?.message || e)) : undefined;
-  registrarRobo({ id: "titulos", nome: "Robô dos Títulos a Pagar e Receber", posto: "calculador", missao: "Em cada empresa com títulos: põe os vencimentos na Agenda, avisa os vencidos e os que vencem em até 3 dias, e prepara sozinho, PENDENTE DE APROVAÇÃO, a provisão dos títulos cadastrados no Murade que já têm as duas contas. Nunca aprova nada e nunca lança de novo o que veio contabilizado do sistema anterior.", ...(bancoContabilConfigurado() ? { intervaloMs: 2 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  registrarRobo({ id: "titulos", nome: "Robô dos Títulos a Pagar e Receber", posto: "calculador", missao: "Em cada empresa com títulos: põe os vencimentos na Agenda, avisa os vencidos e os que vencem em até 3 dias, e prepara sozinho, PENDENTE DE APROVAÇÃO, a provisão dos títulos cadastrados no Murad que já têm as duas contas. Nunca aprova nada e nunca lança de novo o que veio contabilizado do sistema anterior.", ...(bancoContabilConfigurado() ? { intervaloMs: 2 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
   const rodarTitulos = () => bancoContabilConfigurado() ? executarRobo("titulos", async () => registrarResultadoRobo("titulos", await roboTitulos(consultarEscrituracao))).catch((e) => console.error("Falha no Robô dos Títulos:", e?.message || e)) : undefined;
   if (bancoContabilConfigurado()) {
     setTimeout(() => void rodarTitulos(), 270_000).unref(); setInterval(() => void rodarTitulos(), 2 * 60 * 60_000).unref();
@@ -1880,7 +1880,7 @@ const reconciliacaoRascunhosStatus: {
     const ai = getAI();
 
     // Contexto base de especialista contábil brasileiro
-    const systemInstruction = `Você é a Assistente Murade, trabalhando no módulo ${moduleName === "dp" ? "Departamento Pessoal" : moduleName === "fiscal" ? "Fiscal" : "Contábil"}, para profissionais brasileiros. Responda em português do Brasil, com tom calmo, direto e prático. Para legislação, prazos, alíquotas, obrigações, tabelas e procedimentos sujeitos a mudança, pesquise informações atuais pela ferramenta de busca. Baseie conclusões legais apenas em fontes oficiais brasileiras: Receita Federal, Portal SPED, eSocial, SEFAZ, Planalto e prefeituras/portais oficiais. Não use páginas comerciais como autoridade legal. Explique a causa provável e a solução em etapas. Não invente dados de empresas, trabalhadores, folha, saldos, transmissões, integrações, alíquotas ou prazos; peça UF, município, regime e competência quando necessário. Não afirme que uma ação foi executada ou que uma conexão existe sem confirmação. Se não localizar fonte oficial atual ou não puder confirmar, diga claramente que ainda vai verificar e identifique o órgão que deve ser consultado. Respostas são orientação informativa, não substituem conferência do contador responsável. Nunca diga que a pergunta é grande ou longa demais: se vierem várias perguntas, liste-as numa linha curta, responda a primeira e termine com "Próximo: 2) … — quer que eu siga?".`;
+    const systemInstruction = `Você é a Assistente Murad, trabalhando no módulo ${moduleName === "dp" ? "Departamento Pessoal" : moduleName === "fiscal" ? "Fiscal" : "Contábil"}, para profissionais brasileiros. Responda em português do Brasil, com tom calmo, direto e prático. Para legislação, prazos, alíquotas, obrigações, tabelas e procedimentos sujeitos a mudança, pesquise informações atuais pela ferramenta de busca. Baseie conclusões legais apenas em fontes oficiais brasileiras: Receita Federal, Portal SPED, eSocial, SEFAZ, Planalto e prefeituras/portais oficiais. Não use páginas comerciais como autoridade legal. Explique a causa provável e a solução em etapas. Não invente dados de empresas, trabalhadores, folha, saldos, transmissões, integrações, alíquotas ou prazos; peça UF, município, regime e competência quando necessário. Não afirme que uma ação foi executada ou que uma conexão existe sem confirmação. Se não localizar fonte oficial atual ou não puder confirmar, diga claramente que ainda vai verificar e identifique o órgão que deve ser consultado. Respostas são orientação informativa, não substituem conferência do contador responsável. Nunca diga que a pergunta é grande ou longa demais: se vierem várias perguntas, liste-as numa linha curta, responda a primeira e termine com "Próximo: 2) … — quer que eu siga?".`;
 
     const rapida = respostaRapida(message);
     if (rapida) return res.json({ reply: rapida.reply, sources: rapida.sources, searched: false, rapida: true });

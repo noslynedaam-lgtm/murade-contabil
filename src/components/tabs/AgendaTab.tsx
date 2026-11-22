@@ -33,6 +33,7 @@ import {
   PagarModal,
   ExcluirModal,
 } from "../modals/ObrigacoesModals";
+import { CampoData } from '../CampoData';
 
 interface AgendaTabProps {
   onVoltar?: () => void;
@@ -126,9 +127,9 @@ export const AgendaTab: React.FC<AgendaTabProps> = ({
     }
 
     const origensMap: Record<string, string> = {
-      contabil: "📙 Origem: MURADE Contábil",
-      dp: "📘 Origem: MURADE DP",
-      fiscal: "📕 Origem: MURADE FISCAL",
+      contabil: "📙 Origem: MURAD Contábil",
+      dp: "📘 Origem: MURAD DP",
+      fiscal: "📕 Origem: MURAD FISCAL",
       fiscoia: "📗 Origem: FISCO IA",
     };
 
@@ -143,7 +144,7 @@ export const AgendaTab: React.FC<AgendaTabProps> = ({
       diaDoMes: diaParsed,
       tipo: "futuro",
       statusTexto: "No prazo",
-      origem: origensMap[novaOrigem] || "📙 Origem: MURADE Contábil",
+      origem: origensMap[novaOrigem] || "📙 Origem: MURAD Contábil",
       corTag: "border-[#2E7D32] bg-[#E8F5E9]",
       acaoTexto1: "Ver",
       acaoTexto2: "Gerar Guia",
@@ -822,8 +823,7 @@ export const AgendaTab: React.FC<AgendaTabProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-800 mb-1">Data de Vencimento *</label>
-                  <input
-                    type="date"
+                  <CampoData
                     value={novaData}
                     onChange={(e) => setNovaData(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:border-[#6A1B9A]"
@@ -837,9 +837,9 @@ export const AgendaTab: React.FC<AgendaTabProps> = ({
                     onChange={(e) => setNovaOrigem(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:border-[#6A1B9A] bg-white cursor-pointer"
                   >
-                    <option value="contabil">📙 MURADE Contábil</option>
-                    <option value="dp">📘 MURADE Departamento Pessoal</option>
-                    <option value="fiscal">📕 MURADE Fiscal</option>
+                    <option value="contabil">📙 MURAD Contábil</option>
+                    <option value="dp">📘 MURAD Departamento Pessoal</option>
+                    <option value="fiscal">📕 MURAD Fiscal</option>
                     <option value="fiscoia">📗 FISCO IA</option>
                   </select>
                 </div>

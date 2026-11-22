@@ -52,19 +52,19 @@ export function ferramentasBackupEscritorio(api: string, nomeSistema: string): F
       tipo: 'acao',
       declaracao: {
         name: 'backup_escritorio_agora',
-        description: `Propõe fazer AGORA o backup do escritório no ${nomeSistema} (arquivo próprio do Murade, cifrado, conferido depois e enviado à nuvem do escritório se houver). Tipo "completo" (padrão) ou "alteracoes" (só o que mudou desde o último completo). Use quando pedirem "faz backup agora". Só lê os dados; não altera nada.`,
+        description: `Propõe fazer AGORA o backup do escritório no ${nomeSistema} (arquivo próprio do Murad, cifrado, conferido depois e enviado à nuvem do escritório se houver). Tipo "completo" (padrão) ou "alteracoes" (só o que mudou desde o último completo). Use quando pedirem "faz backup agora". Só lê os dados; não altera nada.`,
         parameters: { type: 'OBJECT', properties: { tipo: { type: 'STRING', description: 'completo (padrão) ou alteracoes.' } } },
       },
       async preparar(ctx, args) {
         const r = await ctx.chamarApi('GET', `${api}/resumo`);
         if (!ok(r)) return erroApi(r);
-        if (r.corpo?.chaveConfigurada === false) return { erro: 'O backup cifrado ainda não foi ativado neste servidor (falta a chave mestra). Avise o suporte do Murade.' };
+        if (r.corpo?.chaveConfigurada === false) return { erro: 'O backup cifrado ainda não foi ativado neste servidor (falta a chave mestra). Avise o suporte do Murad.' };
         if (r.corpo?.emAndamento) return { erro: 'Já existe um backup deste escritório em andamento. Aguarde terminar.' };
         const tipo = String(args.tipo || '').toLowerCase().startsWith('altera') ? 'alteracoes' : 'completo';
         return {
           cnpj: '', params: { tipo },
           titulo: `Fazer backup ${tipo === 'completo' ? 'completo' : 'só das alterações'} agora`,
-          descricao: [`Gera o arquivo de backup do escritório (formato próprio do Murade, cifrado), confere e guarda na lista da tela Backup${r.corpo?.config?.nuvem?.ativo ? ' e na nuvem do escritório' : ''}.`, 'Só lê os dados: nada é alterado. Leva de segundos a poucos minutos.'],
+          descricao: [`Gera o arquivo de backup do escritório (formato próprio do Murad, cifrado), confere e guarda na lista da tela Backup${r.corpo?.config?.nuvem?.ativo ? ' e na nuvem do escritório' : ''}.`, 'Só lê os dados: nada é alterado. Leva de segundos a poucos minutos.'],
           resumo: `Backup ${tipo === 'completo' ? 'completo' : 'das alterações'} agora`,
         };
       },

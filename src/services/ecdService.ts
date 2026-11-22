@@ -716,7 +716,7 @@ export function gerarArquivoECD(entrada: EntradaECD): ResultadoECD {
   const conteudo = finais.join("\r\n") + "\r\n";
 
   avisos.push(`Inclui Balanço Patrimonial (J100), DRE (J150), aglutinação (I052) e o lançamento de encerramento do resultado${fechando ? "" : " (não houve saldo de resultado a encerrar)"}. ${qtdJ210 ? `Inclui ${modoPL === "dmpl" ? "DMPL" : "DLPA"} (J210/J215). ` : "NÃO inclui DLPA/DMPL (J210). "}NÃO inclui notas explicativas nem plano referencial${p.planoReferencial ? "" : " (I051)"}; o PGE pode apontar o que for exigido para o seu caso.`);
-  avisos.push("O arquivo precisa ser importado, validado, assinado e transmitido pelo PGE do Sped Contábil; o Murade não transmite a ECD.");
+  avisos.push("O arquivo precisa ser importado, validado, assinado e transmitido pelo PGE do Sped Contábil; o Murad não transmite a ECD.");
 
   return {
     ok: true,

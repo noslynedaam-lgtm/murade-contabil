@@ -1,4 +1,4 @@
-// "▶ Demonstração completa com a IA" da Escola Murade (Escola (Contábil)): ordem do roteiro, nomes iguais às telas reais, motor real,
+// "▶ Demonstração completa com a IA" da Escola Murad (Escola (Contábil)): ordem do roteiro, nomes iguais às telas reais, motor real,
 // a demonstração nunca chama salvar/emitir/transmitir, controles (pausar/continuar/pular/parar), "sua vez" e registro no painel do gestor.
 import test from 'node:test';
 import assert from 'node:assert/strict';

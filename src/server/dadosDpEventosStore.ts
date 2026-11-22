@@ -61,7 +61,7 @@ export function normalizarEventoDPContrato(cnpj: string, body: any) {
 let inicializacao: Promise<void> | null = null;
 async function inicializar(): Promise<void> {
   const db = obterPoolDP();
-  if (!db) throw new Error("DATABASE_URL não configurada no Murade Contábil.");
+  if (!db) throw new Error("DATABASE_URL não configurada no Murad Contábil.");
   if (!inicializacao) {
     inicializacao = db.query(`
       CREATE TABLE IF NOT EXISTS murade_eventos_dp_origem (
@@ -85,7 +85,7 @@ async function inicializar(): Promise<void> {
 
 export async function gravarEventoDP(cnpj: string, body: any): Promise<{ novo: boolean }> {
   const db = obterPoolDP();
-  if (!db) throw new Error("DATABASE_URL não configurada no Murade Contábil.");
+  if (!db) throw new Error("DATABASE_URL não configurada no Murad Contábil.");
   if (!cnpjContabilValido(cnpj)) throw new ErroValidacaoResumoDP("CNPJ inválido.");
   const p = normalizarEventoDPContrato(cnpj, body);
   await inicializar();
@@ -110,7 +110,7 @@ export type EventoDPLido = { tipo: TipoEventoDP; referencia: string; competencia
 
 export async function lerEventosDP(cnpj: string, tipo?: TipoEventoDP, limite = 200): Promise<EventoDPLido[]> {
   const db = obterPoolDP();
-  if (!db) throw new Error("DATABASE_URL não configurada no Murade Contábil.");
+  if (!db) throw new Error("DATABASE_URL não configurada no Murad Contábil.");
   if (!cnpjContabilValido(cnpj)) throw new Error("CNPJ inválido.");
   await inicializar();
   const r = await db.query(

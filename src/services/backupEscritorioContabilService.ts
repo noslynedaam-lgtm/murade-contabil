@@ -239,11 +239,11 @@ async function montarZip(tenantId: string, periodo: string, geradoEm: string, ta
   const manifesto = { formato: FORMATO_BACKUP, versao: VERSAO_BACKUP, tenantId, periodo, geradoEm, tabelas: contagens };
   zip.file('manifesto.json', JSON.stringify(manifesto, null, 2));
   zip.file('LEIA-ME.txt', [
-    'Backup mensal do Murade Contábil — dados deste escritório, só dele.',
+    'Backup mensal do Murad Contábil — dados deste escritório, só dele.',
     `Período: ${periodo}. Gerado em: ${geradoEm}.`,
-    'Este arquivo está cifrado (AES-256-GCM) com uma chave ligada à conta deste escritório; abrir fora do sistema Murade não é possível.',
+    'Este arquivo está cifrado (AES-256-GCM) com uma chave ligada à conta deste escritório; abrir fora do sistema Murad não é possível.',
     'Não contém o certificado digital A1 nem senha dele.',
-    'Para restaurar ou consultar o conteúdo, use a tela "Backups" dentro do Murade Contábil.',
+    'Para restaurar ou consultar o conteúdo, use a tela "Backups" dentro do Murad Contábil.',
   ].join('\n'));
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }

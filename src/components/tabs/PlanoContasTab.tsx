@@ -26,6 +26,7 @@ import {
   extrairCodigoPai,
   ordenarContasPorSequenciaNumerica,
 } from "../../utils/planoContasUtils";
+import { CampoMes } from '../CampoData';
 
 interface PlanoContasTabProps {
   contas: ContaPlano[];
@@ -411,7 +412,7 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
                   <span className="whitespace-nowrap text-[10px] font-semibold text-slate-500">Saldo inicial R$</span>
                   {saldoCodigoEmEdicao === conta.codigo ? <>
                     <input autoFocus type="number" min="0" step="0.01" inputMode="decimal" aria-label={`Saldo inicial da conta ${conta.codigo}`} value={saldoInicialRascunho} onChange={(event) => { setSaldoInicialRascunho(event.target.value); setErroSaldoInicial(""); }} onKeyDown={(event) => { if (event.key === "Enter") salvarSaldoInicial(conta.codigo); if (event.key === "Escape") setSaldoCodigoEmEdicao(null); }} className="w-24 rounded border border-blue-300 px-1.5 py-1 text-right text-[11px] text-slate-900 outline-none focus:ring-2 focus:ring-blue-100" placeholder="Saldo" />
-                    <input type="month" aria-label={`Competência-base do saldo inicial da conta ${conta.codigo}`} value={competenciaSaldoRascunho} onChange={(event) => { setCompetenciaSaldoRascunho(event.target.value); setErroSaldoInicial(""); }} className="w-32 rounded border border-blue-300 px-1.5 py-1 text-[11px] text-slate-900 outline-none focus:ring-2 focus:ring-blue-100" title="Competência em que o saldo vale, antes das movimentações desse mês" />
+                    <CampoMes aria-label={`Competência-base do saldo inicial da conta ${conta.codigo}`} value={competenciaSaldoRascunho} onChange={(event) => { setCompetenciaSaldoRascunho(event.target.value); setErroSaldoInicial(""); }} className="w-32 rounded border border-blue-300 px-1.5 py-1 text-[11px] text-slate-900 outline-none focus:ring-2 focus:ring-blue-100" title="Competência em que o saldo vale, antes das movimentações desse mês" />
                     <button type="button" onClick={() => salvarSaldoInicial(conta.codigo)} className="rounded bg-emerald-50 p-1 text-emerald-700 hover:bg-emerald-100" title="Salvar saldo inicial" aria-label={`Salvar saldo inicial da conta ${conta.codigo}`}><Check className="h-3.5 w-3.5" /></button>
                     <button type="button" onClick={() => setSaldoCodigoEmEdicao(null)} className="rounded bg-slate-100 p-1 text-slate-600 hover:bg-slate-200" title="Cancelar saldo inicial" aria-label={`Cancelar saldo inicial da conta ${conta.codigo}`}><X className="h-3.5 w-3.5" /></button>
                   </> : <>

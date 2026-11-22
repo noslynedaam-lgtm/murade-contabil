@@ -89,7 +89,7 @@ export class ErroArquivoBackup extends Error {
 
 /** Lê só o cabeçalho (não decifra). Serve para conferir sistema/escritório antes de abrir. */
 export function lerCabecalho(arquivo: Buffer): CabecalhoBackup {
-  if (arquivo.length < 13 || !arquivo.subarray(0, 8).equals(MAGIA)) throw new ErroArquivoBackup('Este arquivo não é um backup do Murade (.murade).', 'nao_e_murade');
+  if (arquivo.length < 13 || !arquivo.subarray(0, 8).equals(MAGIA)) throw new ErroArquivoBackup('Este arquivo não é um backup do Murad (.murade).', 'nao_e_murade');
   if (arquivo[8] !== VERSAO_FORMATO) throw new ErroArquivoBackup(`Este backup é de uma versão do formato que este sistema não conhece (${arquivo[8]}).`, 'outra_versao');
   const tam = arquivo.readUInt32BE(9);
   if (tam < 2 || tam > 64 * 1024 || 13 + tam + 28 > arquivo.length) throw new ErroArquivoBackup('O arquivo de backup está incompleto ou corrompido.', 'corrompido');
@@ -103,7 +103,7 @@ export function lerCabecalho(arquivo: Buffer): CabecalhoBackup {
 /** Abre o arquivo: confere sistema e escritório, decifra (a etiqueta GCM detecta qualquer alteração) e confere o checksum. */
 export function abrirArquivo(arquivo: Buffer, sistema: SistemaMurade, tenantId: string, env: NodeJS.ProcessEnv = process.env): { cabecalho: CabecalhoBackup; conteudo: Buffer } {
   const cabecalho = lerCabecalho(arquivo);
-  const nomes: Record<string, string> = { dp: 'Murade DP', fiscal: 'Murade Fiscal', contabil: 'Murade Contábil' };
+  const nomes: Record<string, string> = { dp: 'Murad DP', fiscal: 'Murad Fiscal', contabil: 'Murad Contábil' };
   if (cabecalho.sistema !== sistema) throw new ErroArquivoBackup(`Este backup é do ${nomes[cabecalho.sistema] || 'outro sistema'}; restaure-o lá.`, 'outro_sistema');
   if (cabecalho.escritorio !== impressaoEscritorio(tenantId)) throw new ErroArquivoBackup('Este backup é de outro escritório e não pode ser aberto nesta conta.', 'outro_escritorio');
   const tam = arquivo.readUInt32BE(9);

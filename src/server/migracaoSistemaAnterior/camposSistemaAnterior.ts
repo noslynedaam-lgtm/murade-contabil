@@ -213,7 +213,7 @@ export function bensDoBackup(cdempresa: number, bens: Linha[], mapaContas: Recor
     if (baixa) bem.baixa = { competencia: baixa.slice(0, 7), valorVendaCentavos: Math.max(0, Math.round(Number((Number(b.vlbaixa || 0) * 100).toPrecision(15)))), motivo: 'baixa' };
     const erros = validarBem(bem);
     if (erros.length) { avisos.push(`Bem ${txt(b.cdchamada) || txt(b.idbem)} (${txt(b.dsbem)}) ficou só no registro do sistema anterior: ${erros.join(' ')}`); continue; }
-    if (vida !== Math.round(vida)) avisos.push(`Bem ${txt(b.cdchamada)} (${bem.descricao}): taxa de ${taxa}% ao ano dá ${vida.toFixed(2)} meses; no Murade ficou ${bem.vidaUtilMeses} meses.`);
+    if (vida !== Math.round(vida)) avisos.push(`Bem ${txt(b.cdchamada)} (${bem.descricao}): taxa de ${taxa}% ao ano dá ${vida.toFixed(2)} meses; no Murad ficou ${bem.vidaUtilMeses} meses.`);
     saida.push(bem);
   }
   return { bens: saida, avisos };
@@ -252,7 +252,7 @@ export const DESTINO_COLUNAS: Record<string, DestinoTabela> = {
       nmcidade: campo('Empresa › Cidade / UF'), cduf: campo('Empresa › Cidade / UF'), idmunicipio: campo('ECD/ECF › Código IBGE do município'), cdmunicipio: campo('ECD/ECF › Código IBGE do município'),
       nrtelefone: campo('Empresa › Telefone'), nmemail: campo('Empresa › E-mail'),
       imglogotipoempresa: naoVem('imagem do logotipo (arquivo binário); vazio neste backup'), stformatologomarca: naoVem('formato da imagem do logotipo, que não veio'),
-      certificado_id: consulta('ligação com o certificado digital do sistema anterior; o certificado é enviado de novo no Murade'),
+      certificado_id: consulta('ligação com o certificado digital do sistema anterior; o certificado é enviado de novo no Murad'),
     },
   },
   'wcont.empcont': {
@@ -275,24 +275,24 @@ export const DESTINO_COLUNAS: Record<string, DestinoTabela> = {
     },
   },
   'wphd.socemp': {
-    bloco: 'socios_empresa', padrao: consulta('dado do sócio para a folha (pró-labore, RAIS, IRRF, CBO): é do Murade DP'), colunas: {
+    bloco: 'socios_empresa', padrao: consulta('dado do sócio para a folha (pró-labore, RAIS, IRRF, CBO): é do Murad DP'), colunas: {
       alcapital: campo('Empresa › Quadro de sócios › Participação (%)'), vlcapital: campo('Empresa › Quadro de sócios › Capital'), dtadmissao: campo('Empresa › Quadro de sócios › Entrada'),
       stresponsavelcgc: campo('Empresa › Responsável legal'), stqualificacaosped: campo('ECD › Qualificação do responsável'), ecf_ecd_qualificacao_codigo: campo('ECD › Qualificação do responsável'),
       stgerente: campo('Empresa › Quadro de sócios (qualificação)'), cdsocio: campo('Empresa › Quadro de sócios'), dtdemissao: campo('sócio que saiu não entra no quadro'),
     },
   },
   'wphd.socios': {
-    bloco: 'socios', padrao: consulta('dado pessoal do sócio (documentos, endereço, família): fica com o Murade DP, que cuida do pró-labore'), colunas: {
+    bloco: 'socios', padrao: consulta('dado pessoal do sócio (documentos, endereço, família): fica com o Murad DP, que cuida do pró-labore'), colunas: {
       nmsocio: campo('Empresa › Responsável legal / Quadro de sócios'), nome_completo: campo('Empresa › Responsável legal / Quadro de sócios'), nrcpf: campo('Empresa › CPF do responsável e Quadro de sócios › CPF'),
     },
   },
   'wphd.municipiosibge': { bloco: 'municipio', padrao: consulta('tabela de municípios'), colunas: { codmunicipio: campo('ECD/ECF › Código IBGE do município') } },
   'wphd.empresahistorico': { bloco: 'cadastro_historico_cnae', padrao: campo('Empresa › Mais dados › Histórico de CNAE'), colunas: { cdempresa: consulta('código interno') } },
   'wphd.historico_nire': { bloco: 'historico_nire', padrao: campo('Empresa › Mais dados › Histórico de NIRE'), colunas: { id: consulta('código interno'), empresa_id: consulta('código interno') } },
-  'wphd.historico_retencao': { bloco: 'historico_retencao', padrao: consulta('código de retenção do IR do pró-labore dos sócios: é do Murade DP'), colunas: {} },
-  'wphd.travacontabil': { bloco: 'trava_contabil', padrao: consulta('trava interna do programa antigo; no Murade quem fecha a competência é a equipe (Fechamento)'), colunas: {} },
+  'wphd.historico_retencao': { bloco: 'historico_retencao', padrao: consulta('código de retenção do IR do pró-labore dos sócios: é do Murad DP'), colunas: {} },
+  'wphd.travacontabil': { bloco: 'trava_contabil', padrao: consulta('trava interna do programa antigo; no Murad quem fecha a competência é a equipe (Fechamento)'), colunas: {} },
   'wcont.pcont': {
-    bloco: 'plano_cadastro', padrao: consulta('configuração do plano no sistema anterior (níveis, máscara, contas de lucro/prejuízo); o Murade acha a conta de apuração pelo nome'), colunas: {
+    bloco: 'plano_cadastro', padrao: consulta('configuração do plano no sistema anterior (níveis, máscara, contas de lucro/prejuízo); o Murad acha a conta de apuração pelo nome'), colunas: {
       idcontaaberturaimplantacao: campo('Plano de Contas › Contrapartida da abertura'), nmplanodecontas: campo('razão social só quando a empresa não tem cadastro'),
       dsmascaraclassinterna: campo('Empresa › Mais dados › Máscara do código das contas (cada nível mantém os mesmos dígitos: 9-9-99-99-99 → 1.1.01.01.01)'),
       idcontadeapuracaoderesultado: campo('Empresa › Mais dados › Conta de apuração do resultado'), idcontalucro: campo('Empresa › Mais dados › Conta de lucro'), idcontaprejuizo: campo('Empresa › Mais dados › Conta de prejuízo'),
@@ -310,7 +310,7 @@ export const DESTINO_COLUNAS: Record<string, DestinoTabela> = {
   'wcont.hist': { bloco: 'historicos_padrao', padrao: SEM_CAMPO, colunas: { cdchamada: campo('Históricos padrão › Código'), dshistoricopadrao: campo('Históricos padrão › Texto'), idhistoricopadrao: campo('completa o histórico do lançamento que veio sem texto'), stcomplemento: campo('Históricos padrão › Pede complemento') } },
   'wcont.mv': {
     bloco: 'lancamentos_originais', padrao: consulta('controle técnico do programa antigo (usuário e hora de gravação, rotina de origem, identificadores internos)'), colunas: {
-      idmovimento: campo('identificação do lançamento no Murade'), dtlancamento: campo('Lançamentos › Data e competência'), idconta: campo('Lançamentos › Conta débito/crédito'),
+      idmovimento: campo('identificação do lançamento no Murad'), dtlancamento: campo('Lançamentos › Data e competência'), idconta: campo('Lançamentos › Conta débito/crédito'),
       vllancamento: campo('Lançamentos › Valor (negativo = débito, positivo = crédito)'), dshistorico: campo('Lançamentos › Histórico'), dsdocumento: campo('Lançamentos › Documento'),
       idlote: campo('Lançamentos › Documento (número do lote)'), idlotelancamento: campo('junta as duas linhas da partida'), idhistoricopadrao: campo('Lançamentos › Histórico (quando a linha não tem texto)'),
       stencerramento: campo('Lançamentos › Encerramento do exercício'), idcontrapartida: consulta('a contrapartida já sai da outra linha da partida'),
@@ -318,7 +318,7 @@ export const DESTINO_COLUNAS: Record<string, DestinoTabela> = {
       lancamento_extemporaneo_data: naoVem('data zerada do sistema anterior (30/12/1899 = sem data)'),
     },
   },
-  'wcont.sd': { bloco: 'saldos', padrao: consulta('usados para conferir o balancete do Murade com o do sistema anterior'), colunas: {} },
+  'wcont.sd': { bloco: 'saldos', padrao: consulta('usados para conferir o balancete do Murad com o do sistema anterior'), colunas: {} },
   'wcont.lt': { bloco: 'lotes', padrao: consulta('controle do lote no programa antigo (totais, situação, versão, usuário)'), colunas: { cdchamada: campo('Lançamentos › Documento ("Lote 00001")'), idlote: campo('liga o lançamento ao lote'), dslote: campo('Lançamentos › Descrição do lote') } },
   'wcont.lancamento': { bloco: 'lancamentos_lote_aberto', padrao: consulta('lançamento em lote ABERTO, não efetivado no sistema anterior: não entra no balancete'), colunas: {} },
   'wcont.lauto': { bloco: 'lancamentos_automaticos', padrao: campo('Lançamentos › Modelos (botão "Usar modelo")'), colunas: { idlancautomatico: campo('identificação do modelo'), nmobs: consulta('observação interna do programa antigo'), sttipo: consulta('tipo interno do programa antigo'), stconcifornecedor: consulta('opção de conciliação do programa antigo') } },
@@ -335,11 +335,11 @@ export const DESTINO_COLUNAS: Record<string, DestinoTabela> = {
   'wcont.lancamento_identificador_sequencial': { bloco: 'identificador_sequencial', padrao: consulta('numeração interna dos lançamentos'), colunas: {} },
   'wcont.ecf_linha_conta': { bloco: 'ecf_linhas_contas', padrao: consulta('ligação conta x linha do e-Lalur (M300/M350) de anos antigos'), colunas: {} },
   'wcont.ecf_conta_configuracao': { bloco: 'ecf_configuracao_contas', padrao: consulta('configuração da conta para a ECF'), colunas: {} },
-  'wcont.demonstrativo_contabil_configuracao': { bloco: 'demonstracoes_configuracao', padrao: consulta('agrupamento próprio do sistema anterior para os demonstrativos; o Murade classifica pela estrutura do plano'), colunas: {} },
+  'wcont.demonstrativo_contabil_configuracao': { bloco: 'demonstracoes_configuracao', padrao: consulta('agrupamento próprio do sistema anterior para os demonstrativos; o Murad classifica pela estrutura do plano'), colunas: {} },
   'wcont.demonstrativo_contabil_modelo': { bloco: 'demonstracoes_modelos', padrao: consulta('modelo de demonstrativo do sistema anterior'), colunas: {} },
   'wcont.demonstrativo_contabil_modelo_analise': { bloco: 'demonstracoes_modelos_analise', padrao: consulta('grupos do modelo de demonstrativo'), colunas: {} },
-  'wcont.textoassbalanco': { bloco: 'textos_assinatura', padrao: consulta('modelo de assinatura do balanço; o Murade monta a assinatura com o responsável e o contador'), colunas: {} },
-  'wcont.textoassinatura': { bloco: 'textos_assinatura', padrao: consulta('modelo de assinatura dos livros; o Murade monta a assinatura com o responsável e o contador'), colunas: {} },
+  'wcont.textoassbalanco': { bloco: 'textos_assinatura', padrao: consulta('modelo de assinatura do balanço; o Murad monta a assinatura com o responsável e o contador'), colunas: {} },
+  'wcont.textoassinatura': { bloco: 'textos_assinatura', padrao: consulta('modelo de assinatura dos livros; o Murad monta a assinatura com o responsável e o contador'), colunas: {} },
   'wativo.emp_ativ': { bloco: 'imobilizado_empresa', padrao: consulta('configuração do imobilizado no sistema anterior'), colunas: {} },
   'wativo.empcfg': { bloco: 'imobilizado_configuracao', padrao: consulta('método de depreciação por ano'), colunas: {} },
   'wativo.be': {
@@ -473,7 +473,7 @@ export function destinoDaColuna(tabela: string, coluna: string): Destino {
 
 /** Tabelas do backup que ficam de fora de propósito (não são dado das empresas), com o motivo — para o relatório. */
 export const TABELAS_FORA: Array<{ tabelas: string; motivo: string }> = [
-  { tabelas: 'wcont.plano_ref, wcont.ecf_linha, wcont.parte_b_codigos, wcont.parte_b_codigos_linha_ficha, wcont.ibge_*', motivo: 'catálogos oficiais da Receita/IBGE que o Murade já tem' },
+  { tabelas: 'wcont.plano_ref, wcont.ecf_linha, wcont.parte_b_codigos, wcont.parte_b_codigos_linha_ficha, wcont.ibge_*', motivo: 'catálogos oficiais da Receita/IBGE que o Murad já tem' },
   { tabelas: 'wcont.bureau, wcont.dremaster, wcont.smi, wcont.rtm, wcont.codigo, wcont.amdconfig, wcont.modulo_*, wcont.patch*, wcont.processadora_*, wcont.recursos_controle*, wcont.operadora_cartao_de_credito', motivo: 'configuração do próprio programa (modelos de relatório, rotinas, atualizações)' },
   { tabelas: 'wcont.alterdatalock, wcont.logevt, wcont.acesso_lote, wcont.logatualizacaodesaldo, wcont.estabelecimento_cartao_credito_integracao, wcont.ava_guia_*', motivo: 'travas, registros de acesso e de processamento do programa' },
   { tabelas: 'wcont.configlautobaixa', motivo: 'regra do programa para baixa automática de títulos (sem dado da empresa)' },
@@ -690,7 +690,7 @@ export function conferirCamposMigrados(ent: EntradaConferenciaCampos): Resultado
   const conferidos = { camposCadastro: cadastro.length, contas: nContas, historicos: nHist, lancamentos: nLanc, bens: esperados.length, titulos: nTit, cartoes: nCart, modelos: nMod };
   const base = `${cadastro.length} campo(s) do cadastro, ${nContas} conta(s), ${nHist} histórico(s) padrão, ${nLanc} lançamento(s)${esperados.length ? `, ${esperados.length} bem(ns)` : ''}${nTit ? `, ${nTit} título(s)` : ''}${nCart ? `, ${nCart} estabelecimento(s) de cartão` : ''}${nMod ? `, ${nMod} modelo(s) de lançamento` : ''}`;
   const resumo = p.length
-    ? `Campo a campo: ${p.length} pendência(s) — ${faltou} campo(s) preenchido(s) no sistema anterior que estão vazios no Murade e ${dif} diferente(s). Conferidos ${base}.${ent.registroAntigo ? ' Esta empresa foi migrada antes da conferência campo a campo: migre de novo pela tela Migração para completar (só preenche o que está vazio; o que a equipe fez fica).' : ''}`
+    ? `Campo a campo: ${p.length} pendência(s) — ${faltou} campo(s) preenchido(s) no sistema anterior que estão vazios no Murad e ${dif} diferente(s). Conferidos ${base}.${ent.registroAntigo ? ' Esta empresa foi migrada antes da conferência campo a campo: migre de novo pela tela Migração para completar (só preenche o que está vazio; o que a equipe fez fica).' : ''}`
     : `Campo a campo: tudo igual ao sistema anterior (${base}).${semCadastro ? ' O cadastro da empresa não estava no registro desta migração: migre de novo para conferir também o cadastro.' : ''}`;
   return { conferidos, pendencias: p, semCadastroNoRegistro: semCadastro, resumo };
 }

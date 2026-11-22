@@ -202,14 +202,14 @@ export const MigracaoBackupContabil: React.FC<{ aoTerminar?: () => void }> = ({ 
       {etapa === "previa" && (
         <div className="space-y-3 text-xs text-slate-800">
           <div className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-blue-900">
-            Conferido, <b>nada foi gravado ainda</b>. Vai ser trazido: <b>{gravaveis.length}</b> empresa(s), <b>{totais.c}</b> contas e <b>{totais.l}</b> lançamentos. Os lançamentos entram já valendo no balancete (eram definitivos no sistema anterior) e ficam marcados como “Sistema anterior”; os lançamentos feitos no Murade não mudam.
+            Conferido, <b>nada foi gravado ainda</b>. Vai ser trazido: <b>{gravaveis.length}</b> empresa(s), <b>{totais.c}</b> contas e <b>{totais.l}</b> lançamentos. Os lançamentos entram já valendo no balancete (eram definitivos no sistema anterior) e ficam marcados como “Sistema anterior”; os lançamentos feitos no Murad não mudam.
           </div>
           <div className="max-h-[28rem] overflow-y-auto rounded border border-slate-200">
             {previas.map((p) => {
               const fora = !p.podeGravar || (!umaAUma && p.excluidaAntes);
               return (
                 <div key={p.cdempresa} className={`border-b border-slate-100 px-3 py-2 ${fora ? "bg-amber-50" : ""}`}>
-                  <div className="font-bold">{p.nome} <span className="font-normal text-slate-500">{formatarCnpj(p.cnpj)}</span>{p.jaExisteNoMurade ? <span className="ml-1 rounded bg-slate-200 px-1 font-normal">já existe no Murade: junta sem apagar nada da equipe</span> : null}</div>
+                  <div className="font-bold">{p.nome} <span className="font-normal text-slate-500">{formatarCnpj(p.cnpj)}</span>{p.jaExisteNoMurade ? <span className="ml-1 rounded bg-slate-200 px-1 font-normal">já existe no Murad: junta sem apagar nada da equipe</span> : null}</div>
                   {fora ? (
                     <>
                       <div className="text-amber-900">Não entra agora: {!p.podeGravar ? p.motivo : 'esta empresa foi excluída antes. Para trazer de volta, use "Não, quero escolher" e marque ela uma por uma.'}</div>
@@ -381,7 +381,7 @@ export const RegistroSistemaAnterior: React.FC<{ cnpj: string }> = ({ cnpj }) =>
           {dados.campos.totalPendencias > 0 && <button type="button" onClick={() => setVerCampos((v) => !v)} className="min-h-[40px] rounded border border-red-300 bg-red-50 px-3 text-red-800">{verCampos ? "Fechar a lista de campos" : `Ver os ${dados.campos.totalPendencias} campo(s) que faltam ou estão diferentes`}</button>}
           {verCampos && (
             <div className="max-h-80 overflow-auto rounded border border-slate-200">
-              <table className="w-full text-left text-[11px]"><thead className="sticky top-0 bg-slate-100"><tr><th className="p-1">Onde</th><th className="p-1">Campo</th><th className="p-1">No sistema anterior</th><th className="p-1">No Murade</th></tr></thead>
+              <table className="w-full text-left text-[11px]"><thead className="sticky top-0 bg-slate-100"><tr><th className="p-1">Onde</th><th className="p-1">Campo</th><th className="p-1">No sistema anterior</th><th className="p-1">No Murad</th></tr></thead>
                 <tbody>{dados.campos.pendencias.map((x, i) => <tr key={i} className="border-t border-slate-100 align-top"><td className="p-1">{x.item}</td><td className="p-1">{x.rotulo}{x.tipo === "faltou" ? " (vazio)" : " (diferente)"}</td><td className="max-w-[14rem] break-words p-1">{x.noSistemaAnterior}</td><td className="max-w-[14rem] break-words p-1">{x.noMurade || "—"}</td></tr>)}</tbody></table>
             </div>
           )}

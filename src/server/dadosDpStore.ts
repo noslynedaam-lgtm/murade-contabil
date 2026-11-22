@@ -138,7 +138,7 @@ export function normalizarResumoDPContrato(cnpj: string, body: any) {
 
 async function inicializar(): Promise<void> {
   const db = obterPool();
-  if (!db) throw new Error("DATABASE_URL não configurada no Murade Contábil.");
+  if (!db) throw new Error("DATABASE_URL não configurada no Murad Contábil.");
   if (!inicializacao) {
     inicializacao = db.query(`
       CREATE TABLE IF NOT EXISTS murade_folhas_dp_origem (
@@ -147,7 +147,7 @@ async function inicializar(): Promise<void> {
         processamento_id varchar(128) NOT NULL,
         calculado_em timestamptz NOT NULL,
         resumo jsonb NOT NULL,
-        origem varchar(40) NOT NULL DEFAULT 'Murade Departamento Pessoal',
+        origem varchar(40) NOT NULL DEFAULT 'Murad Departamento Pessoal',
         recebido_em timestamptz NOT NULL DEFAULT now(),
         atualizado_em timestamptz NOT NULL DEFAULT now(),
         PRIMARY KEY (cnpj, competencia, processamento_id)
@@ -191,7 +191,7 @@ export async function verificarEstadoStoreDP(cnpjsAutorizados?: string[]): Promi
 
 export async function gravarResumoDP(cnpj: string, body: any): Promise<{ novo: boolean; registro: Record<string, unknown> }> {
   const db = obterPool();
-  if (!db) throw new Error("DATABASE_URL não configurada no Murade Contábil.");
+  if (!db) throw new Error("DATABASE_URL não configurada no Murad Contábil.");
   if (!cnpjContabilValido(cnpj)) throw new ErroValidacaoResumoDP("CNPJ inválido.");
   const preparado = normalizarResumoDPContrato(cnpj, body);
   await inicializar();
@@ -243,7 +243,7 @@ export async function gravarResumoDP(cnpj: string, body: any): Promise<{ novo: b
 
 export async function lerResumosDP(cnpj: string, desde: string, ate: string, limite: number): Promise<Record<string, unknown>[]> {
   const db = obterPool();
-  if (!db) throw new Error("DATABASE_URL não configurada no Murade Contábil.");
+  if (!db) throw new Error("DATABASE_URL não configurada no Murad Contábil.");
   if (!cnpjContabilValido(cnpj)) throw new Error("CNPJ inválido.");
   await inicializar();
   const resultado = await db.query(`

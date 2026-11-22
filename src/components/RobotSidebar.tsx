@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useFecharNoVoltar } from "../hooks/useVoltarCelular";
 import { Bot, CheckCircle2, RefreshCw, AlertCircle, ArrowUpRight } from "lucide-react";
 
@@ -8,6 +8,24 @@ interface RobotSidebarProps {
   onNavigateTab: (tab: any) => void;
 }
 
+// O botão "Robôs" fica no cabeçalho (antes era uma bolha no canto de baixo que cobria conteúdo, como o
+// "Quer que eu ajuste?" do fechamento, e a tela no celular). O cabeçalho avisa por este evento.
+export const EVENTO_ABRIR_ROBOS = "murade:alternar-robos";
+
+export const BotaoRobosCabecalho: React.FC = () => (
+  <button
+    type="button"
+    onClick={() => window.dispatchEvent(new Event(EVENTO_ABRIR_ROBOS))}
+    aria-label="Abrir Agente e Robô Murad"
+    title="Robôs e Agente"
+    className="flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/10 px-2 py-1 text-[11px] font-bold text-white hover:bg-white/20 cursor-pointer"
+  >
+    <Bot className="h-3.5 w-3.5 text-blue-100" />
+    <span className="hidden sm:inline">Robôs</span>
+    <span className="h-2 w-2 rounded-full bg-emerald-400" />
+  </button>
+);
+
 export const RobotSidebar: React.FC<RobotSidebarProps> = ({
   onRunAudit,
   isAuditing,
@@ -15,26 +33,20 @@ export const RobotSidebar: React.FC<RobotSidebarProps> = ({
 }) => {
   const [aberto, setAberto] = useState(false);
   useFecharNoVoltar(aberto, () => setAberto(false)); // voltar do celular recolhe o robô aberto
+  useEffect(() => {
+    const alternar = () => setAberto((v) => !v);
+    window.addEventListener(EVENTO_ABRIR_ROBOS, alternar);
+    return () => window.removeEventListener(EVENTO_ABRIR_ROBOS, alternar);
+  }, []);
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setAberto((v) => !v)}
-        aria-expanded={aberto}
-        aria-label={aberto ? "Minimizar Agente e Robô Murade" : "Abrir Agente e Robô Murade"}
-        className="fixed bottom-6 left-4 z-40 flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-3 py-2 text-xs font-bold text-slate-800 shadow-lg backdrop-blur hover:shadow-blue-500/20 lg:left-[13.5rem]"
-      >
-        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white"><Bot className="h-4 w-4" /></span>
-        <span className="hidden sm:inline">Robôs</span>
-        <span className="h-2 w-2 rounded-full bg-emerald-500" />
-      </button>
       {aberto && (
-    <div className="fixed bottom-20 left-4 z-40 max-h-[75vh] w-[min(22rem,calc(100vw-2rem))] space-y-4 overflow-y-auto rounded-xl shadow-2xl lg:left-[13.5rem]">
+    <div className="fixed top-14 right-3 z-40 max-h-[75vh] w-[min(22rem,calc(100vw-1.5rem))] space-y-4 overflow-y-auto rounded-xl shadow-2xl">
       {/* Card Principal do Robô — Tema Claro em Cinza Meio Azulado */}
       <div className="bg-gradient-to-b from-[#EEF4F9] via-[#E8EFF6] to-[#DEE8F3] text-slate-800 rounded-xl p-5 shadow-xs border border-[#CBD5E1]">
         <h3 className="text-sm font-extrabold text-slate-900 text-center uppercase tracking-wider mb-3 flex items-center justify-center gap-1.5">
           <Bot className="w-4 h-4 text-blue-600" />
-          <span>Agente & Robô Murade</span>
+          <span>Agente & Robô Murad</span>
         </h3>
 
         {/* Avatar Animado que sobe e desce */}
@@ -48,7 +60,7 @@ export const RobotSidebar: React.FC<RobotSidebarProps> = ({
         </div>
 
         <div className="text-center mb-4">
-          <div className="font-bold text-slate-900 text-sm">Murade Robôs + Agente IA</div>
+          <div className="font-bold text-slate-900 text-sm">Murad Robôs + Agente IA</div>
           <div className="text-[11px] text-blue-700 font-mono font-bold">Padrão Unificado v2026.1.0</div>
           <div className="text-xs text-emerald-700 font-semibold flex items-center justify-center gap-1 mt-0.5">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
@@ -122,7 +134,7 @@ export const RobotSidebar: React.FC<RobotSidebarProps> = ({
             onClick={() => onNavigateTab("ia-premium")}
             className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-3 rounded-lg text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
           >
-            <span>🧠 Abrir IA Murade Premium (Voz v3.0)</span>
+            <span>🧠 Abrir IA Murad Premium (Voz v3.0)</span>
           </button>
 
           <button

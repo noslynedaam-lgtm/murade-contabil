@@ -22,7 +22,7 @@ export function CnpjEscritorioCampo() {
   return (
     <div className="mb-3 rounded-lg border border-slate-200 p-3 text-sm">
       <label className="block font-semibold" htmlFor="cnpj-escritorio">CNPJ do escritório</label>
-      <p className="mb-1 text-xs text-slate-600">Identifica o seu escritório no Consultor Murade. {liberado === null ? "" : liberado ? "Consultor Murade completo: liberado." : "Consultor Murade completo (faz o serviço inteiro para você): adicional não liberado. Fale com o seu fornecedor."}</p>
+      <p className="mb-1 text-xs text-slate-600">Identifica o seu escritório no Consultor Murad. {liberado === null ? "" : liberado ? "Consultor Murad completo: liberado." : "Consultor Murad completo (faz o serviço inteiro para você): adicional não liberado. Fale com o seu fornecedor."}</p>
       <div className="flex flex-wrap gap-2">
         <input id="cnpj-escritorio" inputMode="numeric" value={cnpj} disabled={!podeEditar} onChange={(e) => setCnpj(e.target.value)} placeholder="00.000.000/0000-00" className="min-w-0 flex-1 rounded-lg border p-2" />
         {podeEditar && <button type="button" onClick={() => void gravar()} className="min-h-10 rounded-lg bg-slate-800 px-3 text-xs font-bold text-white">Gravar</button>}

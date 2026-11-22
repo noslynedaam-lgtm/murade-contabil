@@ -9,7 +9,7 @@ import { gerarRascunhosApuracoes } from "../../src/server/prepararRascunhosConta
 
 const CNPJ = "46570348000115";
 
-test("Workspace inicial: plano padrão do Murade (575 contas, com as do DAS) + 10 mapeamentos padrão, vazio de lançamentos e válido para gravar", () => {
+test("Workspace inicial: plano padrão do Murad (575 contas, com as do DAS) + 10 mapeamentos padrão, vazio de lançamentos e válido para gravar", () => {
   const ws = montarWorkspaceInicialContabil(empresaInicialDoCadastro(CNPJ, { razaoSocial: "NOITE BELA STORE LTDA", regime: "Simples Nacional", uf: "GO", municipio: "GOIANIA", nomeFantasia: "" }), "2026-11-22T00:00:00.000Z");
   assert.equal(ws.contas.length, planoContasInicialContabil().length);
   assert.equal(ws.contas.length, 575);
@@ -91,7 +91,7 @@ test("DAS: mapeamento existente nunca é alterado; pagamento usa a conta de banc
 
 test("DAS confirmado no Fiscal vira pré-lançamento D despesa do Simples / C Simples a recolher, no último dia da competência", () => {
   const ws = montarWorkspaceInicialContabil({ cnpj: "44167822000137", regime: "Simples Nacional" });
-  const r = gerarRascunhosApuracoes("44167822000137", [{ cnpj: "44167822000137", tributo: "DAS_SIMPLES", competencia: "2026-10", situacao: "confirmado", valorCentavos: 450000, baseCentavos: 10000000, referencia: "DAS:apuracao:2026-10", versaoOrigem: "decl:1", origem: "Murade Fiscal" } as any], ws.contas as any, ws.mapeamentosOrigem as any, "x");
+  const r = gerarRascunhosApuracoes("44167822000137", [{ cnpj: "44167822000137", tributo: "DAS_SIMPLES", competencia: "2026-10", situacao: "confirmado", valorCentavos: 450000, baseCentavos: 10000000, referencia: "DAS:apuracao:2026-10", versaoOrigem: "decl:1", origem: "Murad Fiscal" } as any], ws.contas as any, ws.mapeamentosOrigem as any, "x");
   assert.equal(r.length, 1);
   assert.deepEqual([r[0].contaDebitoCodigo, r[0].contaCreditoCodigo, r[0].data], ["4.3.06.01.01", "2.1.05.01.09", "2026-10-31"]);
 });

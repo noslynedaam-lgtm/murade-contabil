@@ -468,7 +468,7 @@ export async function lerArquivosContabeis(files: File[], origem: OrigemMigracao
             ...(typeof item.centroCustoDebitoCodigo === "string" ? { centroCustoDebitoCodigo: item.centroCustoDebitoCodigo.slice(0, 64) } : {}),
             ...(typeof item.centroCustoCreditoCodigo === "string" ? { centroCustoCreditoCodigo: item.centroCustoCreditoCodigo.slice(0, 64) } : {}),
           })));
-        } else result.erros.push({ arquivo: file.name, linha: 0, motivo: "JSON não é um pacote Murade Contábil compatível (versão 1)." });
+        } else result.erros.push({ arquivo: file.name, linha: 0, motivo: "JSON não é um pacote Murad Contábil compatível (versão 1)." });
       } catch { result.erros.push({ arquivo: file.name, linha: 0, motivo: "JSON inválido." }); }
       continue;
     }
@@ -484,7 +484,7 @@ export async function lerArquivosContabeis(files: File[], origem: OrigemMigracao
       }
       continue;
     }
-    if (!/\.(csv|txt)$/i.test(file.name)) { result.erros.push({ arquivo: file.name, linha: 0, motivo: "Formato não suportado. Use CSV, TXT delimitado, XML de NF-e ou pacote JSON Murade." }); continue; }
+    if (!/\.(csv|txt)$/i.test(file.name)) { result.erros.push({ arquivo: file.name, linha: 0, motivo: "Formato não suportado. Use CSV, TXT delimitado, XML de NF-e ou pacote JSON Murad." }); continue; }
     if (origem === "ALTERDATA") {
       const alterdataEntries = parseAlterdataTextoContabil(parseDelimited(text), file.name, result.erros);
       if (alterdataEntries) {

@@ -4,6 +4,7 @@ import React, { useMemo, useState } from "react";
 import { AlertTriangle, ArrowUpDown, CheckCircle2, Download, Lock, RefreshCw } from "lucide-react";
 import { ContaPlano, LancamentoContabil } from "../../types";
 import { gerarRelatoriosContabeis } from "../../utils/livrosContabeis";
+import { CampoMes } from '../CampoData';
 
 interface BalanceteTabProps {
   cnpj: string;
@@ -126,7 +127,7 @@ export const BalanceteTab: React.FC<BalanceteTabProps> = ({ cnpj, competencia, l
 
       <section className="flex flex-wrap items-end justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
         <label className="text-xs font-bold text-slate-700">Competência
-          <input type="month" data-campo="balancete-competencia" value={competenciaSelecionada} onChange={(evento) => setCompetenciaSelecionada(evento.target.value)} className="mt-1 block rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm font-medium" />
+          <CampoMes data-campo="balancete-competencia" value={competenciaSelecionada} onChange={(evento) => setCompetenciaSelecionada(evento.target.value)} className="mt-1 block rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm font-medium" />
         </label>
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => setGeradoEm(new Date().toISOString())} className="flex items-center gap-1.5 rounded-md bg-blue-700 px-3 py-2 text-xs font-bold text-white">

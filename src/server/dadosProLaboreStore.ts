@@ -35,7 +35,7 @@ export function normalizarResumoProLaboreContrato(cnpj: string, body: any) {
 let inicializacao: Promise<void> | null = null;
 async function inicializar(): Promise<void> {
   const db = obterPoolDP();
-  if (!db) throw new Error("DATABASE_URL não configurada no Murade Contábil.");
+  if (!db) throw new Error("DATABASE_URL não configurada no Murad Contábil.");
   if (!inicializacao) {
     inicializacao = db.query(`
       CREATE TABLE IF NOT EXISTS murade_prolabore_dp_origem (
@@ -54,7 +54,7 @@ async function inicializar(): Promise<void> {
 
 export async function gravarResumoProLaboreDP(cnpj: string, body: any): Promise<{ novo: boolean }> {
   const db = obterPoolDP();
-  if (!db) throw new Error("DATABASE_URL não configurada no Murade Contábil.");
+  if (!db) throw new Error("DATABASE_URL não configurada no Murad Contábil.");
   if (!cnpjContabilValido(cnpj)) throw new ErroValidacaoResumoDP("CNPJ inválido.");
   const p = normalizarResumoProLaboreContrato(cnpj, body);
   await inicializar();
@@ -70,7 +70,7 @@ export async function gravarResumoProLaboreDP(cnpj: string, body: any): Promise<
 /** Último resumo recebido de cada competência. */
 export async function lerResumosProLaboreDP(cnpj: string, limite = 200): Promise<Array<{ competencia: string; calculadoEm: string; resumo: Record<string, number> }>> {
   const db = obterPoolDP();
-  if (!db) throw new Error("DATABASE_URL não configurada no Murade Contábil.");
+  if (!db) throw new Error("DATABASE_URL não configurada no Murad Contábil.");
   if (!cnpjContabilValido(cnpj)) throw new Error("CNPJ inválido.");
   await inicializar();
   const r = await db.query(`SELECT competencia, calculado_em, resumo FROM murade_prolabore_dp_origem WHERE cnpj=$1 ORDER BY competencia DESC, calculado_em DESC LIMIT $2`, [cnpj, limite]);

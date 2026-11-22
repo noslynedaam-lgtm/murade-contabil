@@ -5,5 +5,5 @@ import { PainelBackupEscritorio } from "../backupEscritorio/PainelBackupEscritor
  * avisos, relatório e restauração. O backup mensal automático que já existia aparece na mesma tela. Não é tela de
  * administrador para ver e baixar; mudar a agenda, a nuvem e restaurar é só do administrador do escritório. */
 export const BackupsTab: React.FC = () => (
-  <PainelBackupEscritorio api="/api/contabil/backup-agendado" sistema="contabil" nomeSistema="Murade Contábil" urlMensal={(id) => `/api/contabil/backups/${id}/download`} />
+  <PainelBackupEscritorio api="/api/contabil/backup-agendado" sistema="contabil" nomeSistema="Murad Contábil" urlMensal={(id) => `/api/contabil/backups/${id}/download`} />
 );

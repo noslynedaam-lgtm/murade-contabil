@@ -35,7 +35,7 @@ export function apuracoesStoreConfigurado(): boolean {
 let inicializacao: Promise<void> | null = null;
 async function inicializar(): Promise<void> {
   const db = obterPool();
-  if (!db) throw new Error("DATABASE_URL não configurada no Murade Contábil.");
+  if (!db) throw new Error("DATABASE_URL não configurada no Murad Contábil.");
   if (!inicializacao) {
     inicializacao = db.query(`
       CREATE TABLE IF NOT EXISTS murade_apuracoes_fiscais_origem (
@@ -47,7 +47,7 @@ async function inicializar(): Promise<void> {
         base_centavos bigint,
         situacao varchar(16) NOT NULL,
         versao_origem varchar(64) NOT NULL,
-        origem varchar(40) NOT NULL DEFAULT 'Murade Fiscal',
+        origem varchar(40) NOT NULL DEFAULT 'Murad Fiscal',
         recebido_em timestamptz NOT NULL DEFAULT now(),
         atualizado_em timestamptz NOT NULL DEFAULT now(),
         PRIMARY KEY (cnpj, tributo, competencia, referencia_origem)
@@ -80,7 +80,7 @@ export interface ResultadoGravacaoApuracoes {
 /** Persists tax assessments already confirmed by the accountant in Fiscal; never creates journal entries. */
 export async function gravarApuracoesFiscais(cnpj: string, apuracoes: any[]): Promise<ResultadoGravacaoApuracoes> {
   const db = obterPool();
-  if (!db) throw new Error("DATABASE_URL não configurada no Murade Contábil.");
+  if (!db) throw new Error("DATABASE_URL não configurada no Murad Contábil.");
   if (!cnpjContabilValido(cnpj)) throw new ErroValidacaoApuracaoFiscal("CNPJ inválido.");
   if (!Array.isArray(apuracoes) || apuracoes.length < 1 || apuracoes.length > 200) {
     throw new ErroValidacaoApuracaoFiscal("O lote precisa conter de 1 a 200 apurações.");
@@ -155,7 +155,7 @@ export interface ApuracaoFiscalArmazenada {
 
 export async function lerApuracoesFiscais(cnpj: string, desde: string, ate: string, limite: number): Promise<ApuracaoFiscalArmazenada[]> {
   const db = obterPool();
-  if (!db) throw new Error("DATABASE_URL não configurada no Murade Contábil.");
+  if (!db) throw new Error("DATABASE_URL não configurada no Murad Contábil.");
   if (!cnpjContabilValido(cnpj)) throw new Error("CNPJ inválido.");
   await inicializar();
   const resultado = await db.query(`

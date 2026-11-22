@@ -34,7 +34,7 @@ export interface OrgaoConectado {
   detalhes: string;
   ultimaVerificacao: string;
   pingMs: number;
-  esfera?: "Federal" | "Estadual" | "Municipal" | "Fisco e DP" | "Murade Fiscal" | "Murade DP" | "Murade Fisco IA";
+  esfera?: "Federal" | "Estadual" | "Municipal" | "Fisco e DP" | "Murad Fiscal" | "Murad DP" | "Murad Fisco IA";
   url?: string;
   statusCode?: number;
   statusTexto?: string;

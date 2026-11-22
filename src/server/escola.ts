@@ -16,7 +16,7 @@ export interface Liberacao { liberado: boolean; motivo: string }
 const CACHE_MS = 10 * 60_000;
 const cacheLiberacao = new Map<string, { r: Liberacao; em: number }>();
 export function limparCacheLiberacao(): void { cacheLiberacao.clear(); }
-export const MSG_NAO_LIBERADA = 'A Escola Murade é um adicional. Fale com o seu fornecedor para liberar.';
+export const MSG_NAO_LIBERADA = 'A Escola Murad é um adicional. Fale com o seu fornecedor para liberar.';
 
 /** Pergunta ao consultor se o escritório (CNPJ) tem a Escola liberada. Sem variável, fora do ar ou resposta estranha = NÃO liberado. Cache de 10 minutos por CNPJ. */
 export async function consultarLiberacaoEscola(cnpjEscritorio: string | null | undefined, deps: DepsLiberacao): Promise<Liberacao> {
@@ -151,7 +151,7 @@ export async function atribuirTrilha(c: Consultar, gestor: Quem, aluno: { userId
   const r = await c(`INSERT INTO contabil_escola_atribuicoes (tenant_id, user_id, login, trilha_id, atribuido_por) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (tenant_id, user_id, trilha_id) DO NOTHING RETURNING trilha_id`,
     [gestor.tenantId, aluno.userId, aluno.login, trilhaId, gestor.login]);
   const nova = (r.rowCount ?? r.rows.length) > 0;
-  if (nova) await criarAviso(c, gestor.tenantId, aluno.userId, 'atribuicao', `Você vai estudar isto: trilha "${t.titulo}" na Escola Murade (pedido de ${gestor.login}).`, `atribuicao:${trilhaId}`);
+  if (nova) await criarAviso(c, gestor.tenantId, aluno.userId, 'atribuicao', `Você vai estudar isto: trilha "${t.titulo}" na Escola Murad (pedido de ${gestor.login}).`, `atribuicao:${trilhaId}`);
   return nova;
 }
 export async function desatribuirTrilha(c: Consultar, tenantId: string, userId: string, trilhaId: string): Promise<boolean> {
@@ -234,7 +234,7 @@ export async function rodarConferidorEscola(c: Consultar, idsExemplos: string[],
     parados += lista.length;
     for (const p of lista) {
       const trilha = TRILHAS.find((x) => x.id === p.trilhaId)?.titulo || p.trilhaId;
-      if (await criarAviso(c, t, t, 'aluno_parado', `${p.login} está sem progresso há ${p.diasParado} dias na trilha "${trilha}" da Escola Murade.`, `parado:${p.userId}:${p.trilhaId}:${semanaDe(agora)}`)) avisosCriados += 1;
+      if (await criarAviso(c, t, t, 'aluno_parado', `${p.login} está sem progresso há ${p.diasParado} dias na trilha "${trilha}" da Escola Murad.`, `parado:${p.userId}:${p.trilhaId}:${semanaDe(agora)}`)) avisosCriados += 1;
     }
   }
   // Quem saiu do sistema (conta apagada): tira as trilhas atribuídas a ele (o login fica livre para cadastrar de novo; nada é bloqueado).

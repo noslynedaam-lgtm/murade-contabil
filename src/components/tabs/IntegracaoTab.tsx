@@ -72,7 +72,7 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({ empresa }) => {
   return <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
     <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
       <div>
-        <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900"><Database className="h-5 w-5 text-blue-700" /> Integrações do Murade Contábil</h2>
+        <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900"><Database className="h-5 w-5 text-blue-700" /> Integrações do Murad Contábil</h2>
         <p className="mt-1 text-sm text-slate-600">Estado consultado no servidor e limitado à empresa selecionada, quando informada, e às empresas autorizadas na sessão.</p>
       </div>
       <button type="button" onClick={() => void atualizar()} disabled={carregando} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${carregando ? "animate-spin" : ""}`} /> Atualizar estado</button>
@@ -111,8 +111,8 @@ export const IntegracaoTab: React.FC<IntegracaoTabProps> = ({ empresa }) => {
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
-        <Origem titulo="Murade Fiscal" item={estado.fiscal} total={estado.fiscal.documentosRecebidos || 0} substantivo="documentos fiscais" />
-        <Origem titulo="Murade Departamento Pessoal" item={estado.departamentoPessoal} total={estado.departamentoPessoal.folhasRecebidas || 0} substantivo="resumos agregados de folha" />
+        <Origem titulo="Murad Fiscal" item={estado.fiscal} total={estado.fiscal.documentosRecebidos || 0} substantivo="documentos fiscais" />
+        <Origem titulo="Murad Departamento Pessoal" item={estado.departamentoPessoal} total={estado.departamentoPessoal.folhasRecebidas || 0} substantivo="resumos agregados de folha" />
       </div>
 
       <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-950">

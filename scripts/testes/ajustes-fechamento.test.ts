@@ -192,7 +192,7 @@ test('títulos e cartões do backup: vêm idênticos, com as contas pelos lança
   assert.ok(faltou.some((p) => p.grupo === 'cartoes' && p.tipo === 'faltou'));
 });
 
-test('título no Murade: baixa e provisão viram lançamento pendente de aprovação com as contas certas; lembrete de vencimento', async () => {
+test('título no Murad: baixa e provisão viram lançamento pendente de aprovação com as contas certas; lembrete de vencimento', async () => {
   const { lancamentoDaBaixa, lancamentoDaProvisao, lembreteDoTitulo, situacaoTitulo, validarTitulo } = await import('../../src/server/titulosCartoesStore');
   const { lembretesDeTitulos } = await import('../../src/server/titulosCartoesRotas');
   const p = ws([]);

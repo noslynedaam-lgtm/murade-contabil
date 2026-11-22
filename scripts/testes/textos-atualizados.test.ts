@@ -18,7 +18,7 @@ test("Lançamentos: não diz mais que as integrações não geram partidas nem m
 test("Livros: a conferência da ECD reconhece que o gerador monta J900/J930 e o TXT", () => {
   const t = ler("src/components/tabs/LivrosTab.tsx");
   assert.doesNotMatch(t, /os registros e termos próprios do leiaute ECD ainda não são montados/);
-  assert.doesNotMatch(t, /O Murade ainda não gera esse TXT/);
+  assert.doesNotMatch(t, /O Murad ainda não gera esse TXT/);
   assert.match(t, /termo de encerramento \(J900\)/);
   assert.match(t, /signatários \(J930\)/);
 });

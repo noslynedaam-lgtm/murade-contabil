@@ -1,7 +1,7 @@
 import type { RotaEscrituracao } from "../../types";
 import { confirmarNaTela } from "../../utils/dialogoNaTela";
 import { useExclusaoDuasEtapas } from "../ConfirmaExclusaoDuasEtapas";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { CentroCustoContabil, ContaPlano, EmpresaDados, LancamentoContabil, PreLancamentoContabil, RegraConciliacao } from "../../types";
 import { ConciliacaoBancariaPainel } from "../ConciliacaoBancariaPainel";
 import { AjustesFechamentoPainel } from "../AjustesFechamentoPainel";
@@ -11,9 +11,10 @@ import { BemImobilizado, definirAjusteQuota, depreciacaoAcumulada, filialAtual, 
 import { centavosParaTexto, liquidoLancado, montarComplemento, paraCentavos, valorEfetivoCentavos } from "../../utils/ajusteManual";
 import { BotaoRecalcular, CampoAjustavel } from "../AjusteManual";
 import { conciliar, lancamentoDoMovimento, lerOFX, MovimentoExtrato, sugerirContraPartida } from "../../utils/extratoBancario";
-import { CONFIRMACOES_MANUAIS, conferirFechamento, referenciaDepreciacao } from "../../utils/fechamentoContabil";
+import { CONFIRMACOES_MANUAIS, conferirFechamento, referenciaDepreciacao, type TituloFechamento } from "../../utils/fechamentoContabil";
 import { moedaContabil } from "../../utils/livrosContabeis";
 import { baseFolhaBruta, calcularProvisaoFolha, gerarDlpa } from "../../utils/demonstracoesExtras";
+import { CampoMes } from '../CampoData';
 
 interface Props {
   empresa: EmpresaDados;
@@ -60,7 +61,7 @@ export const GestaoContabilTab: React.FC<Props> = (p) => {
           {p.onRota && aba("cartoes", "Cartões (antiga DIRF)")}
           <BotaoAba data-campo="gestao-aba-fechamento" data-piloto-abrir="" ativo={secao === "fechamento"} onClick={() => setSecao("fechamento")}>Fechamento guiado</BotaoAba>
           <label className="ml-auto text-xs font-bold text-slate-700">Competência
-            <input type="month" data-campo="gestao-periodo" value={periodo} onChange={(e) => setPeriodo(e.target.value)} className="ml-2 rounded-md border border-slate-300 px-2 py-1 text-sm font-medium" />
+            <CampoMes data-campo="gestao-periodo" value={periodo} onChange={(e) => setPeriodo(e.target.value)} className="ml-2 rounded-md border border-slate-300 px-2 py-1 text-sm font-medium" />
           </label>
         </div>
       </header>
@@ -250,7 +251,7 @@ const Imobilizado: React.FC<Props & { periodo: string; analiticas: ContaPlano[] 
           <label className="grid gap-1">Custo (R$)<input value={f.custo} onChange={(e) => setF({ ...f, custo: e.target.value })} className="w-28 rounded border px-2 py-1" /></label>
           <label className="grid gap-1">Residual (R$)<input value={f.residual} onChange={(e) => setF({ ...f, residual: e.target.value })} className="w-24 rounded border px-2 py-1" /></label>
           <label className="grid gap-1">Vida útil (meses)<input type="number" min={1} value={f.vida} disabled={!f.depreciavel} onChange={(e) => setF({ ...f, vida: e.target.value })} className="w-24 rounded border px-2 py-1" /></label>
-          <label className="grid gap-1">Início de uso<input type="month" value={f.inicio} onChange={(e) => setF({ ...f, inicio: e.target.value })} className="rounded border px-2 py-1" /></label>
+          <label className="grid gap-1">Início de uso<CampoMes value={f.inicio} onChange={(e) => setF({ ...f, inicio: e.target.value })} className="rounded border px-2 py-1" /></label>
           <label className="flex items-center gap-1"><input type="checkbox" checked={!f.depreciavel} onChange={(e) => setF({ ...f, depreciavel: !e.target.checked })} /> Terreno (não deprecia)</label>
           <button type="button" onClick={cadastrar} className="rounded-md bg-blue-700 px-3 py-1.5 font-bold text-white">Cadastrar</button>
         </div>
@@ -277,7 +278,7 @@ const Imobilizado: React.FC<Props & { periodo: string; analiticas: ContaPlano[] 
               <label className="grid gap-1">Custo (R$)<input value={edit.custo} onChange={(e) => setEdit({ ...edit, custo: e.target.value })} className="w-28 rounded border px-2 py-1" /></label>
               <label className="grid gap-1">Residual (R$)<input value={edit.residual} onChange={(e) => setEdit({ ...edit, residual: e.target.value })} className="w-24 rounded border px-2 py-1" /></label>
               {bens.find((x) => x.id === edit.id)?.depreciavel && <label className="grid gap-1">Vida útil (meses)<input type="number" min={1} value={edit.vida} onChange={(e) => setEdit({ ...edit, vida: e.target.value })} className="w-24 rounded border px-2 py-1" /></label>}
-              <label className="grid gap-1">Início de uso<input type="month" value={edit.inicio} onChange={(e) => setEdit({ ...edit, inicio: e.target.value })} className="rounded border px-2 py-1" /></label>
+              <label className="grid gap-1">Início de uso<CampoMes value={edit.inicio} onChange={(e) => setEdit({ ...edit, inicio: e.target.value })} className="rounded border px-2 py-1" /></label>
               <button type="button" onClick={() => void salvarEdicao()} className="rounded-md bg-violet-700 px-3 py-1.5 font-bold text-white">Salvar alterações</button>
               <button type="button" onClick={() => { setEdit(null); setErros([]); }} className="rounded-md border px-3 py-1.5 font-bold">Cancelar</button>
             </div>
@@ -363,9 +364,25 @@ const Extrato: React.FC<Props & { periodo: string; analiticas: ContaPlano[] }> =
   );
 };
 
-const Fechamento: React.FC<Props & { periodo: string }> = ({ contas, lancamentos, preLancamentos, bens, competenciasFechadas, onFecharMes, workspacePersistido, confirmacoes: conf, onConfirmacoes: setConf, periodo, onRota }) => {
+/** Títulos a pagar e receber da empresa ativa (para o fechamento conferir sozinho). Sem acesso ou sem resposta: null (fica a confirmação manual). */
+function useTitulosDaEmpresa(cnpj: string): TituloFechamento[] | null {
+  const [lista, setLista] = useState<TituloFechamento[] | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    const c = cnpj.replace(/[^0-9a-z]/gi, "").toUpperCase();
+    if (!c) { setLista(null); return; }
+    fetch(`/api/workspaces/${encodeURIComponent(c)}/titulos`, { credentials: "include", cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null)).then((d) => { if (vivo) setLista(d?.sucesso && Array.isArray(d.titulos) ? d.titulos : null); })
+      .catch(() => { if (vivo) setLista(null); });
+    return () => { vivo = false; };
+  }, [cnpj]);
+  return lista;
+}
+
+const Fechamento: React.FC<Props & { periodo: string }> = ({ empresa, contas, lancamentos, preLancamentos, bens, competenciasFechadas, onFecharMes, workspacePersistido, confirmacoes: conf, onConfirmacoes: setConf, periodo, onRota }) => {
   const confirmacoes = conf[periodo] ?? {};
-  const r = useMemo(() => conferirFechamento({ competencia: periodo, contas, lancamentos, preLancamentos, bens, confirmacoes }), [periodo, contas, lancamentos, preLancamentos, bens, confirmacoes]);
+  const titulos = useTitulosDaEmpresa(String(empresa?.cnpj || ""));
+  const r = useMemo(() => conferirFechamento({ competencia: periodo, contas, lancamentos, preLancamentos, bens, confirmacoes, titulos }), [periodo, contas, lancamentos, preLancamentos, bens, confirmacoes, titulos]);
   const fechada = competenciasFechadas.includes(periodo);
   return (
     <Cartao titulo={`Fechamento de ${periodo}${fechada ? " — já fechada" : ""}`}>

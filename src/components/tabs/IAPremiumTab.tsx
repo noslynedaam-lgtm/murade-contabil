@@ -161,7 +161,7 @@ export const IAPremiumTab: React.FC<IAPremiumTabProps> = ({ empresa, lancamentos
               <span className="text-3xl p-2 bg-white/10 rounded-2xl">🧠</span>
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-xl font-black tracking-tight text-white">IA Murade Premium</h2>
+                  <h2 className="text-xl font-black tracking-tight text-white">IA Murad Premium</h2>
                   <span className="text-[11px] font-bold bg-white/20 text-purple-100 px-2.5 py-0.5 rounded-full">
                     via Gemini API
                   </span>
@@ -196,7 +196,7 @@ export const IAPremiumTab: React.FC<IAPremiumTabProps> = ({ empresa, lancamentos
                     msg.autor === "ia" ? "text-slate-400" : "text-purple-200"
                   }`}
                 >
-                  <span>{msg.autor === "ia" ? "IA Murade" : "Você"}</span>
+                  <span>{msg.autor === "ia" ? "IA Murad" : "Você"}</span>
                   <span>{msg.horario}</span>
                 </div>
               </div>
