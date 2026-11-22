@@ -37,20 +37,22 @@ export function mascararEmail(email: string): string {
 
 const contadorDoDia: ContadorEmail = { dia: '', tentativas: 0 };
 
-export async function enviarEmail(para: string, assunto: string, texto: string): Promise<void> {
+/** `cc`: cópia (opcional) — usado pelo aviso do backup do escritório (Para e Cc). */
+export async function enviarEmail(para: string, assunto: string, texto: string, cc: string[] = []): Promise<void> {
+  const copia = cc.map((e) => String(e || '').trim()).filter((e) => e && e.toLowerCase() !== String(para).trim().toLowerCase()).slice(0, 10);
   const limite = limiteDiarioEmail();
   const reserva = reservarEnvioEmail(contadorDoDia, new Date(), limite);
   if (reserva.ok === false) {
     console.error(`[e-mail] BLOQUEADO: limite de ${limite} e-mails por dia atingido neste sistema. Nada foi enviado para ${mascararEmail(para)} (${assunto.slice(0, 80)}). Veja se algum robô está repetindo envio; para aumentar o limite use EMAIL_LIMITE_DIARIO no Render.`);
     throw new Error(`Limite diário de e-mails deste sistema atingido (${limite}). Nada foi enviado.`);
   }
-  console.log(`[e-mail] envio ${reserva.numero}/${limite} do dia para ${mascararEmail(para)}: ${assunto.slice(0, 80)}`);
+  console.log(`[e-mail] envio ${reserva.numero}/${limite} do dia para ${mascararEmail(para)}${copia.length ? ` (+${copia.length} em cópia)` : ''}: ${assunto.slice(0, 80)}`);
   const de = process.env.EMAIL_FROM!.trim();
   const html = `<div style="font-family:system-ui,sans-serif;font-size:15px;line-height:1.5">${texto.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>').replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>')}</div>`;
   if (process.env.RESEND_API_KEY?.trim()) {
     const r = await fetch('https://api.resend.com/emails', {
       method: 'POST', headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY.trim()}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: de, to: [para], subject: assunto, text: texto, html }), signal: AbortSignal.timeout(15000),
+      body: JSON.stringify({ from: de, to: [para], ...(copia.length ? { cc: copia } : {}), subject: assunto, text: texto, html }), signal: AbortSignal.timeout(15000),
     });
     if (!r.ok) throw new Error(`Resend recusou o envio (${r.status}).`);
     return;
@@ -58,5 +60,5 @@ export async function enviarEmail(para: string, assunto: string, texto: string):
   const nodemailer = await import('nodemailer');
   const porta = Number(process.env.SMTP_PORT || 465);
   const transporte = nodemailer.createTransport({ host: process.env.SMTP_HOST!.trim(), port: porta, secure: porta === 465, auth: { user: process.env.SMTP_USER!.trim(), pass: process.env.SMTP_PASS! } });
-  await transporte.sendMail({ from: de, to: para, subject: assunto, text: texto, html });
+  await transporte.sendMail({ from: de, to: para, ...(copia.length ? { cc: copia } : {}), subject: assunto, text: texto, html });
 }

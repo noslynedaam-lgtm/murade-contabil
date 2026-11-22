@@ -38,6 +38,8 @@ import { empresasParadas, situacaoEmpresasContabil, textoAvisoParadas } from "./
 import { registrarRotasDemonstracoes, rodarRoboDemonstracoes } from "./src/server/demonstracoesServidor";
 import { conferirBackupsEscritorios } from "./src/server/conferidorBackupsContabil";
 import { gerarBackupEscritorio, listarBackupsEscritorio, baixarBackupEscritorio, periodoDe } from "./src/services/backupEscritorioContabilService";
+import { servicoBackupAgendadoContabil } from "./src/server/backupAgendadoContabil";
+import { montarRotasBackupAgendado } from "./src/server/backupAgendado/rotas";
 import { gerarCandidatosRascunhosAutomaticos, mesclarRascunhosNoWorkspace, prepararRascunhosContabeisAutomaticos } from "./src/server/prepararRascunhosContabeis";
 import { respostaRapida } from "./src/server/respostasRapidas";
 import { omitirXmlOriginal, resumirCoberturaXmlFiscal } from "./src/server/coberturaXmlFiscal";
@@ -1520,6 +1522,15 @@ const reconciliacaoRascunhosStatus: {
     }
   });
   // Backup COMPLETO do banco (PostgreSQL) para fora do Render. Só o dono do sistema: escritórios clientes não veem nem chamam.
+  // Backup agendado do escritório (tela "Backup"): agenda todo dia/semana/mês, completo ou só alterações, arquivo próprio
+  // .murade cifrado com a chave do escritório, conferência depois do backup, nuvem do cliente (S3), avisos e restauração.
+  // Administrador do escritório = dono da conta do escritório (administrador e tenantId igual ao próprio id).
+  montarRotasBackupAgendado(app, "/api/contabil/backup-agendado", servicoBackupAgendadoContabil, (req) => {
+    const s = sessaoDaRequisicaoContabil(req);
+    if (!s?.tenantId || !bancoContabilConfigurado()) return null;
+    const administrador = s.administrador === true && String(s.tenantId) === String(s.userId);
+    return { tenantId: String(s.tenantId), login: s.login, administrador, equipe: !administrador && Boolean(s.escritorioDe || s.administrador) };
+  }, { leitura: [exigirSessaoContabil], escrita: [exigirOrigemNavegador, exigirSessaoContabil] });
   // O backup mensal por escritório acima continua igual; este é o do sistema inteiro, cifrado, em destino S3-compatível.
   const servicoBackupBanco = criarServicoBackupBanco({ sistema: "contabil", nomeSistema: "Murade Contábil", consulta: (sql, params) => consultaBancoContabil(sql, params), conexaoBanco: () => opcoesConexaoBancoContabil() });
   const exigirDonoBackupBanco = (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -1708,6 +1719,26 @@ const reconciliacaoRascunhosStatus: {
   registrarRotinaManual("acessos", rodarConferidorDeAcessos);
   registrarRotinaManual("seguranca_login", rodarSegurancaLogin);
   registrarRotinaManual("backups", rodarConferidorBackups);
+  // Robô de Backup Agendado (a cada 5 min) e o conferidor dele (de 2 em 2 horas): ver src/server/backupAgendado/servico.ts.
+  registrarRobo({ id: "backup_agendado", nome: "Robô de Backup Agendado", posto: "conferidor", missao: "A cada 5 minutos faz os backups que cada escritório agendou na tela Backup (todo dia, semana ou mês; completo ou só alterações; quando dois coincidem vale o completo), confere cada arquivo logo depois (abre, decifra, checksum e contagens), envia para a nuvem do escritório quando configurada, reenvia o que falhou e aplica a retenção escolhida. Só lê os dados do escritório; nunca altera lançamento nem fechamento.", ...(bancoContabilConfigurado() ? { intervaloMs: 5 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  registrarRobo({ id: "conferidor_backup_agendado", nome: "Robô Conferidor do Backup Agendado", posto: "conferidor", missao: "De 2 em 2 horas confere, escritório por escritório, se o backup de cada horário agendado foi feito, conferido e enviado à nuvem do escritório; corrige sozinho o que dá (refaz o backup que ficou para trás, confere o que não foi conferido e reenvia à nuvem) e avisa o que sobrar. Só conta; não mostra dado de nenhum escritório.", ...(bancoContabilConfigurado() ? { intervaloMs: 2 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  let ultimoResumoBackupAgendado = "";
+  const rodarBackupAgendado = () => bancoContabilConfigurado() ? executarRobo("backup_agendado", async () => {
+    const r = await servicoBackupAgendadoContabil.rodadaExecutor();
+    // A cada 5 min a rodada sem nada para fazer repete a mesma frase: só grava no histórico quando algo muda.
+    if (r.feitos || r.falhas || r.reenviados || r.presos || r.resumo !== ultimoResumoBackupAgendado) { ultimoResumoBackupAgendado = r.resumo; registrarResultadoRobo("backup_agendado", r.resumo); }
+  }).catch((e) => console.error("Falha no Robô de Backup Agendado:", e?.message || e)) : undefined;
+  const rodarConferidorBackupAgendado = () => bancoContabilConfigurado() ? executarRobo("conferidor_backup_agendado", async () => {
+    const r = await servicoBackupAgendadoContabil.rodadaConferidor();
+    definirAlertaRobo("conferidor_backup_agendado", r.alerta);
+    registrarResultadoRobo("conferidor_backup_agendado", r.resumo);
+  }).catch((e) => console.error("Falha no Robô Conferidor do Backup Agendado:", e?.message || e)) : undefined;
+  setTimeout(() => void rodarBackupAgendado(), 160_000).unref();
+  setInterval(() => void rodarBackupAgendado(), 5 * 60_000).unref();
+  setTimeout(() => void rodarConferidorBackupAgendado(), 20 * 60_000).unref();
+  setInterval(() => void rodarConferidorBackupAgendado(), 2 * 60 * 60_000).unref();
+  registrarRotinaManual("backup_agendado", rodarBackupAgendado);
+  registrarRotinaManual("conferidor_backup_agendado", rodarConferidorBackupAgendado);
   registrarRotinaManual("backup_banco", rodarBackupBancoAgora);
   // Robô Conferidor do Anti-retrabalho: vence "em andamento" esquecido, apaga registros com mais de 120 dias e relata bloqueios/avisos.
   // Piloto Visível: confere, só em leitura, se todo alvo do mapa de telas ainda existe no código e avisa o dono se algo foi renomeado.

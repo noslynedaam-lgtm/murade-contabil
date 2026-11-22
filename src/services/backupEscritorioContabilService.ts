@@ -160,7 +160,7 @@ function clausulaIn(coluna: string, valores: string[]): { sql: string; valores: 
   return { sql: `${coluna} IN (${valores.map((_, i) => `$${i + 1}`).join(',')})`, valores };
 }
 
-async function obterCnpjsDoEscritorio(consultar: Consultar, tenantId: string): Promise<string[]> {
+export async function obterCnpjsDoEscritorio(consultar: Consultar, tenantId: string): Promise<string[]> {
   const r = await consultar('SELECT DISTINCT cnpj FROM contabil_auth_company_access WHERE user_id = $1 ORDER BY cnpj', [tenantId]);
   return r.rows.map((x: any) => String(x.cnpj).trim());
 }
@@ -188,7 +188,7 @@ export function removerCamposCertificado(valor: any): any {
   return valor;
 }
 
-async function coletarDadosDoEscritorio(consultar: Consultar, tenantId: string, cnpjs: string[]): Promise<Record<string, any[]>> {
+export async function coletarDadosDoEscritorio(consultar: Consultar, tenantId: string, cnpjs: string[]): Promise<Record<string, any[]>> {
   const tenantParam = [tenantId];
 
   const [
@@ -387,4 +387,18 @@ export async function baixarBackupEscritorio(consultar: Consultar, tenantId: str
   if (!linha) return null;
   const conteudo = Buffer.isBuffer(linha.conteudo_cifrado) ? linha.conteudo_cifrado : Buffer.from(linha.conteudo_cifrado);
   return { nomeArquivo: String(linha.nome_arquivo), conteudo };
+}
+
+/** Zip (já decifrado e conferido pelo checksum) de um backup mensal do escritório — para a restauração na tela Backup.
+ * Mesmo filtro por tenant_id no SQL das demais funções: nunca abre backup de outro escritório. */
+export async function lerZipBackupEscritorio(consultar: Consultar, tenantId: string, id: string, env: NodeJS.ProcessEnv = process.env): Promise<Buffer | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  await garantirTabelaBackups(consultar);
+  const r = await consultar(`SELECT periodo, iv, tag, conteudo_cifrado, checksum_sha256 FROM murade_contabil_backups WHERE id = $1 AND tenant_id = $2 AND status = 'ok' AND verificado = true`, [id, tenantId]);
+  const linha = r.rows[0];
+  if (!linha) return null;
+  const cifrado = Buffer.isBuffer(linha.conteudo_cifrado) ? linha.conteudo_cifrado : Buffer.from(linha.conteudo_cifrado);
+  const plano = decifrar(cifrado, Buffer.from(String(linha.iv), 'hex'), Buffer.from(String(linha.tag), 'hex'), tenantId, String(linha.periodo), env);
+  if (createHash('sha256').update(plano).digest('hex') !== String(linha.checksum_sha256)) throw new Error('O checksum do backup mensal não confere.');
+  return plano;
 }

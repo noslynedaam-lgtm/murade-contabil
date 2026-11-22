@@ -166,7 +166,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
       id: "backups" as TabId,
       label: "Backups",
       icon: ShieldHalf,
-      badge: "Mensal",
+      badge: "Agenda",
       badgeColor: "bg-emerald-400/30 text-emerald-100",
     },
     {

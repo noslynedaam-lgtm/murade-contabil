@@ -33,6 +33,7 @@ import { ModulosFinaisTab } from "./components/tabs/ModulosFinaisTab";
 import { MigracaoContabilTab } from "./components/tabs/MigracaoContabilTab";
 import { RevisaoOrigensTab } from "./components/tabs/RevisaoOrigensTab";
 import { BackupsTab } from "./components/tabs/BackupsTab";
+import { AvisosBackupEscritorio } from "./components/backupEscritorio/AvisosBackupEscritorio";
 import { IAMuradModal } from "./components/IAMuradModal";
 import { BalaoAjudaProativa } from "./components/BalaoAjudaProativa";
 import { AvisoServicoPronto } from "./components/AvisoServicoPronto";
@@ -976,6 +977,7 @@ function AppWorkspace() {
         <div className="flex-1 overflow-y-auto overscroll-contain content-scroll">
           <AlertaRobosParados />
           <FaixaEcd cnpj={empresa.cnpj} onAbrir={() => setTabAtiva("livros" as TabId)} />
+          <AvisosBackupEscritorio api="/api/contabil/backup-agendado" sistema="contabil" aoAbrirBackup={() => setTabAtiva("backups")} />
           <main className="p-2 sm:p-3 w-full mx-auto">
             {/* Grid Principal: 2 Colunas (Área de Trabalho + Sidebar do Robô) */}
             <div className="grid grid-cols-1 gap-5 items-start">

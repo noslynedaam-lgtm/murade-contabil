@@ -7,6 +7,7 @@ import { PainelEquipe } from "./PainelEquipe";
 import { EsqueciSenha } from "./EsqueciSenha";
 import { PainelEscritorios } from "./PainelEscritorios";
 import { PainelDuvidasSupervisor } from "./PainelDuvidasSupervisor";
+import { confirmarSaidaComBackup } from "./backupEscritorio/pastaBackup";
 
 type Membership = { cnpj: string; role: "admin" | "operator" | "viewer" };
 type AuthData = { usuario: string; cnpjs: string[]; memberships: Membership[]; administrador: boolean; escritorio?: boolean; donoSistema?: boolean; doisFatores?: boolean; precisaAtivar2fa?: boolean };
@@ -132,6 +133,8 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const sair = async () => {
+    // Aviso de backup ao sair (se o escritório ligou): a pessoa pode desistir de sair e fazer o backup antes.
+    if (!(await confirmarSaidaComBackup("/api/contabil/backup-agendado"))) return;
     try { await fetch("/api/auth/logout", { method: "POST", credentials: "include" }); } finally { setAuth(null); setMostrarSeguranca(false); setPrecisaCodigo(false); setCodigo(""); }
   };
 

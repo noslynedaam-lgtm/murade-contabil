@@ -34,7 +34,7 @@ export const MODULOS_JEITO_PADRAO: TelaJeito[] = [
   { id: 'calculadora', rotulo: 'Calculadora 3D', resumo: 'Calculadora com teclas compactas e acumulado por empresa.', arquivo: 'CalculadoraTab' },
   { id: 'agente', rotulo: 'Agentes & Robô', resumo: 'Painel dos robôs e da Agente IA, com a missão e o estado de cada um.', arquivo: 'AgenteTab' },
   { id: 'tarefas-equipe', rotulo: 'Tarefas da equipe', resumo: 'Pedidos feitos à equipe, com acompanhamento de quando foram vistos e concluídos.', arquivo: 'TarefasEquipeTab' },
-  { id: 'backups', rotulo: 'Backups', resumo: 'Uma cópia cifrada por mês, só com os dados do escritório, gerada sozinha pelo robô conferidor.', arquivo: 'BackupsTab' },
+  { id: 'backups', rotulo: 'Backups', resumo: 'Backup do escritório em arquivo próprio do Murade, cifrado: agendar (todo dia, semana ou mês), guardar no computador ou na nuvem do escritório e restaurar; o mensal automático continua.', arquivo: 'BackupsTab' },
   { id: 'meu-jeito', rotulo: 'Meu jeito', resumo: 'O nome pelo qual a Agente te chama e o que ela aprendeu do seu jeito de trabalhar: você vê, muda o nome ou volta ao jeito padrão, uma regra por vez.', arquivo: 'MeuJeitoTab' },
   { id: 'revisor', rotulo: 'Revisor', resumo: 'Confere antes de gravar ou fechar e revisa cada empresa no mês: certo, risco e falta. Em Corrigir fica o que o robô semanal achou; Corrigir para mim só arruma lançamento pendente em mês aberto.', arquivo: 'RevisorTab' },
 ];
