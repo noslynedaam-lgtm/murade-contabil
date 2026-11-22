@@ -212,9 +212,12 @@ function limitesLc224(receita: number[], presente: boolean[], ativo: boolean[]):
   for (const q of idx) {
     if (!presente[q] || !ativo[q]) continue;
     if (q !== ultimo) r200[q] = r110[q] > r140[q] ? r110[q] - r140[q] : 0;
-    else if (r130[ultimo] > r180 && r150[ultimo] > r160[ultimo]) r200[q] = r130[ultimo] - r180;
-    else if (r150[q] > r160[q]) r200[q] = r110[q] > r140[q] ? r110[q] - r140[q] : r130[q] > r180 ? r130[q] - r180 : 0;
-    else r200[q] = 0;
+    // Último trimestre: acerto anual. A LC 224/2025 (art. 4º, §5º) manda o acréscimo incidir sobre a parcela da receita do ANO
+    // que passa do limite; então a base do último trimestre é o excedente anual (linha 190) menos o que os trimestres anteriores
+    // já tributaram (linha 160), nunca negativa (o que foi a mais sai nas linhas 18100-18500, pago a maior). A fórmula anterior
+    // zerava o último trimestre quando o excedente dele não passava a soma dos anteriores (ex.: R$ 2 mi em cada trimestre:
+    // excedente anual R$ 3 mi, só R$ 2,25 mi tributados).
+    else r200[q] = r190 > r160[q] ? r190 - r160[q] : 0;
   }
   return { r110, r120, r130, r140, r150, r160, r170, r180, r190, r200, ultimo };
 }
@@ -240,7 +243,9 @@ export function calcularAnoPresumido(par: ParametrosPresumido, entradas: Entrada
   const rIrpj = [0, 1, 2, 3].map((i) => irpjBuckets(porQ[i]).reduce((a, b) => a + b, 0));
   const rCsll = [0, 1, 2, 3].map((i) => csllBuckets(porQ[i]).reduce((a, b) => a + b, 0));
   const li = limitesLc224(rIrpj, presente, presente);
-  const lcs = limitesLc224(rCsll, presente, ativoCsll);
+  // CSLL: só os trimestres em que a regra vale contam para o limite (em 2026, do 2º ao 4º: limite anual de R$ 3.750.000,00 —
+  // Perguntas e Respostas RFB "Redução dos incentivos e benefícios tributários" v5, perg. 13).
+  const lcs = limitesLc224(rCsll, ativoCsll, ativoCsll);
 
   // P200(25.210–25.250) e P300(18.xxx)
   const adicIrpj = [0, 1, 2, 3].map((i) => (rIrpj[i] > 0 ? irpjBuckets(porQ[i]).map((b, k) => ((b / rIrpj[i]) * li.r200[i]) * PCT_IRPJ[k] * 0.1) : [0, 0, 0, 0, 0]));

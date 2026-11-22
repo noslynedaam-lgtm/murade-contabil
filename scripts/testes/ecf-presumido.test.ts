@@ -109,3 +109,23 @@ test("limite LC 224/25 a partir da contabilidade (voz/robô)", () => {
   assert.equal(r.limiteAnual, 0);
   assert.equal(r.aplicavel, true);
 });
+
+test("2026: último trimestre faz o acerto anual (LC 224/2025, art. 4º §5º) — nunca deixa o ano tributado a menos", () => {
+  // R$ 2.000.000 em cada trimestre: excedente anual 8.000.000 − 5.000.000 = 3.000.000; T01-T03 tributam 750.000 cada (2.250.000);
+  // o T04 tributa o resto: 750.000 (a fórmula antiga dava zero).
+  const r = calcularAnoPresumido(par26, [serv("T01", 2_000_000), serv("T02", 2_000_000), serv("T03", 2_000_000), serv("T04", 2_000_000)]);
+  assert.deepEqual(r.map((t) => t.p200.find((l) => l.codigo === "25200")!.valor), [750000, 750000, 750000, 750000]);
+  assert.equal(r[3].baseIrpj, 640000 + 750000 * 0.032); // 32% de 2 mi + 3,2% de 750.000 = 664.000
+  // ano abaixo do limite: T01-T03 com 500.000 e T04 com 2.000.000 → 3.500.000 ≤ 5.000.000 → T04 sem acréscimo
+  const b = calcularAnoPresumido(par26, [serv("T01", 500_000), serv("T02", 500_000), serv("T03", 500_000), serv("T04", 2_000_000)]);
+  assert.equal(b[3].p200.find((l) => l.codigo === "25200")!.valor, 0);
+});
+
+test("2026: limite anual da CSLL é R$ 3.750.000 (só do 2º ao 4º trimestre — perg. 13 da RFB)", () => {
+  const r = calcularAnoPresumido(par26, [serv("T01", 2_000_000), serv("T02", 2_000_000), serv("T03", 2_000_000), serv("T04", 2_000_000)]);
+  assert.equal(r[3].p400.find((l) => l.codigo === "20180")!.valor, 3_750_000);
+  assert.equal(r[3].p400.find((l) => l.codigo === "20130")!.valor, 6_000_000); // receita acumulada só de T02 a T04
+  // CSLL: excedente anual 6 − 3,75 = 2,25 mi; T02 e T03 já tributaram 750.000 cada → T04 tributa 750.000
+  assert.equal(r[3].p400.find((l) => l.codigo === "20200")!.valor, 750000);
+  assert.equal(r[3].p200.find((l) => l.codigo === "25180")!.valor, 5_000_000);
+});
