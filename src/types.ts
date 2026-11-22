@@ -310,6 +310,8 @@ export type OrigemMapeadaContabil =
   | "fiscal_pis_nc_pago"
   | "fiscal_cofins_nc_pago"
   | "fiscal_darf_encargos"
+  | "contabil_irpj_real"
+  | "contabil_csll_real"
   | "fiscal_das_simples_encargos";
 
 export interface MapeamentoOrigemContabil {

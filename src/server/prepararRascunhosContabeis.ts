@@ -112,6 +112,8 @@ const HISTORICO_POR_TRIBUTO: Record<string, string> = {
   PIS_PRESUMIDO: "PIS do Lucro Presumido (mês) confirmado no Fiscal",
   COFINS_PRESUMIDO: "COFINS do Lucro Presumido (mês) confirmado no Fiscal",
   DAS_SIMPLES: "DAS do Simples Nacional (provisão do período) confirmado no Fiscal",
+  IRPJ_REAL: "IRPJ do Lucro Real (provisão do período) confirmado na Apuração do Lucro Real",
+  CSLL_REAL: "CSLL do Lucro Real (provisão do período) confirmada na Apuração do Lucro Real",
   PIS_NAO_CUMULATIVO: "PIS não cumulativo (débito do mês) confirmado no Fiscal",
   COFINS_NAO_CUMULATIVA: "COFINS não cumulativa (débito do mês) confirmada no Fiscal",
   PIS_NC_CREDITO: "Créditos de PIS não cumulativo do mês confirmados no Fiscal",
@@ -137,7 +139,7 @@ const mapeamentoValido = (mapeamentos: Registro[], idOrigem: string, analiticas:
  * DARF (tributos *_PAGO). Provisões do Lucro Presumido e do PIS/COFINS não cumulativos: último dia do mês da competência (o tributo é
  * do período; para IRPJ/CSLL a competência é o último mês do trimestre). As demais (DIFAL) seguem no dia 1º.
  */
-const PROVISAO_NO_FIM_DO_MES = new Set(["IRPJ_PRESUMIDO", "CSLL_PRESUMIDO", "PIS_PRESUMIDO", "COFINS_PRESUMIDO", "PIS_NAO_CUMULATIVO", "COFINS_NAO_CUMULATIVA", "PIS_NC_CREDITO", "COFINS_NC_CREDITO"]);
+const PROVISAO_NO_FIM_DO_MES = new Set(["IRPJ_REAL", "CSLL_REAL", "IRPJ_PRESUMIDO", "CSLL_PRESUMIDO", "PIS_PRESUMIDO", "COFINS_PRESUMIDO", "PIS_NAO_CUMULATIVO", "COFINS_NAO_CUMULATIVA", "PIS_NC_CREDITO", "COFINS_NC_CREDITO"]);
 export function dataDaApuracao(apuracao: Pick<ApuracaoFiscalArmazenada, "tributo" | "competencia" | "versaoOrigem">): string {
   if (apuracao.tributo === "DAS_SIMPLES" || PROVISAO_NO_FIM_DO_MES.has(apuracao.tributo)) {
     const [a, m] = apuracao.competencia.split("-").map(Number);

@@ -8,6 +8,8 @@ import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import { timingSafeEqual } from "node:crypto";
 import { ErroValidacaoDocumentoFiscal, fiscalStoreConfigurado, gravarDocumentosFiscais, lerDocumentosFiscais, lerVersoesDocumentoFiscal, verificarEstadoStoreFiscal } from "./src/server/documentosFiscaisStore";
+import { registrarRotasLucroReal } from "./src/server/lucroRealRotas";
+import { rodarRoboLucroReal } from "./src/server/lucroRealApuracao";
 import { ErroValidacaoApuracaoFiscal, apuracoesStoreConfigurado, gravarApuracoesFiscais, lerApuracoesFiscais, verificarEstadoStoreApuracoes } from "./src/server/apuracoesFiscaisStore";
 import { dpStoreConfigurado, ErroConflitoResumoDP, ErroValidacaoResumoDP, gravarResumoDP, lerResumosDP, verificarEstadoStoreDP } from "./src/server/dadosDpStore";
 import { gravarResumoProLaboreDP } from "./src/server/dadosProLaboreStore";
@@ -1353,6 +1355,24 @@ const reconciliacaoRascunhosStatus: {
   // Escrituração avançada: várias partidas, histórico e lançamento padrão, encerramento, Livro Caixa e conciliação bancária.
   registrarRotasEscrituracao(app, { exigirOrigemNavegador, exigirSessaoContabil, consultar: (sql, params) => consultaBancoContabil(sql, params) });
   registrarRotasTitulosCartoes(app, { exigirOrigemNavegador, exigirSessaoContabil, consultar: (sql, params) => consultaBancoContabil(sql, params) });
+  // Lucro Real: IRPJ/CSLL pela contabilidade + e-Lalur/e-Lacs (Partes A e B), estimativa (receita ou balancete) ou trimestral, DARF e JCP.
+  const depsLucroReal = {
+    consultar: (sql: string, params?: unknown[]) => consultaBancoContabil(sql, params),
+    lerWorkspace: async (cnpj: string) => (await lerWorkspaceInternoContabil(cnpj)) as Record<string, any> | null,
+    competenciasFechadas: async (cnpj: string, ano: number) => new Set<string>((await consultaBancoContabil("SELECT competencia FROM contabil_period_closures WHERE cnpj=$1 AND competencia LIKE $2", [cnpj, `${ano}-%`])).rows.map((x: any) => String(x.competencia))),
+    hoje: () => new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10),
+    enviarProvisao: (cnpj: string, itens: any[]) => gravarApuracoesFiscais(cnpj, itens),
+  };
+  registrarRotasLucroReal(app, { exigirSessao: exigirSessaoContabil, exigirOrigem: exigirOrigemNavegador }, depsLucroReal);
+  registrarRobo({ id: "lucro_real", nome: "Robô do Lucro Real", posto: "calculador", missao: "Apurar sozinho o IRPJ e a CSLL do Lucro Real de cada empresa configurada (estimativa mensal pela receita ou pelo balancete de suspensão/redução, ou trimestral), com e-Lalur/e-Lacs e saldos de prejuízo fiscal e base negativa, deixando tudo pronto para a contadora confirmar. Nunca confirma, paga nem transmite.", intervaloMs: 6 * 60 * 60_000 });
+  const rodarRoboLucroRealAgora = () => void executarRobo("lucro_real", async () => {
+    if (!bancoContabilConfigurado()) return;
+    const r = await rodarRoboLucroReal(depsLucroReal, async () => (await consultaBancoContabil("SELECT cnpj FROM contabil_lucro_real_config", [])).rows.map((x: any) => String(x.cnpj)));
+    registrarResultadoRobo("lucro_real", r.resumo);
+  }).catch((e) => console.error("Falha no Robô do Lucro Real:", e?.message || e));
+  registrarRotinaManual("lucro_real", rodarRoboLucroRealAgora);
+  setTimeout(rodarRoboLucroRealAgora, 150_000).unref();
+  setInterval(rodarRoboLucroRealAgora, 6 * 60 * 60_000).unref();
   // CNPJ do escritório e liberação do adicional "Consultor Murade completo" (Consultor + serviço completo), por escritório.
   registrarRotasEscritorioConsultor(app, { exigirSessao: exigirSessaoContabil, exigirOrigem: exigirOrigemNavegador }, {
     store: storeEscritorio,

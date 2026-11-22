@@ -42,6 +42,8 @@ export const ORIGENS = [
   { id: "fiscal_pis_nc_pago", rotulo: "Fiscal — PIS não cumulativo (pagamento)" },
   { id: "fiscal_cofins_nc_pago", rotulo: "Fiscal — COFINS não cumulativa (pagamento)" },
   { id: "fiscal_darf_encargos", rotulo: "Fiscal — DARF (multa e juros)" },
+  { id: "contabil_irpj_real", rotulo: "Contábil — IRPJ Lucro Real (provisão)" },
+  { id: "contabil_csll_real", rotulo: "Contábil — CSLL Lucro Real (provisão)" },
   { id: "fiscal_das_simples", rotulo: "Fiscal — DAS Simples (provisão)" },
   { id: "fiscal_das_simples_pago", rotulo: "Fiscal — DAS Simples (pagamento)" },
   { id: "fiscal_das_simples_encargos", rotulo: "Fiscal — DAS Simples (multa e juros)" },
@@ -76,6 +78,8 @@ export const ORIGEM_POR_TRIBUTO: Record<string, IdOrigem> = {
   COFINS_PRESUMIDO_PAGO: "fiscal_cofins_presumido_pago",
   PIS_NC_PAGO: "fiscal_pis_nc_pago",
   COFINS_NC_PAGO: "fiscal_cofins_nc_pago",
+  IRPJ_REAL: "contabil_irpj_real",
+  CSLL_REAL: "contabil_csll_real",
   DAS_SIMPLES: "fiscal_das_simples",
   DAS_SIMPLES_PAGO: "fiscal_das_simples_pago",
 };

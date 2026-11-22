@@ -13,6 +13,8 @@ const TRIBUTOS_ACEITOS = new Set([
   "DAS_SIMPLES", "DAS_SIMPLES_PAGO",
   // Lucro Real — PIS/COFINS não cumulativos do mês (Lei 10.637/2002 e Lei 10.833/2003): débito sobre a receita e créditos do mês.
   "PIS_NAO_CUMULATIVO", "COFINS_NAO_CUMULATIVA", "PIS_NC_CREDITO", "COFINS_NC_CREDITO",
+  // Lucro Real — IRPJ/CSLL apurados no próprio Contábil (lucroRealApuracao.ts) e confirmados pela contadora: provisão do período.
+  "IRPJ_REAL", "CSLL_REAL",
   // Pagamento dos DARF (registrado no Fiscal), como o DAS_SIMPLES_PAGO: principal baixa o "a recolher"; multa e juros à parte.
   "IRPJ_PRESUMIDO_PAGO", "CSLL_PRESUMIDO_PAGO", "PIS_PRESUMIDO_PAGO", "COFINS_PRESUMIDO_PAGO", "PIS_NC_PAGO", "COFINS_NC_PAGO",
 ]);
