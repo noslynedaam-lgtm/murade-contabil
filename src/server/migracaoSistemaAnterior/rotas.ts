@@ -8,7 +8,7 @@ import {
   descartarMigracaoContabil, gerarPreviaContabil, gravarMigracaoContabil, iniciarLimpezaMigracaoContabil, listarEmpresasDoBackupContabil,
   receberArquivoContabil, situacaoMigracaoContabilDoUsuario,
 } from './servico';
-import { cnpjsMigrados, conferirEmpresaMigrada, empresaExcluidaAntes, ErroMigracao, gravarEmpresaMigrada, lerBlocoSistemaAnterior, lerRegistroSistemaAnterior } from './banco';
+import { cnpjsMigrados, conferirCamposEmpresaMigrada, conferirEmpresaMigrada, empresaExcluidaAntes, ErroMigracao, gravarEmpresaMigrada, lerBlocoSistemaAnterior, lerRegistroSistemaAnterior } from './banco';
 
 export interface DependenciasRotasMigracao {
   exigirSessao: express.RequestHandler;
@@ -116,8 +116,10 @@ export function registrarRotasMigracaoSistemaAnterior(app: express.Express, dep:
     try {
       const reg = await lerRegistroSistemaAnterior(dep.consultar, cnpj);
       const conferencia = reg.resumo ? await conferirEmpresaMigrada(dep.consultar, cnpj) : null;
-      const { esperado: _e, esperadoLancamentos: _l, saldoFinalEsperado: _s, ...resumo } = (reg.resumo || {}) as any;
-      res.json({ sucesso: true, cnpj, resumo: reg.resumo ? { ...resumo, naoEntraram: (resumo.naoEntraram || []).slice(0, 50) } : null, blocos: reg.blocos, conferencia });
+      const campos = reg.resumo ? await conferirCamposEmpresaMigrada(dep.consultar, cnpj) : null;
+      const { esperado: _e, esperadoLancamentos: _l, saldoFinalEsperado: _s, mapaContas: _m, ...resumo } = (reg.resumo || {}) as any;
+      res.json({ sucesso: true, cnpj, resumo: reg.resumo ? { ...resumo, naoEntraram: (resumo.naoEntraram || []).slice(0, 50) } : null, blocos: reg.blocos, conferencia,
+        campos: campos ? { resumo: campos.resumo, conferidos: campos.conferidos, totalPendencias: campos.pendencias.length, pendencias: campos.pendencias.slice(0, 300), semCadastroNoRegistro: campos.semCadastroNoRegistro } : null });
     } catch (e) { console.error('Falha ao ler registro do sistema anterior:', (e as Error)?.message || e); res.status(503).json({ sucesso: false, motivo: 'Não foi possível ler o registro do sistema anterior agora.' }); }
   });
   app.get(`${base}/registro/:cnpj/bloco/:bloco`, dep.exigirSessao, async (req, res) => {
@@ -136,17 +138,28 @@ export function rotinaConferidorMigracao(dep: Pick<DependenciasRotasMigracao, 'c
     await dep.preparar();
     const cnpjs = await cnpjsMigrados(dep.consultar);
     const problemas: string[] = [];
-    let desatualizados = 0;
+    const camposPendentes: string[] = [];
+    let desatualizados = 0; let totalPendencias = 0;
     for (const cnpj of cnpjs) {
       const c = await conferirEmpresaMigrada(dep.consultar, cnpj);
       if (!c) continue;
       if (!c.bate) problemas.push(`${cnpj}: ${c.resumo}`);
       else if (c.saldosAntigosDesatualizadosNoSistemaAnterior) desatualizados++;
+      // Campo a campo: o que estava preenchido no sistema anterior e chegou vazio ou diferente no Murade.
+      const f = await conferirCamposEmpresaMigrada(dep.consultar, cnpj).catch((e) => { console.error(`Conferidor campo a campo falhou para ${cnpj}:`, (e as Error)?.message || e); return null; });
+      if (f?.pendencias.length) {
+        totalPendencias += f.pendencias.length;
+        const ex = f.pendencias[0];
+        camposPendentes.push(`${cnpj}: ${f.pendencias.length} campo(s) (ex.: ${ex.item} › ${ex.rotulo}: "${ex.noSistemaAnterior.slice(0, 60)}" no sistema anterior, "${ex.noMurade.slice(0, 60)}" no Murade)`);
+      }
     }
-    const texto = !cnpjs.length ? 'Nenhuma empresa migrada pelo backup do sistema anterior ainda.'
+    let texto = !cnpjs.length ? 'Nenhuma empresa migrada pelo backup do sistema anterior ainda.'
       : problemas.length ? `${problemas.length} de ${cnpjs.length} empresa(s) migrada(s) não batem com o sistema anterior. ${problemas.slice(0, 3).join(' | ')}`
         : `${cnpjs.length} empresa(s) migrada(s) conferida(s): o balancete do Murade bate com o sistema anterior em todas${desatualizados ? ` (em ${desatualizados}, a tabela de saldos antiga do sistema anterior estava desatualizada e valeram os lançamentos de lá)` : ''}.`;
+    if (cnpjs.length) texto += camposPendentes.length
+      ? ` Campo a campo: ${totalPendencias} pendência(s) em ${camposPendentes.length} empresa(s) — ${camposPendentes.slice(0, 3).join(' | ')}. Veja na empresa › Migração › "O que veio do sistema anterior".`
+      : ' Campo a campo: todos os campos preenchidos no sistema anterior estão iguais no Murade.';
     dep.robos.registrarResultadoRobo(id, texto);
-    dep.robos.definirAlertaRobo(id, problemas.length ? { nivel: 'aviso', texto } : null);
+    dep.robos.definirAlertaRobo(id, problemas.length || camposPendentes.length ? { nivel: 'aviso', texto } : null);
   }).catch((e) => console.error('Falha no Robô Conferidor da Migração do Sistema Anterior:', (e as Error)?.message || e)) : undefined;
 }

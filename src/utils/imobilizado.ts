@@ -17,6 +17,14 @@ export type BemImobilizado = {
   transferencias?: Array<{ competencia: string; de?: string; para: string }>;
   /** Quotas de depreciação ajustadas manualmente (competência AAAA-MM → centavos). O cálculo automático não as sobrescreve. */
   ajustesQuota?: Record<string, number>;
+  /** Dados de controle do bem (opcionais). */
+  codigo?: string;
+  fornecedor?: string;
+  notaFiscal?: string;
+  numeroSerie?: string;
+  dataCompra?: string; // AAAA-MM-DD
+  contaBemCodigo?: string;
+  contaDepreciacaoCodigo?: string;
 };
 
 const MES = /^\d{4}-(0[1-9]|1[0-2])$/;

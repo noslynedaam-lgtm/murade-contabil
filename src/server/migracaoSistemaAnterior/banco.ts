@@ -7,6 +7,8 @@ import { urlDoSistema } from '../agentesEntreSistemas';
 import type { DadosContabeisEmpresa } from './conversor';
 import { conferirMigracao, type ReferenciaConferencia, type ResultadoConferencia } from './conferencia';
 import { mesclarMigracao } from './mesclagem';
+import { conferirCamposMigrados, type ResultadoCampos } from './camposSistemaAnterior';
+import { converterClassificacao } from './conversor';
 
 export const TABELA_SISTEMA_ANTERIOR = 'contabil_sistema_anterior';
 export const BLOCO_RESUMO = '__migracao';
@@ -27,6 +29,8 @@ export interface ResultadoGravacaoEmpresa {
 export interface ResumoMigracaoGuardado extends ReferenciaConferencia {
   cdempresa: number; nomePlano: string; migradoEm: string; migradoPor: string; lidos: Record<string, number>;
   naoEntraram: DadosContabeisEmpresa['naoEntraram']; avisos: string[]; conferenciaNaGravacao: string;
+  /** idconta do sistema anterior → código no Murade (para o conferidor campo a campo). Migrações antigas não têm. */
+  mapaContas?: Record<string, string>;
 }
 
 export async function prepararTabelaSistemaAnterior(consultar: ConsultaSql): Promise<void> { await consultar(SQL_TABELA); }
@@ -66,7 +70,7 @@ export async function gravarEmpresaMigrada(
       cdempresa: dados.cdempresa, nomePlano: dados.nomePlano, migradoEm: (opcoes.agora || new Date()).toISOString(), migradoPor: quem.login, lidos: dados.lidos,
       esperado: dados.esperado, esperadoLancamentos: dados.esperadoLancamentos, saldoFinalEsperado: dados.saldoFinalEsperado,
       lancamentosGravados: dados.lancamentos.length, semSaldosParaConferir: dados.semSaldosParaConferir, linhasQueNaoEntraram: dados.naoEntraram.length,
-      naoEntraram: dados.naoEntraram, avisos: [...dados.avisos, ...m.avisos], conferenciaNaGravacao: conferencia.resumo,
+      naoEntraram: dados.naoEntraram, avisos: [...dados.avisos, ...m.avisos], conferenciaNaGravacao: conferencia.resumo, mapaContas: dados.mapaContas,
     };
     await q(`DELETE FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1`, [cnpj]);
     let linhasGuardadas = 0;
@@ -112,6 +116,27 @@ export async function conferirEmpresaMigrada(consultar: ConsultaSql, cnpj: strin
   const ws = await consultar('SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1', [cnpj]);
   const payload = ws.rows[0]?.payload || { contas: [], lancamentos: [] };
   return conferirMigracao(Array.isArray(payload.contas) ? payload.contas : [], Array.isArray(payload.lancamentos) ? payload.lancamentos : [], resumo);
+}
+
+/** Blocos usados pelo conferidor campo a campo. */
+export const BLOCOS_CONFERENCIA_CAMPOS = ['cadastro_empresa', 'empresa_contabil', 'contador', 'socios_empresa', 'socios', 'municipio', 'plano_cadastro', 'plano_contas', 'historicos_padrao', 'lotes', 'lancamentos_originais', 'imobilizado_bens', 'cadastro_historico_cnae', 'historico_nire'];
+
+/** Conferência campo a campo de uma empresa já migrada: cada campo preenchido no backup x o que está no Murade hoje. Só lê. */
+export async function conferirCamposEmpresaMigrada(consultar: ConsultaSql, cnpj: string): Promise<ResultadoCampos | null> {
+  const { resumo } = await lerRegistroSistemaAnterior(consultar, cnpj);
+  if (!resumo) return null;
+  const r = await consultar(`SELECT bloco, linhas FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 AND bloco = ANY($2::text[])`, [cnpj, BLOCOS_CONFERENCIA_CAMPOS]);
+  const blocos: Record<string, any[]> = {};
+  for (const x of r.rows) blocos[String(x.bloco)] = Array.isArray(x.linhas) ? x.linhas : [];
+  const ws = await consultar('SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1', [cnpj]);
+  const payload = ws.rows[0]?.payload || {};
+  let mapa = resumo.mapaContas;
+  const registroAntigo = !mapa;
+  if (!mapa) { // migração gravada antes do mapa: o código é a classificação do sistema anterior
+    mapa = {};
+    for (const c of blocos.plano_contas || []) { const cod = converterClassificacao(c.cdclassinterna); if (cod) mapa[String(Number(c.idconta))] = cod; }
+  }
+  return conferirCamposMigrados({ cdempresa: Number(resumo.cdempresa), blocos, mapaContas: mapa, payload, registroAntigo });
 }
 
 /** CNPJs com migração registrada (para o robô). */

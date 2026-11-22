@@ -41,6 +41,7 @@ export function semDadosDoSistemaAnterior(payload: any): any {
   const copia = { ...payload };
   if (Array.isArray(copia.lancamentos)) copia.lancamentos = copia.lancamentos.filter((l: any) => !(l && l.origem === 'Sistema anterior' && String(l.id || '').startsWith('sa-')));
   if (Array.isArray(copia.historicosPadrao)) copia.historicosPadrao = copia.historicosPadrao.filter((h: any) => !String(h?.id || '').startsWith('sa-hist-'));
+  if (Array.isArray(copia.bensImobilizado)) copia.bensImobilizado = copia.bensImobilizado.filter((b: any) => !String(b?.id || '').startsWith('sa-bem-'));
   return copia;
 }
 

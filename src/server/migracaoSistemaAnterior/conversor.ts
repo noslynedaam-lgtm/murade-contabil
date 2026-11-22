@@ -11,6 +11,8 @@
 //  - plano (wcont.contas): classificação "1-1-01-01-01", tpconta A/S, idorigem D/C (ou I: segue a conta-mãe).
 import type { ContaPlano, EmpresaDados, HistoricoPadrao, LancamentoContabil } from '../../types';
 import { COLUNAS_NUNCA_GUARDAR, tabelaDaEmpresa } from '../../utils/tabelasSistemaAnteriorContabil';
+import type { BemImobilizado } from '../../utils/imobilizado';
+import { bensDoBackup, cadastroDoBackup, historicoEsperado } from './camposSistemaAnterior';
 
 export type Linha = Record<string, any>;
 /** Lê uma tabela do arquivo (null = a tabela não está no arquivo). */
@@ -29,6 +31,12 @@ export interface DadosContabeisEmpresa {
   razaoSocial: string;
   semCadastroNoBackup: boolean;
   empresa: Partial<EmpresaDados>;
+  /** Valor que uma migração anterior (versão antiga da conversão) gravava e que agora vem completo: pode ser trocado
+   *  quando o Murade ainda tem exatamente esse valor antigo (ex.: bairro cortado em 15 letras). */
+  substituiveis: Partial<Record<keyof EmpresaDados, string>>;
+  /** idconta do sistema anterior → código da conta no Murade. */
+  mapaContas: Record<string, string>;
+  bensImobilizado: BemImobilizado[];
   idPlano: number | null;
   nomePlano: string;
   contas: ContaConvertida[];
@@ -78,7 +86,7 @@ const normalizarNome = (v: string) => v.normalize('NFD').replace(/[̀-ͯ]/g, '')
 function limparLinha(l: Linha): Linha {
   const saida: Linha = {};
   for (const [k, v] of Object.entries(l)) {
-    if (COLUNAS_NUNCA_GUARDAR.has(k.toLowerCase())) continue;
+    if (COLUNAS_NUNCA_GUARDAR.has(k.toLowerCase()) || k.toLowerCase() === 'imglogotipoempresa') continue;
     saida[k] = v instanceof Date ? v.toISOString() : v;
   }
   return saida;
@@ -131,31 +139,6 @@ export function listarEmpresasContabeis(empresas: Linha[], empcont: Linha[], tab
     });
   }
   return lista.sort((a, b) => Number(a.semCadastro) - Number(b.semCadastro) || a.nome.localeCompare(b.nome, 'pt-BR'));
-}
-
-function empresaDoCadastro(e: Linha | undefined, cnpj: string): Partial<EmpresaDados> {
-  if (!e) return { cnpj };
-  const capital = Number(e.vlcapital);
-  const dataAbertura = dataIso(e.dtinicioatividade);
-  const r: Partial<EmpresaDados> = {
-    cnpj,
-    razaoSocial: txt(e.nmempresa),
-    nomeFantasia: txt(e.nmfantasia),
-    municipio: txt(e.nmcidade),
-    uf: txt(e.cduf).toUpperCase(),
-    cnae: txt(e.cdcnae),
-    inscricaoEstadual: txt(e.nrinscrestadual),
-    inscricaoMunicipal: txt(e.nrinscrmunicipal),
-    endereco: txt(e.dsendereco),
-    bairro: txt(e.nmbairro),
-    cep: txt(e.nrcep),
-    telefone: txt(e.nrtelefone),
-    email: txt(e.nmemail),
-  };
-  if (Number.isFinite(capital) && capital > 0) r.capitalSocial = Math.round(capital * 100) / 100;
-  if (dataAbertura) r.dataAbertura = dataAbertura.split('-').reverse().join('/');
-  for (const k of Object.keys(r) as Array<keyof EmpresaDados>) if (r[k] === '') delete r[k];
-  return r;
 }
 
 /** Monta tudo de uma empresa. `cnpjInformado` vale para empresa sem cadastro no backup (a pessoa digita o CNPJ). */
@@ -232,6 +215,7 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
       nivel: Math.min(5, Math.max(1, partes)) as ContaPlano['nivel'],
       idContaOrigem: Number(c.idconta), codigoReduzidoOrigem: txt(c.cdchamada), classificacaoOrigem: txt(c.cdclassinterna),
     };
+    if (txt(c.cdchamada)) conta.codigoReduzido = txt(c.cdchamada).slice(0, 40);
     contas.push(conta); porCodigo.set(codigo, conta); codigosOcupados.add(codigo); naturezaPorCodigo.set(codigo, natureza);
     codigoPorId.set(Number(c.idconta), codigo);
   };
@@ -255,7 +239,9 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
     if (codigosHist.has(codigo.toUpperCase())) { avisos.push(`Histórico padrão com código repetido (${codigo}) no sistema anterior: o segundo ficou só no registro do sistema anterior.`); continue; }
     codigosHist.add(codigo.toUpperCase());
     if (texto.length > 240) avisos.push(`O histórico padrão ${codigo} tem ${texto.length} letras; no Murade ficaram as 240 primeiras (o texto inteiro está no registro do sistema anterior).`);
-    historicosPadrao.push({ id: `${PREFIXO_ID_MIGRACAO}hist-${txt(h.idhistoricopadrao).slice(0, 40)}`, codigo, texto: texto.slice(0, 240) });
+    const hp: HistoricoPadrao = { id: `${PREFIXO_ID_MIGRACAO}hist-${txt(h.idhistoricopadrao).slice(0, 40)}`, codigo, texto: texto.slice(0, 240) };
+    if (txt(h.stcomplemento).toUpperCase() === 'S') hp.exigeComplemento = true;
+    historicosPadrao.push(hp);
   }
   guardar('historicos_padrao', hist);
 
@@ -280,8 +266,7 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
   }
   const lancamentos: LancamentoContabil[] = [];
   const nomeConta = (codigo: string) => porCodigo.get(codigo)!.descricao;
-  const historicoDe = (p: Perna, outra?: Perna) => txt(p.linha.dshistorico) || (outra ? txt(outra.linha.dshistorico) : '')
-    || txt(histPorId.get(txt(p.linha.idhistoricopadrao))?.dshistoricopadrao) || 'Lançamento do sistema anterior';
+  const historicoDe = (p: Perna, outra?: Perna) => historicoEsperado(p.linha, outra?.linha, histPorId);
   const referencia = (p: Perna) => {
     const lote = lotePorId.get(txt(p.linha.idlote));
     const doc = txt(p.linha.dsdocumento);
@@ -298,6 +283,10 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
     if (ref) l.documentoRef = ref;
     if (loteId) l.loteId = loteId;
     if (deb.linha.stencerramento === true || cred.linha.stencerramento === true) l.tipoEspecial = 'encerramento';
+    const lote = lotePorId.get(txt(deb.linha.idlote));
+    if (lote && txt(lote.dslote)) l.loteDescricao = txt(lote.dslote).slice(0, 200);
+    const seq = Number(deb.linha.identificador_sequencial);
+    if (Number.isInteger(seq) && seq > 0) l.numeroSequencial = seq;
     lancamentos.push(l);
   };
   const grupos = new Map<string, Perna[]>();
@@ -425,16 +414,40 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
   guardar('imobilizado_configuracao', daEmpresa(await tabela('wativo.empcfg'), 'idempresa'));
   const bens = await tabela(tabelaDaEmpresa('wativo', 'be', cdempresa));
   guardar('imobilizado_bens', bens); lidos.bensImobilizado = bens.length;
-  if (bens.length) avisos.push(`${bens.length} bem(ns) do imobilizado do sistema anterior ficam no registro do sistema anterior para consulta; cadastre no módulo Imobilizado do Murade os que ainda estão em uso (o robô de depreciação só calcula os cadastrados lá).`);
 
-  const contador = blocos.contador?.[0];
-  const empresa = empresaDoCadastro(cadastro, cnpj);
-  if (contador) { if (txt(contador.nome)) empresa.contadorNome = txt(contador.nome); if (txt(contador.crc)) empresa.contadorCrc = txt(contador.crc); if (txt(contador.uf_crc)) empresa.contadorUfCrc = txt(contador.uf_crc); }
-  else if (empcont) { if (txt(empcont.nmcontador)) empresa.contadorNome = txt(empcont.nmcontador); if (txt(empcont.nrcrc)) empresa.contadorCrc = txt(empcont.nrcrc); }
+  // ---- cadastro da empresa (wphd) e quem assina (responsável e contador) ------------------------------------------
+  if (cadastro) guardar('cadastro_empresa', [cadastro]);
+  const sociosEmpresa = daEmpresa(await tabela('wphd.socemp'), 'idempresa');
+  const codigosSocios = new Set(sociosEmpresa.map((x) => Number(x.cdsocio)));
+  const socios = (await tabela('wphd.socios')).filter((x) => codigosSocios.has(Number(x.cdsocio)));
+  guardar('socios_empresa', sociosEmpresa); guardar('socios', socios);
+  const municipio = cadastro?.idmunicipio != null ? (await tabela('wphd.municipiosibge')).find((m) => Number(m.idmunicipio) === Number(cadastro.idmunicipio)) : undefined;
+  if (municipio) guardar('municipio', [municipio]);
+  guardar('cadastro_historico_cnae', daEmpresa(await tabela('wphd.empresahistorico'), 'cdempresa'));
+  guardar('historico_nire', daEmpresa(await tabela('wphd.historico_nire'), 'empresa_id'));
+  guardar('historico_retencao', daEmpresa(await tabela('wphd.historico_retencao'), 'empresa_id'));
+  guardar('trava_contabil', daEmpresa(await tabela('wphd.travacontabil'), 'idempresa'));
+  guardar('textos_assinatura', [...(await tabela('wcont.textoassinatura')).map((t) => ({ ...t, modelo: 'livros' })), ...(await tabela('wcont.textoassbalanco')).map((t) => ({ ...t, modelo: 'balanço' }))]);
+
+  const mapaContas: Record<string, string> = {};
+  for (const [id, codigo] of codigoPorId) mapaContas[String(id)] = codigo;
+  const imob = bensDoBackup(cdempresa, bens, mapaContas);
+  avisos.push(...imob.avisos);
+  if (imob.bens.length) avisos.push(`${imob.bens.length} bem(ns) do imobilizado vieram para o módulo Imobilizado (descrição, custo, vida útil pela taxa do sistema anterior, início da depreciação, fornecedor, nota e contas).`);
+  const campos = cadastroDoBackup({
+    empresa: cadastro, empcont, contador: blocos.contador?.[0], sociosEmpresa, socios, municipio, pcont, mapaContas,
+    historicoCnae: blocos.cadastro_historico_cnae || [], historicoNire: blocos.historico_nire || [],
+    tipoConta: (codigo) => porCodigo.get(codigo)?.tipo,
+  });
+  const empresa: Partial<EmpresaDados> = { cnpj };
+  for (const c of campos) (empresa as any)[c.campo] = c.valor;
+  const substituiveis: DadosContabeisEmpresa['substituiveis'] = {};
+  if (cadastro && txt(cadastro.bairro_completo) && txt(cadastro.nmbairro) && txt(cadastro.nmbairro) !== empresa.bairro) substituiveis.bairro = txt(cadastro.nmbairro);
+  if (cadastro && txt(cadastro.nmempresa) && txt(cadastro.nmempresa) !== empresa.razaoSocial) substituiveis.razaoSocial = txt(cadastro.nmempresa);
 
   return {
-    cdempresa, cnpj, razaoSocial: txt(cadastro?.nmempresa) || (pcont ? txt(pcont.nmplanodecontas) : '') || `Empresa código ${cdempresa}`,
-    semCadastroNoBackup: !cadastro, empresa, idPlano, nomePlano: txt(pcont?.nmplanodecontas),
+    cdempresa, cnpj, razaoSocial: empresa.razaoSocial || txt(cadastro?.nmempresa) || (pcont ? txt(pcont.nmplanodecontas) : '') || `Empresa código ${cdempresa}`,
+    semCadastroNoBackup: !cadastro, empresa, substituiveis, mapaContas, bensImobilizado: imob.bens, idPlano, nomePlano: txt(pcont?.nmplanodecontas),
     contas: contas.sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR', { numeric: true })),
     historicosPadrao, lancamentos, naoEntraram, esperado: [...esperadoMapa.values()].filter((e) => e.debitoCentavos || e.creditoCentavos),
     esperadoLancamentos: [...esperadoLancMapa.values()],

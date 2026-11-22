@@ -406,6 +406,7 @@ export const PlanoContasTab: React.FC<PlanoContasTabProps> = ({ contas, onAdicio
                     {conta.descricao || "Nome não definido para esta empresa"}
                   </span>
                 )}
+                {conta.codigoReduzido && <span data-campo="conta-codigo-reduzido" title="Código reduzido" className="ml-1 whitespace-nowrap rounded bg-slate-100 px-1 font-mono text-[10px] font-normal text-slate-500">red. {conta.codigoReduzido}</span>}
                 {isAnalitica && <div className="ml-2 flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1" onClick={(event) => event.stopPropagation()}>
                   <span className="whitespace-nowrap text-[10px] font-semibold text-slate-500">Saldo inicial R$</span>
                   {saldoCodigoEmEdicao === conta.codigo ? <>

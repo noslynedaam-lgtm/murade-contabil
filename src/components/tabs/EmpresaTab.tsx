@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { EmpresaDados } from "../../types";
+import { CAMPOS_MAIS_DADOS, maisDadosDe, maisDadosParaSalvar } from "../../utils/maisDadosEmpresa";
 import {
   ArrowLeft,
   Building2,
@@ -127,6 +128,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
 
   // ID da empresa em modo de edição (null = novo cadastro limpo)
   const [modoEdicaoId, setModoEdicaoId] = useState<string | null>(null);
+  const [empresaEditada, setEmpresaEditada] = useState<EmpresaDados | null>(null);
 
   // Controle de visibilidade do formulário
   // Se não houver empresa cadastrada, fica aberto por padrão. Se houver, fica disponível para novo cadastro ou edição.
@@ -152,6 +154,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
   const [contadorNome, setContadorNome] = useState("");
   const [contadorCrc, setContadorCrc] = useState("");
   const [ecdFlags, setEcdFlags] = useState({ presumidoLivroCaixa: "", presumidoDistribuiuLucroAcimaBase: "", simplesAporteCapital: "" });
+  const [maisDados, setMaisDados] = useState<Record<string, string>>({});
   const [ecdExtra, setEcdExtra] = useState({ responsavelCpf: "", contadorCpf: "", contadorUfCrc: "", contadorEmail: "", contadorFone: "", contadorCertidao: "", contadorCertidaoData: "", nire: "" });
   const [ibsAliquota, setIbsAliquota] = useState(0);
   const [cbsAliquota, setCbsAliquota] = useState(0);
@@ -303,6 +306,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     setContadorCrc("");
     setEcdFlags({ presumidoLivroCaixa: "", presumidoDistribuiuLucroAcimaBase: "", simplesAporteCapital: "" });
     setEcdExtra({ responsavelCpf: "", contadorCpf: "", contadorUfCrc: "", contadorEmail: "", contadorFone: "", contadorCertidao: "", contadorCertidaoData: "", nire: "" });
+    setMaisDados({}); setEmpresaEditada(null);
     setIbsAliquota(0);
     setCbsAliquota(0);
     setSituacaoCadastral("ATIVA");
@@ -341,6 +345,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     setContadorNome(emp.contadorNome || "");
     setContadorCrc(emp.contadorCrc || "");
     setEcdFlags({ presumidoLivroCaixa: emp.presumidoLivroCaixa === undefined ? "" : emp.presumidoLivroCaixa ? "sim" : "nao", presumidoDistribuiuLucroAcimaBase: emp.presumidoDistribuiuLucroAcimaBase === undefined ? "" : emp.presumidoDistribuiuLucroAcimaBase ? "sim" : "nao", simplesAporteCapital: emp.simplesAporteCapital === undefined ? "" : emp.simplesAporteCapital ? "sim" : "nao" });
+    setMaisDados(maisDadosDe(emp)); setEmpresaEditada(emp);
     setEcdExtra({ responsavelCpf: emp.responsavelCpf || "", contadorCpf: emp.contadorCpf || "", contadorUfCrc: emp.contadorUfCrc || "", contadorEmail: emp.contadorEmail || "", contadorFone: emp.contadorFone || "", contadorCertidao: emp.contadorCertidao || "", contadorCertidaoData: emp.contadorCertidaoData || "", nire: emp.nire || "" });
     setIbsAliquota(emp.ibsAliquota ?? 0);
     setCbsAliquota(emp.cbsAliquota ?? 0);
@@ -663,6 +668,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
       contadorCertidao: ecdExtra.contadorCertidao.trim(),
       contadorCertidaoData: ecdExtra.contadorCertidaoData.trim(),
       nire: ecdExtra.nire.trim(),
+      ...maisDadosParaSalvar(maisDados),
       presumidoLivroCaixa: ecdFlags.presumidoLivroCaixa === "" ? undefined : ecdFlags.presumidoLivroCaixa === "sim",
       presumidoDistribuiuLucroAcimaBase: ecdFlags.presumidoDistribuiuLucroAcimaBase === "" ? undefined : ecdFlags.presumidoDistribuiuLucroAcimaBase === "sim",
       simplesAporteCapital: ecdFlags.simplesAporteCapital === "" ? undefined : ecdFlags.simplesAporteCapital === "sim",
@@ -1458,6 +1464,31 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Mais dados do cadastro (opcionais; a migração do sistema anterior preenche) */}
+        <details data-campo="empresa-mais-dados" className="bg-slate-50 p-3 sm:p-4 rounded-xl border border-slate-200">
+          <summary className="cursor-pointer select-none text-xs sm:text-sm font-bold text-slate-900 min-h-[40px] flex items-center">Mais dados do cadastro (opcional)</summary>
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {CAMPOS_MAIS_DADOS.map(([chave, rotulo]) => (
+              <label key={chave} className="text-[11px] text-slate-600">{rotulo}
+                {chave === "ativaNoEscritorio" ? (
+                  <select value={maisDados[chave] || ""} onChange={(e) => setMaisDados((a) => ({ ...a, [chave]: e.target.value }))} className="mt-1 w-full px-2 py-2 border-2 border-slate-200 rounded-lg text-slate-800">
+                    <option value="">Não informado</option><option value="sim">Sim</option><option value="nao">Não</option>
+                  </select>
+                ) : (
+                  <input type="text" data-campo={`empresa-${chave}`} value={maisDados[chave] || ""} onChange={(e) => setMaisDados((a) => ({ ...a, [chave]: e.target.value }))}
+                    className="mt-1 w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-600" />
+                )}
+              </label>
+            ))}
+          </div>
+          {(empresaEditada?.historicoCnae?.length || empresaEditada?.historicoNire?.length) ? (
+            <div className="mt-3 text-[11px] text-slate-600 space-y-1">
+              {empresaEditada?.historicoCnae?.length ? <p><strong>Histórico de CNAE:</strong> {empresaEditada.historicoCnae.map((h) => `${h.data || "sem data"}: ${h.cnae}`).join(" · ")}</p> : null}
+              {empresaEditada?.historicoNire?.length ? <p><strong>Histórico de NIRE:</strong> {empresaEditada.historicoNire.map((h) => `${h.data || "sem data"}: ${h.numero}`).join(" · ")}</p> : null}
+            </div>
+          ) : null}
+        </details>
 
         {/* 🔐 CERTIFICADO DIGITAL ICP-BRASIL */}
         <div className="bg-slate-50 p-4 sm:p-5 rounded-xl border border-slate-200 space-y-3">

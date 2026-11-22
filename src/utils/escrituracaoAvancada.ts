@@ -93,7 +93,8 @@ export function aplicarHistoricoPadrao(texto: string, competencia: string): stri
 export function validarHistoricoPadrao(h: unknown): h is HistoricoPadrao {
   if (!h || typeof h !== "object" || Array.isArray(h)) return false;
   const x = h as Record<string, unknown>;
-  if (Object.keys(x).some((k) => !["id", "codigo", "texto"].includes(k))) return false;
+  if (Object.keys(x).some((k) => !["id", "codigo", "texto", "exigeComplemento"].includes(k))) return false;
+  if (x.exigeComplemento !== undefined && typeof x.exigeComplemento !== "boolean") return false;
   return typeof x.id === "string" && x.id.length > 0 && x.id.length <= 64
     && typeof x.codigo === "string" && /^[A-Za-z0-9._-]{1,12}$/.test(x.codigo)
     && typeof x.texto === "string" && x.texto.trim().length > 0 && x.texto.length <= 240;

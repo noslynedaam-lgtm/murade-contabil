@@ -773,7 +773,7 @@ export function workspaceValido(value: unknown): value is Record<string, unknown
   if (arrays.some((key) => !Array.isArray(payload[key]) || (payload[key] as unknown[]).length > 20000)) return false;
   if (payload.bensImobilizado !== undefined) {
     if (!Array.isArray(payload.bensImobilizado) || payload.bensImobilizado.length > 5000) return false;
-    const camposBem = ["id", "descricao", "filial", "custoCentavos", "residualCentavos", "vidaUtilMeses", "inicioDepreciacao", "depreciavel", "baixa", "transferencias", "ajustesQuota"];
+    const camposBem = ["id", "descricao", "filial", "custoCentavos", "residualCentavos", "vidaUtilMeses", "inicioDepreciacao", "depreciavel", "baixa", "transferencias", "ajustesQuota", "codigo", "fornecedor", "notaFiscal", "numeroSerie", "dataCompra", "contaBemCodigo", "contaDepreciacaoCodigo"];
     const idsBens = new Set<string>();
     for (const item of payload.bensImobilizado) {
       if (!item || typeof item !== "object" || Array.isArray(item)) return false;
@@ -782,6 +782,8 @@ export function workspaceValido(value: unknown): value is Record<string, unknown
       if (typeof bem.id !== "string" || !bem.id || bem.id.length > 64 || idsBens.has(bem.id)) return false;
       if (typeof bem.descricao !== "string" || bem.descricao.length > 240) return false;
       if (bem.filial !== undefined && (typeof bem.filial !== "string" || bem.filial.length > 120)) return false;
+      for (const k of ["codigo", "fornecedor", "notaFiscal", "numeroSerie", "contaBemCodigo", "contaDepreciacaoCodigo"]) if (bem[k] !== undefined && (typeof bem[k] !== "string" || (bem[k] as string).length > 160)) return false;
+      if (bem.dataCompra !== undefined && (typeof bem.dataCompra !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(bem.dataCompra))) return false;
       if (!Number.isSafeInteger(bem.custoCentavos) || (bem.custoCentavos as number) <= 0 || !Number.isSafeInteger(bem.residualCentavos) || (bem.residualCentavos as number) < 0) return false;
       if (!Number.isInteger(bem.vidaUtilMeses) || (bem.vidaUtilMeses as number) < 0 || (bem.vidaUtilMeses as number) > 1200) return false;
       if (typeof bem.inicioDepreciacao !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(bem.inicioDepreciacao) || typeof bem.depreciavel !== "boolean") return false;

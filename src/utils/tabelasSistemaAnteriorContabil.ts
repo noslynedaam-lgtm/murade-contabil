@@ -9,6 +9,13 @@
 /** Tabelas comuns a todas as empresas (o vínculo com a empresa está numa coluna). */
 export const TABELAS_FIXAS_CONTABIL = [
   'wphd.empresa',
+  'wphd.socemp',
+  'wphd.socios',
+  'wphd.municipiosibge',
+  'wphd.empresahistorico',
+  'wphd.historico_nire',
+  'wphd.historico_retencao',
+  'wphd.travacontabil',
   'wcont.empcont',
   'wcont.pcont',
   'wcont.contas',

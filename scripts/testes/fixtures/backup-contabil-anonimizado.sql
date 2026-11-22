@@ -6991,9 +6991,95 @@ CREATE TABLE wphd.empresa (
 );
 
 COPY wphd.empresa (cdempresa, nmempresa, nmfantasia, dsatividade, dsendereco, nmbairro, nmcidade, nrcep, cduf, nrtelefone, nrinscrmunicipal, nrinscrestadual, nrregcartorio, nrregjuntacomercial, dtregjuntacomercial, vlcapital, dtinicioatividade, nrcgc, dtfimatividade, obs, lancautomatico, centrocusto, nmemail, tpcalculoir, cdnaturezajuridica, cdcnae, trabbureau, nmbureau, nmresponsavelbureau, nrcnpjcpfresponsavel, nrcrecicrc, nrcpfresponsavel, nmenderecobureau, cdufbureau, nmbairrobureau, nmcidadebureau, nrcepbureau, nrtelefonebureau1, nrtelefonebureau2, nrtelefonebureau3, nmemailbureau, stativa, imglogotipoempresa, stformatologomarca, cdnire, st_dc, nroab, dtiniservcont, dtfimservcont, dtiniservinfo, dtfimservinfo, cdmunicipio, nrsuframa, logindc, idmunicipio, nmnomecompleto, nrfax, dtconvempresa, dtexpedicaonire, codigo_susep, bairro_completo, endereco_completo, escritorio_data_entrada, escritorio_data_saida, endereco_complemento, tipo_porte_empresa, nome_auditor, codigo_cvm_auditor, dtnascimento, certificado_id) FROM stdin;
-23	EMPRESA TESTE 23 LTDA	TESTE 23	\N	\N	\N	GOIANIA	\N	GO	\N	\N	\N	\N	\N	\N	\N	\N	33444555000181	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	t	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
+23	EMPRESA TESTE 23 LTDA	TESTE 23	Comércio varejista de ferragen	AV GOIAS, 12894	RESIDENCIAL REC	Goiânia	74474-310	GO	6232331651	\t2535939	10.423.194-7	\N	52-2-0247806	2008-01-29 00:00:00	99800.5	2008-01-29 00:00:00	33444555000181	\N	\N	t	\N	contato@empresa-teste23.com.br	S	2062	4744001	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	t	\N	\N	52-2-0247806-1	\N	\N	2015-04-01 00:00:00	\N	\N	\N	\N	\N	\N	5500	\N	\N	\N	2008-01-29 00:00:00	\N	RESIDENCIAL RECANTO DO BOSQUE	\N	\N	\N	QUADRA08                  LOTE  44	\N	\N	\N	1976-09-26 00:00:00	\N
 8	EMPRESA TESTE 8 LTDA	TESTE 8	\N	\N	\N	GOIANIA	\N	GO	\N	\N	\N	\N	\N	\N	\N	\N	44555666000181	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	f	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
-49	EMPRESA TESTE 49 LTDA	TESTE 49	\N	\N	\N	GOIANIA	\N	GO	\N	\N	\N	\N	\N	\N	\N	\N	11222333000181	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	t	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
+49	EMPRESA TESTE 49 LTDA	TESTE 49	\N	AV T TESTE, SN	SET BUENO	Goiânia	74230035	GO	6299959001	5920256	isento	\N	\N	\N	5000	2022-12-28 00:00:00	11222333000181	\N	\N	\N	\N	\N	\N	2305	8650003	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	t	\N	\N	52205882237	\N	\N	\N	\N	\N	\N	\N	\N	\N	5500	EMPRESA TESTE 49 NOME ANTIGO	\N	\N	\N	\N	\N	\N	\N	\N	QUADRA141 LOTE 04/05 SALA 1210 COND TESTE OFFICE	\N	\N	\N	\N	\N
 3	EMPRESA TESTE 3 LTDA	TESTE 3	\N	\N	\N	GOIANIA	\N	GO	\N	\N	\N	\N	\N	\N	\N	\N	22333444000181	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	f	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
 \.
 
+CREATE TABLE wphd.socemp (
+    idempresa integer NOT NULL,
+    cdsocio integer NOT NULL,
+    alcapital double precision,
+    vlcapital double precision,
+    stgerente boolean,
+    stresponsavelcgc boolean,
+    dtadmissao timestamp without time zone,
+    dtdemissao timestamp without time zone,
+    stqualificacaosped character varying(3),
+    ecf_ecd_qualificacao_codigo smallint
+);
+
+COPY wphd.socemp (idempresa, cdsocio, alcapital, vlcapital, stgerente, stresponsavelcgc, dtadmissao, dtdemissao, stqualificacaosped, ecf_ecd_qualificacao_codigo) FROM stdin;
+23	30	50	49900	t	t	2008-01-29 00:00:00	\N	401	\N
+23	31	50	49900	f	f	2008-01-29 00:00:00	\N	\N	\N
+23	32	0	0	t	f	2008-01-29 00:00:00	2015-03-31 00:00:00	\N	\N
+49	55	100	5000	t	t	2022-12-28 00:00:00	\N	205	\N
+\.
+
+CREATE TABLE wphd.socios (
+    cdsocio integer NOT NULL,
+    nmsocio character varying(40),
+    nrcpf character varying(14),
+    nmprofissao character varying(40),
+    nome_completo character varying(150),
+    mae_nome character varying(70)
+);
+
+COPY wphd.socios (cdsocio, nmsocio, nrcpf, nmprofissao, nome_completo, mae_nome) FROM stdin;
+30	SOCIA TESTE  UM 	123.456.789-09	sócia administradora	SÓCIA TESTE UM DE SOUZA	MAE TESTE UM
+31	SOCIO TESTE DOIS	98765432100	Administrador	\N	\N
+32	SOCIO QUE SAIU	11122233396	Administrador	\N	\N
+55	SOCIA TESTE 49	00609683543	sócia administradora	SÓCIA TESTE QUARENTA E NOVE	\N
+\.
+
+CREATE TABLE wphd.municipiosibge (
+    idmunicipio integer NOT NULL,
+    codmunicipio character varying(7),
+    sguf character varying(2),
+    nmmunicipio character varying(60),
+    nmmunicipiosemacento character varying(60),
+    dot_es_codigo integer
+);
+
+COPY wphd.municipiosibge (idmunicipio, codmunicipio, sguf, nmmunicipio, nmmunicipiosemacento, dot_es_codigo) FROM stdin;
+5500	5208707	GO	Goiânia	Goiania	\N
+\.
+
+CREATE TABLE wcont.contador (
+    id integer NOT NULL,
+    nome character varying(100),
+    cpf bigint,
+    rg character varying(20),
+    orgao_expedidor_rg character varying(20),
+    data_emissao_rg date,
+    crc character varying(20),
+    uf_crc character varying(2),
+    qualificacao character varying(1),
+    telefone character varying(20),
+    email character varying(100)
+);
+
+COPY wcont.contador (id, nome, cpf, rg, orgao_expedidor_rg, data_emissao_rg, crc, uf_crc, qualificacao, telefone, email) FROM stdin;
+2	CONTADORA TESTE DE SOUZA	1234567890	1112223	SSP	2011-11-08	99999/O-GO	GO	C	6232331651	contadora@escritorio-teste.com.br
+\.
+
+CREATE TABLE wativo.be00049 (
+    idbem integer NOT NULL,
+    cdchamada character varying(10),
+    dsbem character varying(100),
+    stcalcbem character varying(1),
+    dtaquisicao timestamp without time zone,
+    vloriginalmoeda double precision,
+    txdepreciacao double precision,
+    nmfornecedor character varying(60),
+    dtcompra timestamp without time zone,
+    vlcompra double precision,
+    dtinidepreciacao timestamp without time zone,
+    dtbaixa timestamp without time zone,
+    vlbaixa double precision
+);
+
+COPY wativo.be00049 (idbem, cdchamada, dsbem, stcalcbem, dtaquisicao, vloriginalmoeda, txdepreciacao, nmfornecedor, dtcompra, vlcompra, dtinidepreciacao, dtbaixa, vlbaixa) FROM stdin;
+1	0000000001	BALCAO 235 X 200 C/3 GAVETAS	D	2023-07-30 00:00:00	1600	10	FORNECEDOR TESTE	2023-07-30 00:00:00	1600	2023-08-01 00:00:00	\N	\N
+\.

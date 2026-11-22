@@ -312,7 +312,7 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                 <td className="py-2.5 px-3 text-slate-700 max-w-[280px]">
                   <div className="truncate font-medium">{l.historico}</div>
                   {l.documentoRef && (
-                    <span className="text-[10px] text-slate-400 font-mono">Ref: {l.documentoRef}</span>
+                    <span className="text-[10px] text-slate-400 font-mono">Ref: {l.documentoRef}{l.numeroSequencial ? ` · nº ${l.numeroSequencial}` : ""}{l.loteDescricao ? ` · ${l.loteDescricao}` : ""}</span>
                   )}
                 </td>
                 <td className="py-2.5 px-3 text-right font-bold text-slate-900 whitespace-nowrap">

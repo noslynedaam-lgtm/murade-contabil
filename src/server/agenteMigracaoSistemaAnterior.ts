@@ -3,6 +3,8 @@
 //  - conferir_migracao_sistema_anterior: de UMA empresa migrada, o que veio (blocos e quantidades) e se o balancete do
 //    Murade bate com os saldos e lançamentos do sistema anterior.
 //  - ver_registro_sistema_anterior: as linhas de um bloco guardado (ex.: lotes abertos, títulos, bens), em páginas.
+//  - pendencias_campos_migracao_sistema_anterior: campo a campo, o que estava preenchido no sistema anterior e chegou
+//    vazio ou diferente no Murade (cadastro, plano de contas, históricos, lançamentos, imobilizado).
 // Gravar a migração é sempre pela tela (a pessoa escolhe o arquivo, confere a prévia e confirma).
 import { erroApi, ok, q, type Ferramenta } from './agenteMotor';
 
@@ -34,10 +36,19 @@ export const NOMES_BLOCOS_SISTEMA_ANTERIOR: Record<string, string> = {
   imobilizado_empresa: 'Configuração do imobilizado',
   imobilizado_configuracao: 'Método de depreciação por ano',
   imobilizado_bens: 'Bens do imobilizado',
+  cadastro_empresa: 'Cadastro da empresa (endereço, inscrições, NIRE, CNAE, natureza jurídica, capital)',
+  socios_empresa: 'Sócios da empresa (participação, responsável, qualificação)',
+  socios: 'Cadastro dos sócios',
+  municipio: 'Município (código IBGE)',
+  cadastro_historico_cnae: 'Histórico de CNAE',
+  historico_nire: 'Histórico de NIRE',
+  historico_retencao: 'Histórico de retenção do IR dos sócios',
+  trava_contabil: 'Data de trava do sistema anterior',
+  textos_assinatura: 'Modelos de assinatura dos livros e do balanço',
 };
 
 export const INSTRUCAO_MIGRACAO_SISTEMA_ANTERIOR = `
-MIGRAÇÃO DO SISTEMA ANTERIOR (parte contábil): a pessoa traz tudo do sistema anterior pela tela "Migração" do Contábil (botão "Escolher o arquivo de backup", depois "Transportar tudo" ou "Não, quero escolher", prévia e "Confirmar e gravar agora"). Você NÃO grava a migração: para fazer, abra a tela Migração e explique passo a passo onde clicar. Para saber como está, use situacao_migracao_sistema_anterior; para conferir uma empresa já migrada (se o balancete bate com o sistema anterior), use conferir_migracao_sistema_anterior; para mostrar o que ficou guardado (lotes abertos, títulos, bens, cartões...), use ver_registro_sistema_anterior. Nunca escreva o nome comercial do sistema anterior: diga "sistema anterior".`;
+MIGRAÇÃO DO SISTEMA ANTERIOR (parte contábil): a pessoa traz tudo do sistema anterior pela tela "Migração" do Contábil (botão "Escolher o arquivo de backup", depois "Transportar tudo" ou "Não, quero escolher", prévia e "Confirmar e gravar agora"). Você NÃO grava a migração: para fazer, abra a tela Migração e explique passo a passo onde clicar. Para saber como está, use situacao_migracao_sistema_anterior; para conferir uma empresa já migrada (se o balancete bate com o sistema anterior), use conferir_migracao_sistema_anterior; para mostrar o que ficou guardado (lotes abertos, títulos, bens, cartões...), use ver_registro_sistema_anterior; para conferir CAMPO A CAMPO o que estava preenchido no sistema anterior e chegou vazio ou diferente no Murade (cadastro, contas, históricos, lançamentos, bens), use pendencias_campos_migracao_sistema_anterior e diga, para cada pendência, a tela e o campo onde corrigir. Nunca escreva o nome comercial do sistema anterior: diga "sistema anterior".`;
 
 export const FERRAMENTAS_MIGRACAO_SISTEMA_ANTERIOR: Ferramenta[] = [
   {
@@ -63,6 +74,7 @@ export const FERRAMENTAS_MIGRACAO_SISTEMA_ANTERIOR: Ferramenta[] = [
         primeirasDiferencas: (r.corpo.conferencia?.diferencas || []).slice(0, 5),
         blocos: (r.corpo.blocos || []).map((b: any) => ({ bloco: b.bloco, nome: NOMES_BLOCOS_SISTEMA_ANTERIOR[b.bloco] || b.bloco, quantidade: b.quantidade })),
         avisos: (s.avisos || []).slice(0, 8),
+        campoACampo: r.corpo.campos ? { resumo: r.corpo.campos.resumo, pendencias: r.corpo.campos.totalPendencias, primeiras: (r.corpo.campos.pendencias || []).slice(0, 5) } : null,
       };
     },
   },
@@ -76,6 +88,20 @@ export const FERRAMENTAS_MIGRACAO_SISTEMA_ANTERIOR: Ferramenta[] = [
       const desde = Math.max(0, Math.floor(Number(args.desde) || 0));
       const r = await ctx.chamarApi('GET', `/api/migracao-sistema-anterior/registro/${q(cnpj)}/bloco/${q(bloco)}?desde=${desde}&limite=20`);
       return ok(r) ? { cnpj, bloco, nome: NOMES_BLOCOS_SISTEMA_ANTERIOR[bloco] || bloco, total: r.corpo.total, desde, linhas: r.corpo.linhas } : erroApi(r);
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'pendencias_campos_migracao_sistema_anterior', description: 'Conferência CAMPO A CAMPO de UMA empresa migrada do sistema anterior: cada campo que estava preenchido lá (cadastro da empresa, responsável, contador, plano de contas, históricos padrão, lançamentos, bens do imobilizado) e que está vazio ou diferente no Murade, com o valor de lá e o daqui. Use para "veio tudo do sistema anterior?", "faltou algum campo na migração?". Só lê.', parameters: { type: 'OBJECT', properties: { cnpj: { type: 'STRING', description: 'CNPJ da empresa (14 caracteres).' }, desde: { type: 'NUMBER', description: 'Opcional: quantas pendências pular (para ver as próximas).' } }, required: ['cnpj'] } },
+    async executar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const r = await ctx.chamarApi('GET', `/api/migracao-sistema-anterior/registro/${q(cnpj)}`);
+      if (!ok(r)) return erroApi(r);
+      if (!r.corpo.resumo) return { cnpj, migrada: false, mensagem: 'Esta empresa não tem migração do sistema anterior registrada.' };
+      const c = r.corpo.campos;
+      if (!c) return { cnpj, migrada: true, mensagem: 'Não foi possível conferir campo a campo agora.' };
+      const desde = Math.max(0, Math.floor(Number(args.desde) || 0));
+      return { cnpj, resumo: c.resumo, conferidos: c.conferidos, totalPendencias: c.totalPendencias, desde, pendencias: (c.pendencias || []).slice(desde, desde + 30), ondeCorrigir: 'Cadastro: tela Empresa › Editar empresa. Contas: Plano de Contas. Históricos: Históricos padrão. Bens: Imobilizado. Lançamentos migrados: migre a empresa de novo pela tela Migração (troca só os do sistema anterior).' };
     },
   },
 ];

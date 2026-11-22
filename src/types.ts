@@ -75,7 +75,7 @@ export interface EmpresaDados {
   capitalSocial?: number;
   capitalSocialFormatado?: string;
   cnaesSecundarios?: string[];
-  qsa?: Array<{ nome: string; qualificacao: string; faixaEtaria?: string }>;
+  qsa?: Array<{ nome: string; qualificacao: string; faixaEtaria?: string; cpf?: string; participacaoPercentual?: number; capitalCentavos?: number; dataEntrada?: string }>;
   responsavelNome?: string;
   responsavelCpf?: string;
   contadorNome?: string;
@@ -87,6 +87,30 @@ export interface EmpresaDados {
   /** Certidão de regularidade profissional, formato UF/ano/número. */
   contadorCertidao?: string;
   contadorCertidaoData?: string;
+  /** Dados complementares do cadastro (vêm do backup do sistema anterior; opcionais e editáveis). */
+  codigoSistemaAnterior?: string;
+  descricaoAtividade?: string;
+  fax?: string;
+  /** Data do registro na Junta Comercial (arquivamento dos atos). O número é o NIRE. */
+  juntaComercialData?: string;
+  responsavelNascimento?: string;
+  inicioServicoContabil?: string;
+  ativaNoEscritorio?: boolean;
+  observacoes?: string;
+  contadorRg?: string;
+  contadorRgOrgao?: string;
+  contadorRgData?: string;
+  /** "Contador" ou "Técnico em contabilidade". */
+  contadorCategoria?: string;
+  /** Numeração dos livros: página do Diário (o número do Diário é ecdNumeroLivro) e livro/página do Razão e do Caixa. */
+  livrosNumeracao?: { diarioPagina?: number; razao?: { livro?: number; pagina?: number }; caixa?: { livro?: number; pagina?: number } };
+  /** Máscara do código das contas (ex.: 9-9-99-99-99) e contas de apuração/lucro/prejuízo do plano. */
+  planoMascara?: string;
+  contaApuracaoResultadoCodigo?: string;
+  contaLucroCodigo?: string;
+  contaPrejuizoCodigo?: string;
+  historicoCnae?: Array<{ data: string; cnae: string }>;
+  historicoNire?: Array<{ data: string; numero: string }>;
   /** Dados da escrituração (ECD) guardados uma vez por empresa. */
   nire?: string;
   responsavelQualificacao?: string;
@@ -176,6 +200,9 @@ export interface LancamentoContabil {
   tipoEspecial?: "encerramento";
   /** Lançamento padrão (recorrente) que gerou este pré-lançamento. */
   recorrenteDe?: string;
+  /** Descrição do lote e número sequencial do lançamento (vindos do sistema anterior). */
+  loteDescricao?: string;
+  numeroSequencial?: number;
 }
 
 /** Histórico padrão cadastrável por empresa. Aceita {mes} (MM/AAAA), {competencia} (AAAA-MM) e {ano}. */
@@ -183,6 +210,8 @@ export interface HistoricoPadrao {
   id: string;
   codigo: string;
   texto: string;
+  /** Pede complemento ao lançar (ex.: número da nota). */
+  exigeComplemento?: boolean;
 }
 
 /** Lançamento padrão (recorrente): o robô prepara todo mês como pré-lançamento para aprovação. */
@@ -230,6 +259,8 @@ export interface ContaPlano {
   saldoInicial?: number;
   saldoInicialCompetencia?: string;
   saldoInicialConvertidoEm?: string;
+  /** Código reduzido (atalho de digitação), com os zeros como estão. */
+  codigoReduzido?: string;
 }
 
 export type OrigemMapeadaContabil =

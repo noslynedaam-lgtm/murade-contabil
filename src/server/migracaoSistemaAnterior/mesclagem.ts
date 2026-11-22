@@ -28,6 +28,7 @@ export interface ResultadoMesclagem {
 }
 
 const LIMITE_LANCAMENTOS = 20000;
+const semValor = (v: unknown) => v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
 const LIMITE_BYTES = 3_900_000; // o workspace aceita até 4 MB
 const LIMITE_HISTORICOS = 500;
 
@@ -71,10 +72,19 @@ export function workspaceVazio(dados: DadosContabeisEmpresa, cadastroCompartilha
     municipio: '', uf: '', competencia: competenciaAtual, ibsAliquota: 0, cbsAliquota: 0, cnae: '', situacaoCadastral: '',
     ...base,
   };
-  for (const [k, v] of Object.entries(dados.empresa)) if (v !== undefined && v !== '' && (empresa[k] === undefined || empresa[k] === '' || empresa[k] === null)) empresa[k] = v;
+  for (const [k, v] of Object.entries(dados.empresa)) if (!semValor(v) && semValor(empresa[k])) empresa[k] = v;
   empresa.cnpj = dados.cnpj;
   if (!empresa.fonteDados) empresa.fonteDados = 'Sistema anterior (backup)';
   return { empresa, contas: [], centrosCusto: [], lancamentos: [], livros: [], lembretes: [], preLancamentos: [], mapeamentosOrigem: [], bensImobilizado: [], historicosPadrao: [], lancamentosPadrao: [], regrasConciliacao: [] };
+}
+
+/** Bens do imobilizado: os da equipe ficam; os de uma migração anterior são trocados; bem com a mesma descrição de um da equipe não entra de novo. */
+function juntarBens(atuais: unknown, novos: DadosContabeisEmpresa['bensImobilizado']): { bens: any[]; novos: number } {
+  const lista: any[] = Array.isArray(atuais) ? atuais : [];
+  const daEquipe = lista.filter((b) => !String(b?.id || '').startsWith('sa-bem-'));
+  const descricoes = new Set(daEquipe.map((b) => String(b?.descricao || '').trim()));
+  const entram = (novos || []).filter((b) => !descricoes.has(b.descricao.trim()));
+  return { bens: [...daEquipe, ...entram], novos: entram.length };
 }
 
 export function mesclarMigracao(
@@ -91,9 +101,11 @@ export function mesclarMigracao(
   if (atual) {
     payload.empresa = payload.empresa && typeof payload.empresa === 'object' ? payload.empresa : { cnpj: dados.cnpj };
     for (const [k, v] of Object.entries(dados.empresa)) {
-      if (k === 'cnpj' || v === undefined || v === '') continue;
+      if (k === 'cnpj' || semValor(v)) continue;
       const atualV = payload.empresa[k];
-      if (atualV === undefined || atualV === null || atualV === '') payload.empresa[k] = v;
+      // Vazio: completa. Igual ao valor cortado que uma migração anterior gravou (ex.: bairro em 15 letras): troca pelo completo.
+      const antigo = (dados.substituiveis || {})[k as keyof typeof dados.substituiveis];
+      if (semValor(atualV) || (antigo !== undefined && typeof atualV === 'string' && atualV.trim() === antigo)) payload.empresa[k] = v;
     }
   }
 
@@ -121,6 +133,8 @@ export function mesclarMigracao(
     const limpa = contaLimpa(nova);
     if (!e) { existentes.set(nova.codigo, limpa); r.contasNovas++; continue; }
     const igual = e.descricao === limpa.descricao && e.tipo === limpa.tipo && e.natureza === limpa.natureza && Number(e.nivel) === limpa.nivel;
+    // Código reduzido: só completa se a conta do Murade ainda não tem.
+    if (limpa.codigoReduzido && !e.codigoReduzido && (igual || usados.has(nova.codigo))) existentes.set(nova.codigo, { ...e, codigoReduzido: limpa.codigoReduzido });
     if (igual) continue;
     if (!usados.has(nova.codigo)) {
       existentes.set(nova.codigo, { ...limpa, ...(e.saldoInicial !== undefined ? { saldoInicial: e.saldoInicial } : {}), ...(e.saldoInicialCompetencia ? { saldoInicialCompetencia: e.saldoInicialCompetencia } : {}) });
@@ -165,6 +179,13 @@ export function mesclarMigracao(
   }
   if (foraDoLimite) avisos.push(`${foraDoLimite} histórico(s) padrão não couberam (o Murade guarda até ${LIMITE_HISTORICOS} por empresa); estão no registro do sistema anterior.`);
   payload.historicosPadrao = hist;
+
+  // ---- imobilizado
+  if ((dados.bensImobilizado || []).length || (Array.isArray(payload.bensImobilizado) && payload.bensImobilizado.some((b: any) => String(b?.id || '').startsWith('sa-bem-')))) {
+    const j = juntarBens(payload.bensImobilizado, dados.bensImobilizado);
+    payload.bensImobilizado = j.bens;
+    if (j.novos < (dados.bensImobilizado || []).length) avisos.push(`${(dados.bensImobilizado || []).length - j.novos} bem(ns) do sistema anterior já estavam cadastrados no Imobilizado com a mesma descrição; ficaram como a equipe cadastrou.`);
+  }
 
   // ---- lançamentos do sistema anterior (com os nomes das contas como ficaram no plano final)
   const porCodigo = new Map(contas.map((c) => [String(c.codigo), c]));

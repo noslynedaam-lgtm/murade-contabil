@@ -245,7 +245,11 @@ export const MigracaoBackupContabil: React.FC<{ aoTerminar?: () => void }> = ({ 
   );
 };
 
-type RegistroResposta = { resumo: any | null; blocos: Array<{ bloco: string; quantidade: number }>; conferencia: { resumo: string; bate: boolean; diferencas: any[] } | null };
+type PendenciaCampo = { grupo: string; item: string; rotulo: string; origem: string; noSistemaAnterior: string; noMurade: string; tipo: "faltou" | "diferente" };
+type RegistroResposta = {
+  resumo: any | null; blocos: Array<{ bloco: string; quantidade: number }>; conferencia: { resumo: string; bate: boolean; diferencas: any[] } | null;
+  campos?: { resumo: string; totalPendencias: number; pendencias: PendenciaCampo[] } | null;
+};
 
 const NOMES: Record<string, string> = {
   plano_contas: "Plano de contas original", historicos_padrao: "Históricos padrão", lotes: "Lotes", lancamentos_originais: "Lançamentos originais (linha a linha)",
@@ -255,6 +259,9 @@ const NOMES: Record<string, string> = {
   ecf_linhas_contas: "ECF — contas por linha", ecf_configuracao_contas: "ECF — configuração das contas", demonstracoes_configuracao: "Demonstrações — configuração",
   demonstracoes_modelos: "Demonstrações — modelos", demonstracoes_modelos_analise: "Demonstrações — grupos", contador: "Contador", empresa_contabil: "Configuração contábil da empresa",
   plano_cadastro: "Cadastro do plano", imobilizado_empresa: "Imobilizado — configuração", imobilizado_configuracao: "Imobilizado — método por ano", imobilizado_bens: "Imobilizado — bens",
+  cadastro_empresa: "Cadastro da empresa", socios_empresa: "Sócios da empresa", socios: "Cadastro dos sócios", municipio: "Município (IBGE)",
+  cadastro_historico_cnae: "Histórico de CNAE", historico_nire: "Histórico de NIRE", historico_retencao: "Retenção do IR dos sócios", trava_contabil: "Data de trava",
+  textos_assinatura: "Modelos de assinatura",
 };
 
 /** Consulta do que veio do sistema anterior para a empresa aberta (só leitura). */
@@ -263,8 +270,9 @@ export const RegistroSistemaAnterior: React.FC<{ cnpj: string }> = ({ cnpj }) =>
   const [dados, setDados] = useState<RegistroResposta | null>(null);
   const [aberto, setAberto] = useState<{ bloco: string; desde: number; total: number; linhas: any[] } | null>(null);
   const [erro, setErro] = useState("");
+  const [verCampos, setVerCampos] = useState(false);
   useEffect(() => {
-    let vivo = true; setDados(null); setAberto(null); setErro("");
+    let vivo = true; setDados(null); setVerCampos(false); setAberto(null); setErro("");
     if (c.length !== 14) return;
     fetch(`/api/migracao-sistema-anterior/registro/${encodeURIComponent(c)}`, { credentials: "include", cache: "no-store" })
       .then((r) => r.json()).then((j) => { if (vivo && j?.sucesso) setDados(j); }).catch(() => undefined);
@@ -286,6 +294,18 @@ export const RegistroSistemaAnterior: React.FC<{ cnpj: string }> = ({ cnpj }) =>
       <h3 className="text-sm font-black text-slate-900">O que veio do sistema anterior para esta empresa</h3>
       <p>Migrada em {new Date(dados.resumo.migradoEm).toLocaleString("pt-BR")} por {dados.resumo.migradoPor}: {dados.resumo.lancamentosGravados} lançamento(s) no balancete.</p>
       {dados.conferencia && <p className={dados.conferencia.bate ? "text-emerald-800" : "text-red-700"}>Conferência de agora: {dados.conferencia.resumo}</p>}
+      {dados.campos && (
+        <div data-campo="conferencia-campos-sistema-anterior" className="space-y-1">
+          <p className={dados.campos.totalPendencias ? "text-red-700" : "text-emerald-800"}>{dados.campos.resumo}</p>
+          {dados.campos.totalPendencias > 0 && <button type="button" onClick={() => setVerCampos((v) => !v)} className="min-h-[40px] rounded border border-red-300 bg-red-50 px-3 text-red-800">{verCampos ? "Fechar a lista de campos" : `Ver os ${dados.campos.totalPendencias} campo(s) que faltam ou estão diferentes`}</button>}
+          {verCampos && (
+            <div className="max-h-80 overflow-auto rounded border border-slate-200">
+              <table className="w-full text-left text-[11px]"><thead className="sticky top-0 bg-slate-100"><tr><th className="p-1">Onde</th><th className="p-1">Campo</th><th className="p-1">No sistema anterior</th><th className="p-1">No Murade</th></tr></thead>
+                <tbody>{dados.campos.pendencias.map((x, i) => <tr key={i} className="border-t border-slate-100 align-top"><td className="p-1">{x.item}</td><td className="p-1">{x.rotulo}{x.tipo === "faltou" ? " (vazio)" : " (diferente)"}</td><td className="max-w-[14rem] break-words p-1">{x.noSistemaAnterior}</td><td className="max-w-[14rem] break-words p-1">{x.noMurade || "—"}</td></tr>)}</tbody></table>
+            </div>
+          )}
+        </div>
+      )}
       <div className="flex flex-wrap gap-2">
         {dados.blocos.map((b) => <button key={b.bloco} type="button" onClick={() => void abrir(b.bloco)} className={`min-h-[40px] rounded border px-3 ${aberto?.bloco === b.bloco ? "border-blue-500 bg-blue-50" : "border-slate-300 bg-white"}`}>{NOMES[b.bloco] || b.bloco} ({b.quantidade})</button>)}
       </div>
