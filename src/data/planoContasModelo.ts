@@ -1,5 +1,7 @@
 // Modelo padrão importado do arquivo ExpPContas.XLS, enviado pelo usuário.
 // Preserva código, descrição, nível, classificação e natureza; não contém saldos.
+// Acrescentadas pelo Murade (22/11/2026), para o DAS do Simples Nacional (LC 123/2006): 2.1.05.01.09 Simples Nacional a Recolher,
+// 4.3.06.01 Tributos sobre o Faturamento e 4.3.06.01.01 Simples Nacional - DAS.
 import type { ContaPlano } from "../types";
 
 export const planoContasModelo: ContaPlano[] = [
@@ -1175,6 +1177,13 @@ export const planoContasModelo: ContaPlano[] = [
   {
     "codigo": "2.1.05.01.08",
     "descricao": "Outros Impostos e Contribuições a Recolher",
+    "nivel": 5,
+    "tipo": "analitica",
+    "natureza": "C"
+  },
+  {
+    "codigo": "2.1.05.01.09",
+    "descricao": "Simples Nacional a Recolher",
     "nivel": 5,
     "tipo": "analitica",
     "natureza": "C"
@@ -3354,6 +3363,20 @@ export const planoContasModelo: ContaPlano[] = [
     "descricao": "Despesas com Tributos",
     "nivel": 3,
     "tipo": "sintetica",
+    "natureza": "D"
+  },
+  {
+    "codigo": "4.3.06.01",
+    "descricao": "Tributos sobre o Faturamento",
+    "nivel": 4,
+    "tipo": "sintetica",
+    "natureza": "D"
+  },
+  {
+    "codigo": "4.3.06.01.01",
+    "descricao": "Simples Nacional - DAS",
+    "nivel": 5,
+    "tipo": "analitica",
     "natureza": "D"
   },
   {

@@ -80,8 +80,8 @@ export const SUGESTOES_CONTAS_POR_ORIGEM: Record<OrigemMapeadaContabil, RegraOri
   fiscal_csll_presumido: [],
   fiscal_pis_presumido: [],
   fiscal_cofins_presumido: [],
-  // DAS do Simples: o plano padrão não tem conta "Simples Nacional a recolher"; a conta do banco que paga varia por empresa.
-  // Mapeamento só manual (tela Revisar dados recebidos), nunca chutado.
+  // DAS do Simples: não usa regra de código fixo; as contas são procuradas pelo NOME no plano da empresa
+  // (ver contasDasSimples, mais abaixo). Pagamento e multa/juros só quando a empresa já tem conta de caixa/banco mapeada.
   fiscal_das_simples: [],
   fiscal_das_simples_pago: [],
   fiscal_das_simples_encargos: [],
@@ -101,6 +101,14 @@ export const SUGESTOES_CONTAS: Record<OrigemMapeadaContabil, RegraOrigem> = Obje
  */
 export function sugerirMapeamentosPadrao(
   contas: Array<{ codigo?: unknown; descricao?: unknown; tipo?: unknown }>,
+  mapeamentos: Array<{ origem?: unknown; contaDebitoCodigo?: unknown; contaCreditoCodigo?: unknown }>,
+  agoraIso: string,
+): MapeamentoOrigemContabil[] {
+  return [...sugerirPorCodigo(contas, mapeamentos, agoraIso), ...sugerirDasSimples(contas, mapeamentos, agoraIso)];
+}
+
+function sugerirPorCodigo(
+  contas: Array<{ codigo?: unknown; descricao?: unknown; tipo?: unknown }>,
   mapeamentos: Array<{ origem?: unknown }>,
   agoraIso: string,
 ): MapeamentoOrigemContabil[] {
@@ -118,3 +126,84 @@ export function sugerirMapeamentosPadrao(
   }
   return novos;
 }
+
+// ===== DAS do Simples Nacional (LC 123/2006, art. 18 e art. 21) =====
+// Apuração (competência): D despesa do Simples Nacional (resultado) / C Simples Nacional a recolher (passivo circulante).
+// Pagamento: D Simples Nacional a recolher / C caixa ou banco. Multa e juros do pagamento em atraso: D encargos sobre tributos / C caixa ou banco.
+// Regime de competência (NBC TG 1000 / ITG 1000): a despesa é reconhecida no mês do faturamento, o pagamento só baixa o passivo.
+
+type ContaLeve = { codigo?: unknown; descricao?: unknown; tipo?: unknown; nivel?: unknown; natureza?: unknown };
+const txt = (v: unknown) => String(v ?? "");
+const analiticasDe = (contas: ContaLeve[]) => contas.filter((c) => c && c.tipo === "analitica");
+const unica = <T,>(lista: T[]): T | null => (lista.length === 1 ? lista[0] : null);
+
+/** Contas do DAS achadas pelo nome no plano da empresa. Só devolve quando há exatamente uma candidata (nunca adivinha entre duas). */
+export function contasDasSimples(contas: ContaLeve[]): { despesa: string | null; aRecolher: string | null; encargos: string | null } {
+  const a = analiticasDe(contas);
+  const aRecolher = unica(a.filter((c) => txt(c.codigo).startsWith("2.") && /simples\s+nacional/i.test(txt(c.descricao)) && /recolher|a\s+pagar/i.test(txt(c.descricao))));
+  const despesa = unica(a.filter((c) => /^[34]\./.test(txt(c.codigo)) && /simples\s+nacional/i.test(txt(c.descricao))));
+  // Juros/multa sobre tributos: analítica de despesa cujo grupo (conta pai pelo código) fala em encargos sobre tributos.
+  const porCodigo = new Map(contas.map((c) => [txt(c.codigo), c]));
+  const pai = (codigo: string) => porCodigo.get(codigo.split(".").slice(0, -1).join("."));
+  const encargos = unica(a.filter((c) => txt(c.codigo).startsWith("4.") && /encargos\s+sobre\s+tributos/i.test(txt(pai(txt(c.codigo))?.descricao)) && /juros/i.test(txt(c.descricao))));
+  return { despesa: despesa ? txt(despesa.codigo) : null, aRecolher: aRecolher ? txt(aRecolher.codigo) : null, encargos: encargos ? txt(encargos.codigo) : null };
+}
+
+/** Conta de caixa/banco que a empresa JÁ usa em algum mapeamento (é a de pagamento). Uma só; se houver duas diferentes, não escolhe. */
+export function contaPagamentoJaMapeada(contas: ContaLeve[], mapeamentos: Array<{ contaDebitoCodigo?: unknown; contaCreditoCodigo?: unknown }>): string | null {
+  const disponiveis = new Set(analiticasDe(contas).filter((c) => txt(c.codigo).startsWith("1.") && /caixa|banco/i.test(txt(c.descricao))).map((c) => txt(c.codigo)));
+  const usadas = new Set<string>();
+  for (const m of mapeamentos) for (const k of [m.contaDebitoCodigo, m.contaCreditoCodigo]) if (disponiveis.has(txt(k))) usadas.add(txt(k));
+  return usadas.size === 1 ? [...usadas][0] : null;
+}
+
+function sugerirDasSimples(contas: ContaLeve[], mapeamentos: Array<{ origem?: unknown; contaDebitoCodigo?: unknown; contaCreditoCodigo?: unknown }>, agoraIso: string): MapeamentoOrigemContabil[] {
+  const tem = (o: string) => mapeamentos.some((m) => m.origem === o);
+  const { despesa, aRecolher, encargos } = contasDasSimples(contas);
+  const novos: MapeamentoOrigemContabil[] = [];
+  const add = (origem: OrigemMapeadaContabil, d: string | null, c: string | null) => {
+    if (!tem(origem) && d && c && d !== c) novos.push({ origem, contaDebitoCodigo: d, contaCreditoCodigo: c, revisadoEm: agoraIso });
+  };
+  // A conta a recolher pode já estar mapeada pela equipe na provisão: o pagamento baixa essa mesma conta.
+  const recolherUsado = txt(mapeamentos.find((m) => m.origem === "fiscal_das_simples")?.contaCreditoCodigo) || aRecolher;
+  const pagamento = txt(mapeamentos.find((m) => m.origem === "fiscal_das_simples_pago")?.contaCreditoCodigo) || contaPagamentoJaMapeada(contas, mapeamentos);
+  add("fiscal_das_simples", despesa, aRecolher);
+  add("fiscal_das_simples_pago", recolherUsado, pagamento);
+  add("fiscal_das_simples_encargos", encargos, pagamento);
+  return novos;
+}
+
+/** Contas do DAS que o plano padrão do Murade tem e que faltam num plano antigo do mesmo modelo (572 contas). */
+export const CONTAS_DAS_PLANO_PADRAO = [
+  { codigo: "2.1.05.01.09", descricao: "Simples Nacional a Recolher", nivel: 5, tipo: "analitica", natureza: "C", pai: ["2.1.05.01", /tributos e contribui/i] },
+  { codigo: "4.3.06.01", descricao: "Tributos sobre o Faturamento", nivel: 4, tipo: "sintetica", natureza: "D", pai: ["4.3.06", /despesas com tributos/i] },
+  { codigo: "4.3.06.01.01", descricao: "Simples Nacional - DAS", nivel: 5, tipo: "analitica", natureza: "D", pai: ["4.3.06.01", /tributos sobre o faturamento/i] },
+] as const;
+
+/**
+ * Só ACRESCENTA: devolve as contas do DAS que faltam num plano do modelo padrão. Não cria nada quando o plano já tem uma conta de
+ * Simples Nacional (achada pelo nome), quando o código já está ocupado ou quando o grupo pai não é o do modelo padrão.
+ */
+export function contasDasParaCompletar(contas: ContaLeve[]): Array<{ codigo: string; descricao: string; nivel: 4 | 5; tipo: "sintetica" | "analitica"; natureza: "D" | "C" }> {
+  const porCodigo = new Map(contas.map((c) => [txt(c.codigo), c]));
+  const achadas = contasDasSimples(contas);
+  const faltam: Array<{ codigo: string; descricao: string; nivel: 4 | 5; tipo: "sintetica" | "analitica"; natureza: "D" | "C" }> = [];
+  const jaTemSimples = (prefixo: string) => analiticasDe(contas).some((c) => txt(c.codigo).startsWith(prefixo) && /simples\s+nacional/i.test(txt(c.descricao)));
+  for (const conta of CONTAS_DAS_PLANO_PADRAO) {
+    if (porCodigo.has(conta.codigo)) continue;
+    if (conta.codigo.startsWith("2.") && (achadas.aRecolher || jaTemSimples("2."))) continue;
+    if (conta.codigo.startsWith("4.") && (achadas.despesa || jaTemSimples("3.") || jaTemSimples("4."))) continue;
+    const pai = porCodigo.get(conta.pai[0]) ?? faltam.find((f) => f.codigo === conta.pai[0]);
+    if (!pai || pai.tipo !== "sintetica" || !conta.pai[1].test(txt(pai.descricao))) continue;
+    faltam.push({ codigo: conta.codigo, descricao: conta.descricao, nivel: conta.nivel, tipo: conta.tipo, natureza: conta.natureza });
+  }
+  // A analítica 4.3.06.01.01 sem o grupo 4.3.06.01 não entra (e vice-versa): ou entram as duas, ou nenhuma.
+  const temGrupo = faltam.some((f) => f.codigo === "4.3.06.01") || porCodigo.has("4.3.06.01");
+  return faltam.filter((f) => f.codigo !== "4.3.06.01.01" || temGrupo).filter((f) => f.codigo !== "4.3.06.01" || faltam.some((x) => x.codigo === "4.3.06.01.01"));
+}
+
+/** Origens que o robô sabe mapear sozinho (por código ou pelo nome da conta): só estas entram na conferência de "falta mapeamento padrão". */
+export const ORIGENS_COM_MAPEAMENTO_PADRAO: OrigemMapeadaContabil[] = [
+  ...(Object.keys(SUGESTOES_CONTAS_POR_ORIGEM) as OrigemMapeadaContabil[]).filter((o) => SUGESTOES_CONTAS_POR_ORIGEM[o].length > 0),
+  "fiscal_das_simples", "fiscal_das_simples_pago", "fiscal_das_simples_encargos",
+];

@@ -1,5 +1,6 @@
 import { IDS_ORIGEM, ROTULOS_ORIGEM, ROTULO_PARA_ID, origemDaReferencia } from "../utils/origensContabeis";
-import { sugerirMapeamentosPadrao } from "../utils/sugestoesContas";
+import { sugerirMapeamentosPadrao, contasDasParaCompletar, ORIGENS_COM_MAPEAMENTO_PADRAO } from "../utils/sugestoesContas";
+import { ordenarContasPorSequenciaNumerica } from "../utils/planoContasUtils";
 import { montarWorkspaceInicialContabil, empresaInicialDoCadastro } from "../utils/workspaceInicial";
 import { validarHistoricoPadrao, validarLancamentoPadrao } from "../utils/escrituracaoAvancada";
 import { validarRegraConciliacao } from "../utils/extratoBancario";
@@ -1421,16 +1422,23 @@ export async function resumoPreLancamentosPorEmpresaContabil(cnpjs: string[]): P
   return r.rows.map((row) => ({ cnpj: String(row.cnpj), nome: String(row.nome || ""), temWorkspace: row.tem_workspace === true, pendentes: Number(row.pendentes) || 0, contabilizados: Number(row.contabilizados) || 0, ultimoPreparo: row.ultimo ? String(row.ultimo) : null }));
 }
 
-/** Empresas que ainda têm origem sem mapeamento (candidatas à sugestão automática do plano padrão). */
-export async function listarCnpjsComOrigensSemMapeamentoContabil(): Promise<string[]> {
+/** As 7 origens básicas (notas e folha): sem elas a empresa precisa de mapeamento manual (o plano não bate com o padrão). */
+export const ORIGENS_BASICAS_CONTABIL = ["fiscal_entrada", "fiscal_saida", "dp_folha_bruta", "dp_descontos_inss", "dp_inss_patronal", "dp_descontos_irrf", "dp_fgts"];
+
+/**
+ * Empresas em que falta alguma das origens informadas (comparação por ORIGEM, não por quantidade de mapeamentos).
+ * Padrão: as que o robô sabe mapear sozinho, inclusive DAS do Simples e as acrescentadas depois (salário-família, faltas).
+ */
+export async function listarCnpjsComOrigensSemMapeamentoContabil(origens: readonly string[] = ORIGENS_COM_MAPEAMENTO_PADRAO): Promise<string[]> {
   await prepararAuthContabil();
   const result = await obterBanco().query(`
     SELECT cnpj
     FROM contabil_company_workspaces
-    WHERE CASE WHEN jsonb_typeof(payload->'mapeamentosOrigem')='array'
-      THEN jsonb_array_length(payload->'mapeamentosOrigem') < 7 ELSE true END
+    WHERE NOT (CASE WHEN jsonb_typeof(payload->'mapeamentosOrigem')='array'
+      THEN (SELECT COALESCE(array_agg(m->>'origem'), '{}'::text[]) FROM jsonb_array_elements(payload->'mapeamentosOrigem') m) @> $1::text[]
+      ELSE false END)
     ORDER BY updated_at DESC
-  `);
+  `, [[...origens]]);
   return result.rows.map((row) => String(row.cnpj));
 }
 
@@ -1448,11 +1456,14 @@ export async function aplicarMapeamentosPadraoContabil(cnpj: string, agoraIso = 
     const result = await client.query("SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1 FOR UPDATE", [normalizado]);
     if (!result.rowCount) { await client.query("COMMIT"); return 0; }
     const payload = result.rows[0].payload as Record<string, unknown>;
-    const contas = Array.isArray(payload.contas) ? payload.contas as Array<Record<string, unknown>> : [];
+    const contasAtuais = Array.isArray(payload.contas) ? payload.contas as Array<Record<string, unknown>> : [];
+    // Plano antigo do modelo padrão sem as contas do DAS: só ACRESCENTA as que faltam (nunca altera conta existente).
+    const contasNovas = contasDasParaCompletar(contasAtuais);
+    const contas = contasNovas.length ? ordenarContasPorSequenciaNumerica([...contasAtuais, ...contasNovas] as any) as unknown as Array<Record<string, unknown>> : contasAtuais;
     const mapeamentos = Array.isArray(payload.mapeamentosOrigem) ? payload.mapeamentosOrigem as Array<Record<string, unknown>> : [];
     const novos = sugerirMapeamentosPadrao(contas, mapeamentos, agoraIso);
     if (!novos.length) { await client.query("COMMIT"); return 0; }
-    const novoPayload = { ...payload, mapeamentosOrigem: [...mapeamentos, ...novos] };
+    const novoPayload = { ...payload, ...(contasNovas.length ? { contas } : {}), mapeamentosOrigem: [...mapeamentos, ...novos] };
     if (!workspaceValido(novoPayload)) { await client.query("ROLLBACK"); return 0; }
     await client.query("UPDATE contabil_company_workspaces SET payload=$2::jsonb,version=version+1,updated_at=now() WHERE cnpj=$1", [normalizado, JSON.stringify(novoPayload)]);
     await client.query("COMMIT");
