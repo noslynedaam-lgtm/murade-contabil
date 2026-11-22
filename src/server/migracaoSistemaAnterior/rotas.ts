@@ -2,6 +2,7 @@
 // Enviar/prévia/gravar: só o administrador ou a equipe do escritório. Consultar o registro de uma empresa: quem tem acesso a ela.
 import type express from 'express';
 import type { ContaPlano } from '../../types';
+import { ORIGEM_SISTEMA_ANTERIOR } from './conversor';
 import type { SessaoContabil } from '../authContabil';
 import type { BancoTransacional, ConsultaSql } from '../exclusaoEmpresaCascata';
 import {
@@ -20,11 +21,37 @@ export interface DependenciasRotasMigracao {
   workspaceValido: (payload: unknown) => boolean;
   cnpjValido: (cnpj: unknown) => boolean;
   modelo: ContaPlano[];
+  /** Migração dos três sistemas (o DP repassa a parte contábil). Sem isto, só a tela do Contábil funciona. */
+  integracao?: DepsIntegracaoMigracao;
   robos: {
     executarRobo: (id: string, fn: () => Promise<void>) => Promise<unknown>;
     registrarResultadoRobo: (id: string, texto: string) => void;
     definirAlertaRobo: (id: string, alerta: { nivel: 'aviso' | 'critico'; texto: string } | null) => void;
   };
+}
+
+export interface DepsIntegracaoMigracao {
+  autorizado: (req: express.Request) => boolean;
+  configurado: () => boolean;
+  sessaoDoEscritorio: (escritorio: string, donoSistema: boolean) => Promise<SessaoContabil | null>;
+}
+
+/** Quem é o escritório de uma chamada de integração: token certo + login (na query, para o envio do arquivo, ou no corpo). */
+export async function resolverEscritorioIntegracao(req: express.Request, integ: DepsIntegracaoMigracao): Promise<{ ok: true; sessao: SessaoContabil } | { ok: false; http: number; motivo: string; semEscritorio?: boolean }> {
+  if (!integ.configurado()) return { ok: false, http: 503, motivo: 'MURADE_INTEGRATION_TOKEN não configurado no Contábil.' };
+  if (!integ.autorizado(req)) return { ok: false, http: 401, motivo: 'Credencial de integração inválida.' };
+  const escritorio = String((req.query?.escritorio ?? req.body?.escritorio ?? '') as unknown).replace(/[\u0000-\u001f<>]/g, '').trim().toLowerCase().slice(0, 80);
+  const dono = String(req.query?.donoSistema ?? '') === '1' || req.body?.donoSistema === true;
+  if (!escritorio && !dono) return { ok: false, http: 400, motivo: 'Informe o login do escritório.' };
+  try {
+    const s = await integ.sessaoDoEscritorio(escritorio, dono);
+    if (!s) return { ok: false, http: 409, semEscritorio: true, motivo: `O escritório "${escritorio || 'dono do sistema'}" ainda não tem acesso no Murade Contábil. Crie o acesso do escritório no Contábil (mesmo login do DP) e clique em Reenviar.` };
+    if (!s.administrador) return { ok: false, http: 403, motivo: 'O login informado não é o administrador do escritório no Contábil.' };
+    return { ok: true, sessao: s };
+  } catch (e) {
+    console.error('Falha ao achar o escritório da migração (três sistemas):', (e as Error)?.message || e);
+    return { ok: false, http: 503, motivo: 'Não foi possível consultar o escritório no Contábil agora.' };
+  }
 }
 
 const sessaoDe = (req: express.Request) => (req as express.Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
@@ -45,70 +72,113 @@ export function registrarRotasMigracaoSistemaAnterior(app: express.Express, dep:
   const deOutroEscritorio = async (cnpj: string, s: SessaoContabil) => (await dep.consultar('SELECT 1 FROM contabil_auth_company_access a JOIN contabil_auth_users u ON u.id=a.user_id WHERE a.cnpj=$1 AND COALESCE(u.tenant_id,u.id)::text<>$2 LIMIT 1', [cnpj, tenantDe(s)])).rows.length > 0;
   const excluida = (cnpj: string) => empresaExcluidaAntes(dep.consultar, cnpj);
 
-  app.post(`${base}/arquivo`, dep.exigirOrigemNavegador, dep.exigirSessao, async (req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
-    const s = doEscritorio(req, res); if (!s) return;
-    try { const r = await receberArquivoContabil(req, s.userId, String(req.query.compactado || '') === 'gzip'); res.json({ sucesso: true, ...r }); }
-    catch (e) { res.status(400).json({ sucesso: false, motivo: motivo(e) }); }
-  });
-  app.post(`${base}/empresas`, dep.exigirOrigemNavegador, dep.exigirSessao, async (req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
-    const s = doEscritorio(req, res); if (!s) return;
-    try { res.json({ sucesso: true, ...(await listarEmpresasDoBackupContabil(String(req.body?.token || ''), s.userId)) }); }
-    catch (e) { res.status(400).json({ sucesso: false, motivo: motivo(e) }); }
-  });
-  app.post(`${base}/previa`, dep.exigirOrigemNavegador, dep.exigirSessao, async (req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
-    const s = doEscritorio(req, res); if (!s) return;
-    try {
-      await dep.preparar();
-      const empresas = await gerarPreviaContabil(String(req.body?.token || ''), s.userId, req.body?.cdempresas, req.body?.cnpjs, {
-        async lerAtual(cnpj) {
-          const ws = await dep.consultar('SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1', [cnpj]);
-          const comp = ws.rows.length ? null : (await dep.consultar('SELECT dados FROM contabil_empresas_compartilhadas WHERE cnpj=$1', [cnpj])).rows[0]?.dados ?? null;
-          const f = await dep.consultar('SELECT competencia FROM contabil_period_closures WHERE cnpj=$1', [cnpj]);
-          return { payload: ws.rows[0]?.payload ?? null, compartilhado: comp, fechadas: new Set(f.rows.map((r) => String(r.competencia))) };
-        },
-        deOutroEscritorio: (cnpj) => deOutroEscritorio(cnpj, s),
-        excluidaAntes: excluida,
-        cnpjValido: (c) => dep.cnpjValido(c),
-        validarWorkspace: (p) => dep.workspaceValido(p),
-        modelo: dep.modelo,
-        competenciaAtual: competenciaDoBrasil(),
-      }, req.body?.desfazerAjustes);
-      res.json({ sucesso: true, empresas });
-    } catch (e) { res.status(400).json({ sucesso: false, motivo: motivo(e) }); }
-  });
-  app.post(`${base}/gravar`, dep.exigirOrigemNavegador, dep.exigirSessao, async (req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
-    const s = doEscritorio(req, res); if (!s) return;
-    try {
-      await dep.preparar();
-      const resultados = await gravarMigracaoContabil(String(req.body?.token || ''), s.userId, req.body?.cdempresas, req.body?.escolhidasUmaAUma === true, async (dados) => {
-        try {
-          return await gravarEmpresaMigrada(dep.banco(), dados, { userId: s.userId, login: s.login, escritorioId: s.escritorioDe || s.userId, tenantId: tenantDe(s) }, {
-            modelo: dep.modelo, validar: (p) => dep.workspaceValido(p), competenciaAtual: competenciaDoBrasil(),
-          });
-        } catch (e) {
-          if (e instanceof ErroMigracao) throw e;
-          console.error('Falha ao gravar empresa migrada no Contábil:', (e as Error)?.message || e);
-          throw new Error('O banco não confirmou a gravação desta empresa; nada ficou pela metade. Tente de novo.');
+  // Fluxo da migração (enviar, empresas, prévia, gravar, andamento, descartar). O MESMO código atende a tela do Contábil (sessão do
+  // navegador) e o DP (migração dos três sistemas, servidor a servidor): o caminho de integração só põe a sessão do dono do
+  // escritório no lugar da sessão do navegador.
+  const registrarFluxo = (raiz: string, antes: express.RequestHandler[]) => {
+    app.post(`${raiz}/arquivo`, ...antes, async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      const s = doEscritorio(req, res); if (!s) return;
+      try { const r = await receberArquivoContabil(req, s.userId, String(req.query.compactado || '') === 'gzip'); res.json({ sucesso: true, ...r }); }
+      catch (e) { res.status(400).json({ sucesso: false, motivo: motivo(e) }); }
+    });
+    app.post(`${raiz}/empresas`, ...antes, async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      const s = doEscritorio(req, res); if (!s) return;
+      try { res.json({ sucesso: true, ...(await listarEmpresasDoBackupContabil(String(req.body?.token || ''), s.userId)) }); }
+      catch (e) { res.status(400).json({ sucesso: false, motivo: motivo(e) }); }
+    });
+    app.post(`${raiz}/previa`, ...antes, async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      const s = doEscritorio(req, res); if (!s) return;
+      try {
+        await dep.preparar();
+        const empresas = await gerarPreviaContabil(String(req.body?.token || ''), s.userId, req.body?.cdempresas, req.body?.cnpjs, {
+          async lerAtual(cnpj) {
+            const ws = await dep.consultar('SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1', [cnpj]);
+            const comp = ws.rows.length ? null : (await dep.consultar('SELECT dados FROM contabil_empresas_compartilhadas WHERE cnpj=$1', [cnpj])).rows[0]?.dados ?? null;
+            const f = await dep.consultar('SELECT competencia FROM contabil_period_closures WHERE cnpj=$1', [cnpj]);
+            return { payload: ws.rows[0]?.payload ?? null, compartilhado: comp, fechadas: new Set(f.rows.map((r) => String(r.competencia))) };
+          },
+          deOutroEscritorio: (cnpj) => deOutroEscritorio(cnpj, s),
+          excluidaAntes: excluida,
+          cnpjValido: (c) => dep.cnpjValido(c),
+          validarWorkspace: (p) => dep.workspaceValido(p),
+          modelo: dep.modelo,
+          competenciaAtual: competenciaDoBrasil(),
+        }, req.body?.desfazerAjustes);
+        res.json({ sucesso: true, empresas });
+      } catch (e) { res.status(400).json({ sucesso: false, motivo: motivo(e) }); }
+    });
+    app.post(`${raiz}/gravar`, ...antes, async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      const s = doEscritorio(req, res); if (!s) return;
+      try {
+        await dep.preparar();
+        const resultados = await gravarMigracaoContabil(String(req.body?.token || ''), s.userId, req.body?.cdempresas, req.body?.escolhidasUmaAUma === true, async (dados) => {
+          try {
+            return await gravarEmpresaMigrada(dep.banco(), dados, { userId: s.userId, login: s.login, escritorioId: s.escritorioDe || s.userId, tenantId: tenantDe(s) }, {
+              modelo: dep.modelo, validar: (p) => dep.workspaceValido(p), competenciaAtual: competenciaDoBrasil(),
+            });
+          } catch (e) {
+            if (e instanceof ErroMigracao) throw e;
+            console.error('Falha ao gravar empresa migrada no Contábil:', (e as Error)?.message || e);
+            throw new Error('O banco não confirmou a gravação desta empresa; nada ficou pela metade. Tente de novo.');
+          }
+        }, excluida);
+        res.json({ sucesso: true, resultados });
+      } catch (e) { res.status(400).json({ sucesso: false, motivo: motivo(e) }); }
+    });
+    app.post(`${raiz}/descartar`, ...antes, async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      const s = doEscritorio(req, res); if (!s) return;
+      descartarMigracaoContabil(String(req.body?.token || ''));
+      res.json({ sucesso: true });
+    });
+    app.get(`${raiz}/situacao`, ...antes, (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      const s = sessaoDe(req); if (!s) { res.status(401).json({ sucesso: false, motivo: 'Entre no sistema.' }); return; }
+      res.json({ sucesso: true, ...situacaoMigracaoContabilDoUsuario(s.userId) });
+    });
+  };
+  registrarFluxo(base, [dep.exigirOrigemNavegador, dep.exigirSessao]);
+
+  if (dep.integracao) {
+    const integ = dep.integracao;
+    const raiz = '/api/integracao/migracao-sistema-anterior';
+    const exigirEscritorio: express.RequestHandler = async (req, res, next) => {
+      res.setHeader('Cache-Control', 'private, no-store');
+      const r = await resolverEscritorioIntegracao(req, integ);
+      if (r.ok === false) {
+        if (req.path.endsWith('/arquivo')) res.setHeader('Connection', 'close');
+        res.status(r.http).json({ sucesso: false, motivo: r.motivo, ...(r.semEscritorio ? { semEscritorio: true } : {}) }); return;
+      }
+      (req as express.Request & { sessaoContabil?: SessaoContabil }).sessaoContabil = r.sessao; next();
+    };
+    registrarFluxo(raiz, [exigirEscritorio]);
+    app.post(`${raiz}/situacao`, exigirEscritorio, (req, res) => { const s = sessaoDe(req)!; res.json({ sucesso: true, ...situacaoMigracaoContabilDoUsuario(s.userId) }); });
+    app.post(`${raiz}/escritorio`, exigirEscritorio, (req, res) => { const s = sessaoDe(req)!; res.json({ sucesso: true, existe: true, login: s.login, empresas: s.cnpjs.length }); });
+    // Conferência final (e do robô do DP): para cada CNPJ DESTE escritório, se a migração gravou e se o balancete bate. Só lê.
+    app.post(`${raiz}/conferencia`, exigirEscritorio, async (req, res) => {
+      const s = sessaoDe(req)!;
+      const pedidos = [...new Set((Array.isArray(req.body?.cnpjs) ? req.body.cnpjs : []).map(normalizar).filter(Boolean))].slice(0, 200) as string[];
+      try {
+        await dep.preparar();
+        const out = [];
+        for (const cnpj of pedidos) {
+          if (!s.cnpjs.includes(cnpj)) { out.push({ cnpj, doEscritorio: false, migrada: false }); continue; }
+          const reg = await lerRegistroSistemaAnterior(dep.consultar, cnpj);
+          if (!reg.resumo) { out.push({ cnpj, doEscritorio: true, migrada: false }); continue; }
+          const c = await conferirEmpresaMigrada(dep.consultar, cnpj);
+          const r = reg.resumo as any;
+          const ws = await dep.consultar("SELECT count(*)::int AS n FROM contabil_company_workspaces w, jsonb_array_elements(COALESCE(w.payload->'lancamentos','[]'::jsonb)) l WHERE w.cnpj=$1 AND l->>'origem'=$2", [cnpj, ORIGEM_SISTEMA_ANTERIOR]).catch(() => ({ rows: [] as any[] }));
+          out.push({ cnpj, doEscritorio: true, migrada: true, bate: Boolean(c?.bate), resumo: String(c?.resumo || '').slice(0, 400),
+            lancamentosLidos: Number(r.lancamentosGravados ?? 0), lancamentosNoContabil: ws.rows[0]?.n ?? null, migradoEm: r.migradoEm || null });
         }
-      }, excluida);
-      res.json({ sucesso: true, resultados });
-    } catch (e) { res.status(400).json({ sucesso: false, motivo: motivo(e) }); }
-  });
-  app.post(`${base}/descartar`, dep.exigirOrigemNavegador, dep.exigirSessao, async (req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
-    const s = doEscritorio(req, res); if (!s) return;
-    descartarMigracaoContabil(String(req.body?.token || ''));
-    res.json({ sucesso: true });
-  });
-  app.get(`${base}/situacao`, dep.exigirSessao, (req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
-    const s = sessaoDe(req); if (!s) { res.status(401).json({ sucesso: false, motivo: 'Entre no sistema.' }); return; }
-    res.json({ sucesso: true, ...situacaoMigracaoContabilDoUsuario(s.userId) });
-  });
+        res.json({ sucesso: true, empresas: out });
+      } catch (e) { console.error('Falha na conferência da migração (três sistemas):', (e as Error)?.message || e); res.status(503).json({ sucesso: false, motivo: 'Não foi possível conferir agora.' }); }
+    });
+  }
   app.get(`${base}/registro/:cnpj`, dep.exigirSessao, async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     const s = sessaoDe(req); const cnpj = normalizar(req.params.cnpj);

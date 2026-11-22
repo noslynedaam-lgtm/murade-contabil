@@ -268,6 +268,24 @@ async function ehDonoDoSistemaContabil(userId: string, login: string): Promise<b
   return String(primeiro.rows[0]?.id) === String(userId);
 }
 
+/** Migração dos três sistemas (DP → Contábil, servidor a servidor): a sessão do DONO do escritório no Contábil, pelo mesmo critério
+ *  de importarCnpjsCompartilhados — administrador com o MESMO login do dono do escritório ou, para o dono do sistema, o dono daqui.
+ *  Sem esse escritório no Contábil devolve null (nunca usa outro escritório no lugar). */
+export async function sessaoDoEscritorioParaIntegracaoContabil(escritorio: string, donoSistema: boolean): Promise<SessaoContabil | null> {
+  if (!bancoContabilConfigurado()) return null;
+  await prepararAuthContabil();
+  const sql = "SELECT id, login, global_admin, office_owner, tenant_id FROM contabil_auth_users WHERE global_admin=true AND disabled=false AND (tenant_id IS NULL OR tenant_id=id)";
+  if (donoSistema) {
+    const admins = await obterBanco().query(`${sql} ORDER BY created_at, id`);
+    for (const u of admins.rows) if (await ehDonoDoSistemaContabil(String(u.id), String(u.login))) return montarSessaoContabil(u);
+    return null;
+  }
+  const login = String(escritorio || "").trim().toLowerCase();
+  if (!loginValidoContabil(login)) return null;
+  const r = await obterBanco().query(`${sql} AND lower(login)=$1 LIMIT 1`, [login]);
+  return r.rows[0] ? montarSessaoContabil(r.rows[0]) : null;
+}
+
 /** Acesso efetivo: empresas próprias + (se for equipe do escritório) todas as empresas do dono do escritório. */
 async function montarSessaoContabil(user: { id: string; login: string; global_admin: boolean; office_owner?: string | null; tenant_id?: string | null }): Promise<SessaoContabil> {
   const access = await obterBanco().query("SELECT cnpj,role FROM contabil_auth_company_access WHERE user_id = $1 ORDER BY cnpj", [user.id]);
