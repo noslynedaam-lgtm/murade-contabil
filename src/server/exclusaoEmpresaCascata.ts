@@ -70,7 +70,8 @@ export async function avisarHubFiscal(cnpj: string, por: string, env: Record<str
   try {
     const r = await buscar(`${urlDoSistema('fiscal', env)}/api/integracao/empresa/${encodeURIComponent(normalizarCnpjExclusao(cnpj))}`, {
       method: 'DELETE', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ origem: 'contabil', por }), signal: AbortSignal.timeout(limiteMs),
+      // administrador: true — no Contábil só o administrador exclui (removerEmpresaAcessoContabil); o DP só abre a trava da folha fechada assim.
+      body: JSON.stringify({ origem: 'contabil', por, administrador: true }), signal: AbortSignal.timeout(limiteMs),
     });
     const corpo = await r.json().catch(() => null);
     return r.ok ? { avisado: true, status: r.status, resposta: corpo } : { avisado: false, status: r.status, motivo: `O Fiscal respondeu com erro (${r.status}).`, resposta: corpo };

@@ -130,7 +130,7 @@ test('chama o hub do Fiscal: DELETE com Bearer e corpo {origem, por}; best-effor
   assert.equal(ok.avisado, true);
   assert.equal(visto.url, `https://fiscal.teste/api/integracao/empresa/${ALVO}`);
   assert.equal(visto.init.method, 'DELETE'); assert.equal(visto.init.headers.authorization, 'Bearer seg');
-  assert.deepEqual(JSON.parse(visto.init.body), { origem: 'contabil', por: 'ana' }); assert.ok(visto.init.signal, 'tem timeout');
+  assert.deepEqual(JSON.parse(visto.init.body), { origem: 'contabil', por: 'ana', administrador: true }); assert.ok(visto.init.signal, 'tem timeout');
   const erro = await avisarHubFiscal(ALVO, 'ana', { MURADE_INTEGRATION_TOKEN: 'seg' }, (async () => new Response('{}', { status: 502 })) as any);
   assert.equal(erro.avisado, false); assert.equal(erro.status, 502);
   const caiu = await avisarHubFiscal(ALVO, 'ana', { MURADE_INTEGRATION_TOKEN: 'seg' }, (async () => { throw new Error('rede'); }) as any);
