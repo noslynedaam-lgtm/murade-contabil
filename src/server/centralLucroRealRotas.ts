@@ -5,6 +5,7 @@ import { normalizarCnpjAcesso } from "./authContabil";
 import { darBaixa, decidirDivergencia, painelCentral, conferirEmpresaLucroReal, bloqueioPisCofinsLR, type DepsCentral } from "./centralLucroReal";
 import { excluirJcp, listarJcp, registrarJcp } from "./lucroRealObrigacoesExtras";
 import { situacaoAvisosCelular, type ResumoAviso } from "./avisoCelularLucroReal";
+import { lucroRealParaMit } from "./lucroRealMit";
 
 type Mw = express.RequestHandler;
 const anoDe = (v: unknown) => { const a = Number(v); return Number.isInteger(a) && a >= 2000 && a <= 2100 ? a : null; };
@@ -55,6 +56,15 @@ export function registrarRotasCentralLucroReal(app: express.Express, mw: { exigi
     if (!/^[A-Z0-9]{12}\d{2}$/.test(cnpj) || !/^\d{4}-(0[1-9]|1[0-2])$/.test(competencia)) return res.status(400).json({ sucesso: false, motivo: "Informe o CNPJ e a competência (AAAA-MM)." });
     try { return res.json({ sucesso: true, cnpj, competencia, ...(await bloqueioPisCofinsLR(deps, cnpj, competencia)) }); }
     catch (e: any) { console.error("[central-lucro-real] bloqueio", e?.message || e); return res.status(503).json({ sucesso: false, motivo: "A Central do Lucro Real não conseguiu conferir agora." }); }
+  });
+  // Fiscal pergunta, ao montar o arquivo do MIT (DCTFWeb), o IRPJ/CSLL do Lucro Real confirmados do mês e os pagamentos registrados.
+  app.get("/api/integracao/lucro-real/mit", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store"); res.setHeader("Vary", "Authorization");
+    if (deps.negarIntegracao(req, res)) return;
+    const cnpj = normalizarCnpjAcesso(req.query.cnpj); const competencia = String(req.query.competencia || "");
+    if (!/^[A-Z0-9]{12}\d{2}$/.test(cnpj) || !/^\d{4}-(0[1-9]|1[0-2])$/.test(competencia)) return res.status(400).json({ sucesso: false, motivo: "Informe o CNPJ e a competência (AAAA-MM)." });
+    try { return res.json({ sucesso: true, cnpj, competencia, ...(await lucroRealParaMit(deps.consultar, cnpj, competencia)) }); }
+    catch (e: any) { console.error("[central-lucro-real] mit", e?.message || e); return res.status(503).json({ sucesso: false, motivo: "O Contábil não conseguiu ler o Lucro Real agora." }); }
   });
   // JCP pago ou creditado: vira a obrigação do IRRF (DARF 5706) na Central.
   app.get("/api/workspaces/:cnpj/lucro-real/jcp-pagamentos", mw.exigirSessao, async (req, res) => {
