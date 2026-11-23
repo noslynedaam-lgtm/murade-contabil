@@ -254,6 +254,43 @@ export async function lerDocumentosFiscais(
   return resultado.rows.map((linha: { documento: unknown }) => linha.documento);
 }
 
+/**
+ * TODAS as notas da empresa, em páginas de 1.000 (sem o teto de 500 de lerDocumentosFiscais, que cortava as mais antigas de quem
+ * tinha muitas notas). Teto de segurança de 100.000 por empresa; acima disso, avisa no log em vez de travar a memória.
+ */
+export async function lerTodosDocumentosFiscais(cnpj: string, pagina = 1000, teto = 100_000): Promise<any[]> {
+  const db = obterPool();
+  if (!db) throw new Error("DATABASE_URL não configurada no Murad Contábil.");
+  if (!cnpjContabilValido(cnpj)) throw new Error("CNPJ inválido.");
+  await inicializar();
+  const todos: any[] = [];
+  let ultima: string | null = null;
+  for (;;) {
+    const r = await db.query(`
+      SELECT chave_documento, documento FROM murade_documentos_fiscais_origem
+      WHERE cnpj = $1 AND ($2::text IS NULL OR chave_documento > $2)
+      ORDER BY chave_documento LIMIT $3`, [cnpj, ultima, pagina]);
+    for (const linha of r.rows) todos.push(linha.documento);
+    if (r.rows.length < pagina) break;
+    ultima = String(r.rows[r.rows.length - 1].chave_documento);
+    if (todos.length >= teto) { console.warn(`[Murad Contábil] CNPJ ${cnpj}: mais de ${teto} notas; só as ${teto} primeiras foram lidas nesta rodada.`); break; }
+  }
+  return todos;
+}
+
+/** Chave, competência, tipo e valor (centavos) de todas as notas guardadas — para o conferidor comparar com o Fiscal. */
+export async function resumoDocumentosFiscaisGuardados(cnpj: string): Promise<Array<{ chave: string; competencia: string; tipo: string; valorCentavos: number | null }>> {
+  const db = obterPool();
+  if (!db) throw new Error("DATABASE_URL não configurada no Murad Contábil.");
+  if (!cnpjContabilValido(cnpj)) throw new Error("CNPJ inválido.");
+  await inicializar();
+  const r = await db.query(`SELECT chave_documento, competencia, tipo, documento->>'valorTotal' AS valor FROM murade_documentos_fiscais_origem WHERE cnpj = $1`, [cnpj]);
+  return r.rows.map((x: any) => {
+    const v = Number(x.valor);
+    return { chave: String(x.chave_documento), competencia: String(x.competencia), tipo: String(x.tipo), valorCentavos: Number.isFinite(v) ? Math.round((v + Number.EPSILON) * 100) : null };
+  });
+}
+
 export async function lerVersoesDocumentoFiscal(cnpj: string, chave: string, limite: number): Promise<Record<string, unknown>[]> {
   const db = obterPool();
   if (!db) throw new Error("DATABASE_URL não configurada no Murad Contábil.");

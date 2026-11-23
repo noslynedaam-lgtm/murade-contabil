@@ -1,11 +1,12 @@
 import type { OrigemMapeadaContabil } from "../types";
 import { ROTULO_PARA_ID, ID_PARA_ROTULO, ORIGEM_POR_TRIBUTO as ORIGEM_POR_TRIBUTO_ID, ITENS_FOLHA_DP, SUFIXO_ENCARGOS_DAS, TRIBUTOS_DARF_PAGO, conciliarResumoFolhaDP } from "../utils/origensContabeis";
-import { lerDocumentosFiscais, fiscalStoreConfigurado } from "./documentosFiscaisStore";
+import { lerTodosDocumentosFiscais, fiscalStoreConfigurado } from "./documentosFiscaisStore";
 import { lerApuracoesFiscais, apuracoesStoreConfigurado, type ApuracaoFiscalArmazenada } from "./apuracoesFiscaisStore";
 import { lerResumosDP, dpStoreConfigurado } from "./dadosDpStore";
 import { lerResumosProLaboreDP } from "./dadosProLaboreStore";
 import { lerEventosDP, type EventoDPLido, type TipoEventoDP } from "./dadosDpEventosStore";
-import { lerWorkspaceInternoContabil, mesclarRascunhosAutomaticosContabil, type RascunhoAutomaticoContabil } from "./authContabil";
+import { lerWorkspaceInternoContabil, mesclarRascunhosAutomaticosContabil, tratarNotasSemValorContabil, type RascunhoAutomaticoContabil } from "./authContabil";
+import { contasDoRascunhoFiscal, contasDoRascunhoConferem, ehChaveNfce } from "../utils/contasRascunhoFiscal";
 
 type Registro = Record<string, any>;
 type ResumoFolha = { competencia: string; calculadoEm?: string; atualizadoEm?: string; recebidoEm?: string; resumo?: Record<string, unknown> };
@@ -32,14 +33,48 @@ function dataCompetencia(valor: unknown): { data: string; competencia: string } 
   return valida && /^\d{4}-(0[1-9]|1[0-2])$/.test(competencia) ? { data, competencia } : null;
 }
 
-function fiscalAutorizado(documento: Registro): boolean {
-  const cancelado = /cancelad/i.test(String(documento.statusSefaz || ""))
+/**
+ * Nota que deixou de valer (ou nunca valeu): cancelada, substituída (NFS-e: Resolução CGNFS-e 3/2023, art. 7º e 8º — a substituta
+ * cancela a anterior), denegada ou inutilizada, ou com evento de cancelamento confirmado (110111/110112). Nunca vira pré-lançamento,
+ * lançamento, balancete nem DRE. Mesma regra do Fiscal (conferenciaEntregaNotas.ts → notaSemValorFiscal).
+ */
+export function notaSemValor(documento: Registro): boolean {
+  if (!documento) return false;
+  return /cancelad|substitu[ií]d|denegad|inutilizad/i.test(String(documento.statusSefaz || ""))
+    || Boolean(documento.substituidaPor)
     || (Array.isArray(documento.eventosSefaz) && documento.eventosSefaz.some((evento: Registro) =>
       evento?.confirmado === true && (/(cancelamento|cancelada)/i.test(String(evento.descricao || ""))
         || ["110111", "110112"].includes(String(evento.tipoEvento || ""))
       ),
     ));
-  return !cancelado && documento.statusVerificadoSefaz === true && /autorizad/i.test(String(documento.statusSefaz || ""));
+}
+const cancelado = notaSemValor;
+
+/** Texto curto de por que a nota não vale (para o alerta do contador). */
+export function motivoNotaSemValor(documento: Registro): string {
+  const st = String(documento?.statusSefaz || "");
+  if (documento?.substituidaPor || /substitu/i.test(st) || /substitu/i.test(String(documento?.motivoCancelamento || ""))) return "substituída por outra NFS-e";
+  if (/denegad/i.test(st)) return "denegada";
+  if (/inutilizad/i.test(st)) return "inutilizada";
+  return "cancelada";
+}
+
+/** NFS-e: o Fiscal guarda com modelo "NFS-e Municipal" (ambiente nacional ou XML importado). */
+export function ehNfseDocumento(documento: Registro): boolean {
+  return String(documento?.modelo || "") === "NFS-e Municipal";
+}
+
+/**
+ * Nota que pode virar pré-lançamento.
+ *  - NF-e, NFC-e e CT-e: autorizada e com a situação CONFIRMADA na SEFAZ (statusVerificadoSefaz). A nota "Pendente" de confirmação
+ *    (ex.: histórico anterior a 01/09/2026, que o dono decidiu não conferir) não entra: pode ter sido rejeitada ou cancelada.
+ *  - NFS-e: a prefeitura/ambiente nacional não devolve "autorizada" como a SEFAZ; vale a mesma regra que o Fiscal usa para a receita
+ *    do PGDAS-D (pgdasdApuracao.ts): entra se não estiver cancelada ou substituída. Assim a contabilidade e o DAS contam a mesma nota.
+ */
+export function fiscalAutorizado(documento: Registro): boolean {
+  if (cancelado(documento)) return false;
+  if (ehNfseDocumento(documento)) return true;
+  return documento.statusVerificadoSefaz === true && /autorizad/i.test(String(documento.statusSefaz || ""));
 }
 
 /** Regime informado no cadastro da empresa. No Simples Nacional o imposto destacado em nota não gera crédito/débito próprio: o pré-lançamento usa o valor bruto. */
@@ -58,48 +93,121 @@ export function entradaEhCompraParaEstoque(cfop: unknown): boolean {
 
 /** NFC-e (modelo 65 na chave) é venda de balcão: recebida na hora, não gera conta a receber de Clientes. */
 export function ehNfce(referencia: string): boolean {
-  return /^\d{44}$/.test(referencia) && referencia.slice(20, 22) === "65";
+  return ehChaveNfce(referencia);
+}
+
+/** Nome curto do documento para o histórico (antes tudo saía como "NF-e"). */
+export function rotuloDocumento(documento: Registro, referencia: string): string {
+  if (ehNfseDocumento(documento)) return "NFS-e";
+  if (ehChaveNfce(referencia)) return "NFC-e";
+  if (/^\d{44}$/.test(referencia) && ["57", "67"].includes(referencia.slice(20, 22))) return "CT-e";
+  return "NF-e";
+}
+
+/** Por que uma nota do Fiscal não virou pré-lançamento (null = virou). Textos curtos para a pendência do contador. */
+export type MotivoSemRascunho =
+  | "outra_empresa" | "nao_confirmada" | "cancelada" | "tipo" | "sem_data_ou_valor" | "sem_dados_tributarios" | "imposto_fora_do_simples"
+  | "sem_mapeamento" | "entrada_nao_compra" | "servico_tomado" | "sem_conta_servicos";
+export const TEXTO_MOTIVO: Record<MotivoSemRascunho, string> = {
+  outra_empresa: "a nota é de outro CNPJ",
+  nao_confirmada: "a situação da nota não foi confirmada na SEFAZ (pode ter sido rejeitada ou cancelada)",
+  cancelada: "nota cancelada, substituída, denegada ou inutilizada: não entra na contabilidade",
+  tipo: "a nota não é de entrada nem de saída",
+  sem_data_ou_valor: "a nota está sem data ou com valor zerado",
+  sem_dados_tributarios: "o Fiscal ainda não leu os impostos da nota",
+  imposto_fora_do_simples: "a empresa não é do Simples e a nota tem imposto destacado: lance com a separação dos impostos",
+  sem_mapeamento: "falta mapear as contas de notas da empresa (Revisão das origens)",
+  entrada_nao_compra: "entrada que não é compra para estoque (devolução, remessa, uso e consumo ou sem CFOP): classifique a conta",
+  servico_tomado: "nota de serviço tomado (despesa): classifique a conta",
+  sem_conta_servicos: "o plano não tem conta de receita de prestação de serviços no grupo da receita de vendas",
+};
+
+export type DiagnosticoNota = { referenciaDocumento: string; competencia: string | null; tipo: string; valorCentavos: number | null; rascunho: RascunhoAutomaticoContabil | null; motivo: MotivoSemRascunho | null };
+
+/** Uma nota → o pré-lançamento ou o motivo de não haver. Quem gera e o conferidor usam esta mesma função. */
+/** Identificador do documento dentro da referência do pré-lançamento (chave de acesso; NFS-e sem chave nacional usa o id do Fiscal). */
+export function documentoDaReferencia(documento: Registro): string {
+  return String((ehNfseDocumento(documento) && !/^\d{50}$/.test(String(documento?.chaveAcesso || "")) ? documento?.id : documento?.chaveAcesso) || documento?.id || "").trim();
+}
+
+/** Referência FISCAL:<cnpj>:<competência>:<Entrada|Saida>:<documento> da nota, ou null quando falta data/tipo/identificador. */
+export function referenciaDaNotaFiscal(cnpj: string, documento: Registro): string | null {
+  const doc = documentoDaReferencia(documento);
+  const periodo = dataCompetencia(documento?.dataEmissao || documento?.emissao);
+  if (!doc || doc.length > 128 || !periodo || (documento?.tipo !== "Entrada" && documento?.tipo !== "Saída")) return null;
+  return `FISCAL:${cnpj}:${periodo.competencia}:${documento.tipo === "Entrada" ? "Entrada" : "Saida"}:${doc}`;
+}
+
+export type NotaSemValorParaContabil = { referencia: string; rotulo: string; numero: string; valor: number; competencia: string; motivo: string; tipo: "Entrada" | "Saída" };
+
+/** Notas do CNPJ que não valem e que já podem ter virado pré-lançamento ou lançamento (para retirar ou alertar). */
+export function notasSemValorDoCnpj(cnpj: string, documentos: Registro[]): NotaSemValorParaContabil[] {
+  const saida: NotaSemValorParaContabil[] = [];
+  for (const documento of documentos) {
+    if (!documento || documento.cnpjEmpresa?.toUpperCase().replace(/[^A-Z0-9]/g, "") !== cnpj || !notaSemValor(documento)) continue;
+    const referencia = referenciaDaNotaFiscal(cnpj, documento);
+    if (!referencia) continue;
+    const valor = valorNumerico(documento.valorTotal) ?? Number(documento.valorTotal);
+    saida.push({
+      referencia, rotulo: rotuloDocumento(documento, documentoDaReferencia(documento)), numero: String(documento.numero ?? "").slice(0, 20),
+      valor: Number.isFinite(valor) ? Math.round((valor + Number.EPSILON) * 100) / 100 : 0, competencia: referencia.split(":")[2],
+      motivo: motivoNotaSemValor(documento), tipo: documento.tipo,
+    });
+  }
+  return saida;
+}
+
+export function diagnosticarNotaFiscal(cnpj: string, documento: Registro, contas: Registro[], mapeamentos: Registro[], agora: string, simplesNacional = false): DiagnosticoNota {
+  const referenciaDocumento = documentoDaReferencia(documento || {});
+  const periodo = dataCompetencia(documento?.dataEmissao || documento?.emissao);
+  const valor = valorNumerico(documento?.valorTotal);
+  const base: DiagnosticoNota = { referenciaDocumento, competencia: periodo?.competencia ?? null, tipo: String(documento?.tipo || ""), valorCentavos: valor === null ? null : Math.round((valor + Number.EPSILON) * 100), rascunho: null, motivo: null };
+  const fim = (motivo: MotivoSemRascunho): DiagnosticoNota => ({ ...base, motivo });
+  if (!documento || documento.cnpjEmpresa?.toUpperCase().replace(/[^A-Z0-9]/g, "") !== cnpj) return fim("outra_empresa");
+  if (documento.tipo !== "Entrada" && documento.tipo !== "Saída") return fim("tipo");
+  if (cancelado(documento)) return fim("cancelada");
+  if (!fiscalAutorizado(documento)) return fim("nao_confirmada");
+  if (!referenciaDocumento || referenciaDocumento.length > 128 || !periodo || valor === null || valor <= 0) return fim("sem_data_ou_valor");
+  if (documento.dadosTributariosDisponiveis !== true) return fim("sem_dados_tributarios");
+  const tributarios = ["valorIcms", "valorIpi", "valorPis", "valorCofins", "valorIss"];
+  if (!simplesNacional && tributarios.some((campo) => valorNumerico(documento[campo]) !== 0)) return fim("imposto_fora_do_simples");
+  const nfse = ehNfseDocumento(documento);
+  if (documento.tipo === "Entrada" && nfse) return fim("servico_tomado");
+  if (documento.tipo === "Entrada" && !entradaEhCompraParaEstoque(documento.cfop)) return fim("entrada_nao_compra");
+
+  const origem = (documento.tipo === "Entrada" ? "Fiscal — Entrada" : "Fiscal — Saída") as keyof typeof mapeamentosOrigem;
+  const contasAnaliticas = new Set(contas.filter((conta) => conta?.tipo === "analitica").map((conta) => conta.codigo));
+  const mapping = mapeamentos.find((item) => item.origem === mapeamentosOrigem[origem]);
+  if (!mapping || !contasAnaliticas.has(mapping.contaDebitoCodigo) || !contasAnaliticas.has(mapping.contaCreditoCodigo)
+    || mapping.contaDebitoCodigo === mapping.contaCreditoCodigo) return fim("sem_mapeamento");
+
+  const tipoReferencia = documento.tipo === "Entrada" ? "Entrada" : "Saida";
+  const referencia = `FISCAL:${cnpj}:${periodo.competencia}:${tipoReferencia}:${referenciaDocumento}`;
+  const par = contasDoRascunhoFiscal(referencia, mapping, contas);
+  if (!par) return fim(nfse ? "sem_conta_servicos" : "sem_mapeamento");
+  const rotulo = rotuloDocumento(documento, referenciaDocumento);
+  return { ...base, rascunho: {
+    id: referencia,
+    referenciaOrigem: referencia,
+    competencia: periodo.competencia,
+    data: periodo.data,
+    origem,
+    contaDebitoCodigo: par.debito,
+    contaCreditoCodigo: par.credito,
+    valor: Math.round((valor + Number.EPSILON) * 100) / 100,
+    // Texto igual ao de antes para NF-e/NFC-e (mudar o histórico reescreveria pré-lançamentos já preparados); NFS-e ganha o rótulo e o número.
+    historico: rotulo === "NFS-e"
+      ? `${origem} NFS-e ${referenciaDocumento}${documento.numero ? ` nº ${String(documento.numero).slice(0, 20)}` : ""} — valor bruto, pré-lançamento para conferência`
+      : `${origem} NF-e ${referenciaDocumento} — valor bruto, pré-lançamento para conferência`,
+    criadoEm: agora,
+  } };
 }
 
 export function gerarRascunhosFiscal(cnpj: string, documentos: Registro[], contas: Registro[], mapeamentos: Registro[], agora: string, simplesNacional = false): RascunhoAutomaticoContabil[] {
   const candidatos: RascunhoAutomaticoContabil[] = [];
-  const contasAnaliticas = new Set(contas.filter((conta) => conta?.tipo === "analitica").map((conta) => conta.codigo));
-  const tributarios = ["valorIcms", "valorIpi", "valorPis", "valorCofins", "valorIss"];
   for (const documento of documentos) {
-    if (!documento || documento.cnpjEmpresa?.toUpperCase().replace(/[^A-Z0-9]/g, "") !== cnpj || !fiscalAutorizado(documento)) continue;
-    if (documento.tipo !== "Entrada" && documento.tipo !== "Saída") continue;
-    const referenciaDocumento = String(documento.chaveAcesso || documento.id || "").trim();
-    const periodo = dataCompetencia(documento.dataEmissao || documento.emissao);
-    const valor = valorNumerico(documento.valorTotal);
-    if (!referenciaDocumento || referenciaDocumento.length > 128 || !periodo || valor === null || valor <= 0
-      || documento.dadosTributariosDisponiveis !== true
-      || (!simplesNacional && tributarios.some((campo) => valorNumerico(documento[campo]) !== 0))) continue;
-
-    const origem = (documento.tipo === "Entrada" ? "Fiscal — Entrada" : "Fiscal — Saída") as keyof typeof mapeamentosOrigem;
-    const mapping = mapeamentos.find((item) => item.origem === mapeamentosOrigem[origem]);
-    if (!mapping || !contasAnaliticas.has(mapping.contaDebitoCodigo) || !contasAnaliticas.has(mapping.contaCreditoCodigo)
-      || mapping.contaDebitoCodigo === mapping.contaCreditoCodigo) continue;
-    if (documento.tipo === "Entrada" && !entradaEhCompraParaEstoque(documento.cfop)) continue;
-    let debito = String(mapping.contaDebitoCodigo);
-    if (documento.tipo === "Saída" && ehNfce(referenciaDocumento)) {
-      const caixa = contas.find((c) => c?.tipo === "analitica" && /^1\.1\.[1-3]/.test(String(c.codigo)) && /caixa|banco|cart[ãa]o/i.test(String(c.nome || c.descricao || "")));
-      if (caixa && caixa.codigo !== mapping.contaCreditoCodigo) debito = String(caixa.codigo);
-    }
-
-    const tipoReferencia = documento.tipo === "Entrada" ? "Entrada" : "Saida";
-    const referencia = `FISCAL:${cnpj}:${periodo.competencia}:${tipoReferencia}:${referenciaDocumento}`;
-    candidatos.push({
-      id: referencia,
-      referenciaOrigem: referencia,
-      competencia: periodo.competencia,
-      data: periodo.data,
-      origem,
-      contaDebitoCodigo: debito,
-      contaCreditoCodigo: String(mapping.contaCreditoCodigo),
-      valor: Math.round((valor + Number.EPSILON) * 100) / 100,
-      historico: `${origem} NF-e ${referenciaDocumento} — valor bruto, pré-lançamento para conferência`,
-      criadoEm: agora,
-    });
+    const d = diagnosticarNotaFiscal(cnpj, documento, contas, mapeamentos, agora, simplesNacional);
+    if (d.rascunho) candidatos.push(d.rascunho);
   }
   return candidatos;
 }
@@ -380,15 +488,20 @@ export function notasSemLancamentoEmDobro(documentos: Registro[], workspace: Rec
 }
 
 export async function gerarCandidatosRascunhosAutomaticos(cnpj: string, workspaceOverride?: Record<string, unknown>): Promise<RascunhoAutomaticoContabil[]> {
-  if (!fiscalStoreConfigurado() || !dpStoreConfigurado()) return [];
+  return (await gerarCandidatosEDocumentos(cnpj, workspaceOverride)).candidatos;
+}
+
+/** Candidatos e as notas lidas (o preparo usa as notas para tirar o que deixou de valer, sem ler o banco duas vezes). */
+export async function gerarCandidatosEDocumentos(cnpj: string, workspaceOverride?: Record<string, unknown>): Promise<{ candidatos: RascunhoAutomaticoContabil[]; documentos: Registro[] }> {
+  if (!fiscalStoreConfigurado() || !dpStoreConfigurado()) return { candidatos: [], documentos: [] };
   const workspace = workspaceOverride || await lerWorkspaceInternoContabil(cnpj);
-  if (!workspace) return [];
+  if (!workspace) return { candidatos: [], documentos: [] };
   const contas = Array.isArray(workspace.contas) ? workspace.contas as Registro[] : [];
   const mapeamentos = Array.isArray(workspace.mapeamentosOrigem) ? workspace.mapeamentosOrigem as Registro[] : [];
-  if (!mapeamentos.length) return [];
+  if (!mapeamentos.length) return { candidatos: [], documentos: fiscalStoreConfigurado() ? await lerTodosDocumentosFiscais(cnpj) as Registro[] : [] };
 
   const [documentos, folhas, proLabores, eventos, apuracoes] = await Promise.all([
-    lerDocumentosFiscais(cnpj, "", "", 500),
+    lerTodosDocumentosFiscais(cnpj),
     lerResumosDP(cnpj, "", "", 200) as Promise<ResumoFolha[]>,
     lerResumosProLaboreDP(cnpj, 200).catch(() => []),
     lerEventosDP(cnpj, undefined, 200).catch(() => []),
@@ -402,7 +515,7 @@ export async function gerarCandidatosRascunhosAutomaticos(cnpj: string, workspac
     ...gerarRascunhosEventosDP(cnpj, eventos, contas, mapeamentos, agora),
     ...gerarRascunhosApuracoes(cnpj, apuracoes, contas, mapeamentos, agora),
   ];
-  return candidatos;
+  return { candidatos, documentos: documentos as Registro[] };
 }
 
 export function mesclarRascunhosNoWorkspace(
@@ -423,7 +536,7 @@ export function mesclarRascunhosNoWorkspace(
     if (lancamentos.some((item) => item.documentoRef === referencia || item.id === referencia)) continue;
     const mappingKey = mapeamentosOrigem[candidato.origem as keyof typeof mapeamentosOrigem];
     const mapping = mapeamentos.find((item) => item.origem === mappingKey);
-    if (!mapping || mapping.contaDebitoCodigo !== candidato.contaDebitoCodigo || mapping.contaCreditoCodigo !== candidato.contaCreditoCodigo) continue;
+    if (!contasDoRascunhoConferem(candidato, mapping, Array.isArray(workspace.contas) ? workspace.contas as Registro[] : [])) continue;
     const indice = mesclados.findIndex((item) => item.referenciaOrigem === referencia);
     const existente = indice < 0 ? undefined : mesclados[indice];
     if (existente?.status === "contabilizado") continue;
@@ -443,9 +556,19 @@ export function mesclarRascunhosNoWorkspace(
   return { workspace: criados || atualizados ? { ...workspace, preLancamentos: mesclados } : workspace, criados, atualizados };
 }
 
-export async function prepararRascunhosContabeisAutomaticos(cnpj: string): Promise<{ criados: number; atualizados: number }> {
+export async function prepararRascunhosContabeisAutomaticos(cnpj: string): Promise<{ criados: number; atualizados: number; retirados: number; alertasEstorno: number }> {
   const workspace = await lerWorkspaceInternoContabil(cnpj);
-  if (!workspace) return { criados: 0, atualizados: 0 };
-  const candidatos = await gerarCandidatosRascunhosAutomaticos(cnpj, workspace);
-  return mesclarRascunhosAutomaticosContabil(cnpj, candidatos);
+  if (!workspace) return { criados: 0, atualizados: 0, retirados: 0, alertasEstorno: 0 };
+  const { candidatos, documentos } = await gerarCandidatosEDocumentos(cnpj, workspace);
+  // A gravação aceita no máximo 700 por vez: empresa com muitas notas vai em partes, sem perder nenhuma.
+  let criados = 0, atualizados = 0;
+  for (let i = 0; i < candidatos.length; i += TAMANHO_LOTE_RASCUNHOS) {
+    const r = await mesclarRascunhosAutomaticosContabil(cnpj, candidatos.slice(i, i + TAMANHO_LOTE_RASCUNHOS));
+    criados += r.criados; atualizados += r.atualizados;
+  }
+  // Nota que deixou de valer depois de virar pré-lançamento: o pendente sai; o já contabilizado vira alerta vermelho com estorno sugerido.
+  const semValor = notasSemValorDoCnpj(cnpj, documentos);
+  const tratado = await tratarNotasSemValorContabil(cnpj, semValor);
+  return { criados, atualizados, retirados: tratado.retirados, alertasEstorno: tratado.alertasAbertos };
 }
+export const TAMANHO_LOTE_RASCUNHOS = 600;

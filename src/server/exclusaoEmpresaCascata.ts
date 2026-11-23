@@ -55,7 +55,9 @@ export async function removerEmpresaCompleta(banco: BancoTransacional, cnpjBruto
     const titulos = await seExiste('contabil_titulos');
     const cartoes = await seExiste('contabil_cartoes');
     const extrato = await seExiste('contabil_extrato_movimentos');
-    return { acessosDeUsuarios: acessos, empresaCompartilhada: comp, workspace: work, atividadeEquipe: ativ, sistemaAnterior: anterior, titulos, cartoes, extrato, guardadosNoArquivoMorto: guarda.guardados, operacionais: guarda.operacionais } as Apagados;
+    // Conferência Fiscal × DP × Contábil e alertas de nota sem valor: são do trabalho da empresa, saem junto (nunca bloqueiam o CNPJ).
+    const conferenciaOrigens = (await seExiste('contabil_alertas_nota_sem_valor')) + (await seExiste('contabil_conferencia_origens'));
+    return { acessosDeUsuarios: acessos, empresaCompartilhada: comp, workspace: work, atividadeEquipe: ativ, sistemaAnterior: anterior, titulos, cartoes, extrato, guardadosNoArquivoMorto: guarda.guardados, operacionais: guarda.operacionais + conferenciaOrigens } as Apagados;
   });
   const total = apagados.acessosDeUsuarios + apagados.empresaCompartilhada + apagados.workspace + apagados.atividadeEquipe + apagados.sistemaAnterior + apagados.titulos + apagados.cartoes + apagados.extrato + apagados.guardadosNoArquivoMorto + apagados.operacionais;
   return { sucesso: true, cnpj, apagados, preservados: [...PRESERVADOS], jaNaoExistia: total === 0 };

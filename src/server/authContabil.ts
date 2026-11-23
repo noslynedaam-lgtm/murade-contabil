@@ -2,6 +2,8 @@ import { IDS_ORIGEM, ROTULOS_ORIGEM, ROTULO_PARA_ID, origemDaReferencia } from "
 import { sugerirMapeamentosPadrao, contasDasParaCompletar, ORIGENS_COM_MAPEAMENTO_PADRAO } from "../utils/sugestoesContas";
 import { ordenarContasPorSequenciaNumerica } from "../utils/planoContasUtils";
 import { montarWorkspaceInicialContabil, empresaInicialDoCadastro } from "../utils/workspaceInicial";
+import { contasDoRascunhoConferem } from "../utils/contasRascunhoFiscal";
+import { contasParaCompletarPlano, podeCompletarSozinho } from "../utils/completarPlanoPadrao";
 import { validarHistoricoPadrao, validarLancamentoPadrao } from "../utils/escrituracaoAvancada";
 import { validarRegraConciliacao } from "../utils/extratoBancario";
 import type { HistoricoPadrao } from "../types";
@@ -1028,7 +1030,8 @@ export async function contabilizarRascunhosAutomaticosContabil(
         && rascunho.competencia === candidato.competencia && rascunho.data === candidato.data
         && rascunho.origem === candidato.origem && rascunho.contaDebitoCodigo === candidato.contaDebitoCodigo
         && rascunho.contaCreditoCodigo === candidato.contaCreditoCodigo && rascunho.valor === candidato.valor
-        && mapping?.contaDebitoCodigo === candidato.contaDebitoCodigo && mapping?.contaCreditoCodigo === candidato.contaCreditoCodigo
+        // Mesma regra de contas de quem gera e de quem grava (NFC-e no Caixa, NFS-e na receita de serviços): antes a aprovação recusava essas notas.
+        && contasDoRascunhoConferem(candidato, mapping, contas)
         && analiticas.has(candidato.contaDebitoCodigo) && analiticas.has(candidato.contaCreditoCodigo)
         && Number.isFinite(candidato.valor) && candidato.valor > 0 && !lancamentos.some((item: any) => item.documentoRef === referencia || item.id === referencia);
       if (!confereAtual) throw Object.assign(new Error("Os dados de origem, o valor ou o mapeamento mudaram. Atualize e confira o rascunho antes de aprovar."), { status: 409 });
@@ -1614,7 +1617,8 @@ export async function mesclarRascunhosAutomaticosContabil(
       if (lancamentos.some((item) => item.documentoRef === referencia || item.id === referencia)) continue;
       const campoOrigem = origemDaReferencia(referencia)?.id ?? "";
       const mapeamento = mapeamentos.find((item) => item.origem === campoOrigem);
-      if (!mapeamento || mapeamento.contaDebitoCodigo !== candidato.contaDebitoCodigo || mapeamento.contaCreditoCodigo !== candidato.contaCreditoCodigo) continue;
+      // Mesma regra de contas de quem gerou (NFC-e no Caixa, NFS-e na receita de serviços): antes só o par do mapeamento passava e a NFC-e sumia.
+      if (!contasDoRascunhoConferem(candidato, mapeamento, Array.isArray(payload.contas) ? payload.contas as Array<Record<string, unknown>> : [])) continue;
 
       const indice = atualizadosWorkspace.findIndex((item) => item.referenciaOrigem === referencia);
       const existente = indice < 0 ? undefined : atualizadosWorkspace[indice];
@@ -1651,6 +1655,186 @@ export async function mesclarRascunhosAutomaticosContabil(
   } finally {
     client.release();
   }
+}
+
+// ===== Nota que deixou de valer depois de virar pré-lançamento (cancelada, substituída, denegada, inutilizada) =====
+// Regra do dono (23/11/2026): o pré-lançamento AUTOMÁTICO ainda pendente sai; o que já foi contabilizado NUNCA é estornado sozinho —
+// vira alerta vermelho ao contador com o estorno sugerido (contas invertidas, mesmo valor). O alerta some sozinho quando o estorno
+// aparece nos lançamentos ou quando o lançamento é retirado; o contador também pode marcar como resolvido.
+
+export type NotaSemValorEntrada = { referencia: string; rotulo: string; numero: string; valor: number; competencia: string; motivo: string; tipo: "Entrada" | "Saída" };
+export type AlertaNotaSemValor = {
+  cnpj: string; referencia: string; rotulo: string; numero: string; motivo: string; valor: number; competencia: string;
+  contaDebito: string; contaCredito: string; historicoOriginal: string; dataLancamento: string; criadoEm: string;
+  estornoSugerido: { data: string; contaDebito: string; contaCredito: string; valor: number; historico: string; competenciaFechada: boolean };
+};
+
+let tabelaAlertasNotaSemValorPronta = false;
+async function prepararTabelaAlertasNotaSemValor(client: { query: (sql: string, params?: unknown[]) => Promise<any> }): Promise<void> {
+  if (tabelaAlertasNotaSemValorPronta) return;
+  await client.query(`CREATE TABLE IF NOT EXISTS contabil_alertas_nota_sem_valor (
+    cnpj text NOT NULL, referencia text NOT NULL, rotulo text NOT NULL DEFAULT '', numero text NOT NULL DEFAULT '', motivo text NOT NULL DEFAULT '',
+    valor numeric(16,2) NOT NULL DEFAULT 0, competencia text NOT NULL DEFAULT '', conta_debito text NOT NULL DEFAULT '', conta_credito text NOT NULL DEFAULT '',
+    historico_original text NOT NULL DEFAULT '', data_lancamento text NOT NULL DEFAULT '', criado_em timestamptz NOT NULL DEFAULT now(),
+    resolvido_em timestamptz, resolvido_por text, resolucao text, PRIMARY KEY (cnpj, referencia))`);
+  tabelaAlertasNotaSemValorPronta = true;
+}
+
+/** Regra pura: o lançamento já tem estorno? (referência ESTORNO:<ref> ou contas invertidas, mesmo valor e o documento no histórico). */
+export function estornoJaFeito(original: { contaDebitoCodigo: string; contaCreditoCodigo: string; valor: number; referencia: string }, lancamentos: Array<Record<string, any>>): boolean {
+  const doc = original.referencia.split(":").slice(4).join(":");
+  return lancamentos.some((l) => l?.documentoRef === `ESTORNO:${original.referencia}` || l?.id === `ESTORNO:${original.referencia}`
+    || (String(l?.contaDebitoCodigo) === original.contaCreditoCodigo && String(l?.contaCreditoCodigo) === original.contaDebitoCodigo
+      && Math.round(Number(l?.valor) * 100) === Math.round(original.valor * 100) && !!doc && String(l?.historico || "").includes(doc)));
+}
+
+/**
+ * Tira do workspace o pré-lançamento automático pendente de nota sem valor e abre/fecha os alertas dos já contabilizados.
+ * Só mexe no próprio CNPJ. Nunca cria nem apaga lançamento definitivo.
+ */
+export async function tratarNotasSemValorContabil(cnpj: string, notas: NotaSemValorEntrada[]): Promise<{ retirados: number; alertasAbertos: number; alertasNovos: number; alertasResolvidos: number }> {
+  const normalizado = normalizarCnpjAcesso(cnpj);
+  const vazio = { retirados: 0, alertasAbertos: 0, alertasNovos: 0, alertasResolvidos: 0 };
+  if (!cnpjContabilValido(normalizado)) return vazio;
+  await prepararAuthContabil();
+  const client = await obterBanco().connect();
+  try {
+    await prepararTabelaAlertasNotaSemValor(client);
+    await client.query("BEGIN");
+    const w = await client.query("SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1 FOR UPDATE", [normalizado]);
+    if (!w.rowCount) { await client.query("COMMIT"); return vazio; }
+    const payload = w.rows[0].payload as Record<string, any>;
+    const pre = Array.isArray(payload.preLancamentos) ? payload.preLancamentos as Array<Record<string, any>> : [];
+    const lancamentos = Array.isArray(payload.lancamentos) ? payload.lancamentos as Array<Record<string, any>> : [];
+    const porRef = new Map(notas.filter((n) => n.referencia.startsWith(`FISCAL:${normalizado}:`)).map((n) => [n.referencia, n]));
+    let retirados = 0, alertasNovos = 0, alertasResolvidos = 0;
+
+    const restantes = pre.filter((item) => {
+      const sai = porRef.has(String(item?.referenciaOrigem)) && item?.status === "pendente_conferencia" && item?.geradoAutomaticamente === true;
+      if (sai) retirados += 1;
+      return !sai;
+    });
+    if (retirados) {
+      const novoPayload = { ...payload, preLancamentos: restantes };
+      if (!workspaceValido(novoPayload)) throw new Error("Workspace inválido ao retirar pré-lançamentos de notas sem valor; nada foi alterado.");
+      await client.query("UPDATE contabil_company_workspaces SET payload=$2::jsonb,version=version+1,updated_at=now() WHERE cnpj=$1", [normalizado, JSON.stringify(novoPayload)]);
+    }
+
+    // Já contabilizado (lançamento definitivo com a referência da nota): alerta vermelho, sem estornar.
+    for (const [referencia, nota] of porRef) {
+      const lanc = lancamentos.find((l) => l?.documentoRef === referencia || l?.id === referencia);
+      if (!lanc) continue;
+      const original = { contaDebitoCodigo: String(lanc.contaDebitoCodigo), contaCreditoCodigo: String(lanc.contaCreditoCodigo), valor: Number(lanc.valor) || 0, referencia };
+      if (estornoJaFeito(original, lancamentos)) continue;
+      const r = await client.query(`INSERT INTO contabil_alertas_nota_sem_valor (cnpj,referencia,rotulo,numero,motivo,valor,competencia,conta_debito,conta_credito,historico_original,data_lancamento)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        ON CONFLICT (cnpj,referencia) DO UPDATE SET motivo=EXCLUDED.motivo, valor=EXCLUDED.valor, conta_debito=EXCLUDED.conta_debito, conta_credito=EXCLUDED.conta_credito,
+          resolvido_em=NULL, resolvido_por=NULL, resolucao=NULL
+        WHERE contabil_alertas_nota_sem_valor.resolvido_em IS NOT NULL AND contabil_alertas_nota_sem_valor.resolucao <> 'marcado pelo contador'
+        RETURNING (xmax = 0) AS novo`,
+        [normalizado, referencia, nota.rotulo, nota.numero, nota.motivo, original.valor, String(lanc.competencia || nota.competencia), original.contaDebitoCodigo, original.contaCreditoCodigo, String(lanc.historico || "").slice(0, 400), String(lanc.data || "")]);
+      if (r.rowCount) alertasNovos += 1;
+    }
+
+    // Fecha sozinho o alerta cujo estorno já existe ou cujo lançamento saiu.
+    const abertos = await client.query("SELECT referencia, conta_debito, conta_credito, valor FROM contabil_alertas_nota_sem_valor WHERE cnpj=$1 AND resolvido_em IS NULL", [normalizado]);
+    for (const a of abertos.rows) {
+      const ref = String(a.referencia);
+      const aindaLancado = lancamentos.some((l) => l?.documentoRef === ref || l?.id === ref);
+      const feito = aindaLancado && estornoJaFeito({ contaDebitoCodigo: String(a.conta_debito), contaCreditoCodigo: String(a.conta_credito), valor: Number(a.valor), referencia: ref }, lancamentos);
+      if (!aindaLancado || feito) {
+        await client.query("UPDATE contabil_alertas_nota_sem_valor SET resolvido_em=now(), resolvido_por='Robô Conferidor das Origens', resolucao=$3 WHERE cnpj=$1 AND referencia=$2",
+          [normalizado, ref, feito ? "estorno encontrado nos lançamentos" : "lançamento retirado"]);
+        alertasResolvidos += 1;
+      }
+    }
+    const total = await client.query("SELECT count(*)::int AS n FROM contabil_alertas_nota_sem_valor WHERE cnpj=$1 AND resolvido_em IS NULL", [normalizado]);
+    await client.query("COMMIT");
+    return { retirados, alertasAbertos: Number(total.rows[0]?.n) || 0, alertasNovos, alertasResolvidos };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Completa o plano de contas da empresa com o plano padrão — só acrescenta (utils/completarPlanoPadrao.ts explica as travas).
+ * automatico=true (robô): só em plano provisório (menos de 100 contas e nenhum lançamento definitivo). Clique da pessoa: qualquer plano.
+ */
+export async function completarPlanoPadraoContabil(cnpj: string, automatico: boolean): Promise<{ acrescentadas: number; gruposForaDoPadrao: string[]; motivo?: string }> {
+  const normalizado = normalizarCnpjAcesso(cnpj);
+  if (!cnpjContabilValido(normalizado)) return { acrescentadas: 0, gruposForaDoPadrao: [], motivo: "CNPJ inválido." };
+  await prepararAuthContabil();
+  const client = await obterBanco().connect();
+  try {
+    await client.query("BEGIN");
+    const w = await client.query("SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1 FOR UPDATE", [normalizado]);
+    if (!w.rowCount) { await client.query("ROLLBACK"); return { acrescentadas: 0, gruposForaDoPadrao: [], motivo: "A empresa ainda não foi aberta no Contábil." }; }
+    const payload = w.rows[0].payload as Record<string, any>;
+    const contas = Array.isArray(payload.contas) ? payload.contas : [];
+    const lancamentos = Array.isArray(payload.lancamentos) ? payload.lancamentos : [];
+    if (automatico && !podeCompletarSozinho(contas.length, lancamentos.length)) { await client.query("ROLLBACK"); return { acrescentadas: 0, gruposForaDoPadrao: [], motivo: "Plano com lançamentos ou já completo: só completo com o clique da contadora." }; }
+    const r = contasParaCompletarPlano(contas);
+    if (!r.acrescentar.length) { await client.query("ROLLBACK"); return { acrescentadas: 0, gruposForaDoPadrao: r.gruposForaDoPadrao }; }
+    const novoPayload = { ...payload, contas: ordenarContasPorSequenciaNumerica([...contas, ...r.acrescentar]) };
+    if (!workspaceValido(novoPayload)) throw new Error("O plano completado não passou na validação; nada foi alterado.");
+    await client.query("UPDATE contabil_company_workspaces SET payload=$2::jsonb,version=version+1,updated_at=now() WHERE cnpj=$1", [normalizado, JSON.stringify(novoPayload)]);
+    await client.query("COMMIT");
+    return { acrescentadas: r.acrescentar.length, gruposForaDoPadrao: r.gruposForaDoPadrao };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally { client.release(); }
+}
+
+/** Alertas abertos das empresas pedidas (a rota passa só as da sessão), com o estorno sugerido. */
+export async function listarAlertasNotaSemValorContabil(cnpjs: string[]): Promise<AlertaNotaSemValor[]> {
+  if (!cnpjs.length) return [];
+  await prepararAuthContabil();
+  const client = await obterBanco().connect();
+  try {
+    await prepararTabelaAlertasNotaSemValor(client);
+    const r = await client.query(`SELECT a.*, EXISTS (SELECT 1 FROM contabil_period_closures f WHERE f.cnpj=a.cnpj AND f.competencia=a.competencia) AS fechada
+      FROM contabil_alertas_nota_sem_valor a WHERE a.cnpj = ANY($1::text[]) AND a.resolvido_em IS NULL ORDER BY a.cnpj, a.competencia, a.referencia LIMIT 2000`, [cnpjs]);
+    const hoje = new Date().toISOString().slice(0, 10);
+    return r.rows.map((x: any) => {
+      const valor = Number(x.valor) || 0;
+      const fechada = x.fechada === true;
+      const doc = String(x.referencia).split(":").slice(4).join(":");
+      return {
+        cnpj: String(x.cnpj).trim(), referencia: String(x.referencia), rotulo: String(x.rotulo), numero: String(x.numero), motivo: String(x.motivo), valor,
+        competencia: String(x.competencia), contaDebito: String(x.conta_debito), contaCredito: String(x.conta_credito), historicoOriginal: String(x.historico_original),
+        dataLancamento: String(x.data_lancamento), criadoEm: new Date(x.criado_em).toISOString(),
+        estornoSugerido: {
+          // Mês aberto: estorno na mesma data do lançamento. Mês fechado não recebe lançamento: estorno na data de hoje.
+          data: fechada || !/^\d{4}-\d{2}-\d{2}$/.test(String(x.data_lancamento)) ? hoje : String(x.data_lancamento),
+          contaDebito: String(x.conta_credito), contaCredito: String(x.conta_debito), valor,
+          historico: `Estorno — ${x.rotulo || "nota"}${x.numero ? ` nº ${x.numero}` : ""} ${x.motivo} (${doc})`,
+          competenciaFechada: fechada,
+        },
+      };
+    });
+  } finally { client.release(); }
+}
+
+/** O contador marca o alerta como resolvido (ex.: estornou com outro histórico). Só do CNPJ da sessão; nada é lançado. */
+export async function resolverAlertaNotaSemValorContabil(cnpj: string, referencia: string, login: string): Promise<boolean> {
+  await prepararAuthContabil();
+  const client = await obterBanco().connect();
+  try {
+    await prepararTabelaAlertasNotaSemValor(client);
+    const r = await client.query("UPDATE contabil_alertas_nota_sem_valor SET resolvido_em=now(), resolvido_por=$3, resolucao='marcado pelo contador' WHERE cnpj=$1 AND referencia=$2 AND resolvido_em IS NULL", [cnpj, referencia, login.slice(0, 120)]);
+    return (r.rowCount ?? 0) > 0;
+  } finally { client.release(); }
+}
+
+/** Exclusão da empresa: some junto (o CNPJ fica livre para novo cadastro). */
+export async function apagarAlertasNotaSemValorContabil(cnpj: string): Promise<void> {
+  await prepararAuthContabil();
+  const client = await obterBanco().connect();
+  try { await prepararTabelaAlertasNotaSemValor(client); await client.query("DELETE FROM contabil_alertas_nota_sem_valor WHERE cnpj=$1", [cnpj]); } finally { client.release(); }
 }
 
 export async function lerWorkspaceContabil(req: Request, res: Response): Promise<void> {
@@ -2010,7 +2194,68 @@ export async function importarCnpjsCompartilhados(itens: Array<{ cnpj: string; e
   }
   // A empresa que chegou do Fiscal já começa a trabalhar no Contábil: workspace inicial (plano padrão + mapeamentos) para o reconciliador preparar os pré-lançamentos.
   await criarWorkspacesQueFaltamContabil(itens.map((i) => i.cnpj)).catch((error) => console.error("[Murad Contábil] Falha ao criar workspaces das empresas vindas do Fiscal (o Robô Reconciliador tenta de novo):", error));
+  // O cadastro continua acompanhando o Fiscal depois de criado: regime (fonte = Fiscal) e campos que estão vazios aqui.
+  await sincronizarCadastroDoFiscalContabil(itens).catch((error) => console.error("[Murad Contábil] Falha ao sincronizar o cadastro vindo do Fiscal (tenta de novo na próxima importação):", error));
   return { criadas, jaExistiam, semEscritorio, semDono: !dono && itens.some((i) => i.donoSistema) ? true : undefined };
+}
+
+/**
+ * Regra pura: o que muda no cadastro do Contábil com o que veio do Fiscal.
+ *  - Regime: o Fiscal é a fonte (é ele que apura o imposto). Regime válido e diferente → troca e registra de onde veio e quando.
+ *    Regime vazio no Fiscal nunca apaga o daqui nem é chutado: vira pendência no conferidor.
+ *  - Razão social, nome fantasia, município e UF: só preenchem o que está VAZIO aqui (nunca sobrescreve o que a pessoa digitou).
+ */
+export function mudancasCadastroDoFiscal(atual: Record<string, unknown> | null | undefined, doFiscal: Record<string, unknown>, agoraIso: string): Record<string, unknown> | null {
+  const empresa = { ...(atual || {}) };
+  let mudou = false;
+  const regime = String(doFiscal.regime ?? "").trim();
+  // Entidade imune/isenta e Lucro Arbitrado só existem no Contábil (o Fiscal não manda): escolha da contadora, nunca é trocada daqui.
+  const escolhaSoDoContabil = /^(entidade\s+(imune|isenta)|lucro\s+arbitrado)/i.test(String(empresa.regime ?? "").trim());
+  if (regime && !escolhaSoDoContabil && String(empresa.regime ?? "").trim() !== regime) {
+    if (empresa.regime) empresa.regimeAnterior = empresa.regime;
+    empresa.regime = regime; empresa.regimeOrigem = "Murad Fiscal"; empresa.regimeAtualizadoEm = agoraIso; mudou = true;
+  }
+  for (const campo of ["razaoSocial", "nomeFantasia", "municipio", "uf"] as const) {
+    const novo = String(doFiscal[campo] ?? "").trim();
+    if (novo && !String(empresa[campo] ?? "").trim()) { empresa[campo] = novo; mudou = true; }
+  }
+  return mudou ? empresa : null;
+}
+
+/** Aplica o cadastro do Fiscal no campo "empresa" do workspace e no cadastro compartilhado. Só muda a empresa do próprio CNPJ. */
+export async function sincronizarCadastroDoFiscalContabil(itens: Array<{ cnpj: string; dados?: Record<string, unknown> }>, agoraIso = new Date().toISOString()): Promise<{ atualizadas: string[] }> {
+  await prepararAuthContabil();
+  const atualizadas: string[] = [];
+  for (const item of itens) {
+    const cnpj = normalizarCnpjAcesso(item.cnpj);
+    if (!cnpjContabilValido(cnpj) || !item.dados) continue;
+    const client = await obterBanco().connect();
+    try {
+      await client.query("BEGIN");
+      const w = await client.query("SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1 FOR UPDATE", [cnpj]);
+      if (w.rowCount) {
+        const payload = w.rows[0].payload as Record<string, unknown>;
+        const nova = mudancasCadastroDoFiscal(payload.empresa as Record<string, unknown>, item.dados, agoraIso);
+        if (nova) {
+          const novoPayload = { ...payload, empresa: nova };
+          if (workspaceValido(novoPayload)) {
+            await client.query("UPDATE contabil_company_workspaces SET payload=$2::jsonb,version=version+1,updated_at=now() WHERE cnpj=$1", [cnpj, JSON.stringify(novoPayload)]);
+            atualizadas.push(cnpj);
+          }
+        }
+      }
+      const c = await client.query("SELECT dados FROM contabil_empresas_compartilhadas WHERE cnpj=$1 FOR UPDATE", [cnpj]);
+      if (c.rowCount) {
+        const novaC = mudancasCadastroDoFiscal(c.rows[0].dados as Record<string, unknown>, item.dados, agoraIso);
+        if (novaC) await client.query("UPDATE contabil_empresas_compartilhadas SET dados=$2::jsonb,updated_at=now() WHERE cnpj=$1", [cnpj, JSON.stringify(novaC)]);
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally { client.release(); }
+  }
+  return { atualizadas };
 }
 
 // ===== Código de segurança (segundo fator) — telas "Segurança" e "Usuários" =====

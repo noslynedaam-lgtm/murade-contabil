@@ -124,6 +124,10 @@ export const CAMPOS_CONTABIL: CampoMapa[] = [
   { chave: 'revisor-competencia', tela: 'revisor', rotulo: 'Competência da revisão', arquivo: 'src/components/tabs/RevisorTab.tsx', tipo: 'texto' },
   { chave: 'revisor-revisar', tela: 'revisor', rotulo: 'Revisar todas as empresas', arquivo: 'src/components/tabs/RevisorTab.tsx', tipo: 'botao' },
   { chave: 'revisor-rodar-agora', tela: 'revisor', rotulo: 'Rodar agora (revisão geral)', arquivo: 'src/components/tabs/RevisorTab.tsx', tipo: 'botao' },
+  // Conferência Fiscal × DP × Contábil (dentro de Revisão das origens)
+  { chave: 'conferencia-origens-rodar-agora', tela: 'revisao-origens', rotulo: 'Rodar agora (conferência Fiscal × DP × Contábil)', arquivo: 'src/components/ConferenciaOrigensPainel.tsx', tipo: 'botao' },
+  { chave: 'conferencia-origens-completar-plano', tela: 'revisao-origens', rotulo: 'Completar plano com o padrão', arquivo: 'src/components/ConferenciaOrigensPainel.tsx', tipo: 'botao' },
+  { chave: 'conferencia-origens-detalhe', tela: 'revisao-origens', rotulo: 'Ver mês a mês (conferência Fiscal × DP × Contábil)', arquivo: 'src/components/ConferenciaOrigensPainel.tsx', tipo: 'botao' },
   // Demonstrações e relatórios (DFC, DMPL, notas, índices, relatório para o cliente, classificação, ECF Y/Parte B, painel)
   { chave: 'demonstracoes-competencia', tela: 'demonstracoes', rotulo: 'Competência das demonstrações', arquivo: DEMO, tipo: 'texto' },
   { chave: 'demonstracoes-rodar-agora', tela: 'demonstracoes', rotulo: 'Rodar agora (conferência das demonstrações)', arquivo: DEMO, tipo: 'botao' },

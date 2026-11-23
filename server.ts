@@ -36,8 +36,12 @@ import { listarRegistroAgenteIAContabil, bancoContabilConfigurado, consultaBanco
 import { definirAlertaRobo, dispararRoboAgora, executarRobo, registrarResultadoRobo, registrarRobo, registrarRotinaManual, statusRobos } from "./src/server/robosStatus";
 import { conferirEmpresasRepetidas } from "./src/server/conferidorEmpresaRepetida";
 import { criarServicoBackupBanco } from "./src/server/backupBanco/servico";
-import { buscarEmpresasDoFiscal, cnpjsValidosDoFiscal } from "./src/server/empresasDoFiscal";
+import { buscarEmpresasDoFiscal, buscarResumoNotasFiscal, cnpjsValidosDoFiscal, pedirReenvioNotasFiscal } from "./src/server/empresasDoFiscal";
 import { conferirSincroniaEntidadesContabil, criarLigacaoFiscalEntidade, divergenciasEntidadeContabil, sincronizarEntidadesContabil } from "./src/server/entidadeSincroniaContabil";
+import { rodarConferenciaOrigens, textoRoboOrigens, type DepsConferidorOrigens } from "./src/server/conferidorOrigens";
+import { registrarRotasConferidorOrigens } from "./src/server/conferidorOrigensRotas";
+import { completarPlanoPadraoContabil } from "./src/server/authContabil";
+import { lerTodosDocumentosFiscais } from "./src/server/documentosFiscaisStore";
 import { resumoRelatorioAcessos, rodarConferidorAcessos } from "./src/server/conferidorAcessos";
 import { achadosEcdDoConferidor, rodarConferidorContabil } from "./src/server/conferidorContabil";
 import { empresasParadas, situacaoEmpresasContabil, textoAvisoParadas } from "./src/server/conferidorEmpresasParadas";
@@ -1625,6 +1629,37 @@ const reconciliacaoRascunhosStatus: {
   }).catch((e) => console.error("Falha no Robô Conferidor:", e?.message || e));
   setTimeout(() => void rodarConferidor(), 45_000).unref();
   setInterval(() => void rodarConferidor(), 30 * 60_000).unref();
+  // Robô Conferidor das Origens: Fiscal × DP × Contábil por empresa e mês, ao centavo, em TODAS as empresas de todos os escritórios.
+  registrarRobo({ id: "conferidor_origens", nome: "Robô Conferidor das Origens (Fiscal × DP × Contábil)", posto: "conferidor", missao: "De hora em hora confere, empresa por empresa e mês a mês, se toda nota que vale no Fiscal chegou ao Contábil e virou pré-lançamento ou lançamento (contagem e total ao centavo), se cada nota de fora tem motivo, e se a folha do DP bate item a item com as partidas. Nota cancelada, substituída, denegada ou inutilizada nunca entra: o pré-lançamento pendente sai e a já lançada vira alerta vermelho com o estorno sugerido. Corrige sozinho só o seguro (pede de novo a nota ou a folha que não chegou, prepara o pré-lançamento que faltou, completa o plano provisório só acrescentando). Nunca aprova, lança, estorna nem apaga lançamento.", ...(bancoContabilConfigurado() ? { intervaloMs: 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  const depsConferidorOrigens = (): DepsConferidorOrigens => ({
+    consultar: (sql, params) => consultaBancoContabil(sql, params),
+    lerWorkspace: async (cnpj) => (await lerWorkspaceInternoContabil(cnpj)) as Record<string, any> | null,
+    lerDocumentos: async (cnpj) => (fiscalStoreConfigurado() ? await lerTodosDocumentosFiscais(cnpj) : []),
+    resumoFiscal: (cnpj, competencia) => buscarResumoNotasFiscal(cnpj, competencia),
+    reenviarFiscal: (cnpj, chaves) => pedirReenvioNotasFiscal(cnpj, chaves),
+    preparar: (cnpj) => prepararRascunhosContabeisAutomaticos(cnpj),
+    completarPlano: (cnpj, automatico) => completarPlanoPadraoContabil(cnpj, automatico),
+  });
+  const rodarConferidorOrigens = () => executarRobo("conferidor_origens", async () => {
+    const r = await consultaBancoContabil("SELECT cnpj FROM contabil_company_workspaces UNION SELECT cnpj FROM contabil_auth_company_access ORDER BY 1", []);
+    const cnpjs = [...new Set(r.rows.map((x: any) => normalizarCnpjAcesso(x.cnpj)).filter((c: string) => cnpjContabilValido(c)))];
+    const placar = await rodarConferenciaOrigens(depsConferidorOrigens(), cnpjs, "todas");
+    registrarResultadoRobo("conferidor_origens", textoRoboOrigens(placar));
+    definirAlertaRobo("conferidor_origens", placar.alertasEstorno || placar.semExplicacao ? { nivel: "critico", texto: textoRoboOrigens(placar) } : placar.erro ? { nivel: "aviso", texto: textoRoboOrigens(placar) } : null);
+  }).catch((e) => console.error("Falha no Robô Conferidor das Origens:", e?.message || e));
+  if (bancoContabilConfigurado()) {
+    setTimeout(() => void rodarConferidorOrigens(), 3 * 60_000).unref();
+    setInterval(() => void rodarConferidorOrigens(), 60 * 60_000).unref();
+  }
+  registrarRotinaManual("conferidor_origens", rodarConferidorOrigens);
+  registrarRotasConferidorOrigens(app, { exigirSessao: exigirSessaoContabil, exigirOrigem: exigirOrigemNavegador }, {
+    sessao: (req) => {
+      const s = sessaoDaRequisicaoContabil(req);
+      if (!s) return undefined;
+      return { login: s.login, cnpjs: s.cnpjs.map(normalizarCnpjAcesso), tenantId: tenantServico(s), podeEscrever: (c: string) => s.administrador || s.memberships.find((m) => normalizarCnpjAcesso(m.cnpj) === c)?.role !== "viewer" };
+    },
+    conferidor: depsConferidorOrigens,
+  });
   registrarRobo({ id: "empresas_fiscal", nome: "Robô de Empresas do Fiscal", posto: "integrador", missao: "Trazer do Murad Fiscal as empresas que ainda não estão no Contábil, para a equipe não cadastrar duas vezes. Não altera o que já existe e não leva certificado nem senha.", intervaloMs: 10 * 60_000 });
   const sincronizarEmpresasDoFiscal = async () => {
     const f = await buscarEmpresasDoFiscal();
