@@ -13,6 +13,9 @@ import { Header } from "./components/Header";
 import { EVENTO_ABRIR_ROBOS } from "./components/RobotSidebar";
 import { FaixaEcd } from "./components/FaixaEcd";
 import { FaixaLucroReal } from "./components/FaixaLucroReal";
+import { FaixaUrgenteContabil } from "./components/FaixaUrgenteContabil";
+import { AtivarAvisosContabil } from "./components/AtivarAvisosContabil";
+import { MeusAlertasCelularContabil } from "./components/MeusAlertasCelularContabil";
 import { ErroTela } from "./components/ErroTela";
 import { AvisoServicoFeito } from "./components/AvisoServicoFeito";
 import { fetchComGuarda, tratarBloqueioServico } from "./utils/servicoFeitoCliente";
@@ -991,6 +994,7 @@ function AppWorkspace() {
             {/* Coluna Esquerda: Conteúdo da Aba Selecionada */}
             <div className="space-y-4 min-w-0">
               <ErroTela chave={String(tabAtiva)}>
+              {tabAtiva === "inicio" && <div className="-mx-2"><FaixaUrgenteContabil onAbrirCentral={() => setTabAtiva("livros" as TabId)} /><AtivarAvisosContabil /><MeusAlertasCelularContabil /></div>}
               {tabAtiva === "inicio" && (
                 <CaixaPedirParaAlguem onEnviar={(frase) => { assistenteRef.current?.abrir(); assistenteRef.current?.perguntar(frase); }} />
               )}

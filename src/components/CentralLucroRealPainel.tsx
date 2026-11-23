@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { perguntarNaTela } from "../utils/dialogoNaTela";
 import { useExclusaoDuasEtapas } from "./ConfirmaExclusaoDuasEtapas";
+import { FaixaUrgenteContabil } from "./FaixaUrgenteContabil";
+import { MeusAlertasCelularContabil } from "./MeusAlertasCelularContabil";
 
 // Central do Lucro Real da empresa: todas as obrigações com vencimento, avisos, diferenças entre Fiscal, DP e Contábil (que
 // bloqueiam a guia) e as pendências conhecidas. Botões: "Conferir agora", "Aceitar a diferença" e "Dar baixa"; JCP pago ou creditado
@@ -40,6 +42,7 @@ export const CentralLucroRealPainel: React.FC<{ cnpj: string; ano: number }> = (
         <div><h3 className="text-sm font-bold">Central do Lucro Real — {ano}</h3><p className="text-[11px] text-[#86909C]">Tudo o que a empresa tem de pagar e entregar, com vencimento e fonte. O robô confere de 2 em 2 horas; os avisos só param com a confirmação e a baixa.</p></div>
         <button type="button" disabled={ocupado} className="min-h-10 rounded-lg bg-[#0F2B5B] px-3 py-2 text-xs font-bold text-white disabled:opacity-50" onClick={() => void post(`/api/workspaces/${limpo}/lucro-real/central/conferir`, { ano }, "Conferido agora.")}>{ocupado ? "Conferindo…" : "Conferir agora"}</button>
       </div>
+      <div className="-mx-2 -mt-2"><FaixaUrgenteContabil cnpj={limpo} /></div>
       {abertas.length > 0 && <div className="rounded-lg border-2 border-red-400 bg-red-50 p-2 text-xs text-red-950">
         <p className="font-bold">Diferença entre os sistemas — a guia do período fica BLOQUEADA até você decidir</p>
         <ul className="mt-1 space-y-2">{abertas.map((x: any) => <li key={x.id} className="rounded bg-white p-2"><b>{x.competencia}</b> · {x.explicacao}
@@ -67,11 +70,12 @@ export const CentralLucroRealPainel: React.FC<{ cnpj: string; ano: number }> = (
             <p className="text-[11px] text-[#86909C]">Vêm sozinhas das NFS-e tomadas (rascunho da EFD-Reinf do Fiscal), de 2 em 2 horas. Vencimento: último dia útil do 2º decêndio do mês seguinte ao pagamento.</p>
             <button type="button" disabled={ocupado} className="mt-1 min-h-10 rounded-lg border-2 border-[#0F2B5B] px-3 py-1 font-bold" onClick={() => void post(`/api/workspaces/${limpo}/lucro-real/retencoes/atualizar`, { ano }, "Retenções lidas no Fiscal agora.")}>Buscar retenções no Fiscal agora</button></div>
           <div data-campo="aviso-celular-lucro-real"><p className="font-bold">Aviso no celular</p>
-            <p className="text-[11px] text-[#86909C]">Chega pelo aplicativo do Murad Fiscal, uma vez por dia por empresa, a partir das 8h. Para ativar no seu celular: abra o Murad Fiscal › menu ESCRITURAÇÃO FISCAL › Federal & Simples › Central Anti-Multa › botão "Abrir" › botão "Ativar avisos neste aparelho" (no iPhone, com o aplicativo instalado na Tela de Início).</p>
+            <p className="text-[11px] text-[#86909C]">Chega pelo aplicativo do Murad Fiscal, uma vez por dia por empresa, a partir das 8h. IRPJ/CSLL, IRRF do JCP, ECD e ECF de 7 dias antes até 30 dias de atraso vêm pelo alerta urgente (no dia: 7h, 12h e 16h30), sem repetir aqui. Para ativar no seu celular: abra o Murad Fiscal › menu ESCRITURAÇÃO FISCAL › Federal & Simples › Central Anti-Multa › botão "Abrir" › botão "Ativar avisos neste aparelho" (no iPhone, com o aplicativo instalado na Tela de Início).</p>
             <p className="mt-1">{aviso ? (() => { const h = (aviso.hoje || []).filter((x: any) => x.cnpj === limpo); return h.length ? `Hoje: ${h[0].enviados} aparelho(s) receberam${h[0].semAparelho ? `; ${h[0].semAparelho} pessoa(s) sem aparelho ativado` : ""}${h[0].adiados ? `; ${h[0].adiados} adiado(s) pelo horário silencioso` : ""}.` : "Hoje ainda não saiu aviso desta empresa."; })() : "—"}</p>
             <button type="button" disabled={ocupado} className="mt-1 min-h-10 rounded-lg border-2 border-[#0F2B5B] px-3 py-1 font-bold" onClick={() => void post("/api/lucro-real/aviso-celular/enviar", { cnpj: limpo }, "Aviso mandado para o celular (se houver aviso hoje).")}>Mandar aviso para o celular agora</button></div>
         </div>
       </div>
+      <div className="-mx-2"><MeusAlertasCelularContabil /></div>
       {msg && <p role="status" className="text-xs font-semibold">{msg}</p>}
       {dialogo}
       <details className="text-[11px] text-[#4E5969]"><summary className="cursor-pointer font-semibold">O que ainda não está aqui (pendências conhecidas)</summary><ul className="ml-4 list-disc">{(d.pendenciasConhecidas || []).map((p: string, i: number) => <li key={i}>{p}</li>)}</ul></details>

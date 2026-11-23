@@ -11,6 +11,7 @@
 // - Fiscal fora do ar: nada é marcado como enviado; o robô tenta de novo na rodada seguinte (2 em 2 horas) e o conferidor avisa.
 import type { Consultar } from "./lucroRealApuracao";
 import type { AlertaLR } from "./centralLucroReal";
+import { cobertoPeloUrgente } from "./alertaUrgenteContabil";
 
 export interface ResultadoEnvio { destinatarios: number; enviados: number; semAparelho: number; silenciados: number; adiados: number; falhas: number }
 export interface ItemAviso { cnpj: string; razaoSocial: string; alertas: AlertaLR[] }
@@ -20,7 +21,9 @@ const curto = (t: string, n: number) => (t.length > n ? `${t.slice(0, n - 1).tri
 
 /** Texto do aviso do dia da empresa (sem valores). Nulo quando não há aviso. */
 export function montarAvisoCelular(item: ItemAviso, hoje: string, sufixo = ""): CargaAviso | null {
-  const al = item.alertas.filter((a) => a.nivel === "vermelho" || a.nivel === "amarelo");
+  // IRPJ/CSLL, IRRF do JCP, ECD e ECF de 7 dias antes até 30 dias de atraso saem pelo alerta urgente (alertaUrgenteContabil.ts), com a
+  // insistência do dia: aqui não repetem (nunca aviso duplicado).
+  const al = item.alertas.filter((a) => (a.nivel === "vermelho" || a.nivel === "amarelo") && !cobertoPeloUrgente(a.obrigacaoId, a.dias));
   if (!al.length) return null;
   const verm = al.filter((a) => a.nivel === "vermelho").length;
   const nome = curto(item.razaoSocial || item.cnpj, 40);

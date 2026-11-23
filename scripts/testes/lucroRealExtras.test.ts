@@ -58,7 +58,9 @@ const alerta = (id: string, nivel: "vermelho" | "amarelo", titulo: string, texto
 test("Aviso no celular: um por empresa por dia, sem valores, o mais urgente primeiro", () => {
   const a = montarAvisoCelular({ cnpj: "11222333000181", razaoSocial: "Empresa Teste Ltda", alertas: [alerta("divergencia:2026-05:notas_x_receita", "vermelho", "Diferença entre os sistemas em 2026-05", "Receita R$ 1.000,00"), alerta("irpj:2026:A05", "vermelho", "IRPJ Lucro Real — estimativa de 05/2026: vence HOJE (30/06/2026)"), alerta("dctfweb:2026-05", "amarelo", "DCTFWeb de 05/2026: vence em 5 dia(s) (30/06/2026)")] }, "2026-06-30")!;
   assert.equal(a.chave, "central|2026-06-30");
-  assert.match(a.titulo, /Empresa Teste Ltda: 3 aviso\(s\), 2 urgente\(s\)/);
+  // O IRPJ que vence hoje sai pelo alerta urgente (com a insistência do dia): o aviso diário não repete.
+  assert.match(a.titulo, /Empresa Teste Ltda: 2 aviso\(s\), 1 urgente\(s\)/);
+  assert.doesNotMatch(a.corpo, /IRPJ/);
   assert.doesNotMatch(a.corpo, /R\$/); assert.match(a.corpo, /guia bloqueada até você decidir/); assert.match(a.corpo, /Central do Lucro Real/);
   assert.equal(montarAvisoCelular({ cnpj: "1", razaoSocial: "", alertas: [] }, "2026-06-30"), null);
 });
@@ -71,7 +73,7 @@ test("Aviso no celular: antes das 8h não sai; manda uma vez por dia; Fiscal for
     if (/^INSERT/.test(sql.trim())) { gravados.add(`${p[0]}|${p[1]}`); return { rows: [], rowCount: 1 }; }
     return { rows: [] };
   };
-  const itens = [{ cnpj: "11222333000181", razaoSocial: "A", alertas: [alerta("irpj:2026:A05", "vermelho", "IRPJ: vence HOJE")] }];
+  const itens = [{ cnpj: "11222333000181", razaoSocial: "A", alertas: [alerta("dctfweb:2026-05", "vermelho", "DCTFWeb: vence HOJE")] }];
   let chamadas = 0; const ok = async () => { chamadas += 1; return { destinatarios: 2, enviados: 2, semAparelho: 0, silenciados: 0, adiados: 0, falhas: 0 }; };
   assert.equal((await enviarAvisosCelular(q as any, itens, ok, "2026-06-30", 7)).comAviso, 0, "7h: espera");
   const r1 = await enviarAvisosCelular(q as any, itens, ok, "2026-06-30", 9); assert.equal(r1.entregues, 2);

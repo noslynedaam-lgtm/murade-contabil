@@ -1,6 +1,8 @@
 import { registrarRotasCentralLucroReal } from "./src/server/centralLucroRealRotas";
 import { atualizarSelicContabil, painelCentral, rodarCentralLucroReal, type DepsCentral } from "./src/server/centralLucroReal";
 import { conferirAvisosCelular, enviarAvisosCelular, enviarPeloFiscal, type ItemAviso as ItemAvisoLR } from "./src/server/avisoCelularLucroReal";
+import { registrarAlertaUrgenteContabil } from "./src/server/alertaUrgenteContabilRotas";
+import { enviarUrgentePeloFiscal } from "./src/server/alertaUrgenteContabil";
 import { buscarRetencoesNoFiscal, gravarRetencoes } from "./src/server/lucroRealObrigacoesExtras";
 // Preenchido quando as rotas do Lucro Real são montadas (a saudação da Agente usa para lembrar os avisos vermelhos).
 let centralLRParaSaudacao: { deps: DepsCentral; empresas: (cnpjs?: string[]) => Promise<string[]> } | null = null;
@@ -1476,6 +1478,26 @@ const reconciliacaoRascunhosStatus: {
   registrarRotinaManual("central_lucro_real", rodarCentralLR);
   setTimeout(rodarCentralLR, 260_000).unref();
   setInterval(rodarCentralLR, 2 * 60 * 60_000).unref();
+  // Alerta urgente de vencimento do Contábil (ECD, ECF, IRPJ/CSLL do Lucro Real, IRRF sobre JCP): mesmo padrão do Fiscal e do DP —
+  // equipe inteira pelo aviso no celular do Fiscal, insistência às 7h, 12h e 16h30 no dia, todo dia no atraso, multa se não resolver
+  // hoje, "Resolvido" e liga/desliga por tipo em Configurações.
+  const alertaUrgenteContabil = registrarAlertaUrgenteContabil(app, { exigirSessao: exigirSessaoContabil, exigirOrigem: exigirOrigemNavegador }, {
+    ...depsCentralLR,
+    sessao: (req) => { const s = sessaoDaRequisicaoContabil(req); return s ? { cnpjs: s.cnpjs, login: s.login, tenantId: String(s.tenantId || s.escritorioDe || s.userId) } : undefined; },
+    empresasLucroReal: (cnpjs) => empresasLucroReal(cnpjs),
+    todasEmpresas: async (cnpjs) => [...new Set((await consultaBancoContabil(`SELECT cnpj FROM contabil_company_workspaces${cnpjs ? " WHERE cnpj = ANY($1::text[])" : ""}`, cnpjs ? [cnpjs] : []).catch(() => ({ rows: [] as any[] }))).rows.map((x: any) => String(x.cnpj).trim()))],
+    enviar: () => enviarUrgentePeloFiscal(),
+  });
+  registrarRobo({ id: "alerta_urgente_contabil", nome: "Robô do Alerta Urgente de Vencimento do Contábil", posto: "conferidor", missao: "De 30 em 30 minutos, em cada empresa (cada escritório só as suas), avisa a equipe inteira no celular (pelo aviso do Murad Fiscal) dos vencimentos do Contábil — ECD, ECF, IRPJ/CSLL do Lucro Real (DARF 2362, 2484, trimestrais e ajuste) e IRRF sobre JCP (DARF 5706): 7, 3 e 1 dia antes; no dia às 7h, ao meio-dia e às 16h30; e todo dia no atraso (até 30 dias), com o motivo, o passo a passo e a multa se não resolver hoje pelos cálculos oficiais. Respeita quem desligou o tipo em Configurações e o \"Resolvido\". Conferidor: vencimento sem aviso aceito pelo Fiscal ou sem ninguém com o aparelho ativado vira ATENÇÃO. Só avisa; nunca paga, transmite nem faz consulta paga.", intervaloMs: 30 * 60_000 });
+  const rodarAlertaUrgenteContabil = () => void executarRobo("alerta_urgente_contabil", async () => {
+    if (!bancoContabilConfigurado()) return;
+    const t = await alertaUrgenteContabil.rodarRobo();
+    definirAlertaRobo("alerta_urgente_contabil", t.startsWith("ATENÇÃO") ? { nivel: "aviso", texto: t } : null);
+    registrarResultadoRobo("alerta_urgente_contabil", t);
+  }).catch((e) => console.error("Falha no Robô do Alerta Urgente do Contábil:", e?.message || e));
+  registrarRotinaManual("alerta_urgente_contabil", rodarAlertaUrgenteContabil);
+  setTimeout(rodarAlertaUrgenteContabil, 280_000).unref();
+  setInterval(rodarAlertaUrgenteContabil, 30 * 60_000).unref();
   registrarRobo({ id: "lucro_real", nome: "Robô do Lucro Real", posto: "calculador", missao: "Apurar sozinho o IRPJ e a CSLL do Lucro Real de cada empresa configurada (estimativa mensal pela receita ou pelo balancete de suspensão/redução, ou trimestral), com e-Lalur/e-Lacs e saldos de prejuízo fiscal e base negativa, deixando tudo pronto para a contadora confirmar. Nunca confirma, paga nem transmite.", intervaloMs: 6 * 60 * 60_000 });
   const rodarRoboLucroRealAgora = () => void executarRobo("lucro_real", async () => {
     if (!bancoContabilConfigurado()) return;
