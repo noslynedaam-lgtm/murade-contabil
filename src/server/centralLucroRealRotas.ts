@@ -6,6 +6,7 @@ import { darBaixa, decidirDivergencia, painelCentral, conferirEmpresaLucroReal, 
 import { excluirJcp, listarJcp, registrarJcp } from "./lucroRealObrigacoesExtras";
 import { situacaoAvisosCelular, type ResumoAviso } from "./avisoCelularLucroReal";
 import { lucroRealParaMit } from "./lucroRealMit";
+import { bensParaFiscal } from "./imobilizadoParaFiscal";
 
 type Mw = express.RequestHandler;
 const anoDe = (v: unknown) => { const a = Number(v); return Number.isInteger(a) && a >= 2000 && a <= 2100 ? a : null; };
@@ -65,6 +66,16 @@ export function registrarRotasCentralLucroReal(app: express.Express, mw: { exigi
     if (!/^[A-Z0-9]{12}\d{2}$/.test(cnpj) || !/^\d{4}-(0[1-9]|1[0-2])$/.test(competencia)) return res.status(400).json({ sucesso: false, motivo: "Informe o CNPJ e a competência (AAAA-MM)." });
     try { return res.json({ sucesso: true, cnpj, competencia, ...(await lucroRealParaMit(deps.consultar, cnpj, competencia)) }); }
     catch (e: any) { console.error("[central-lucro-real] mit", e?.message || e); return res.status(503).json({ sucesso: false, motivo: "O Contábil não conseguiu ler o Lucro Real agora." }); }
+  });
+  // Fiscal pergunta os bens do imobilizado da empresa (crédito de PIS/COFINS pela depreciação ou pelo valor de aquisição — F120/F130 da
+  // EFD-Contribuições). Servidor a servidor (Bearer); só leitura; só os dados do cadastro, sem cálculo de crédito.
+  app.get("/api/integracao/lucro-real/imobilizado", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store"); res.setHeader("Vary", "Authorization");
+    if (deps.negarIntegracao(req, res)) return;
+    const cnpj = normalizarCnpjAcesso(req.query.cnpj);
+    if (!/^[A-Z0-9]{12}\d{2}$/.test(cnpj)) return res.status(400).json({ sucesso: false, motivo: "Informe o CNPJ." });
+    try { return res.json({ sucesso: true, cnpj, fonte: "Murad Contábil › Gestão contábil › Ativo imobilizado", ...bensParaFiscal(await deps.lerWorkspace(cnpj)) }); }
+    catch (e: any) { console.error("[central-lucro-real] imobilizado", e?.message || e); return res.status(503).json({ sucesso: false, motivo: "O Contábil não conseguiu ler o imobilizado agora." }); }
   });
   // JCP pago ou creditado: vira a obrigação do IRRF (DARF 5706) na Central.
   app.get("/api/workspaces/:cnpj/lucro-real/jcp-pagamentos", mw.exigirSessao, async (req, res) => {
