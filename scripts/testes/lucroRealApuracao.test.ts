@@ -34,7 +34,7 @@ function bancoFalso() {
   const config = new Map<string, any>(); const lanc = new Map<string, any>(); const ap = new Map<string, any>();
   const consultar = async (sql: string, p: any[] = []): Promise<{ rows: any[]; rowCount: number }> => {
     const q = sql.replace(/\s+/g, " ").trim();
-    if (/^CREATE/.test(q)) return { rows: [], rowCount: 0 };
+    if (/^(CREATE|ALTER)/.test(q)) return { rows: [], rowCount: 0 };
     if (q.startsWith("SELECT dados FROM contabil_lucro_real_config")) { const c = config.get(p[0]); return { rows: c ? [{ dados: c }] : [], rowCount: c ? 1 : 0 }; }
     if (q.startsWith("INSERT INTO contabil_lucro_real_config")) { config.set(p[0], JSON.parse(p[1])); return { rows: [], rowCount: 1 }; }
     if (q.startsWith("SELECT * FROM contabil_lucro_real_pagamentos")) return { rows: [], rowCount: 0 };
@@ -169,7 +169,7 @@ test("pagamento do DARF do Lucro Real: só período confirmado, data não futura
   // banco falso: a apuração confirmada e a tabela de pagamentos
   const pagos: any[] = []; const enviados: any[] = [];
   const consultar = async (sql: string, p: any[] = []) => {
-    if (sql.startsWith("CREATE")) return { rows: [] };
+    if (sql.startsWith("CREATE") || sql.startsWith("ALTER")) return { rows: [] };
     if (sql.startsWith("SELECT * FROM contabil_lucro_real_apuracoes")) return { rows: [{ id: "C:2026:T04", cnpj: "C", ano: 2026, periodo: "T04", status: "confirmado", irpj_centavos: linha.irpjCentavos, csll_centavos: linha.csllCentavos, resultado: linha.resultado, revisar: [], calculado_em: "", confirmado_por: "a", confirmado_em: "" }] };
     if (sql.startsWith("SELECT id FROM contabil_lucro_real_pagamentos")) return { rows: pagos.filter((x) => x[0] === p[0]) };
     if (sql.startsWith("SELECT * FROM contabil_lucro_real_pagamentos")) return { rows: [] };
@@ -183,4 +183,45 @@ test("pagamento do DARF do Lucro Real: só período confirmado, data não futura
   // se a contabilidade falhar, nada fica registrado
   await assert.rejects(registrarPagamentoReal(consultar as any, "C", 2026, "T04", "irpj", "2027-01-29", 19600_00, "ana", "2027-02-01", async () => { throw new Error("fora"); }));
   assert.equal(pagos.length, 1);
+});
+
+test("Parte B — outras contas (DL 1.598/77, art. 8º, I, c): forma, realiza, leva o saldo de um ano para o outro e nunca fica negativo", async () => {
+  const { saldosParteB, efeitoNaContaB } = await import("../../src/server/lucroRealApuracao");
+  const prov = { id: "B1", codigo: "PB-01", descricao: "Provisão para contingências trabalhistas", tributo: "ambos" as const, natureza: "a_excluir" as const, anoInicial: 2026, saldoInicialCentavos: R(5000) };
+  assert.equal(efeitoNaContaB(prov, "adicao"), 1); assert.equal(efeitoNaContaB(prov, "exclusao"), -1); assert.equal(efeitoNaContaB(prov, "irrf_retido"), 0);
+  assert.equal(efeitoNaContaB({ natureza: "a_adicionar" }, "exclusao"), 1); assert.equal(efeitoNaContaB({ natureza: "a_adicionar" }, "adicao"), -1);
+  const L2 = (ano: number, tipo: any, v: number) => ({ id: `${ano}${tipo}${v}`, ano, mes: 6, tributo: "ambos" as const, tipo, codigo: "x", descricao: "x", valorCentavos: R(v), justificativa: "x", contaParteB: "B1" });
+  // 2026: saldo da ECF 5.000 + provisão adicionada 12.000 − 3.000 pagos (excluídos) = 14.000; 2027 começa com 14.000 e realiza 4.000 → 10.000
+  const lancs = [L2(2026, "adicao", 12000), L2(2026, "exclusao", 3000), L2(2027, "exclusao", 4000)];
+  const [a26] = saldosParteB([prov], lancs, 2026); const [a27] = saldosParteB([prov], lancs, 2027);
+  assert.deepEqual([a26.saldoInicialAnoCentavos, a26.formadoCentavos, a26.realizadoCentavos, a26.saldoFinalCentavos], [R(5000), R(12000), R(3000), R(14000)]);
+  assert.deepEqual([a27.saldoInicialAnoCentavos, a27.realizadoCentavos, a27.saldoFinalCentavos], [R(14000), R(4000), R(10000)]);
+  assert.equal(saldosParteB([prov], lancs, 2025).length, 0, "antes do ano inicial a conta não existe");
+  // banco: realizar mais que o saldo é recusado; conta só de IRPJ não aceita lançamento de CSLL
+  const { adicionarLancamentoLalur, criarContaParteB, excluirLancamentoLalur, excluirContaParteB } = await import("../../src/server/lucroRealApuracao");
+  const contas: any[] = []; const lanc: any[] = [];
+  const consultar = async (sql: string, p: any[] = []): Promise<any> => {
+    const q = sql.replace(/\s+/g, " ").trim();
+    if (/^(CREATE|ALTER)/.test(q)) return { rows: [] };
+    if (q.startsWith("SELECT * FROM contabil_lalur_parte_b_contas")) return { rows: contas.filter((c) => c.cnpj === p[0]) };
+    if (q.startsWith("INSERT INTO contabil_lalur_parte_b_contas")) { const [id, cnpj, codigo, descricao, tributo, natureza, ano_inicial, saldo_inicial_centavos] = p; contas.push({ id, cnpj, codigo, descricao, tributo, natureza, ano_inicial, saldo_inicial_centavos }); return { rows: [] }; }
+    if (q.startsWith("SELECT periodo FROM contabil_lucro_real_apuracoes")) return { rows: [] };
+    if (q.startsWith("SELECT * FROM contabil_lalur_lancamentos WHERE cnpj=$1 AND conta_parte_b=$2")) return { rows: lanc.filter((l) => l.cnpj === p[0] && l.conta_parte_b === p[1]) };
+    if (q.startsWith("SELECT id FROM contabil_lalur_lancamentos WHERE cnpj=$1 AND conta_parte_b=$2")) return { rows: lanc.filter((l) => l.cnpj === p[0] && l.conta_parte_b === p[1]) };
+    if (q.startsWith("SELECT * FROM contabil_lalur_lancamentos WHERE id=$1")) return { rows: lanc.filter((l) => l.id === p[0] && l.cnpj === p[1]) };
+    if (q.startsWith("INSERT INTO contabil_lalur_lancamentos")) { const [id, cnpj, ano, mes, tributo, tipo, codigo, descricao, valor_centavos, justificativa, , conta_parte_b] = p; lanc.push({ id, cnpj, ano, mes, tributo, tipo, codigo, descricao, valor_centavos, justificativa, conta_parte_b }); return { rows: [] }; }
+    if (q.startsWith("DELETE FROM contabil_lalur_lancamentos")) { const i = lanc.findIndex((l) => l.id === p[0]); if (i >= 0) lanc.splice(i, 1); return { rows: [] }; }
+    if (q.startsWith("DELETE FROM contabil_lalur_parte_b_contas")) { const i = contas.findIndex((c) => c.id === p[0]); if (i >= 0) contas.splice(i, 1); return { rows: [] }; }
+    throw new Error(q);
+  };
+  const c = await criarContaParteB(consultar, "C", { codigo: "PB-01", descricao: "Provisão trabalhista", tributo: "irpj", natureza: "a_excluir", anoInicial: 2026, saldoInicialCentavos: 0 }, "ana");
+  await assert.rejects(criarContaParteB(consultar, "C", { codigo: "PB-01", descricao: "Repetida", tributo: "irpj", natureza: "a_excluir", anoInicial: 2026, saldoInicialCentavos: 0 }, "ana"), /Já existe/);
+  const base = { ano: 2026, mes: 3, codigo: "x", descricao: "x", justificativa: "laudo do advogado", contaParteB: c.id };
+  const ad = await adicionarLancamentoLalur(consultar, "C", { ...base, tributo: "irpj", tipo: "adicao", valorCentavos: R(1000) }, "ana");
+  await assert.rejects(adicionarLancamentoLalur(consultar, "C", { ...base, tributo: "csll", tipo: "adicao", valorCentavos: R(10) }, "ana"), /só de IRPJ/);
+  await assert.rejects(adicionarLancamentoLalur(consultar, "C", { ...base, tributo: "irpj", tipo: "exclusao", valorCentavos: R(1500) }, "ana"), /passa do saldo/);
+  await adicionarLancamentoLalur(consultar, "C", { ...base, ano: 2027, tributo: "irpj", tipo: "exclusao", valorCentavos: R(600) }, "ana");
+  await assert.rejects(excluirLancamentoLalur(consultar, "C", ad.id), /ficaria negativo em 2027/);
+  await assert.rejects(excluirContaParteB(consultar, "C", c.id), /tem lançamentos/);
+  await assert.rejects(adicionarLancamentoLalur(consultar, "C", { ...base, tributo: "irpj", tipo: "irrf_retido", valorCentavos: R(1) }, "ana"), /Só adição e exclusão/);
 });

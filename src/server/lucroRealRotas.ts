@@ -4,7 +4,7 @@ import type express from "express";
 import { acessoEmpresa } from "./escrituracaoRotas";
 import {
   adicionarLancamentoLalur, apurarAnoLucroReal, calcularJcp, confirmarApuracaoReal, excluirLancamentoLalur, itensProvisaoReal, lerConfigLucroReal,
-  listarApuracoesReal, listarLancamentosLalur, listarPagamentosReal, parteBDoAno, registrarPagamentoReal, reabrirApuracaoReal, salvarConfigLucroReal, BUCKET_ESTIMATIVA, CONFIG_LR_PADRAO, type DepsLucroReal,
+  listarApuracoesReal, listarLancamentosLalur, listarPagamentosReal, listarContasParteB, criarContaParteB, excluirContaParteB, saldosParteB, parteBDoAno, registrarPagamentoReal, reabrirApuracaoReal, salvarConfigLucroReal, BUCKET_ESTIMATIVA, CONFIG_LR_PADRAO, type DepsLucroReal,
 } from "./lucroRealApuracao";
 
 type Mw = express.RequestHandler;
@@ -27,9 +27,16 @@ const dataBR = (d: string) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d || "
 export function registrarRotasLucroReal(app: express.Express, mw: { exigirSessao: Mw; exigirOrigem: Mw }, deps: DepsRotasLucroReal): void {
   const { consultar } = deps;
   const falha = (res: express.Response, e: any, padrao: string) => { const msg = e instanceof Error ? e.message : String(e); if (/inválid|Informe|precisa|já está confirmado|não encontrado|Diga de onde/.test(msg)) return res.status(400).json({ sucesso: false, motivo: msg }); console.error("[lucro-real]", msg); return res.status(503).json({ sucesso: false, motivo: padrao }); };
+  // Saldos das outras contas da Parte B no ano (lê os lançamentos de todos os anos que usam alguma conta).
+  const parteBContasDoAno = async (cnpj: string, ano: number) => {
+    const contas = await listarContasParteB(consultar, cnpj);
+    if (!contas.length) return [];
+    const todos = (await consultar(`SELECT * FROM contabil_lalur_lancamentos WHERE cnpj=$1 AND conta_parte_b IS NOT NULL`, [cnpj])).rows.map((l: any) => ({ id: l.id, ano: Number(l.ano), mes: Number(l.mes), tributo: l.tributo, tipo: l.tipo, codigo: l.codigo, descricao: l.descricao, valorCentavos: Number(l.valor_centavos), justificativa: l.justificativa, contaParteB: l.conta_parte_b }));
+    return saldosParteB(contas, todos as any, ano);
+  };
   const painel = async (cnpj: string, ano: number) => {
     const periodos = await listarApuracoesReal(consultar, cnpj, ano);
-    return { config: await lerConfigLucroReal(consultar, cnpj), padrao: CONFIG_LR_PADRAO, atividades: Object.entries(BUCKET_ESTIMATIVA).map(([id, b]) => ({ id, rotulo: b.rotulo })), periodos, parteB: parteBDoAno(periodos), lancamentos: await listarLancamentosLalur(consultar, cnpj, ano), pagamentos: await listarPagamentosReal(consultar, cnpj, ano) };
+    return { config: await lerConfigLucroReal(consultar, cnpj), padrao: CONFIG_LR_PADRAO, atividades: Object.entries(BUCKET_ESTIMATIVA).map(([id, b]) => ({ id, rotulo: b.rotulo })), periodos, parteB: parteBDoAno(periodos), lancamentos: await listarLancamentosLalur(consultar, cnpj, ano), pagamentos: await listarPagamentosReal(consultar, cnpj, ano), parteBContas: await parteBContasDoAno(cnpj, ano) };
   };
 
   app.get("/api/workspaces/:cnpj/lucro-real", mw.exigirSessao, async (req, res) => {
@@ -57,8 +64,19 @@ export function registrarRotasLucroReal(app: express.Express, mw: { exigirSessao
     const a = acessoEmpresa(req, res, true); if (!a) return;
     const b = req.body || {}; const valor = centavos(b.valor);
     if (valor === null || valor <= 0) return res.status(400).json({ sucesso: false, motivo: "Valor inválido (reais, ex.: 1.234,56)." });
-    try { const l = await adicionarLancamentoLalur(consultar, a.cnpj, { ano: Number(b.ano), mes: Number(b.mes), tributo: b.tributo, tipo: b.tipo, codigo: String(b.codigo ?? ""), descricao: String(b.descricao ?? ""), valorCentavos: valor, justificativa: String(b.justificativa ?? "") }, a.sessao.login); return res.json({ sucesso: true, lancamento: l }); }
+    try { const l = await adicionarLancamentoLalur(consultar, a.cnpj, { ano: Number(b.ano), mes: Number(b.mes), tributo: b.tributo, tipo: b.tipo, codigo: String(b.codigo ?? ""), descricao: String(b.descricao ?? ""), valorCentavos: valor, justificativa: String(b.justificativa ?? ""), contaParteB: b.contaParteB ? String(b.contaParteB) : null }, a.sessao.login); return res.json({ sucesso: true, lancamento: l }); }
     catch (e) { return falha(res, e, "Não foi possível gravar o lançamento."); }
+  });
+  app.post("/api/workspaces/:cnpj/lucro-real/parte-b/contas", mw.exigirOrigem, mw.exigirSessao, async (req, res) => {
+    const a = acessoEmpresa(req, res, true); if (!a) return;
+    const b = req.body || {}; const saldo = centavos(b.saldoInicial === "" || b.saldoInicial === undefined ? "0" : b.saldoInicial);
+    if (saldo === null) return res.status(400).json({ sucesso: false, motivo: "Saldo inicial inválido (reais, ex.: 1.234,56)." });
+    try { return res.json({ sucesso: true, conta: await criarContaParteB(consultar, a.cnpj, { codigo: String(b.codigo ?? ""), descricao: String(b.descricao ?? ""), tributo: String(b.tributo ?? "ambos") as any, natureza: String(b.natureza ?? "") as any, anoInicial: Number(b.anoInicial), saldoInicialCentavos: saldo }, a.sessao.login) }); }
+    catch (e) { return falha(res, e, "Não foi possível criar a conta da Parte B."); }
+  });
+  app.post("/api/workspaces/:cnpj/lucro-real/parte-b/contas/:id/excluir", mw.exigirOrigem, mw.exigirSessao, async (req, res) => {
+    const a = acessoEmpresa(req, res, true); if (!a) return;
+    try { await excluirContaParteB(consultar, a.cnpj, String(req.params.id)); return res.json({ sucesso: true }); } catch (e) { return falha(res, e, "Não foi possível excluir a conta."); }
   });
   app.post("/api/workspaces/:cnpj/lucro-real/lancamentos/:id/excluir", mw.exigirOrigem, mw.exigirSessao, async (req, res) => {
     const a = acessoEmpresa(req, res, true); if (!a) return;

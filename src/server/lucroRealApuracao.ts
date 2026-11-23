@@ -94,7 +94,7 @@ export function mesesDaContabilidade(payload: Record<string, any>, ano: number):
 // e-Lalur / e-Lacs — Parte A (lançamentos) e cálculo dos períodos (puro)
 // ---------------------------------------------------------------------------------------------
 export type TipoLancLalur = "adicao" | "exclusao" | "irrf_retido" | "csll_retida" | "deducao_receita_bruta";
-export interface LancamentoParteA { id: string; ano: number; mes: number; tributo: "irpj" | "csll" | "ambos"; tipo: TipoLancLalur; codigo: string; descricao: string; valorCentavos: number; justificativa: string }
+export interface LancamentoParteA { id: string; ano: number; mes: number; tributo: "irpj" | "csll" | "ambos"; tipo: TipoLancLalur; codigo: string; descricao: string; valorCentavos: number; justificativa: string; contaParteB?: string | null }
 const reais = (c: number) => c / 100;
 function lalurDosMeses(lanc: LancamentoParteA[], meses: number[]) {
   const doPeriodo = lanc.filter((l) => meses.includes(l.mes));
@@ -242,6 +242,10 @@ export function prepararLucroReal(consultar: Consultar): Promise<void> {
     await consultar(`CREATE TABLE IF NOT EXISTS contabil_lucro_real_config (cnpj text PRIMARY KEY, dados jsonb NOT NULL, atualizado_por text NOT NULL, atualizado_em timestamptz NOT NULL DEFAULT now())`);
     await consultar(`CREATE TABLE IF NOT EXISTS contabil_lalur_lancamentos (id text PRIMARY KEY, cnpj text NOT NULL, ano int NOT NULL, mes int NOT NULL, tributo text NOT NULL, tipo text NOT NULL, codigo text NOT NULL, descricao text NOT NULL, valor_centavos bigint NOT NULL, justificativa text NOT NULL, criado_por text NOT NULL, criado_em timestamptz NOT NULL DEFAULT now())`);
     await consultar(`CREATE INDEX IF NOT EXISTS contabil_lalur_lancamentos_cnpj ON contabil_lalur_lancamentos (cnpj, ano)`);
+    // Parte B — outras contas (Decreto-Lei 1.598/1977, art. 8º, I, "c"): valores que vão influenciar o lucro real de períodos futuros.
+    await consultar(`ALTER TABLE contabil_lalur_lancamentos ADD COLUMN IF NOT EXISTS conta_parte_b text`);
+    await consultar(`CREATE TABLE IF NOT EXISTS contabil_lalur_parte_b_contas (id text PRIMARY KEY, cnpj text NOT NULL, codigo text NOT NULL, descricao text NOT NULL, tributo text NOT NULL, natureza text NOT NULL, ano_inicial int NOT NULL, saldo_inicial_centavos bigint NOT NULL DEFAULT 0, criado_por text NOT NULL, criado_em timestamptz NOT NULL DEFAULT now())`);
+    await consultar(`CREATE INDEX IF NOT EXISTS contabil_lalur_parte_b_contas_cnpj ON contabil_lalur_parte_b_contas (cnpj)`);
     await consultar(`CREATE TABLE IF NOT EXISTS contabil_lucro_real_apuracoes (id text PRIMARY KEY, cnpj text NOT NULL, ano int NOT NULL, periodo text NOT NULL, status text NOT NULL, irpj_centavos bigint NOT NULL DEFAULT 0, csll_centavos bigint NOT NULL DEFAULT 0, resultado jsonb, revisar jsonb, calculado_em timestamptz NOT NULL DEFAULT now(), confirmado_por text, confirmado_em timestamptz)`);
     await consultar(`CREATE INDEX IF NOT EXISTS contabil_lucro_real_apuracoes_cnpj ON contabil_lucro_real_apuracoes (cnpj, ano)`);
     await consultar(`CREATE TABLE IF NOT EXISTS contabil_lucro_real_pagamentos (id text PRIMARY KEY, cnpj text NOT NULL, ano int NOT NULL, periodo text NOT NULL, tributo text NOT NULL, data_pagamento text NOT NULL, valor_pago_centavos bigint NOT NULL, principal_centavos bigint NOT NULL, registrado_por text NOT NULL, registrado_em timestamptz NOT NULL DEFAULT now())`);
@@ -272,7 +276,7 @@ export async function salvarConfigLucroReal(consultar: Consultar, cnpj: string, 
   return n;
 }
 
-const linhaLanc = (l: any): LancamentoParteA => ({ id: l.id, ano: Number(l.ano), mes: Number(l.mes), tributo: l.tributo, tipo: l.tipo, codigo: l.codigo, descricao: l.descricao, valorCentavos: Number(l.valor_centavos), justificativa: l.justificativa });
+const linhaLanc = (l: any): LancamentoParteA => ({ id: l.id, ano: Number(l.ano), mes: Number(l.mes), tributo: l.tributo, tipo: l.tipo, codigo: l.codigo, descricao: l.descricao, valorCentavos: Number(l.valor_centavos), justificativa: l.justificativa, contaParteB: l.conta_parte_b ?? null });
 export async function listarLancamentosLalur(consultar: Consultar, cnpj: string, ano: number): Promise<LancamentoParteA[]> {
   await prepararLucroReal(consultar);
   return (await consultar(`SELECT * FROM contabil_lalur_lancamentos WHERE cnpj=$1 AND ano=$2 ORDER BY mes, criado_em`, [cnpj, ano])).rows.map(linhaLanc);
@@ -293,11 +297,76 @@ export async function adicionarLancamentoLalur(consultar: Consultar, cnpj: strin
   if (String(l.justificativa || "").trim().length < 5) throw new Error("Diga de onde vem o valor (documento, conta, motivo).");
   const conf = await periodoConfirmadoDoMes(consultar, cnpj, l.ano, l.mes);
   if (conf) throw new Error(`O período ${conf} de ${l.ano} já está confirmado: reabra antes de lançar.`);
+  const contaB = l.contaParteB ? (await listarContasParteB(consultar, cnpj)).find((c) => c.id === l.contaParteB) : null;
+  if (l.contaParteB) {
+    if (!contaB) throw new Error("Conta da Parte B não encontrada nesta empresa.");
+    if (l.tipo !== "adicao" && l.tipo !== "exclusao") throw new Error("Só adição e exclusão movimentam conta da Parte B.");
+    if (l.ano < contaB.anoInicial) throw new Error(`A conta ${contaB.codigo} começa em ${contaB.anoInicial}.`);
+    if (contaB.tributo !== "ambos" && l.tributo !== contaB.tributo) throw new Error(`A conta ${contaB.codigo} é só de ${contaB.tributo.toUpperCase()}: use o mesmo tributo no lançamento.`);
+    if (efeitoNaContaB(contaB, l.tipo) === -1) {
+      const s = saldosParteB([contaB], await lancamentosDaConta(consultar, cnpj, contaB.id), l.ano)[0];
+      if (l.valorCentavos > s.saldoFinalCentavos) throw new Error(`O valor passa do saldo da conta ${contaB.codigo} na Parte B (${(s.saldoFinalCentavos / 100).toFixed(2).replace(".", ",")}): não dá para realizar mais do que foi controlado.`);
+    }
+  }
   const id = `LALUR-${cnpj}-${l.ano}-${dois(l.mes)}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-  await consultar(`INSERT INTO contabil_lalur_lancamentos (id, cnpj, ano, mes, tributo, tipo, codigo, descricao, valor_centavos, justificativa, criado_por) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-    [id, cnpj, l.ano, l.mes, l.tributo, l.tipo, String(l.codigo || "").trim().slice(0, 20), String(l.descricao || "").trim().slice(0, 200) || l.tipo, l.valorCentavos, String(l.justificativa).trim().slice(0, 500), por]);
-  return { ...l, id };
+  await consultar(`INSERT INTO contabil_lalur_lancamentos (id, cnpj, ano, mes, tributo, tipo, codigo, descricao, valor_centavos, justificativa, criado_por, conta_parte_b) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+    [id, cnpj, l.ano, l.mes, l.tributo, l.tipo, String(l.codigo || "").trim().slice(0, 20), String(l.descricao || "").trim().slice(0, 200) || l.tipo, l.valorCentavos, String(l.justificativa).trim().slice(0, 500), por, contaB ? contaB.id : null]);
+  return { ...l, contaParteB: contaB ? contaB.id : null, id };
 }
+// ---------------------------------------------------------------------------------------------
+// Parte B — outras contas (Decreto-Lei 1.598/1977, art. 8º, I, "c": "outros valores que devam influenciar a determinação do lucro real
+// de exercício futuro e não constem de escrituração comercial"). Duas naturezas:
+//  - "a_excluir": o valor foi ADICIONADO agora e será EXCLUÍDO no futuro (ex.: provisão não dedutível; a exclusão vem quando ela se realiza).
+//  - "a_adicionar": o valor foi EXCLUÍDO agora e será ADICIONADO no futuro (ex.: exclusão temporária que volta depois).
+// Cada adição/exclusão da Parte A pode apontar a conta: a que forma o saldo aumenta; a que realiza diminui, e nunca deixa o saldo negativo.
+// ---------------------------------------------------------------------------------------------
+export interface ContaParteB { id: string; codigo: string; descricao: string; tributo: "irpj" | "csll" | "ambos"; natureza: "a_excluir" | "a_adicionar"; anoInicial: number; saldoInicialCentavos: number }
+const linhaContaB = (r: any): ContaParteB => ({ id: r.id, codigo: r.codigo, descricao: r.descricao, tributo: r.tributo, natureza: r.natureza, anoInicial: Number(r.ano_inicial), saldoInicialCentavos: Number(r.saldo_inicial_centavos) });
+export async function listarContasParteB(consultar: Consultar, cnpj: string): Promise<ContaParteB[]> {
+  await prepararLucroReal(consultar);
+  return (await consultar(`SELECT * FROM contabil_lalur_parte_b_contas WHERE cnpj=$1 ORDER BY codigo`, [cnpj])).rows.map(linhaContaB);
+}
+export async function criarContaParteB(consultar: Consultar, cnpj: string, c: Omit<ContaParteB, "id">, por: string): Promise<ContaParteB> {
+  await prepararLucroReal(consultar);
+  const codigo = String(c.codigo || "").trim().slice(0, 30), descricao = String(c.descricao || "").trim().slice(0, 200);
+  if (!codigo || descricao.length < 3) throw new Error("Informe o código e a descrição da conta da Parte B.");
+  if (!["irpj", "csll", "ambos"].includes(c.tributo)) throw new Error("Tributo inválido (IRPJ, CSLL ou ambos).");
+  if (!["a_excluir", "a_adicionar"].includes(c.natureza)) throw new Error("Natureza inválida: valor a excluir no futuro ou a adicionar no futuro.");
+  if (!Number.isInteger(c.anoInicial) || c.anoInicial < 2000 || c.anoInicial > 2100) throw new Error("Informe o ano de início do controle.");
+  if (!Number.isSafeInteger(c.saldoInicialCentavos) || c.saldoInicialCentavos < 0) throw new Error("Saldo inicial inválido (zero ou mais; o da última ECF).");
+  if ((await listarContasParteB(consultar, cnpj)).some((x) => x.codigo === codigo)) throw new Error("Já existe uma conta da Parte B com este código.");
+  const id = `LALURB-${cnpj}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  await consultar(`INSERT INTO contabil_lalur_parte_b_contas (id, cnpj, codigo, descricao, tributo, natureza, ano_inicial, saldo_inicial_centavos, criado_por) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [id, cnpj, codigo, descricao, c.tributo, c.natureza, c.anoInicial, c.saldoInicialCentavos, por]);
+  return { ...c, codigo, descricao, id };
+}
+/** Exclui UMA conta, só se nenhum lançamento usa ela. */
+export async function excluirContaParteB(consultar: Consultar, cnpj: string, id: string): Promise<void> {
+  await prepararLucroReal(consultar);
+  const usados = await consultar(`SELECT id FROM contabil_lalur_lancamentos WHERE cnpj=$1 AND conta_parte_b=$2 LIMIT 1`, [cnpj, id]);
+  if (usados.rows.length) throw new Error("A conta tem lançamentos na Parte A: exclua os lançamentos antes.");
+  await consultar(`DELETE FROM contabil_lalur_parte_b_contas WHERE id=$1 AND cnpj=$2`, [id, cnpj]);
+}
+/** Efeito de um lançamento no saldo da conta: forma (+) ou realiza (−). */
+export function efeitoNaContaB(conta: Pick<ContaParteB, "natureza">, tipo: TipoLancLalur): 1 | -1 | 0 {
+  if (tipo !== "adicao" && tipo !== "exclusao") return 0;
+  return conta.natureza === "a_excluir" ? (tipo === "adicao" ? 1 : -1) : (tipo === "exclusao" ? 1 : -1);
+}
+export interface SaldoContaB { conta: ContaParteB; saldoInicialAnoCentavos: number; formadoCentavos: number; realizadoCentavos: number; saldoFinalCentavos: number }
+/** Saldos de cada conta no ano: saldo inicial (o informado + o que veio dos anos anteriores), formado, realizado e final. Puro. */
+export function saldosParteB(contas: ContaParteB[], lancTodos: LancamentoParteA[], ano: number): SaldoContaB[] {
+  return contas.filter((c) => c.anoInicial <= ano).map((c) => {
+    const meus = lancTodos.filter((l) => l.contaParteB === c.id && l.ano >= c.anoInicial);
+    const soma = (ls: LancamentoParteA[], sinal: 1 | -1) => ls.filter((l) => efeitoNaContaB(c, l.tipo) === sinal).reduce((a, l) => a + l.valorCentavos, 0);
+    const antes = meus.filter((l) => l.ano < ano), doAno = meus.filter((l) => l.ano === ano);
+    const ini = c.saldoInicialCentavos + soma(antes, 1) - soma(antes, -1);
+    const formado = soma(doAno, 1), realizado = soma(doAno, -1);
+    return { conta: c, saldoInicialAnoCentavos: ini, formadoCentavos: formado, realizadoCentavos: realizado, saldoFinalCentavos: ini + formado - realizado };
+  });
+}
+async function lancamentosDaConta(consultar: Consultar, cnpj: string, contaId: string): Promise<LancamentoParteA[]> {
+  return (await consultar(`SELECT * FROM contabil_lalur_lancamentos WHERE cnpj=$1 AND conta_parte_b=$2`, [cnpj, contaId])).rows.map(linhaLanc);
+}
+
 /** Exclui UM lançamento (nunca vários de uma vez), se o período dele não estiver confirmado. */
 export async function excluirLancamentoLalur(consultar: Consultar, cnpj: string, id: string): Promise<void> {
   await prepararLucroReal(consultar);
@@ -305,6 +374,15 @@ export async function excluirLancamentoLalur(consultar: Consultar, cnpj: string,
   const l = r.rows[0]; if (!l) throw new Error("Lançamento não encontrado.");
   const conf = await periodoConfirmadoDoMes(consultar, cnpj, Number(l.ano), Number(l.mes));
   if (conf) throw new Error(`O período ${conf} já está confirmado: reabra antes de excluir.`);
+  if (l.conta_parte_b) {
+    // Tirar um lançamento que formou saldo não pode deixar negativo um saldo que já foi realizado depois.
+    const conta = (await listarContasParteB(consultar, cnpj)).find((c) => c.id === l.conta_parte_b);
+    if (conta) {
+      const resto = (await lancamentosDaConta(consultar, cnpj, conta.id)).filter((x) => x.id !== id);
+      const ultimo = Math.max(Number(l.ano), ...resto.map((x) => x.ano));
+      for (let a = Number(l.ano); a <= ultimo; a++) if (saldosParteB([conta], resto, a)[0].saldoFinalCentavos < 0) throw new Error(`Sem este lançamento, o saldo da conta ${conta.codigo} na Parte B ficaria negativo em ${a}: exclua antes a realização (o lançamento que usou o saldo).`);
+    }
+  }
   await consultar(`DELETE FROM contabil_lalur_lancamentos WHERE id=$1 AND cnpj=$2`, [id, cnpj]);
 }
 

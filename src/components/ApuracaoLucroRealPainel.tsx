@@ -28,6 +28,7 @@ export const ApuracaoLucroRealPainel: React.FC<{ cnpj: string; ano: number; empr
   const [andamento, setAndamento] = useState<{ etapa: number; texto: string } | null>(null);
   const [cfg, setCfg] = useState<P>({}); const [novo, setNovo] = useState<P>({ mes: "1", tributo: "ambos", tipo: "adicao" });
   const [jcp, setJcp] = useState<P>({}); const [resJcp, setResJcp] = useState<P | null>(null);
+  const [contaB, setContaB] = useState<P>({ tributo: "ambos", natureza: "a_excluir" });
   const [pag, setPag] = useState<P>({}); // formulário de pagamento aberto: chave "periodo:tributo" → { data, valor }
   const { pedir, dialogo } = useExclusaoDuasEtapas();
   const carregar = useCallback(async () => { const r = await chamar("GET", `${base}?ano=${ano}`); if (r.ok) { setD(r.dados); const c = r.dados.config || r.dados.padrao; setCfg({ ...c, obrigada: c.obrigada === null ? "" : String(c.obrigada), saldoPrejuizoInicial: ((c.saldoPrejuizoInicialCentavos || 0) / 100).toFixed(2).replace(".", ","), saldoBaseNegativaInicial: ((c.saldoBaseNegativaInicialCentavos || 0) / 100).toFixed(2).replace(".", ",") }); } else setMsg({ erro: true, texto: r.dados?.motivo || "Não foi possível carregar." }); }, [base, ano]);
@@ -108,6 +109,22 @@ export const ApuracaoLucroRealPainel: React.FC<{ cnpj: string; ano: number; empr
           <tbody>{(d?.parteB || []).map((x: P) => <tr key={x.periodo}><td>{NOME_PERIODO(x.periodo)}</td><td>{reais(x.prejuizoFiscal.inicial)} → {reais(x.prejuizoFiscal.compensado)} → <b>{reais(x.prejuizoFiscal.final)}</b></td><td>{reais(x.baseNegativa.inicial)} → {reais(x.baseNegativa.compensado)} → <b>{reais(x.baseNegativa.final)}</b></td></tr>)}</tbody></table>
       </div>
 
+      <details className="rounded-lg border border-[#E5E6EB] p-2.5" data-campo="lr-parte-b-contas" open={(d?.parteBContas || []).length > 0}>
+        <summary className="cursor-pointer text-xs font-bold">3b. Parte B — outras contas (valores que voltam em anos seguintes)</summary>
+        <p className="mt-1 text-[10px] text-[#86909C]">Ex.: provisão não dedutível adicionada agora e excluída quando se realizar ("a excluir no futuro"), ou exclusão temporária que será adicionada depois ("a adicionar no futuro"). A adição ou exclusão da Parte A que aponta a conta forma ou realiza o saldo; o saldo nunca fica negativo. Fonte: Decreto-Lei 1.598/1977, art. 8º, I, "c".</p>
+        <table className="mt-1 w-full text-[11px]"><thead><tr className="text-left text-[#86909C]"><th>Conta</th><th>Início do ano → formado → realizado → fim</th><th></th></tr></thead>
+          <tbody>{(d?.parteBContas || []).map((x: P) => <tr key={x.conta.id}><td>{x.conta.codigo} — {x.conta.descricao} ({x.conta.natureza === "a_excluir" ? "a excluir" : "a adicionar"}, {x.conta.tributo === "ambos" ? "IRPJ e CSLL" : x.conta.tributo.toUpperCase()})</td><td>{reais(x.saldoInicialAnoCentavos)} → {reais(x.formadoCentavos)} → {reais(x.realizadoCentavos)} → <b>{reais(x.saldoFinalCentavos)}</b></td>
+            <td><button type="button" className="text-[11px] text-red-700 underline" disabled={ocupado} onClick={async () => { if (!await pedir({ titulo: "Excluir esta conta da Parte B?", oQue: `${x.conta.codigo} — ${x.conta.descricao}`, consequencias: ["Só esta conta é apagada.", "Não exclui se algum lançamento da Parte A usa a conta."] })) return; void fazer(() => chamar("POST", `${base}/parte-b/contas/${encodeURIComponent(x.conta.id)}/excluir`, { confirmar: true }), "Conta excluída."); }}>Excluir</button></td></tr>)}</tbody></table>
+        <div className="mt-2 flex flex-wrap items-end gap-2 text-[11px] font-semibold text-[#4E5969]">
+          <label className="flex flex-col">Código<input className={entrada} value={contaB.codigo || ""} onChange={(e) => setContaB({ ...contaB, codigo: e.target.value })} /></label>
+          <label className="flex flex-col">Descrição<input className={entrada} value={contaB.descricao || ""} onChange={(e) => setContaB({ ...contaB, descricao: e.target.value })} /></label>
+          <label className="flex flex-col">Natureza<select className={entrada} value={contaB.natureza} onChange={(e) => setContaB({ ...contaB, natureza: e.target.value })}><option value="a_excluir">Adicionado agora, a excluir no futuro</option><option value="a_adicionar">Excluído agora, a adicionar no futuro</option></select></label>
+          <label className="flex flex-col">Vale para<select className={entrada} value={contaB.tributo} onChange={(e) => setContaB({ ...contaB, tributo: e.target.value })}><option value="ambos">IRPJ e CSLL</option><option value="irpj">Só IRPJ</option><option value="csll">Só CSLL</option></select></label>
+          <label className="flex flex-col">Saldo no início (da última ECF) — R$<input className={entrada} inputMode="decimal" value={contaB.saldoInicial || ""} onChange={(e) => setContaB({ ...contaB, saldoInicial: e.target.value })} /></label>
+          <button type="button" className={`${botao} border border-[#CBD5E1] bg-white`} disabled={ocupado} onClick={() => void fazer(() => chamar("POST", `${base}/parte-b/contas`, { ...contaB, anoInicial: ano }), "Conta da Parte B criada.").then((r) => { if (r.ok) setContaB({ tributo: "ambos", natureza: "a_excluir" }); })}>Criar conta</button>
+        </div>
+      </details>
+
       <div className="rounded-lg border border-[#E5E6EB] p-2.5" data-campo="lr-parte-a">
         <strong className="text-xs">4. Parte A — adições, exclusões e retenções</strong>
         <div className="mt-2 flex flex-wrap items-end gap-2 text-[11px] font-semibold text-[#4E5969]">
@@ -118,6 +135,9 @@ export const ApuracaoLucroRealPainel: React.FC<{ cnpj: string; ano: number; empr
           <label className="flex flex-col">Descrição<input className={entrada} value={novo.descricao || ""} onChange={(e) => setNovo({ ...novo, descricao: e.target.value })} /></label>
           <label className="flex flex-col">Valor (R$)<input className={entrada} inputMode="decimal" value={novo.valor || ""} onChange={(e) => setNovo({ ...novo, valor: e.target.value })} /></label>
           <label className="flex flex-col">De onde vem<input className={entrada} value={novo.justificativa || ""} onChange={(e) => setNovo({ ...novo, justificativa: e.target.value })} /></label>
+          {(novo.tipo === "adicao" || novo.tipo === "exclusao") && (d?.parteBContas || []).length > 0 && (
+            <label className="flex flex-col">Conta da Parte B (se o valor volta no futuro)<select className={entrada} value={novo.contaParteB || ""} onChange={(e) => setNovo({ ...novo, contaParteB: e.target.value })}><option value="">Nenhuma (definitiva)</option>{(d?.parteBContas || []).map((x: P) => <option key={x.conta.id} value={x.conta.id}>{x.conta.codigo} — {x.conta.descricao} (saldo {reais(x.saldoFinalCentavos)})</option>)}</select></label>
+          )}
           <button type="button" className={`${botao} border border-[#CBD5E1] bg-white`} disabled={ocupado} onClick={() => void fazer(() => chamar("POST", `${base}/lancamentos`, { ...novo, ano, mes: Number(novo.mes) }), "Lançamento gravado. Clique em Apurar agora.").then((r) => { if (r.ok) setNovo({ mes: novo.mes, tributo: "ambos", tipo: "adicao" }); })}>Lançar</button>
         </div>
         <ul className="mt-2 space-y-1 text-[11px]">{(d?.lancamentos || []).map((l: P) => (
