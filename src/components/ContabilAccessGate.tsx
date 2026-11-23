@@ -9,6 +9,7 @@ import { EsqueciSenha } from "./EsqueciSenha";
 import { PainelEscritorios } from "./PainelEscritorios";
 import { PainelDuvidasSupervisor } from "./PainelDuvidasSupervisor";
 import { confirmarSaidaComBackup } from "./backupEscritorio/pastaBackup";
+import { limparEmpresasRemovidasDoNavegador, mesmosCnpjs, INTERVALO_CONFERIR_SESSAO_MS } from "../utils/empresasRemovidasDaSessao";
 
 type Membership = { cnpj: string; role: "admin" | "operator" | "viewer" };
 type AuthData = { usuario: string; cnpjs: string[]; memberships: Membership[]; administrador: boolean; escritorio?: boolean; donoSistema?: boolean; doisFatores?: boolean; precisaAtivar2fa?: boolean };
@@ -87,6 +88,30 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
     })();
     return () => { ativo = false; };
   }, []);
+
+  // Empresa excluída em qualquer sistema some desta tela aberta (sem recarregar): confere a sessão a cada minuto
+  // e quando a pessoa volta para a aba. Só troca a lista quando os CNPJs mudaram; falha de rede não desloga ninguém.
+  const usuarioLogado = auth?.usuario || "";
+  useEffect(() => {
+    if (!usuarioLogado) return;
+    let ativo = true;
+    const conferir = async () => {
+      try {
+        const r = await fetch("/api/auth/session", { credentials: "include", cache: "no-store" });
+        const d = await r.json().catch(() => ({}));
+        if (!ativo || !r.ok || d.autenticado !== true) return;
+        const novos: string[] = Array.isArray(d.cnpjs) ? d.cnpjs : [];
+        limparEmpresasRemovidasDoNavegador(novos, localStorage);
+        setAuth((atual) => (atual && !mesmosCnpjs(atual.cnpjs, novos) ? { ...atual, cnpjs: novos, memberships: d.memberships || atual.memberships } : atual));
+      } catch { /* sem rede agora: tenta de novo no próximo minuto */ }
+    };
+    void conferir();
+    const t = window.setInterval(() => { void conferir(); }, INTERVALO_CONFERIR_SESSAO_MS);
+    const aoVoltar = () => { if (document.visibilityState === "visible") void conferir(); };
+    document.addEventListener("visibilitychange", aoVoltar);
+    window.addEventListener("focus", aoVoltar);
+    return () => { ativo = false; window.clearInterval(t); document.removeEventListener("visibilitychange", aoVoltar); window.removeEventListener("focus", aoVoltar); };
+  }, [usuarioLogado]);
 
   const efetuarLogin = async (usuario: string, password: string) => {
     const response = await fetch("/api/auth/login", {
