@@ -17,6 +17,8 @@ const TRIBUTOS_ACEITOS = new Set([
   "IRPJ_REAL", "CSLL_REAL",
   // Pagamento do DARF do Lucro Real (nasce no próprio Contábil, Livros → Apuração do Lucro Real): mesmo tratamento dos DARF do Fiscal.
   "IRPJ_REAL_PAGO", "CSLL_REAL_PAGO",
+  // CPRB do mês (desoneração da folha, Lei 12.546/2011, art. 9º-A), calculada no DP com a receita do mês: provisão do tributo.
+  "CPRB",
   // Pagamento dos DARF (registrado no Fiscal), como o DAS_SIMPLES_PAGO: principal baixa o "a recolher"; multa e juros à parte.
   "IRPJ_PRESUMIDO_PAGO", "CSLL_PRESUMIDO_PAGO", "PIS_PRESUMIDO_PAGO", "COFINS_PRESUMIDO_PAGO", "PIS_NC_PAGO", "COFINS_NC_PAGO",
 ]);

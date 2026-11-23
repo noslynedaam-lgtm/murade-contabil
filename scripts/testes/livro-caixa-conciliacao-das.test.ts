@@ -201,3 +201,10 @@ test("DARF do Lucro Real pago (nasce no Contábil): mesmo tratamento — princip
   const com = gerarRascunhosApuracoes(cnpj, [ap({ tributo: "CSLL_REAL_PAGO", competencia: "2027-02", referencia: "LR:CSLL_REAL_PAGO:2026-T04", valorCentavos: 1290780, baseCentavos: 1278000, versaoOrigem: "pago:2027-02-10:1290780" })], contas, maps, "x");
   assert.deepEqual(com.map((x) => x.valor), [12780, 127.8]);
 });
+
+test("CPRB do DP: provisão no último dia do mês com a origem dp_cprb", () => {
+  assert.match(readFileSync("src/server/apuracoesFiscaisStore.ts", "utf8"), /"CPRB"/);
+  assert.equal(dataDaApuracao({ tributo: "CPRB", competencia: "2026-02", versaoOrigem: "x" }), "2026-02-28");
+  const r = gerarRascunhosApuracoes(cnpj, [ap({ tributo: "CPRB", competencia: "2026-02", referencia: "DP:CPRB:2026-02", valorCentavos: 513000, baseCentavos: 19000000, versaoOrigem: "v1" })], contas, [mapa("dp_cprb", "3.2.01", "2.1.08")], "x");
+  assert.deepEqual(r.map((x) => [x.data, x.contaDebitoCodigo, x.contaCreditoCodigo, x.valor]), [["2026-02-28", "3.2.01", "2.1.08", 5130]]);
+});

@@ -6,6 +6,8 @@ import { obterPoolDP, ErroValidacaoResumoDP, ErroConflitoResumoDP } from "./dado
 const arred = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
 const camposMonetarios = ["proLabore", "inssSocio", "irrfSocio", "liquido"] as const;
 const camposResumo = new Set(["quantidadeSocios", ...camposMonetarios]);
+// Opcional (DP novo): CPP de 20% da empresa sobre o pró-labore (Lei 8.212/91, art. 22, III). Não entra no líquido do sócio.
+const camposOpcionais = new Set(["inssPatronalSocio"]);
 const canonico = (r: Record<string, unknown>) => JSON.stringify(Object.fromEntries(Object.entries(r).sort(([a], [b]) => a.localeCompare(b))));
 
 export function normalizarResumoProLaboreContrato(cnpj: string, body: any) {
@@ -21,12 +23,16 @@ export function normalizarResumoProLaboreContrato(cnpj: string, body: any) {
   if (!calculadoEm || Number.isNaN(calculadoEm.getTime())) throw new ErroValidacaoResumoDP("Informe a data ISO do cálculo.");
   const r = body.resumo;
   if (!r || typeof r !== "object" || Array.isArray(r)) throw new ErroValidacaoResumoDP("Resumo agregado ausente.");
-  if (Object.keys(r).some((c) => !camposResumo.has(c)) || [...camposResumo].some((c) => !Object.prototype.hasOwnProperty.call(r, c))) throw new ErroValidacaoResumoDP("O resumo aceita somente: quantidadeSocios, proLabore, inssSocio, irrfSocio e liquido.");
+  if (Object.keys(r).some((c) => !camposResumo.has(c) && !camposOpcionais.has(c)) || [...camposResumo].some((c) => !Object.prototype.hasOwnProperty.call(r, c))) throw new ErroValidacaoResumoDP("O resumo aceita somente: quantidadeSocios, proLabore, inssSocio, irrfSocio, liquido e inssPatronalSocio.");
   if (!Number.isInteger(r.quantidadeSocios) || r.quantidadeSocios < 1 || r.quantidadeSocios > 100) throw new ErroValidacaoResumoDP("Quantidade de sócios inválida.");
   const resumo: Record<string, number> = { quantidadeSocios: r.quantidadeSocios };
   for (const c of camposMonetarios) {
     if (typeof r[c] !== "number" || !Number.isFinite(r[c]) || r[c] < 0 || r[c] > 999999999999) throw new ErroValidacaoResumoDP(`Valor agregado inválido: ${c}.`);
     resumo[c] = arred(r[c]);
+  }
+  if (Object.prototype.hasOwnProperty.call(r, "inssPatronalSocio")) {
+    if (typeof r.inssPatronalSocio !== "number" || !Number.isFinite(r.inssPatronalSocio) || r.inssPatronalSocio < 0 || r.inssPatronalSocio > 999999999999) throw new ErroValidacaoResumoDP("Valor agregado inválido: inssPatronalSocio.");
+    resumo.inssPatronalSocio = arred(r.inssPatronalSocio);
   }
   if (Math.abs(arred(resumo.proLabore - resumo.inssSocio - resumo.irrfSocio) - resumo.liquido) > 0.01) throw new ErroValidacaoResumoDP("O líquido não confere com pró-labore menos INSS e IRRF.");
   return { competencia: body.competencia as string, processamentoId: (body.processamentoId as string).trim(), calculadoEm: calculadoEm.toISOString(), resumo };

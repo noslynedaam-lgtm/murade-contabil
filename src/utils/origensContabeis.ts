@@ -46,6 +46,7 @@ export const ORIGENS = [
   { id: "contabil_csll_real", rotulo: "Contábil — CSLL Lucro Real (provisão)" },
   { id: "contabil_irpj_real_pago", rotulo: "Contábil — IRPJ Lucro Real (pagamento)" },
   { id: "contabil_csll_real_pago", rotulo: "Contábil — CSLL Lucro Real (pagamento)" },
+  { id: "dp_cprb", rotulo: "DP — CPRB (desoneração da folha)" },
   { id: "fiscal_das_simples", rotulo: "Fiscal — DAS Simples (provisão)" },
   { id: "fiscal_das_simples_pago", rotulo: "Fiscal — DAS Simples (pagamento)" },
   { id: "fiscal_das_simples_encargos", rotulo: "Fiscal — DAS Simples (multa e juros)" },
@@ -84,6 +85,7 @@ export const ORIGEM_POR_TRIBUTO: Record<string, IdOrigem> = {
   CSLL_REAL: "contabil_csll_real",
   IRPJ_REAL_PAGO: "contabil_irpj_real_pago",
   CSLL_REAL_PAGO: "contabil_csll_real_pago",
+  CPRB: "dp_cprb",
   DAS_SIMPLES: "fiscal_das_simples",
   DAS_SIMPLES_PAGO: "fiscal_das_simples_pago",
 };
@@ -157,7 +159,7 @@ const CAMPO_DP_MENSAL: Record<string, IdOrigem> = {
   folhaBruta: "dp_folha_bruta", descontosINSS: "dp_descontos_inss", inssPatronal: "dp_inss_patronal", descontosIRRF: "dp_descontos_irrf", fgts: "dp_fgts",
   salarioFamilia: "dp_salario_familia", descontosFaltas: "dp_desconto_faltas", descontosVT: "dp_desconto_vt", descontosPensao: "dp_desconto_pensao", descontosAdiantamento: "dp_desconto_adiantamento", descontosConsignado: "dp_desconto_consignado", descontosEmprestimoEmpresa: "dp_desconto_emprestimo_empresa", descontosConvenio: "dp_desconto_convenio", descontosOutrosAutorizados: "dp_desconto_outros_autorizados",
   provisaoFerias: "dp_provisao_ferias", provisao13: "dp_provisao_13", encargosOutros: "dp_provisao_encargos",
-  proLabore: "dp_folha_bruta", inssSocio: "dp_descontos_inss", irrfSocio: "dp_descontos_irrf",
+  proLabore: "dp_folha_bruta", inssSocio: "dp_descontos_inss", irrfSocio: "dp_descontos_irrf", inssPatronalSocio: "dp_inss_patronal",
 };
 const CAMPO_DP_EVENTO: Record<string, IdOrigem> = {
   bruto: "dp_folha_bruta", descontosINSS: "dp_descontos_inss", inssPatronal: "dp_inss_patronal", descontosIRRF: "dp_descontos_irrf", fgts: "dp_fgts", multaFgts: "dp_multa_fgts_rescisoria",

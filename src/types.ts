@@ -314,6 +314,7 @@ export type OrigemMapeadaContabil =
   | "contabil_csll_real"
   | "contabil_irpj_real_pago"
   | "contabil_csll_real_pago"
+  | "dp_cprb"
   | "fiscal_das_simples_encargos";
 
 export interface MapeamentoOrigemContabil {

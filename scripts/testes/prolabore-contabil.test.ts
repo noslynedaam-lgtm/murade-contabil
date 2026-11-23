@@ -53,3 +53,22 @@ test("resumo incoerente ou vazio não gera lançamento", () => {
   assert.equal(gerarRascunhosProLabore(cnpj, [{ competencia: "2026-10", resumo: { quantidadeSocios: 1, proLabore: 0, inssSocio: 0, irrfSocio: 0, liquido: 0 } }], contas, mapeamentos, agora).length, 0);
   assert.equal(gerarRascunhosProLabore(cnpj, [{ competencia: "2026/10", resumo: resumoOk }], contas, mapeamentos, agora).length, 0);
 });
+
+test("CPP de 20% da empresa sobre o pró-labore (Lei 8.212/91, art. 22, III): campo opcional, vira pré-lançamento do INSS patronal", async () => {
+  const { origemDaReferencia, ORIGEM_POR_TRIBUTO } = await import("../../src/utils/origensContabeis");
+  // R$ 6.000 de pró-labore → CPP 20% = R$ 1.200 (não entra no líquido do sócio)
+  const r = normalizarResumoProLaboreContrato(cnpj, envio({ ...resumoOk, inssPatronalSocio: 1200 }));
+  assert.equal(r.resumo.inssPatronalSocio, 1200);
+  assert.throws(() => normalizarResumoProLaboreContrato(cnpj, envio({ ...resumoOk, inssPatronalSocio: -1 })), /inválido/);
+  const comPatronal = [...mapeamentos, { origem: "dp_inss_patronal", contaDebitoCodigo: "5.2.1", contaCreditoCodigo: "2.2.1" }];
+  const l = gerarRascunhosProLabore(cnpj, [{ competencia: "2026-10", resumo: { ...resumoOk, inssPatronalSocio: 1200 } }], contas, comPatronal, agora);
+  const p = l.find((x) => x.referenciaOrigem.endsWith(":inssPatronalSocio"))!;
+  assert.deepEqual([p.contaDebitoCodigo, p.contaCreditoCodigo, p.valor], ["5.2.1", "2.2.1", 1200]);
+  assert.equal(origemDaReferencia(p.referenciaOrigem)?.id, "dp_inss_patronal");
+  // resumo antigo (sem o campo) continua gerando os três de sempre
+  assert.equal(gerarRascunhosProLabore(cnpj, [{ competencia: "2026-10", resumo: resumoOk }], contas, comPatronal, agora).length, 3);
+  // sem conta do INSS patronal mapeada: os outros três saem, o patronal fica de fora
+  assert.equal(gerarRascunhosProLabore(cnpj, [{ competencia: "2026-10", resumo: { ...resumoOk, inssPatronalSocio: 1200 } }], contas, mapeamentos, agora).length, 3);
+  // CPRB (desoneração) liberada no store das apurações, com origem própria
+  assert.equal(ORIGEM_POR_TRIBUTO.CPRB, "dp_cprb");
+});

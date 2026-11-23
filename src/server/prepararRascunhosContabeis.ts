@@ -127,6 +127,7 @@ const HISTORICO_POR_TRIBUTO: Record<string, string> = {
   COFINS_NC_PAGO: "COFINS não cumulativa — pagamento do DARF 5856 registrado no Fiscal",
   IRPJ_REAL_PAGO: "IRPJ do Lucro Real — pagamento do DARF registrado na Apuração do Lucro Real",
   CSLL_REAL_PAGO: "CSLL do Lucro Real — pagamento do DARF registrado na Apuração do Lucro Real",
+  CPRB: "CPRB do mês (desoneração da folha) calculada no DP",
 
 };
 
@@ -141,7 +142,7 @@ const mapeamentoValido = (mapeamentos: Registro[], idOrigem: string, analiticas:
  * DARF (tributos *_PAGO). Provisões do Lucro Presumido e do PIS/COFINS não cumulativos: último dia do mês da competência (o tributo é
  * do período; para IRPJ/CSLL a competência é o último mês do trimestre). As demais (DIFAL) seguem no dia 1º.
  */
-const PROVISAO_NO_FIM_DO_MES = new Set(["IRPJ_REAL", "CSLL_REAL", "IRPJ_PRESUMIDO", "CSLL_PRESUMIDO", "PIS_PRESUMIDO", "COFINS_PRESUMIDO", "PIS_NAO_CUMULATIVO", "COFINS_NAO_CUMULATIVA", "PIS_NC_CREDITO", "COFINS_NC_CREDITO"]);
+const PROVISAO_NO_FIM_DO_MES = new Set(["CPRB", "IRPJ_REAL", "CSLL_REAL", "IRPJ_PRESUMIDO", "CSLL_PRESUMIDO", "PIS_PRESUMIDO", "COFINS_PRESUMIDO", "PIS_NAO_CUMULATIVO", "COFINS_NAO_CUMULATIVA", "PIS_NC_CREDITO", "COFINS_NC_CREDITO"]);
 export function dataDaApuracao(apuracao: Pick<ApuracaoFiscalArmazenada, "tributo" | "competencia" | "versaoOrigem">): string {
   if (apuracao.tributo === "DAS_SIMPLES" || PROVISAO_NO_FIM_DO_MES.has(apuracao.tributo)) {
     const [a, m] = apuracao.competencia.split("-").map(Number);
@@ -324,6 +325,8 @@ export function gerarRascunhosProLabore(cnpj: string, resumos: Array<{ competenc
     { campo: "proLabore", origem: "DP — Folha", titulo: "Pró-labore dos sócios", obrigatorio: true },
     { campo: "inssSocio", origem: "DP — INSS", titulo: "INSS retido do pró-labore (11%)", obrigatorio: true },
     { campo: "irrfSocio", origem: "DP — IRRF", titulo: "IRRF retido do pró-labore", obrigatorio: false },
+    // CPP de 20% da empresa sobre o pró-labore (Lei 8.212/91, art. 22, III). Opcional: o DP antigo não mandava; sem conta mapeada, fica de fora.
+    { campo: "inssPatronalSocio", origem: "DP — INSS patronal", titulo: "INSS patronal (CPP) sobre o pró-labore", obrigatorio: false },
   ] as const;
   const candidatos: RascunhoAutomaticoContabil[] = [];
   for (const r of resumos) {
@@ -333,6 +336,7 @@ export function gerarRascunhosProLabore(cnpj: string, resumos: Array<{ competenc
     if (Math.abs(Math.round((bruto - inss - irrf + Number.EPSILON) * 100) / 100 - liquido) > 0.01) continue;
     const lote: RascunhoAutomaticoContabil[] = []; let completo = true;
     for (const item of itens) {
+      if (!item.obrigatorio && !(item.campo in r.resumo)) continue; // campo opcional que o DP antigo não mandava
       const valor = valorNumerico(r.resumo[item.campo]);
       if (valor === null || valor < 0) { completo = false; break; }
       if (valor === 0) continue;

@@ -100,6 +100,7 @@ export const SUGESTOES_CONTAS_POR_ORIGEM: Record<OrigemMapeadaContabil, RegraOri
   contabil_csll_real: [],
   contabil_irpj_real_pago: [],
   contabil_csll_real_pago: [],
+  dp_cprb: [],
 };
 
 /** Mantido por compatibilidade: primeira regra de cada origem (plano simples/Ferragista). */
