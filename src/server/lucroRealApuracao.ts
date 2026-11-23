@@ -411,7 +411,7 @@ export async function apurarAnoLucroReal(deps: DepsLucroReal, cnpj: string, ano:
   const cfg = await lerConfigLucroReal(consultar, cnpj);
   if (!cfg) return { periodos: await listarApuracoesReal(consultar, cnpj, ano), avisos: ["Configure a apuração do Lucro Real da empresa (forma, obrigada/optante, saldos de prejuízo) antes de calcular."] };
   const payload = await deps.lerWorkspace(cnpj);
-  if (!payload) return { periodos: [], avisos: ["Empresa sem contabilidade no Murade Contábil."] };
+  if (!payload) return { periodos: [], avisos: ["Empresa sem contabilidade no Murad Contábil."] };
   const hoje = deps.hoje(); const anoHoje = Number(hoje.slice(0, 4)); const mesHoje = Number(hoje.slice(5, 7));
   const ate = ano < anoHoje ? 12 : ano === anoHoje ? mesHoje - 1 : 0;
   const avisos: string[] = [];
