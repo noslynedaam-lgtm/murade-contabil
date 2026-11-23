@@ -4,9 +4,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { avisarHubFiscal, PRESERVADOS, removerEmpresaCompleta, sobrasDeEmpresasExcluidas, TABELA_ARQUIVO, type BancoTransacional, type ConsultaSql } from '../../src/server/exclusaoEmpresaCascata';
+import { avisarHubFiscal, PRESERVADOS, removerEmpresaCompleta, sobrasDeEmpresasExcluidas, type BancoTransacional, type ConsultaSql } from '../../src/server/exclusaoEmpresaCascata';
+import { TABELA_ARQUIVO_MORTO, TABELAS_GUARDA, recuperarDoArquivoMorto, rodarRoboPrazoGuarda, guardarAte } from '../../src/server/arquivoMorto';
 import { cnpjsExcluidosNoFiscal } from '../../src/server/empresasDoFiscal';
 
+process.env.MURADE_BACKUP_MASTER_KEY = '11'.repeat(32);
 const ALVO = '10368859000101';
 const OUTRA = '11222333000181';
 
@@ -18,7 +20,8 @@ function bancoFalso() {
     workspaces: [{ cnpj: ALVO, payload: { lancamentos: [{ id: 1 }] }, version: 7 }, { cnpj: OUTRA, payload: {}, version: 1 }],
     atividade: [{ cnpj: ALVO }, { cnpj: ALVO }, { cnpj: OUTRA }],
     sistemaAnterior: [{ cnpj: ALVO, bloco: 'lotes' }, { cnpj: ALVO, bloco: '__migracao' }, { cnpj: OUTRA, bloco: 'lotes' }],
-    arquivo: [] as any[],
+    morto: [] as any[],
+    guarda: { contabil_period_closures: [{ cnpj: ALVO, competencia: '2026-01' }, { cnpj: OUTRA, competencia: '2026-01' }], murade_documentos_fiscais_origem: [{ cnpj: ALVO, chave: 'N1' }], contabil_ai_agent_log: [{ cnpj: ALVO, texto: 'log' }] } as Record<string, any[]>,
   };
   const sqls: string[] = [];
   let begin = 0, commit = 0, rollback = 0; let falharEm: string | null = null;
@@ -27,11 +30,15 @@ function bancoFalso() {
     if (falharEm && sql.includes(falharEm)) throw new Error('falha simulada');
     const cnpj = p[0];
     const apagar = <T extends { cnpj: string }>(lista: T[]) => { const antes = lista.length; const resto = lista.filter((x) => x.cnpj !== cnpj); lista.length = 0; lista.push(...resto); return { rows: [], rowCount: antes - resto.length }; };
-    if (/^CREATE TABLE/i.test(sql.trim())) return { rows: [] };
+    if (/^CREATE (TABLE|INDEX)/i.test(sql.trim())) return { rows: [] };
+    if (sql.includes('FROM contabil_auth_company_access a JOIN contabil_auth_users u')) return { rows: [{ t: 'escritorio-1' }] };
+    if (sql.includes(`INSERT INTO ${TABELA_ARQUIVO_MORTO}`)) { t.morto.push({ id: p[0], tenant_id: p[1], cnpj: p[2], guardar_ate: p[4], conteudo: p[6], itens: p[8] }); return { rows: [], rowCount: 1 }; }
+    const g = /to_regclass\('(\w+)'\)/.exec(sql); if (g && ((TABELAS_GUARDA as readonly string[]).includes(g[1]) || g[1] === 'contabil_ai_agent_log')) return { rows: [{ t: (t.guarda as any)[g[1]] ? g[1] : null }] };
+    const gs = /^SELECT \* FROM (\w+) WHERE cnpj=\$1/.exec(sql); if (gs && (t.guarda as any)[gs[1]]) return { rows: (t.guarda as any)[gs[1]].filter((x: any) => x.cnpj === cnpj) };
+    const gd = /^DELETE FROM (\w+) WHERE cnpj=\$1/.exec(sql); if (gd && (t.guarda as any)[gd[1]]) return apagar((t.guarda as any)[gd[1]]);
     if (sql.includes('pg_advisory_xact_lock')) return { rows: [] };
     if (sql.startsWith('SELECT payload,version FROM contabil_company_workspaces')) { const w = t.workspaces.find((x) => x.cnpj === cnpj); return { rows: w ? [w] : [] }; }
     if (sql.startsWith('SELECT dados FROM contabil_empresas_compartilhadas')) { const c = t.compartilhadas.find((x) => x.cnpj === cnpj); return { rows: c ? [c] : [] }; }
-    if (sql.includes(`INSERT INTO ${TABELA_ARQUIVO}`)) { t.arquivo.push({ cnpj: p[0], payload: JSON.parse(p[1] as string), versao: p[2], por: p[4], origem: p[5] }); return { rows: [], rowCount: 1 }; }
     if (sql.startsWith('DELETE FROM contabil_auth_company_access')) return apagar(t.acesso as any);
     if (sql.startsWith('DELETE FROM contabil_empresas_compartilhadas')) return apagar(t.compartilhadas);
     if (sql.startsWith('DELETE FROM contabil_company_workspaces')) return apagar(t.workspaces);
@@ -52,7 +59,7 @@ function bancoFalso() {
       begin++;
       const copia = JSON.stringify(t);
       try { const r = await fn(consultar); commit++; return r; }
-      catch (e) { rollback++; const antes = JSON.parse(copia); for (const k of Object.keys(antes)) { (t as any)[k].length = 0; (t as any)[k].push(...antes[k]); } throw e; }
+      catch (e) { rollback++; const antes = JSON.parse(copia); for (const k of Object.keys(antes)) { if (Array.isArray(antes[k])) { (t as any)[k].length = 0; (t as any)[k].push(...antes[k]); } else (t as any)[k] = antes[k]; } throw e; }
     },
   };
   return { banco, t, sqls, contagem: () => ({ begin, commit, rollback }), falharEm: (x: string) => { falharEm = x; } };
@@ -62,7 +69,7 @@ test('remove a empresa de TODOS os usuários, do cadastro compartilhado, do work
   const f = bancoFalso();
   const r = await removerEmpresaCompleta(f.banco, '10.368.859/0001-01', { por: 'dono', origem: 'fiscal' });
   assert.equal(r.sucesso, true); assert.equal(r.cnpj, ALVO);
-  assert.deepEqual(r.apagados, { acessosDeUsuarios: 3, empresaCompartilhada: 1, workspace: 1, atividadeEquipe: 2, sistemaAnterior: 2, titulos: 0, cartoes: 0, extrato: 0, lucroReal: 0 });
+  assert.deepEqual(r.apagados, { acessosDeUsuarios: 3, empresaCompartilhada: 1, workspace: 1, atividadeEquipe: 2, sistemaAnterior: 2, titulos: 0, cartoes: 0, extrato: 0, guardadosNoArquivoMorto: 3, operacionais: 1 });
   assert.deepEqual(f.t.sistemaAnterior, [{ cnpj: OUTRA, bloco: 'lotes' }], 'o registro do sistema anterior sai junto e a outra empresa fica');
   assert.equal(r.jaNaoExistia, false);
   assert.deepEqual(f.t.acesso, [{ user_id: 'u1', cnpj: OUTRA }]);
@@ -71,26 +78,33 @@ test('remove a empresa de TODOS os usuários, do cadastro compartilhado, do work
   assert.deepEqual(f.t.atividade, [{ cnpj: OUTRA }]);
 });
 
-test('preserva fechamentos, auditorias e documentos de origem: nenhum SQL toca nessas tabelas; a escrituração vai para o arquivo antes de apagar', async () => {
+test('o que tem guarda legal vai CIFRADO para o arquivo morto do escritório e sai das tabelas vivas; o operacional sai sem cópia; outra empresa fica', async () => {
   const f = bancoFalso();
   const r = await removerEmpresaCompleta(f.banco, ALVO, { por: 'ana', origem: 'contabil' });
-  const tocadas = f.sqls.join('\n');
-  for (const nome of PRESERVADOS.map((x) => x.split(' ')[0]).filter((x) => x !== TABELA_ARQUIVO)) {
-    assert.ok(!new RegExp(`(DELETE FROM|UPDATE|TRUNCATE)\\s+${nome}\\b`, 'i').test(tocadas), `${nome} não pode ser alterada`);
-  }
-  for (const essencial of ['contabil_period_closures', 'contabil_accounting_approval_audit', 'contabil_manual_journal_audit', 'contabil_opening_balance_audit']) assert.ok(r.preservados.includes(essencial));
-  assert.equal(f.t.arquivo.length, 1);
-  assert.deepEqual(f.t.arquivo[0].payload, { lancamentos: [{ id: 1 }] }, 'a escrituração foi copiada intacta');
-  assert.equal(f.t.arquivo[0].versao, 7); assert.equal(f.t.arquivo[0].por, 'ana');
-  assert.ok(f.sqls.findIndex((s) => s.includes(`INSERT INTO ${TABELA_ARQUIVO}`)) < f.sqls.findIndex((s) => s.startsWith('DELETE FROM contabil_company_workspaces')), 'copia antes de apagar');
+  assert.equal(f.t.morto.length, 1);
+  const m = f.t.morto[0];
+  assert.equal(m.tenant_id, 'escritorio-1'); assert.equal(m.cnpj, ALVO); assert.equal(m.guardar_ate, guardarAte(new Date().getUTCFullYear()));
+  assert.equal(m.itens, 3, 'workspace + 1 fechamento + 1 documento de origem');
+  assert.ok(Buffer.isBuffer(m.conteudo) && !m.conteudo.toString('latin1').includes('N1'), 'o conteúdo está cifrado');
+  assert.deepEqual(f.t.guarda.contabil_period_closures, [{ cnpj: OUTRA, competencia: '2026-01' }]);
+  assert.deepEqual(f.t.guarda.murade_documentos_fiscais_origem, []); assert.deepEqual(f.t.guarda.contabil_ai_agent_log, []);
+  assert.ok(f.sqls.findIndex((x) => x.includes(`INSERT INTO ${TABELA_ARQUIVO_MORTO}`)) < f.sqls.findIndex((x) => x.startsWith('DELETE FROM contabil_period_closures')), 'guarda antes de apagar');
+  assert.ok(f.sqls.findIndex((x) => x.includes('JOIN contabil_auth_users u')) < f.sqls.findIndex((x) => x.startsWith('DELETE FROM contabil_auth_company_access')), 'descobre o escritório antes de tirar o vínculo');
+  assert.equal(r.preservados.length, PRESERVADOS.length);
+});
+
+test('sem a chave dos backups a exclusão é recusada e nada é apagado (guarda legal não se perde)', async () => {
+  const f = bancoFalso(); const antes = process.env.MURADE_BACKUP_MASTER_KEY; delete process.env.MURADE_BACKUP_MASTER_KEY;
+  try { await assert.rejects(() => removerEmpresaCompleta(f.banco, ALVO), /MURADE_BACKUP_MASTER_KEY/); } finally { process.env.MURADE_BACKUP_MASTER_KEY = antes; }
+  assert.equal(f.t.acesso.filter((x) => x.cnpj === ALVO).length, 3); assert.equal(f.t.morto.length, 0);
 });
 
 test('é idempotente: repetir devolve zeros e não cria outra cópia; CNPJ inexistente também não dá erro', async () => {
   const f = bancoFalso();
   await removerEmpresaCompleta(f.banco, ALVO);
   const de_novo = await removerEmpresaCompleta(f.banco, ALVO);
-  assert.deepEqual(de_novo.apagados, { acessosDeUsuarios: 0, empresaCompartilhada: 0, workspace: 0, atividadeEquipe: 0, sistemaAnterior: 0, titulos: 0, cartoes: 0, extrato: 0, lucroReal: 0 });
-  assert.equal(de_novo.jaNaoExistia, true); assert.equal(f.t.arquivo.length, 1);
+  assert.deepEqual(de_novo.apagados, { acessosDeUsuarios: 0, empresaCompartilhada: 0, workspace: 0, atividadeEquipe: 0, sistemaAnterior: 0, titulos: 0, cartoes: 0, extrato: 0, guardadosNoArquivoMorto: 0, operacionais: 0 });
+  assert.equal(de_novo.jaNaoExistia, true); assert.equal(f.t.morto.length, 1);
   assert.equal((await removerEmpresaCompleta(f.banco, '99999999000199')).jaNaoExistia, true);
 });
 
@@ -98,7 +112,7 @@ test('é tudo ou nada: se um passo falha, a transação volta e nada fica apagad
   const f = bancoFalso(); f.falharEm('DELETE FROM contabil_company_workspaces');
   await assert.rejects(() => removerEmpresaCompleta(f.banco, ALVO), /falha simulada/);
   assert.equal(f.contagem().rollback, 1); assert.equal(f.contagem().commit, 0);
-  assert.equal(f.t.acesso.filter((x) => x.cnpj === ALVO).length, 3); assert.equal(f.t.arquivo.length, 0);
+  assert.equal(f.t.acesso.filter((x) => x.cnpj === ALVO).length, 3); assert.equal(f.t.morto.length, 0);
 });
 
 test('nunca bloqueia CNPJ nem e-mail: a exclusão não grava lista de bloqueio e não mexe em usuários', async () => {
@@ -106,7 +120,7 @@ test('nunca bloqueia CNPJ nem e-mail: a exclusão não grava lista de bloqueio e
   const todo = f.sqls.join('\n');
   assert.ok(!/bloque|blocklist|lapide|INSERT INTO contabil_auth_users|DELETE FROM contabil_auth_users|UPDATE contabil_auth_users/i.test(todo));
   const codigo = readFileSync('src/server/exclusaoEmpresaCascata.ts', 'utf8');
-  assert.ok(!/INSERT INTO (?!\$\{TABELA_ARQUIVO\})/.test(codigo), 'o único INSERT é a cópia de arquivo (que não impede cadastrar de novo)');
+  assert.ok(!/INSERT INTO/.test(codigo), 'a exclusão não grava nada além do arquivo morto (em arquivoMorto.ts), que não impede cadastrar de novo');
 });
 
 // ---- hub do Fiscal
@@ -193,20 +207,3 @@ test('Agente por voz: nome ambíguo ou inexistente não escolhe sozinho; não ex
   assert.ok(!kitContabil.ferramentas.some((f: any) => /todas|lote/i.test(f.declaracao.name)));
 });
 
-test('Lucro Real da empresa (config, Parte A, Parte B, períodos e pagamentos) sai da base viva, copiado antes para o arquivo; outra empresa fica', async () => {
-  const f = bancoFalso();
-  (f.t as any).lucroReal = {
-    contabil_lucro_real_config: [{ cnpj: ALVO, dados: { forma: 'trimestral' } }, { cnpj: OUTRA, dados: {} }],
-    contabil_lalur_lancamentos: [{ cnpj: ALVO, id: 'L1' }, { cnpj: ALVO, id: 'L2' }],
-    contabil_lalur_parte_b_contas: [{ cnpj: ALVO, id: 'B1' }],
-    contabil_lucro_real_apuracoes: [{ cnpj: ALVO, id: 'A1' }, { cnpj: OUTRA, id: 'A9' }],
-    contabil_lucro_real_pagamentos: [{ cnpj: ALVO, id: 'P1' }],
-  };
-  const r = await removerEmpresaCompleta(f.banco, ALVO, { por: 'dono' });
-  assert.equal(r.apagados.lucroReal, 6);
-  const lr = (f.t as any).lucroReal;
-  assert.deepEqual(Object.values(lr).flat().map((x: any) => x.cnpj), [OUTRA, OUTRA], 'só a outra empresa ficou');
-  const arq = f.t.arquivo[0].payload.lucroRealArquivado;
-  assert.equal(arq.contabil_lalur_lancamentos.length, 2); assert.equal(arq.contabil_lucro_real_pagamentos[0].id, 'P1');
-  assert.ok(f.sqls.findIndex((s) => s.includes(`INSERT INTO ${TABELA_ARQUIVO}`)) < f.sqls.findIndex((s) => s.startsWith('DELETE FROM contabil_lalur_lancamentos')), 'copia antes de apagar');
-});

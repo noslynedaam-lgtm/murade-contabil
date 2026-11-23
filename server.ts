@@ -13,6 +13,8 @@ import { rodarRoboLucroReal } from "./src/server/lucroRealApuracao";
 import { ErroValidacaoApuracaoFiscal, apuracoesStoreConfigurado, gravarApuracoesFiscais, lerApuracoesFiscais, verificarEstadoStoreApuracoes } from "./src/server/apuracoesFiscaisStore";
 import { dpStoreConfigurado, ErroConflitoResumoDP, ErroValidacaoResumoDP, gravarResumoDP, lerResumosDP, verificarEstadoStoreDP } from "./src/server/dadosDpStore";
 import { gravarResumoProLaboreDP } from "./src/server/dadosProLaboreStore";
+import { registrarRotasArquivoMorto } from "./src/server/arquivoMortoRotas";
+import { migrarArquivoAntigo, rodarRoboPrazoGuarda } from "./src/server/arquivoMorto";
 import { gravarEventoDP, lerEventosDP } from "./src/server/dadosDpEventosStore";
 import { registrarGestaoEquipe } from "./src/server/gestaoEquipe";
 import { prepararAuthContabil, configGestaoEquipeContabil, adicionarEmpresaAcessoContabil, adicionarEquipeContabil, bloquearEscritorioContabil, definirLimiteEscritorioContabil, convidarEquipeContabil, convidarEscritorioContabil, reenviarAcessoEscritorioContabil, listarEquipeContabil, listarEscritoriosContabil, removerEquipeContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, sessaoDaRequisicaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarCnpjsComOrigensSemMapeamentoContabil, aplicarMapeamentosPadraoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, manterConectadoContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil, importarCnpjsCompartilhados, sessaoDoEscritorioParaIntegracaoContabil, auth2faEstadoContabil, auth2faIniciarContabil, auth2faAtivarContabil, auth2faDesativarContabil, auth2faRedefinirContabil, auth2faResumoContabil, resumoSegurancaContabil, alterarWorkspaceNoServidorContabil, criarWorkspacesQueFaltamContabil, resumoPreLancamentosPorEmpresaContabil, ORIGENS_BASICAS_CONTABIL } from "./src/server/authContabil";
@@ -1364,6 +1366,22 @@ const reconciliacaoRascunhosStatus: {
     enviarProvisao: (cnpj: string, itens: any[]) => gravarApuracoesFiscais(cnpj, itens),
   };
   registrarRotasLucroReal(app, { exigirSessao: exigirSessaoContabil, exigirOrigem: exigirOrigemNavegador }, depsLucroReal);
+  // Arquivo morto das empresas excluídas (documentos com guarda legal, cifrados por escritório; só o admin recupera).
+  registrarRotasArquivoMorto(app, {
+    banco: bancoTransacionalContabil(), exigirSessao: exigirSessaoContabil, exigirOrigem: exigirOrigemNavegador, hoje: () => new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10),
+    sessao: (req) => { const s = sessaoDaRequisicaoContabil(req); return s ? { tenantId: String(s.tenantId || s.escritorioDe || s.userId), administrador: s.administrador === true, donoSistema: s.donoSistema === true, cnpjs: s.cnpjs, login: s.login } : undefined; },
+  });
+  registrarRobo({ id: "prazo_guarda", nome: "Robô do Prazo de Guarda", posto: "conferidor", missao: "Uma vez por dia confere o prazo legal de guarda dos documentos das empresas excluídas (arquivo morto cifrado): avisa o administrador 60 dias antes de vencer e, vencido o prazo e passados 30 dias do aviso, apaga de vez — menos o que estiver marcado 'manter guardado' (processo ou parcelamento). Nunca abre nem mostra o conteúdo. Também passa as cópias antigas, sem cifra, para o arquivo morto.", intervaloMs: 24 * 60 * 60_000 });
+  const rodarPrazoGuarda = () => void executarRobo("prazo_guarda", async () => {
+    if (!bancoContabilConfigurado()) return;
+    const banco = bancoTransacionalContabil();
+    const migrados = await migrarArquivoAntigo(banco);
+    const r = await rodarRoboPrazoGuarda(banco.consultar, new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10));
+    registrarResultadoRobo("prazo_guarda", `${r.resumo}${migrados ? ` ${migrados} cópia(s) antiga(s) passada(s) para o arquivo morto cifrado.` : ""}`);
+  }).catch((e) => console.error("Falha no Robô do Prazo de Guarda:", e?.message || e));
+  registrarRotinaManual("prazo_guarda", rodarPrazoGuarda);
+  setTimeout(rodarPrazoGuarda, 170_000).unref();
+  setInterval(rodarPrazoGuarda, 24 * 60 * 60_000).unref();
   registrarRobo({ id: "lucro_real", nome: "Robô do Lucro Real", posto: "calculador", missao: "Apurar sozinho o IRPJ e a CSLL do Lucro Real de cada empresa configurada (estimativa mensal pela receita ou pelo balancete de suspensão/redução, ou trimestral), com e-Lalur/e-Lacs e saldos de prejuízo fiscal e base negativa, deixando tudo pronto para a contadora confirmar. Nunca confirma, paga nem transmite.", intervaloMs: 6 * 60 * 60_000 });
   const rodarRoboLucroRealAgora = () => void executarRobo("lucro_real", async () => {
     if (!bancoContabilConfigurado()) return;

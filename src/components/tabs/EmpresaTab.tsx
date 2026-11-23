@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { DocumentosGuardadosPainel } from "../DocumentosGuardadosPainel";
 import { useEstadoIntegracoes, NOME_FISCAL, NOME_DP } from "../PainelIntegracoesReais";
 import { textoOrigem } from "../../utils/integracaoTexto";
 import { EmpresaDados } from "../../types";
@@ -401,7 +402,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
       consequencias: [
         "A empresa sai da lista, e o acesso de todos os usuários a ela é removido neste sistema.",
         "O Fiscal é avisado e apaga a empresa também (e ele avisa os outros sistemas), para o robô não trazê-la de volta.",
-        "Fechamentos de período e trilhas de auditoria continuam guardados.",
+        "O que a lei manda guardar (escrituração, fechamentos, e-Lalur e documentos) vai para um arquivo escondido e cifrado do escritório até o fim do prazo legal; só o administrador recupera, depois de cadastrar a empresa de novo.",
         "O CNPJ não fica bloqueado: depois dá para cadastrar a empresa de novo.",
       ],
     });
@@ -749,6 +750,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
 
   return (
     <div className="space-y-5">
+      {String(empresa?.cnpj || "") && <DocumentosGuardadosPainel cnpj={String(empresa.cnpj)} />}
       {/* 🔙 CABEÇALHO DO MÓDULO */}
       <div className="bg-white rounded-xl p-4 sm:p-5 shadow-xs border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
