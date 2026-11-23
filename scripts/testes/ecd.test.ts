@@ -313,3 +313,9 @@ test("DMPL inclui todas as contas do PL e 'nenhuma' não gera J210", () => {
   const n = gerarArquivoECD({ parametros: { ...param, demonstracaoPL: "nenhuma" }, contas, lancamentos: validos() });
   assert.ok(!n.conteudo!.includes("|J210|"));
 });
+
+test("ECD: MEI dispensado da escrituração contábil (Perguntas e Respostas MEI e Simei, 3.6)", () => {
+  const r = analisarObrigatoriedadeECD({ regime: "MEI" });
+  assert.equal(r.situacao, "dispensada"); assert.match(r.motivo, /Relatório Mensal das Receitas Brutas/);
+  assert.equal(analisarObrigatoriedadeECD({ regime: "Simples Nacional" }).situacao, "dispensada");
+});

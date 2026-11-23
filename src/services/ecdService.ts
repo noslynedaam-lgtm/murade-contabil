@@ -777,6 +777,9 @@ export function analisarObrigatoriedadeECD(perfil: PerfilObrigatoriedadeECD): An
     }
     return { situacao: "obrigatoria", titulo: "ECD obrigatória", motivo: "Lucro Presumido que não optou pelo livro caixa entrega a ECD (manual, item 1.3).", planoReferencial: "2", descricaoPlanoReferencial: "PJ em geral – Lucro Presumido" };
   }
+  if (/\bmei\b|microempreendedor/.test(regime)) {
+    return { situacao: "dispensada", titulo: "ECD dispensada (MEI)", motivo: "O MEI fica dispensado da escrituração dos livros fiscais e contábeis; guarda só o Relatório Mensal das Receitas Brutas (Anexo X da Resolução CGSN 140/2018), para apresentar quando o Fisco pedir (Receita Federal, Perguntas e Respostas MEI e Simei, item 3.6).", planoReferencial: "", descricaoPlanoReferencial: "" };
+  }
   if (/simples|mei/.test(regime)) {
     if (perfil.simplesAporteCapital) {
       return { situacao: "obrigatoria", titulo: "ECD obrigatória", motivo: "Simples Nacional com aporte de capital (arts. 61-A a 61-D da LC 123/2006) não tem a dispensa (manual, item 1.3).", planoReferencial: "", descricaoPlanoReferencial: "" };
