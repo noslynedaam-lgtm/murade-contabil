@@ -77,6 +77,12 @@ test("trimestral: adições, compensação de prejuízo limitada a 30% (Lei 9.06
   assert.deepEqual(d.map((x) => [x.codigo, x.vencimento, x.valorCentavos]), [["0220", "2026-04-30", R(19600)], ["6012", "2026-04-30", R(12780)]]);
   assert.equal(darfsDoPeriodo(2026, t1, false)[0].codigo, "3373"); // optante
   assert.equal(darfsDoPeriodo(2026, t1, null)[0].codigo, null); // sem saber: não chuta
+  // Ajuste anual (saldo de 31/12): 2430 obrigada / 2456 optante; CSLL 6773; vence no último dia útil de março (31/03/2027, quarta-feira)
+  const anual = { ...t1, periodo: "ANUAL", forma: "anual" as const, meses: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] };
+  assert.deepEqual(darfsDoPeriodo(2026, anual, true).map((x) => [x.codigo, x.periodoApuracao, x.vencimento, x.valorCentavos]), [["2430", "2026-12-31", "2027-03-31", R(19600)], ["6773", "2026-12-31", "2027-03-31", R(12780)]]);
+  assert.equal(darfsDoPeriodo(2026, anual, false)[0].codigo, "2456");
+  assert.equal(darfsDoPeriodo(2026, anual, null)[0].codigo, null);
+  assert.deepEqual(darfsDoPeriodo(2026, { ...anual, irpjCentavos: -5, csllCentavos: 0 }, true), []); // saldo negativo: sem DARF (vai para PER/DCOMP)
 });
 
 test("estimativa mensal: calcula pela receita bruta e pelo balancete e fica com o menor (Lei 8.981/95, art. 35)", () => {

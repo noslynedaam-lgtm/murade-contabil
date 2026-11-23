@@ -15,13 +15,17 @@
 //   Lucro Real) ou 5993 "Optantes pelo Lucro Real"; IRPJ trimestral 0220 (demais) ou 3373 (optantes); CSLL estimativa 2484 e trimestral
 //   6012 (demais entidades); vencimento no último dia útil do mês seguinte ao período. IRRF sobre JCP 5706: 3º dia útil depois do
 //   decêndio do pagamento (ex. oficial: 2º decêndio de nov/2025 → 25/11/2025).
+// - Saldo do ajuste anual (Agenda Tributária, dia 31/03/2025; Perguntas e Respostas PJ, cap. XV, pergs. 001 e 003): IRPJ 2430
+//   ("outras obrigadas ao lucro real") ou 2456 (optantes, "demais entidades"); CSLL 6773 ("demais entidades"); quota única até o
+//   último dia útil de março do ano seguinte, com juros Selic a partir de 1º de fevereiro.
+// - Lei 8.981/1995, art. 35 (planalto, redação da Lei 9.065/1995): o balancete de suspensão/redução compara o já pago com o imposto
+//   do período em curso; deve seguir as leis comerciais e fiscais e ser transcrito no Diário (§1º, a); só vale para o próprio ano (§1º, b).
 //
 // O QUE O SISTEMA NÃO PRESUME (fica "revisar" ou "a confirmar"):
 // - competência ainda não fechada na contabilidade: o cálculo sai como PRÉVIA e não pode ser confirmado;
 // - conta de resultado sem classificação na DRE (o resultado do período não é certo);
 // - se a empresa é obrigada ao Lucro Real ou optante (muda o código do DARF do IRPJ): cadastre;
 // - adições e exclusões (cada uma com o código da tabela M300A/M350A da ECF e o motivo) e o saldo de prejuízo de antes do sistema;
-// - código do DARF do ajuste anual (saldo de 31/12): a confirmar em fonte oficial — o valor sai, o código não.
 import { calcularLucroRealAnual, type LancamentoLalur, type ResultadoLucroRealAnual } from "../services/ecfRealService";
 import { calcularEstimativaMensal, type MesEstimativa, type ResultadoMesEstimativa } from "../services/ecfRealPeriodosService";
 import { mapaCategorias } from "../utils/demonstracoesAvancadas";
@@ -174,7 +178,7 @@ export function calcularAjusteAnual(ano: number, ms: MesContabil[], lanc: Lancam
   });
   const avisos = [...r.avisos];
   if (r.irpjAPagar < 0 || r.csllAPagar < 0) avisos.push("Saldo negativo no ano (estimativas e retenções maiores que o devido): fica para compensação (PER/DCOMP).");
-  avisos.push("Código do DARF do saldo anual: a confirmar em fonte oficial (o valor está certo; confira o código no Sicalc).");
+  if (r.irpjAPagar > 0 || r.csllAPagar > 0) avisos.push("Saldo a pagar do ajuste anual: quota única até o último dia útil de março do ano seguinte; pago depois de 31/01 tem juros Selic a partir de 1º de fevereiro (Perguntas e Respostas PJ, cap. XV, perg. 001) — calcule os juros no Sicalc na data do pagamento.");
   return { periodo: "ANUAL", meses: todos, forma: "anual", retencaoIrpjCentavos: la.irrf, retencaoCsllCentavos: la.csllRet, irpjCentavos: Math.round(r.irpjAPagar * 100), csllCentavos: Math.round(r.csllAPagar * 100), saldoPrejuizoInicialCentavos: saldoInicial.prejuizo, saldoBaseNegativaInicialCentavos: saldoInicial.baseNegativa, saldoPrejuizoFinalCentavos: Math.round(r.saldoPrejuizoFinal * 100), saldoBaseNegativaFinalCentavos: Math.round(r.saldoBaseNegativaFinal * 100), detalhe: r, avisos };
 }
 
@@ -183,7 +187,15 @@ export function calcularAjusteAnual(ano: number, ms: MesContabil[], lanc: Lancam
 // ---------------------------------------------------------------------------------------------
 export interface CampoDarfReal { tributo: "irpj" | "csll"; codigo: string | null; descricao: string; periodoApuracao: string; vencimento: string; valorCentavos: number; fonte: string }
 export function darfsDoPeriodo(ano: number, p: PeriodoCalculado, obrigada: boolean | null): CampoDarfReal[] {
-  if (p.forma === "anual") return [];
+  if (p.forma === "anual") {
+    // Saldo positivo de 31/12 (Agenda Tributária 31/03/2025): IRPJ 2430 (obrigadas) ou 2456 (optantes); CSLL 6773; vence no último dia útil de março.
+    const venc = ultimoDiaUtilDoMes(ano + 1, 3);
+    const fonte = "Receita Federal — Agenda Tributária, dia 31/03/2025 (códigos do ano-calendário) e Perguntas e Respostas PJ, cap. XV, perg. 003";
+    const out: CampoDarfReal[] = [];
+    if (p.irpjCentavos > 0) out.push({ tributo: "irpj", codigo: obrigada === null ? null : obrigada ? "2430" : "2456", descricao: obrigada === null ? "IRPJ Lucro Real - saldo do ajuste anual (informe se a empresa é obrigada ou optante para saber o código)" : obrigada ? "IRPJ - Outras obrigadas ao lucro real - ajuste anual" : "IRPJ - Demais entidades (optantes) - ajuste anual", periodoApuracao: `${ano}-12-31`, vencimento: venc, valorCentavos: p.irpjCentavos, fonte });
+    if (p.csllCentavos > 0) out.push({ tributo: "csll", codigo: "6773", descricao: "CSLL - Demais entidades - ajuste anual", periodoApuracao: `${ano}-12-31`, vencimento: venc, valorCentavos: p.csllCentavos, fonte });
+    return out;
+  }
   const ultimoMes = p.meses[p.meses.length - 1];
   const fim = `${ano}-${dois(ultimoMes)}-${dois(new Date(Date.UTC(ano, ultimoMes, 0)).getUTCDate())}`;
   const seg = ultimoMes === 12 ? { a: ano + 1, m: 1 } : { a: ano, m: ultimoMes + 1 };
