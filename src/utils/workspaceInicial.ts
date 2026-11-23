@@ -5,6 +5,7 @@ import type { ContaPlano } from "../types";
 import { planoContasModelo } from "../data/planoContasModelo";
 import { ordenarContasPorSequenciaNumerica } from "./planoContasUtils";
 import { sugerirMapeamentosPadrao } from "./sugestoesContas";
+import { adaptarPlanoParaEntidade, ehRegimeEntidade } from "./planoEntidade";
 
 export function planoContasInicialContabil(): ContaPlano[] {
   return ordenarContasPorSequenciaNumerica(planoContasModelo);
@@ -16,7 +17,8 @@ export function planoContasInicialContabil(): ContaPlano[] {
  * os pré-lançamentos que o robô preparar ficam "pendente de conferência" até uma pessoa aprovar.
  */
 export function montarWorkspaceInicialContabil(empresa: Record<string, unknown>, agoraIso = new Date().toISOString()) {
-  const contas = planoContasInicialContabil();
+  // Entidade sem finalidade de lucros: Patrimônio Social, superávit/déficit e as contas de doações, subvenções e gratuidades (ITG 2002).
+  const contas = ehRegimeEntidade(empresa?.regime) ? ordenarContasPorSequenciaNumerica(adaptarPlanoParaEntidade(planoContasInicialContabil()).contas) : planoContasInicialContabil();
   return {
     empresa,
     contas,

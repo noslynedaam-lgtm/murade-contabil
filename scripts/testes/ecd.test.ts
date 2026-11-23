@@ -319,3 +319,10 @@ test("ECD: MEI dispensado da escrituração contábil (Perguntas e Respostas MEI
   assert.equal(r.situacao, "dispensada"); assert.match(r.motivo, /Relatório Mensal das Receitas Brutas/);
   assert.equal(analisarObrigatoriedadeECD({ regime: "Simples Nacional" }).situacao, "dispensada");
 });
+
+test("ECD de imune/isenta: obrigatória a partir de R$ 4,8 milhões de ingressos; sem o valor, depende (Receita, perguntas frequentes da ECD)", () => {
+  assert.equal(analisarObrigatoriedadeECD({ regime: "Entidade imune", entidadeIngressosAno: 4_800_000 }).situacao, "obrigatoria");
+  assert.equal(analisarObrigatoriedadeECD({ regime: "Entidade isenta", entidadeIngressosAno: 4_799_999.99 }).situacao, "dispensada");
+  assert.equal(analisarObrigatoriedadeECD({ regime: "Entidade isenta" }).situacao, "depende");
+  assert.equal(analisarObrigatoriedadeECD({ regime: "Lucro Arbitrado" }).situacao, "depende");
+});

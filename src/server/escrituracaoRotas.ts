@@ -23,6 +23,8 @@ import {
   resumoExtratoEmpresa, validarMovimentosRecebidos,
 } from "./extratoBancarioStore";
 import { naturezasDasContas } from "../services/ecdService";
+import { adaptarPlanoParaEntidade, ehRegimeEntidade, planoEstaComoEntidade } from "../utils/planoEntidade";
+import { ordenarContasPorSequenciaNumerica } from "../utils/planoContasUtils";
 import { gerarRelatoriosContabeis, normalizarDataContabil } from "../utils/livrosContabeis";
 import { analisarFechamento, aplicarPropostaFechamento, type PropostaFechamento } from "../utils/ajustesFechamento";
 
@@ -46,7 +48,7 @@ export function planejarRecorrentes(payload: Record<string, any>, competencia: s
   return prepararRecorrentesDoMes({ padroes, lancamentos: lancamentosDe(payload), contas: contasDe(payload), competencia, fechadas, novoId: novoId("rec") });
 }
 
-export type AchadoEscrituracao = { cnpj: string; tipo: "livro_caixa" | "encerramento" | "conciliacao" | "recorrentes" | "ajustes_fechamento"; titulo: string; detalhe: string; verificadoEm: string };
+export type AchadoEscrituracao = { cnpj: string; tipo: "livro_caixa" | "encerramento" | "conciliacao" | "recorrentes" | "ajustes_fechamento" | "plano_entidade"; titulo: string; detalhe: string; verificadoEm: string };
 const achados = new Map<string, AchadoEscrituracao>(); // chave: tipo:cnpj
 export const achadosEscrituracao = (cnpjs?: string[]): AchadoEscrituracao[] => [...achados.values()].filter((a) => !cnpjs || cnpjs.includes(a.cnpj)).sort((a, b) => a.cnpj.localeCompare(b.cnpj) || a.tipo.localeCompare(b.tipo));
 export const limparAchadosEscrituracaoParaTeste = () => achados.clear();
@@ -510,6 +512,30 @@ export function registrarRotasEscrituracao(app: express.Express, deps: Deps): vo
 }
 
 // ------------------------------------------------------------------ robôs (rodam para todos os escritórios, empresa por empresa)
+
+/**
+ * Robô do Plano da Entidade: empresa com regime de entidade imune/isenta ganha sozinha o plano da ITG 2002 (Patrimônio Social,
+ * superávit/déficit, doações com e sem restrição, subvenções, gratuidades, trabalho voluntário). Só ACRESCENTA contas e renomeia as
+ * duas do modelo padrão; nunca apaga conta nem lançamento. Competência fechada não muda (o plano não é dado de competência).
+ */
+export async function roboPlanoEntidade(agora = new Date()): Promise<string> {
+  let entidades = 0, adaptadas = 0, falhas = 0;
+  for await (const { cnpj, payload } of percorrerWorkspacesContabil()) {
+    if (!ehRegimeEntidade(payload?.empresa?.regime)) { guardarAchado(null, "plano_entidade", cnpj); continue; }
+    entidades += 1;
+    const contas: ContaPlano[] = Array.isArray(payload.contas) ? payload.contas : [];
+    if (planoEstaComoEntidade(contas)) { guardarAchado(null, "plano_entidade", cnpj); continue; }
+    try {
+      const r = await alterarWorkspaceNoServidorContabil(cnpj, (p) => {
+        const a = adaptarPlanoParaEntidade(Array.isArray(p.contas) ? p.contas : []);
+        return a.mudou ? { payload: { ...p, contas: ordenarContasPorSequenciaNumerica(a.contas) }, resultado: a } : { payload: null, resultado: a };
+      });
+      adaptadas += 1;
+      guardarAchado({ cnpj, tipo: "plano_entidade", titulo: "Plano de contas ajustado para entidade sem fins lucrativos", detalhe: `${r.resultado.acrescentadas.length} conta(s) acrescentada(s)${r.resultado.renomeadas.length ? `; renomeadas: ${r.resultado.renomeadas.map((x) => `${x.de} → ${x.para}`).join(", ")}` : ""}. Base: ITG 2002 (R1) do CFC. Confira no Plano de Contas.`, verificadoEm: agora.toISOString() }, "plano_entidade", cnpj);
+    } catch (e: any) { falhas += 1; console.error(`Robô do Plano da Entidade falhou para ${cnpj}:`, e?.message || e); }
+  }
+  return `${entidades} entidade(s) imune(s)/isenta(s); ${adaptadas} plano(s) de contas ajustado(s) sozinho(s) para a ITG 2002${falhas ? `; ${falhas} falha(s)` : ""}. Nunca apaga conta nem lançamento.`;
+}
 
 export async function roboLancamentosPadrao(agora = new Date()): Promise<string> {
   const competencia = competenciaDe(agora);

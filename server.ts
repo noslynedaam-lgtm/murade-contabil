@@ -52,7 +52,7 @@ import { conferirCadastrosDosEscritorios, registrarRotaCadastroEscritorioContabi
 import { criarStoreServicoCompleto, registrarRotasServicoCompleto, resumoRodadaServicos, rodarConferidorServicos, tenantServico, type ResultadoRodadaServicos } from "./src/server/servicoCompletoStore";
 import { chaveServico, descreverRegistro, tenantDaSessao } from "./src/server/servicoFeito";
 import { registrarRotasTitulosCartoes, roboTitulos } from "./src/server/titulosCartoesRotas";
-import { registrarRotasEscrituracao, roboAjustesFechamento, roboConciliacao, roboEncerramento, roboLancamentosPadrao, roboLivroCaixa } from "./src/server/escrituracaoRotas";
+import { registrarRotasEscrituracao, roboAjustesFechamento, roboConciliacao, roboEncerramento, roboLancamentosPadrao, roboLivroCaixa, roboPlanoEntidade } from "./src/server/escrituracaoRotas";
 import { criarRevisorContabil, registrarRotasRevisor, INTERVALO_ROBO_REVISOR_MS } from "./src/server/revisorContabil";
 import { conferirFolhasDP } from "./src/server/conferidorFolhaDP";
 import { registrarRotasMigracaoSistemaAnterior, rotinaConferidorMigracao } from "./src/server/migracaoSistemaAnterior/rotas";
@@ -1841,6 +1841,8 @@ const reconciliacaoRascunhosStatus: {
   const rodarLancamentosPadrao = () => bancoContabilConfigurado() ? executarRobo("lancamentos_padrao", async () => registrarResultadoRobo("lancamentos_padrao", await roboLancamentosPadrao())).catch((e) => console.error("Falha no Robô dos Lançamentos Padrão:", e?.message || e)) : undefined;
   registrarRobo({ id: "livro_caixa", nome: "Robô do Livro Caixa (Simples)", posto: "conferidor", missao: "Conferir as empresas do Simples Nacional no mês anterior: com escrituração contábil (Diário e Razão) o Livro Caixa é dispensado (Res. CGSN 140/2018, art. 63, § 3º); sem lançamento no mês, emite sozinho o Livro Caixa sem movimento quando as contas de Caixa/Bancos e o saldo inicial estão confirmados, e avisa quando falta algo.", ...(bancoContabilConfigurado() ? { intervaloMs: 2 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
   const rodarLivroCaixa = () => bancoContabilConfigurado() ? executarRobo("livro_caixa", async () => registrarResultadoRobo("livro_caixa", await roboLivroCaixa(consultarEscrituracao))).catch((e) => console.error("Falha no Robô do Livro Caixa:", e?.message || e)) : undefined;
+  registrarRobo({ id: "plano_entidade", nome: "Robô do Plano da Entidade (imunes e isentas)", posto: "conferidor", missao: "A cada 6 horas, nas empresas com regime de entidade imune ou isenta (igrejas, associações, beneficentes, sindicatos, partidos, fundações), ajusta sozinho o plano de contas à ITG 2002: Patrimônio Social no lugar de Capital Social, superávit ou déficit, doações com e sem restrição, subvenções e convênios, gratuidades e trabalho voluntário. Só acrescenta contas e renomeia as duas do modelo padrão; nunca apaga conta nem lançamento.", ...(bancoContabilConfigurado() ? { intervaloMs: 6 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  const rodarPlanoEntidade = () => bancoContabilConfigurado() ? executarRobo("plano_entidade", async () => registrarResultadoRobo("plano_entidade", await roboPlanoEntidade())).catch((e) => console.error("Falha no Robô do Plano da Entidade:", e?.message || e)) : undefined;
   registrarRobo({ id: "encerramento", nome: "Robô do Encerramento do Resultado", posto: "conferidor", missao: "Conferir o encerramento do resultado do ano anterior em cada empresa: avisa quando falta ou quando o encerramento gravado não bate mais com as contas de resultado, e prepara o encerramento para aprovação quando janeiro a novembro já estão fechados. Nunca aprova nem estorna sozinho.", ...(bancoContabilConfigurado() ? { intervaloMs: 6 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
   const rodarEncerramento = () => bancoContabilConfigurado() ? executarRobo("encerramento", async () => registrarResultadoRobo("encerramento", await roboEncerramento(consultarEscrituracao))).catch((e) => console.error("Falha no Robô do Encerramento:", e?.message || e)) : undefined;
   registrarRobo({ id: "conciliacao", nome: "Robô da Conciliação Bancária", posto: "conferidor", missao: "Olhar o extrato guardado de cada empresa e sugerir, para cada movimento sem conciliação, o lançamento aprovado que casa (mesmo sentido e valor) ou a conta pela regra do escritório (quando o histórico tiver o texto) ou pelo histórico. Só grava sugestão: conciliar e lançar é sempre uma pessoa.", ...(bancoContabilConfigurado() ? { intervaloMs: 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
@@ -1860,6 +1862,8 @@ const reconciliacaoRascunhosStatus: {
     setTimeout(() => void rodarConciliacao(), 210_000).unref(); setInterval(() => void rodarConciliacao(), 60 * 60_000).unref();
     registrarRotinaManual("lancamentos_padrao", rodarLancamentosPadrao);
     registrarRotinaManual("livro_caixa", rodarLivroCaixa);
+    setTimeout(() => void rodarPlanoEntidade(), 230_000).unref(); setInterval(() => void rodarPlanoEntidade(), 6 * 60 * 60_000).unref();
+    registrarRotinaManual("plano_entidade", rodarPlanoEntidade);
     registrarRotinaManual("encerramento", rodarEncerramento);
     registrarRotinaManual("conciliacao", rodarConciliacao);
   }

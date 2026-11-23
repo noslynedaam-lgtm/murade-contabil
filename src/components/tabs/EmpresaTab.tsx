@@ -1250,6 +1250,9 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
               <option value="Lucro Presumido">Lucro Presumido</option>
               <option value="Lucro Real">Lucro Real</option>
               <option value="MEI">Microempreendedor Individual (MEI)</option>
+              <option value="Entidade imune">Entidade imune (igreja, partido, sindicato, educação, assistência social)</option>
+              <option value="Entidade isenta">Entidade isenta (filantrópica, recreativa, cultural, científica, associação)</option>
+              <option value="Lucro Arbitrado">Lucro Arbitrado</option>
             </select>
           </div>
 

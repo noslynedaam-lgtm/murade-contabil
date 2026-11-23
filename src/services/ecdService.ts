@@ -749,6 +749,8 @@ export interface PerfilObrigatoriedadeECD {
   presumidoLivroCaixa?: boolean;
   presumidoDistribuiuLucroAcimaBase?: boolean;
   simplesAporteCapital?: boolean;
+  /** Entidade imune/isenta: soma do ano de receitas, doações, incentivos, subvenções, contribuições, auxílios e convênios (R$). */
+  entidadeIngressosAno?: number;
 }
 
 export interface AnaliseObrigatoriedadeECD {
@@ -776,6 +778,16 @@ export function analisarObrigatoriedadeECD(perfil: PerfilObrigatoriedadeECD): An
       return { situacao: "facultativa", titulo: "ECD dispensada (entrega facultativa)", motivo: "Lucro Presumido com livro caixa e sem distribuição acima da base: dispensada; a entrega é facultativa e sem multa.", planoReferencial: "2", descricaoPlanoReferencial: "PJ em geral – Lucro Presumido" };
     }
     return { situacao: "obrigatoria", titulo: "ECD obrigatória", motivo: "Lucro Presumido que não optou pelo livro caixa entrega a ECD (manual, item 1.3).", planoReferencial: "2", descricaoPlanoReferencial: "PJ em geral – Lucro Presumido" };
+  }
+  if (/imune|isenta|sem fins lucrativos/.test(regime)) {
+    const v = perfil.entidadeIngressosAno;
+    if (typeof v !== "number" || !Number.isFinite(v)) return { situacao: "depende", titulo: "ECD depende dos ingressos do ano", motivo: "Imunes e isentas entregam a ECD quando as receitas, doações, incentivos, subvenções, contribuições, auxílios, convênios e ingressos parecidos do ano somam R$ 4,8 milhões ou mais (proporcional a período menor) — Receita Federal, perguntas frequentes da ECD. Informe o total do ano.", planoReferencial: "", descricaoPlanoReferencial: "Plano referencial de imunes e isentas: confira o código no Manual da ECD" };
+    return v >= 4_800_000
+      ? { situacao: "obrigatoria", titulo: "ECD obrigatória (imune/isenta)", motivo: "Os ingressos do ano somam R$ 4,8 milhões ou mais: a entidade imune/isenta entrega a ECD (Receita Federal, perguntas frequentes da ECD).", planoReferencial: "", descricaoPlanoReferencial: "Plano referencial de imunes e isentas: confira o código no Manual da ECD" }
+      : { situacao: "dispensada", titulo: "ECD dispensada (imune/isenta)", motivo: "Os ingressos do ano somam menos de R$ 4,8 milhões: a ECD é dispensada e a entrega é facultativa (Receita Federal, perguntas frequentes da ECD). A escrituração contábil continua exigida para manter o benefício (Lei 9.532/1997, art. 12, § 2º, c).", planoReferencial: "", descricaoPlanoReferencial: "" };
+  }
+  if (/arbitrado/.test(regime)) {
+    return { situacao: "depende", titulo: "ECD no Lucro Arbitrado", motivo: "O sistema não decide a ECD do arbitrado sozinho: depende da situação da empresa e da hipótese do arbitramento (RIR/2018, art. 603). Confira no Manual da ECD (item 1.3).", planoReferencial: "", descricaoPlanoReferencial: "" };
   }
   if (/\bmei\b|microempreendedor/.test(regime)) {
     return { situacao: "dispensada", titulo: "ECD dispensada (MEI)", motivo: "O MEI fica dispensado da escrituração dos livros fiscais e contábeis; guarda só o Relatório Mensal das Receitas Brutas (Anexo X da Resolução CGSN 140/2018), para apresentar quando o Fisco pedir (Receita Federal, Perguntas e Respostas MEI e Simei, item 3.6).", planoReferencial: "", descricaoPlanoReferencial: "" };
