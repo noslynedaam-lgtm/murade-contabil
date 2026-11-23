@@ -43,6 +43,8 @@ import { definirAlertaRobo, dispararRoboAgora, executarRobo, registrarResultadoR
 import { conferirEmpresasRepetidas } from "./src/server/conferidorEmpresaRepetida";
 import { criarServicoBackupBanco } from "./src/server/backupBanco/servico";
 import { buscarEmpresasDoFiscal, buscarResumoNotasFiscal, cnpjsValidosDoFiscal, pedirReenvioNotasFiscal } from "./src/server/empresasDoFiscal";
+import { conferirVigencia, registrarRotasVigencia, rodarRoboVigencia, type EtapaVigencia } from "./src/server/vigenciaObrigacoesServidor";
+import { conferenciasVigenciaContabil } from "./src/server/vigenciaConferenciasContabil";
 import { conferirSincroniaEntidadesContabil, criarLigacaoFiscalEntidade, divergenciasEntidadeContabil, sincronizarEntidadesContabil } from "./src/server/entidadeSincroniaContabil";
 import { rodarConferenciaOrigens, textoRoboOrigens, type DepsConferidorOrigens } from "./src/server/conferidorOrigens";
 import { registrarRotasConferidorOrigens } from "./src/server/conferidorOrigensRotas";
@@ -1879,6 +1881,42 @@ const reconciliacaoRascunhosStatus: {
   registrarRotinaManual("empresas_fiscal", rodarEmpresasFiscal);
   registrarRotinaManual("sincronia_entidades", rodarSincroniaEntidades);
   registrarRotinaManual("conferidor_sincronia_entidades", rodarConferidorSincroniaEntidades);
+  // Vigência das obrigações (lista única nos três sistemas, src/utils/vigenciaObrigacoes.ts): PIS/Cofins depois de dez/2026 e CPRB depois
+  // de dez/2027 não viram provisão nova; CBS e IBS começam em 2027. Os períodos antigos continuam (Obrigações encerradas) até os 5 anos do CTN.
+  const hojeVigenciaContabil = () => new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
+  registrarRobo({ id: "vigencia_obrigacoes", nome: "Robô de Vigência das Obrigações", posto: "conferidor", missao: "Uma vez por dia (e no \"Rodar agora\") confere, pela lista única com fonte oficial, o que acaba e o que começa no Contábil (provisão de PIS/Cofins depois de dez/2026, CPRB depois de dez/2027, CBS e IBS a partir de 2027) e avisa 30 dias antes na tela Vigência das obrigações e no painel dos robôs, uma vez só. O que acaba não vira provisão nova; os períodos antigos ficam em \"Obrigações encerradas\" até os 5 anos do CTN. Nunca apaga lançamento nem dado.", intervaloMs: 24 * 60 * 60_000 });
+  registrarRobo({ id: "conferidor_vigencia", nome: "Robô Conferidor de Vigência", posto: "conferidor", missao: "De 6 em 6 horas confere, só em leitura, se o gerador de provisões, as apurações recebidas do Fiscal e do DP ou os pré-lançamentos ainda trazem obrigação encerrada nos períodos novos. Avisa no painel dos robôs; nunca apaga nada.", intervaloMs: 6 * 60 * 60_000 });
+  const rodarVigenciaContabil = async (aoAndar?: (e: EtapaVigencia) => void) => {
+    if (!bancoContabilConfigurado()) throw new Error("Configure o PostgreSQL do Contábil.");
+    const hoje = hojeVigenciaContabil(); const banco = (sql: string, params?: unknown[]) => consultaBancoContabil(sql, params);
+    // O Contábil não tem aviso no celular: o aviso fica na tela Vigência das obrigações e no painel dos robôs.
+    const robo = await rodarRoboVigencia(banco, { sistema: "contabil", hoje, aoAndar });
+    registrarResultadoRobo("vigencia_obrigacoes", robo.resumo);
+    definirAlertaRobo("vigencia_obrigacoes", robo.avisosAtivos.length ? { nivel: "aviso", texto: robo.avisosAtivos.map((a) => `${a.titulo} (faltam ${a.dias} dia(s))`).join("; ") } : null);
+    const conferidor = await conferirVigencia(conferenciasVigenciaContabil(banco), hoje);
+    registrarResultadoRobo("conferidor_vigencia", conferidor.resumo);
+    definirAlertaRobo("conferidor_vigencia", conferidor.atencao ? { nivel: "aviso", texto: conferidor.resumo } : null);
+    return { robo, conferidor };
+  };
+  const rodarVigenciaJob = () => bancoContabilConfigurado() ? executarRobo("vigencia_obrigacoes", async () => { await rodarVigenciaContabil(); }).catch((e) => console.error("Falha no Robô de Vigência das Obrigações:", e?.message || e)) : undefined;
+  const rodarConferidorVigenciaJob = () => executarRobo("conferidor_vigencia", async () => {
+    const r = await conferirVigencia(conferenciasVigenciaContabil(bancoContabilConfigurado() ? (sql, params) => consultaBancoContabil(sql, params) : null), hojeVigenciaContabil());
+    registrarResultadoRobo("conferidor_vigencia", r.resumo);
+    definirAlertaRobo("conferidor_vigencia", r.atencao ? { nivel: "aviso", texto: r.resumo } : null);
+  }).catch((e) => console.error("Falha no Robô Conferidor de Vigência:", e?.message || e));
+  setTimeout(() => void rodarVigenciaJob(), 250_000).unref();
+  setInterval(() => void rodarVigenciaJob(), 24 * 60 * 60_000).unref();
+  setTimeout(() => void rodarConferidorVigenciaJob(), 310_000).unref();
+  setInterval(() => void rodarConferidorVigenciaJob(), 6 * 60 * 60_000).unref();
+  registrarRotinaManual("vigencia_obrigacoes", () => void rodarVigenciaJob());
+  registrarRotinaManual("conferidor_vigencia", () => void rodarConferidorVigenciaJob());
+  const exigirEscritaVigenciaContabil: express.RequestHandler = (req, res, next) => {
+    const s = sessaoDaRequisicaoContabil(req); if (!s) return void res.status(401).json({ sucesso: false, motivo: "Entre no sistema." });
+    if (!s.administrador && s.memberships.length && s.memberships.every((m) => m.role === "viewer")) return void res.status(403).json({ sucesso: false, motivo: "Seu perfil é somente leitura." });
+    next();
+  };
+  registrarRotasVigencia(app, { sistema: "contabil", consultar: bancoContabilConfigurado() ? (sql, params) => consultaBancoContabil(sql, params) : null, hoje: hojeVigenciaContabil,
+    exigirLeitura: [exigirSessaoContabil], exigirEscrita: [exigirOrigemNavegador, exigirSessaoContabil, exigirEscritaVigenciaContabil], rodar: (aoAndar) => rodarVigenciaContabil(aoAndar) });
   registrarRotinaManual("empresas_excluidas", rodarEmpresasExcluidas);
   registrarRotinaManual("acessos", rodarConferidorDeAcessos);
   // Nenhuma empresa repetida (ver src/server/conferidorEmpresaRepetida.ts): só lê e conta; nunca apaga nem junta.

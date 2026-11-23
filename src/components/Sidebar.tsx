@@ -24,6 +24,7 @@ import {
   ShieldHalf,
   ListChecks,
   SlidersHorizontal,
+  CalendarClock,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -129,6 +130,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
       icon: ClipboardCheck,
       badge: "Fiscal + DP",
       badgeColor: "bg-cyan-300 text-cyan-950 font-bold",
+    },
+    {
+      id: "vigencia-obrigacoes" as TabId,
+      label: "Vigência das obrigações",
+      icon: CalendarClock,
     },
     {
       id: "calculadora" as TabId,

@@ -46,6 +46,7 @@ export const TELAS_CONTABIL: TelaMapa[] = [
   { id: 'migracao', rotulo: 'Migração Contábil' },
   { id: 'integracao', rotulo: 'Integrações' },
   { id: 'revisao-origens', rotulo: 'Revisar dados recebidos' },
+  { id: 'vigencia-obrigacoes', rotulo: 'Vigência das obrigações' },
   { id: 'calculadora', rotulo: 'Calculadora 3D' },
   { id: 'agente', rotulo: 'Robôs' },
   { id: 'tarefas-equipe', rotulo: 'Tarefas da equipe' },

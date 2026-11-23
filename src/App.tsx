@@ -63,6 +63,7 @@ import { TarefasEquipeTab } from "./components/tabs/TarefasEquipeTab";
 import { CaixaPedirParaAlguem } from "./components/CaixaPedirParaAlguem";
 import { PilotoVisivel } from "./components/PilotoVisivel";
 import { IDS_DE_TELAS_CONTABIL } from "./data/mapaTelasContabil";
+import { VigenciaObrigacoesView } from "./components/VigenciaObrigacoesView";
 import { TelaEscolaMurade } from "./components/escola/TelaEscolaMurade";
 
 export default function App() {
@@ -530,6 +531,7 @@ function AppWorkspace() {
       ["migracao", "Migração Contábil", "importar migrar migracao alterdata dominio atron saldos plano de contas centro de custo exportar txt csv"],
       ["integracao", "Integrações", "fiscal dp integracao enviar receber"],
       ["revisao-origens", "Revisar dados recebidos", "origens fiscal dp revisao notas folha conciliacao mapeamento"],
+      ["vigencia-obrigacoes", "Vigência das obrigações", "vigencia obrigacoes encerradas fim pis cofins cprb cbs ibs o que acaba o que comeca"],
       ["calculadora", "Calculadora 3D", "calculadora tributos imposto calcular zerar historico"],
       ["agente", "Robôs", "robos agente conferidor automatico"],
       ["ia-premium", "IA Murad Premium", "inteligencia artificial assistente pergunta voz"],
@@ -1236,6 +1238,7 @@ function AppWorkspace() {
                 />
               )}
 
+              {tabAtiva === "vigencia-obrigacoes" && <VigenciaObrigacoesView onNavegar={(t) => setTabAtiva(t as TabId)} telas={{ pis_cofins: "revisao-origens", cprb: "revisao-origens" }} />}
               {tabAtiva === "revisao-origens" && <RevisaoOrigensTab cnpj={empresa.cnpj} regime={empresa.regime} workspaceCarregado={dadosEmpresaCarregadosCnpj === empresa.cnpj.toUpperCase().replace(/[^A-Z0-9]/g, "")} contas={contas} mapeamentos={mapeamentosOrigem} onSalvarMapeamentos={setMapeamentosOrigem} preLancamentos={preLancamentos} lancamentos={lancamentos} onSalvarPreLancamentos={setPreLancamentos} onContabilizar={handleContabilizarPreLancamentos} />}
 
               {tabAtiva === "agente" && (

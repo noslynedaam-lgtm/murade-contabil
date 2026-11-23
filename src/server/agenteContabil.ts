@@ -6,6 +6,7 @@ import {
   type Ferramenta, type KitAgente,
 } from './agenteMotor';
 import { achadosDoConferidor, achadosEcdDoConferidor } from './conferidorContabil';
+import { textoAgenteVigencia } from './vigenciaObrigacoesServidor';
 import { conferirEcdWorkspace } from './conferidorEcd';
 import { limiteLc224Workspace } from './limiteLc224';
 import { apuracaoPeriodosRealWorkspace } from './apuracaoLucroRealPeriodos';
@@ -361,6 +362,27 @@ const FERRAMENTAS: Ferramenta[] = [
       if (!ok(r)) return { sucesso: false, mensagem: erroApi(r).erro };
       const div: any[] = r.corpo?.divergencias || [];
       return { sucesso: true, mensagem: `${r.corpo?.mensagem || 'Sincronizado.'}${div.length ? ` Diferenças: ${div.slice(0, 3).map((d) => `${d.cnpj}: ${d.motivo}`).join('; ')}.` : ''}` };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'consultar_vigencia_obrigacoes', description: 'Vigência das obrigações (tela "Vigência das obrigações"): o que acaba no Contábil (provisão de PIS/Cofins depois de dez/2026, CPRB depois de dez/2027), o que começa (CBS e IBS em 2027) e as Obrigações encerradas (períodos antigos ainda disponíveis, até os 5 anos do CTN). Mostra tudo no cartão; se a pessoa confirmar, roda agora o Robô de Vigência e o conferidor. Use para "ainda vem provisão de PIS/Cofins em 2027?", "até quando tem CPRB?", "o que muda em 2027?".', parameters: { type: 'OBJECT', properties: {} } },
+    async preparar(ctx) {
+      const r = await ctx.chamarApi('GET', '/api/vigencia-obrigacoes');
+      if (!ok(r)) return erroApi(r);
+      const t = textoAgenteVigencia(r.corpo);
+      return { cnpj: '', params: {}, titulo: 'Vigência das obrigações', resumo: 'Rodar agora o Robô de Vigência e o conferidor', descricao: [
+        ...t.acabam.map((x) => `Acaba: ${x}`), ...t.comecam.map((x) => `Começa: ${x}`),
+        ...(t.encerradas.length ? t.encerradas.map((x) => `Encerrada: ${x}`) : ['Nenhuma obrigação do Contábil encerrada hoje.']),
+        ...t.semFonte.map((x) => `Sem fonte oficial: ${x}`), ...t.avisos.map((x) => `Aviso: ${x}`),
+        `Última rodada: ${t.ultimaRodada}. Conferidor: ${t.conferidor}.`,
+        'Confirmando, o robô roda agora (só lê a lista e grava avisos; nenhum lançamento é apagado).',
+      ] };
+    },
+    async executar(ctx) {
+      const r = await ctx.chamarApi('POST', '/api/vigencia-obrigacoes/rodar', {});
+      if (!ok(r)) return { sucesso: false, mensagem: erroApi(r).erro };
+      return { sucesso: true, mensagem: r.corpo?.mensagem || 'Robô de Vigência rodou.' };
     },
   },
   {
@@ -1090,6 +1112,7 @@ Tela Inicial (tem a caixinha "Pedir para alguém"); Cadastro de Empresa; Tarefas
 Quando perguntarem "onde eu faço X", diga o nome da tela do menu. Não invente telas que não estão nesta lista.
 
 COMO TRABALHAR
+- Vigência das obrigações: para "ainda vem provisão de PIS/Cofins em 2027?", "até quando tem CPRB?" ou "o que muda em 2027?" use consultar_vigencia_obrigacoes (cartão; confirmando, roda o Robô de Vigência). Diga a fonte; sem fonte oficial, diga que continua até haver fonte e nunca invente data de fim. A tela é Vigência das obrigações.
 - Entidade imune/isenta: a marca (com a certificação e a validade) passa sozinha entre Fiscal, DP e Contábil; para fazer na hora use sincronizar_entidades (cartão de confirmação). O que estiver diferente entre os sistemas nunca é sobrescrito: diga a diferença e peça para corrigir no sistema errado. Na entidade, a DRE se chama Demonstração do Superávit ou Déficit. O IRPJ/CSLL e o PIS/COFINS do trimestre arbitrado e a COFINS da entidade chegam do Fiscal como provisão em Revisão de origens (mesma referência: não duplica).
 - Para saber qualquer coisa do sistema (empresas, pendências de conferência, fechamentos, integrações, robôs), use as ferramentas de consulta. Nunca responda de memória sobre dados do cliente.
 - Para dúvidas de legislação, regra, alíquota ou prazo, use consultar_legislacao (passe o CNPJ quando a dúvida for de uma empresa) e repasse as fontes oficiais e o aviso de responsabilidade. Se vier acoesSugeridas, ofereça "Quer que eu faça para você?".

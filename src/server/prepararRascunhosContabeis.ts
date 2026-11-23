@@ -1,4 +1,5 @@
 import type { OrigemMapeadaContabil } from "../types";
+import { vigenteNaCompetencia } from "../utils/vigenciaObrigacoes";
 import { ROTULO_PARA_ID, ID_PARA_ROTULO, ORIGEM_POR_TRIBUTO as ORIGEM_POR_TRIBUTO_ID, ITENS_FOLHA_DP, SUFIXO_ENCARGOS_DAS, TRIBUTOS_DARF_PAGO, conciliarResumoFolhaDP } from "../utils/origensContabeis";
 import { lerTodosDocumentosFiscais, fiscalStoreConfigurado } from "./documentosFiscaisStore";
 import { lerApuracoesFiscais, apuracoesStoreConfigurado, type ApuracaoFiscalArmazenada } from "./apuracoesFiscaisStore";
@@ -287,6 +288,10 @@ export function partesDoPagamentoDas(valorPagoCentavos: number, principalCentavo
  * Só entra apuração com situação "confirmado" (o store já filtra isso na gravação; a conferência
  * aqui é defensiva, nunca gera rascunho de algo em revisão ou ainda não confirmado).
  */
+/** Tributo vindo do Fiscal/DP → item da lista de vigência (src/utils/vigenciaObrigacoes.ts). Sem item: sem fim conhecido. */
+export const vigenciaDoTributoContabil = (tributo: string): string | null => (/^(PIS|COFINS)_/.test(String(tributo)) ? "pis_cofins" : tributo === "CPRB" ? "cprb" : null);
+export function tributoVigenteNaCompetencia(tributo: string, competencia: string): boolean { const id = vigenciaDoTributoContabil(tributo); return !id || vigenteNaCompetencia(id, competencia); }
+
 export function gerarRascunhosApuracoes(cnpj: string, apuracoes: ApuracaoFiscalArmazenada[], contas: Registro[], mapeamentos: Registro[], agora: string): RascunhoAutomaticoContabil[] {
   const contasAnaliticas = new Set(contas.filter((conta) => conta?.tipo === "analitica").map((conta) => conta.codigo));
   const candidatos: RascunhoAutomaticoContabil[] = [];
@@ -297,6 +302,8 @@ export function gerarRascunhosApuracoes(cnpj: string, apuracoes: ApuracaoFiscalA
     if (!origem) continue;
     const valor = valorNumerico(apuracao.valorCentavos);
     if (valor === null || valor <= 0 || !/^\d{4}-(0[1-9]|1[0-2])$/.test(apuracao.competencia)) continue;
+    // Vigência: PIS/Cofins depois de dez/2026 (EC 132/2023, art. 126, II) e CPRB depois de dez/2027 (Lei 12.546/2011, art. 9º-A) não viram provisão nova.
+    if (!tributoVigenteNaCompetencia(apuracao.tributo, apuracao.competencia)) continue;
     const mapping = mapeamentoValido(mapeamentos, mapeamentosOrigem[origem], contasAnaliticas);
     if (!mapping) continue;
     const referencia = `FISCAL:${cnpj}:${apuracao.competencia}:APURACAO:${apuracao.tributo}:${apuracao.referencia}`;

@@ -16,6 +16,7 @@ export type TabId =
   | "gestao-contabil"
   | "integracao"
   | "revisao-origens"
+  | "vigencia-obrigacoes"
   | "agente"
   | "ia-premium"
   | "backups"

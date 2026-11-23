@@ -31,6 +31,7 @@ export const MODULOS_JEITO_PADRAO: TelaJeito[] = [
   { id: 'migracao', rotulo: 'Migração Contábil', resumo: 'Importação de plano de contas, centros de custo e lançamentos de outros sistemas em 4 etapas, com validação antes de gravar.', arquivo: 'MigracaoContabilTab' },
   { id: 'integracao', rotulo: 'Integrações', resumo: 'Estado da recepção do Fiscal e do DP e da preparação automática de rascunhos, com botões para reprocessar a recepção.', arquivo: 'IntegracaoTab' },
   { id: 'revisao-origens', rotulo: 'Revisar dados recebidos', resumo: 'Revisão do que veio do Fiscal e do DP: mapeamento de contas, prévias contábeis das notas e da folha, conciliação e aprovação final.', arquivo: 'RevisaoOrigensTab' },
+  { id: 'vigencia-obrigacoes', rotulo: 'Vigência das obrigações', resumo: 'O que acaba e o que começa (PIS/Cofins depois de dez/2026, CPRB depois de dez/2027, CBS e IBS em 2027), com a fonte oficial; os períodos antigos ficam em Obrigações encerradas.', arquivo: 'VigenciaObrigacoesView' },
   { id: 'calculadora', rotulo: 'Calculadora 3D', resumo: 'Calculadora com teclas compactas e acumulado por empresa.', arquivo: 'CalculadoraTab' },
   { id: 'agente', rotulo: 'Robôs', resumo: 'Saúde dos robôs: a missão, quando rodou e o resultado de cada um.', arquivo: 'AgenteTab' },
   { id: 'tarefas-equipe', rotulo: 'Tarefas da equipe', resumo: 'Pedidos feitos à equipe, com acompanhamento de quando foram vistos e concluídos.', arquivo: 'TarefasEquipeTab' },
