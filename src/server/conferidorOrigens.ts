@@ -46,6 +46,20 @@ export const reais = (c: number) => (c / 100).toLocaleString("pt-BR", { style: "
 /** Início do trabalho do Fiscal (decisão do dono em 03/11/2026: só notas de setembro de 2026 em diante são conferidas na SEFAZ). */
 export const INICIO_PERIODO_FISCAL = "2026-09";
 
+/** Primeiro mês do PGDAS-D feito pelo Fiscal (decisão do dono em 16/11/2026: 08 e 09/2026 foram declarados fora do sistema). */
+export const INICIO_DAS_FISCAL = "2026-10";
+
+/**
+ * Regra pura: meses já encerrados, a partir do INICIO_DAS_FISCAL, com saídas que valem e sem DAS do Simples confirmado vindo do Fiscal.
+ * Só avisa: o valor do DAS é o que o Fiscal apurou e a contadora confirmou; nunca é inventado aqui.
+ */
+export function mesesSemDas(notas: LinhaNotas[], dasRecebidos: string[], simples: boolean, mesAtual: string): string[] {
+  if (!simples) return [];
+  const comDas = new Set(dasRecebidos);
+  return [...new Set(notas.filter((l) => l.tipo === "Saída" && l.copia.qtd > 0 && l.competencia >= INICIO_DAS_FISCAL && l.competencia < mesAtual).map((l) => l.competencia))]
+    .filter((c) => !comDas.has(c)).sort();
+}
+
 export const TEXTO_MOTIVO_CONFERIDOR: Record<string, string> = {
   ...TEXTO_MOTIVO,
   antes_do_periodo: "nota anterior a 09/2026 sem confirmação na SEFAZ: fora do período que o Fiscal confere (decisão de 03/11/2026)",
@@ -237,6 +251,15 @@ export async function conferirEmpresaOrigens(deps: DepsConferidorOrigens, cnpj: 
 
   documentos = await deps.lerDocumentos(cnpj);
   const notas = tabelaNotas(cnpj, documentos, workspace, fiscalMeses, agora.toISOString());
+
+  // DAS do Simples: mês encerrado com faturamento e sem DAS confirmado no Fiscal fica sem provisão — avisa (nunca inventa o valor).
+  try {
+    if (await existeTabela(deps.consultar, "murade_apuracoes_fiscais_origem")) {
+      const das = (await deps.consultar("SELECT DISTINCT competencia FROM murade_apuracoes_fiscais_origem WHERE cnpj=$1 AND tributo='DAS_SIMPLES' AND situacao='confirmado'", [cnpj])).rows.map((x: any) => String(x.competencia).trim());
+      const faltam = mesesSemDas(notas, das, regimeSimplesNacional(workspace?.empresa?.regime), agora.toISOString().slice(0, 7));
+      if (faltam.length) avisos.push(`sem provisão do DAS do Simples de ${faltam.map((c) => c.replace(/(\d{4})-(\d{2})/, "$2/$1")).join(", ")}: o Fiscal ainda não tem DAS confirmado desse(s) mês(es) (se foi declarado fora do sistema, lance a provisão em Lançamentos)`);
+    }
+  } catch { /* a tabela de apurações pode não existir num banco novo */ }
 
   // 4) Folha: fila do DP × cópia recebida × partidas. A fila do DP fica no mesmo banco (DP e Contábil).
   let folhas: LinhaFolha[] = [];

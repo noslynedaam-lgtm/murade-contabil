@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { montarWorkspaceInicialContabil } from "../../src/utils/workspaceInicial";
 import { fiscalAutorizado, gerarRascunhosFiscal, notaSemValor, notasSemValorDoCnpj, referenciaDaNotaFiscal } from "../../src/server/prepararRascunhosContabeis";
 import { contasDoRascunhoConferem } from "../../src/utils/contasRascunhoFiscal";
-import { chavesParaReenviar, conferirEmpresaOrigens, rodarConferenciaOrigens, andamentoOrigens, tabelaFolhas, tabelaNotas, type DepsConferidorOrigens } from "../../src/server/conferidorOrigens";
+import { chavesParaReenviar, mesesSemDas, conferirEmpresaOrigens, rodarConferenciaOrigens, andamentoOrigens, tabelaFolhas, tabelaNotas, type DepsConferidorOrigens } from "../../src/server/conferidorOrigens";
 import { contasParaCompletarPlano, mesmoGrupo, podeCompletarSozinho } from "../../src/utils/completarPlanoPadrao";
 import { estornoJaFeito } from "../../src/server/authContabil";
 import { cnpjsValidosDoFiscal } from "../../src/server/empresasDoFiscal";
@@ -190,4 +190,13 @@ test("rodada: barra de andamento conta as empresas e não deixa rodar duas vezes
   assert.equal(a.executando, false);
   assert.equal(a.feitas, 3);
   assert.equal(andamentoOrigens("esc:outro").total, 0, "cada escritório tem o próprio andamento");
+});
+
+test("DAS: avisa mês encerrado com faturamento e sem DAS confirmado no Fiscal; nunca o mês corrente nem antes de 10/2026", () => {
+  const linha = (competencia: string, qtd: number) => ({ competencia, tipo: "Saída", copia: { qtd, centavos: qtd * 100 } }) as any;
+  const notas = [linha("2026-09", 3), linha("2026-10", 5), linha("2026-11", 2)];
+  assert.deepEqual(mesesSemDas(notas, [], true, "2026-11"), ["2026-10"]);
+  assert.deepEqual(mesesSemDas(notas, ["2026-10"], true, "2026-11"), []);
+  assert.deepEqual(mesesSemDas(notas, [], false, "2026-11"), [], "fora do Simples não há DAS");
+  assert.deepEqual(mesesSemDas([linha("2026-10", 0)], [], true, "2026-11"), [], "mês sem faturamento não cobra DAS aqui");
 });
