@@ -1,5 +1,7 @@
 import { registrarRotasCentralLucroReal } from "./src/server/centralLucroRealRotas";
 import { atualizarSelicContabil, painelCentral, rodarCentralLucroReal, type DepsCentral } from "./src/server/centralLucroReal";
+import { conferirAvisosCelular, enviarAvisosCelular, enviarPeloFiscal, type ItemAviso as ItemAvisoLR } from "./src/server/avisoCelularLucroReal";
+import { buscarRetencoesNoFiscal, gravarRetencoes } from "./src/server/lucroRealObrigacoesExtras";
 // Preenchido quando as rotas do Lucro Real são montadas (a saudação da Agente usa para lembrar os avisos vermelhos).
 let centralLRParaSaudacao: { deps: DepsCentral; empresas: (cnpjs?: string[]) => Promise<string[]> } | null = null;
 const depsCentralLRSaudacao = (): DepsCentral => { if (!centralLRParaSaudacao) throw new Error("Central do Lucro Real ainda não montada."); return centralLRParaSaudacao.deps; };
@@ -1413,8 +1415,53 @@ const reconciliacaoRascunhosStatus: {
   };
   const depsCentralLR = { consultar: depsLucroReal.consultar, hoje: depsLucroReal.hoje, lerWorkspace: depsLucroReal.lerWorkspace };
   centralLRParaSaudacao = { deps: depsCentralLR, empresas: empresasLucroReal };
-  registrarRotasCentralLucroReal(app, { exigirSessao: exigirSessaoContabil, exigirOrigem: exigirOrigemNavegador }, { ...depsCentralLR, sessao: (req) => sessaoDaRequisicaoContabil(req) ?? undefined, empresasLucroReal: (cnpjs) => empresasLucroReal(cnpjs) });
-  registrarRobo({ id: "central_lucro_real", nome: "Robô Conferidor da Central do Lucro Real", posto: "conferidor", missao: "De 2 em 2 horas, em cada empresa do Lucro Real (cada escritório só vê as suas): lista todas as obrigações (IRPJ/CSLL, PIS/COFINS não cumulativos, DCTFWeb, EFD-Contribuições até 12/2026, ECD e ECF) com vencimento e fonte; confere a receita do balancete com as notas de saída do Fiscal, a folha do DP com o contabilizado e se o PIS/COFINS do mês foi confirmado no Fiscal; refaz o IRPJ/CSLL por um segundo caminho e, se não der igual ao centavo, avisa. Diferença aberta BLOQUEIA a guia até o contador decidir. Avisa todo dia o que não foi confirmado e aos 10, 5, 3 e 1 dia, no dia e todo dia de atraso (com multa e juros estimados, Lei 9.430/96, art. 61). Uma vez por dia lê a Selic oficial no Banco Central (SGS 4390). Só lê; nunca paga nem transmite.", intervaloMs: 2 * 60 * 60_000 });
+  // Aviso no celular da Central (pelo mecanismo de aviso do Fiscal) e retenções como tomadora (rascunho da EFD-Reinf do Fiscal).
+  const horaSP = () => Number(new Intl.DateTimeFormat("en-GB", { timeZone: "America/Sao_Paulo", hour: "2-digit", hourCycle: "h23" }).format(new Date()));
+  const itensAvisoLR = async (cnpjs: string[]): Promise<ItemAvisoLR[]> => {
+    const ano = Number(depsLucroReal.hoje().slice(0, 4)); const out: ItemAvisoLR[] = [];
+    for (const cnpj of cnpjs) {
+      try { const p = await depsCentralLR.lerWorkspace(cnpj); out.push({ cnpj, razaoSocial: String(p?.empresa?.razaoSocial || p?.empresa?.nome || cnpj), alertas: (await painelCentral(depsCentralLR, cnpj, ano)).alertas }); }
+      catch (e: any) { console.error("[aviso celular lucro real]", cnpj, e?.message || e); }
+    }
+    return out;
+  };
+  const enviarAvisosLR = async (cnpjs: string[], manual: boolean) => enviarAvisosCelular(depsLucroReal.consultar, await itensAvisoLR(cnpjs), enviarPeloFiscal(), depsLucroReal.hoje(), horaSP(), manual);
+  const atualizarRetencoesLR = async (cnpj: string, ano: number) => { const meses = await buscarRetencoesNoFiscal(cnpj, ano); await gravarRetencoes(depsLucroReal.consultar, cnpj, ano, meses); return meses.length; };
+  registrarRotasCentralLucroReal(app, { exigirSessao: exigirSessaoContabil, exigirOrigem: exigirOrigemNavegador }, { ...depsCentralLR, sessao: (req) => sessaoDaRequisicaoContabil(req) ?? undefined, empresasLucroReal: (cnpjs) => empresasLucroReal(cnpjs), negarIntegracao, enviarAvisosAgora: (cnpjs) => enviarAvisosLR(cnpjs, true), atualizarRetencoes: atualizarRetencoesLR });
+  registrarRobo({ id: "aviso_celular_lucro_real", nome: "Robô do Aviso no Celular do Lucro Real", posto: "integrador", missao: "De 2 em 2 horas (a partir das 8h de Brasília), manda para o celular do contador, uma vez por dia por empresa, os avisos da Central do Lucro Real (sem confirmar, vencendo em 10, 5, 3 e 1 dia, no dia, atrasado, guia bloqueada) — sem valores na tela bloqueada. Usa o mesmo aviso do Murad Fiscal (Central Anti-Multa: mesmos aparelhos, silêncio e horário silencioso); cada escritório só recebe as suas empresas. Conferidor: depois das 10h, empresa com aviso vermelho sem aviso entregue ao Fiscal hoje, ou sem ninguém com o aviso ativado no aparelho, vira ATENÇÃO. Só avisa; nunca paga nem transmite.", intervaloMs: 2 * 60 * 60_000 });
+  const rodarAvisoCelularLR = (manual = false) => void executarRobo("aviso_celular_lucro_real", async () => {
+    if (!bancoContabilConfigurado()) return;
+    const cnpjs = await empresasLucroReal(); const hoje = depsLucroReal.hoje(); const h = horaSP();
+    const itens = await itensAvisoLR(cnpjs);
+    const r = await enviarAvisosCelular(depsLucroReal.consultar, itens, enviarPeloFiscal(), hoje, h, manual);
+    const c = await conferirAvisosCelular(depsLucroReal.consultar, itens, hoje, h);
+    const partes = [`${r.empresas} empresa(s) do Lucro Real; ${r.comAviso} com aviso hoje; ${r.entregues} aviso(s) entregue(s) no celular agora; ${r.jaEnviados} já avisada(s) hoje.`];
+    if (!manual && h < 8) partes.push("Antes das 8h de Brasília o aviso não sai (sai na primeira rodada depois das 8h).");
+    if (r.falhasFiscal) partes.push(`${r.falhasFiscal} empresa(s) sem aviso porque o Fiscal não respondeu (${r.erros.join("; ")}); tenta de novo na próxima rodada.`);
+    if (c.semEnvio.length) partes.push(`Conferidor: ${c.semEnvio.length} empresa(s) com aviso vermelho e sem aviso no celular hoje (${c.semEnvio.slice(0, 5).join(", ")}).`);
+    if (c.semAparelho.length) partes.push(`Conferidor: ninguém ativou o aviso no aparelho para ${c.semAparelho.slice(0, 5).join(", ")} — ative em Murad Fiscal › Federal & Simples › Central Anti-Multa › "Ativar avisos neste aparelho".`);
+    registrarResultadoRobo("aviso_celular_lucro_real", `${r.falhasFiscal || c.semEnvio.length || c.semAparelho.length ? "ATENÇÃO: " : ""}${partes.join(" ")}`);
+  }).catch((e) => console.error("Falha no Robô do Aviso no Celular do Lucro Real:", e?.message || e));
+  registrarRotinaManual("aviso_celular_lucro_real", () => rodarAvisoCelularLR(true));
+  setTimeout(() => rodarAvisoCelularLR(false), 300_000).unref();
+  setInterval(() => rodarAvisoCelularLR(false), 2 * 60 * 60_000).unref();
+  registrarRobo({ id: "retencoes_lucro_real", nome: "Robô das Retenções do Lucro Real", posto: "coletor", missao: "De 2 em 2 horas busca no Murad Fiscal (rascunho da EFD-Reinf, R-4020, pelas NFS-e tomadas) o IRRF e a CSLL/COFINS/PIS retidos pela empresa do Lucro Real como tomadora de serviço, mês a mês, e põe na Central do Lucro Real como obrigação com o vencimento oficial (último dia útil do 2º decêndio do mês seguinte ao do pagamento — Lei 11.196/2005, art. 70, I, \"e\"; Lei 10.833/2003, art. 35). Conferidor: avisa quando o Fiscal não responde ou quando o rascunho tem nota com pendência. Só lê; nunca paga nem transmite.", intervaloMs: 2 * 60 * 60_000 });
+  const rodarRetencoesLR = () => void executarRobo("retencoes_lucro_real", async () => {
+    if (!bancoContabilConfigurado()) return;
+    const ano = Number(depsLucroReal.hoje().slice(0, 4)); let ok = 0, falhas = 0, meses = 0, comPend = 0; const erros: string[] = [];
+    const lista = await empresasLucroReal();
+    for (const cnpj of lista) {
+      for (const a of [ano - 1, ano]) {
+        try { const m = await buscarRetencoesNoFiscal(cnpj, a); await gravarRetencoes(depsLucroReal.consultar, cnpj, a, m); meses += m.filter((x) => x.irCentavos + x.csllCentavos + x.pisCentavos + x.cofinsCentavos > 0).length; comPend += m.filter((x) => x.pendencias > 0).length; ok += 1; }
+        catch (e: any) { falhas += 1; if (erros.length < 2) erros.push(String(e?.message || e).slice(0, 100)); }
+      }
+    }
+    registrarResultadoRobo("retencoes_lucro_real", `${falhas || comPend ? "ATENÇÃO: " : ""}${lista.length} empresa(s) do Lucro Real; ${meses} mês(es) com retenção como tomadora na Central.${comPend ? ` ${comPend} mês(es) com nota pendente no rascunho da EFD-Reinf do Fiscal (tela SPED de lá).` : ""}${falhas ? ` ${falhas} leitura(s) sem resposta do Fiscal (${erros.join("; ")}); a Central mantém o último valor lido.` : ""}`);
+  }).catch((e) => console.error("Falha no Robô das Retenções do Lucro Real:", e?.message || e));
+  registrarRotinaManual("retencoes_lucro_real", rodarRetencoesLR);
+  setTimeout(rodarRetencoesLR, 240_000).unref();
+  setInterval(rodarRetencoesLR, 2 * 60 * 60_000).unref();
+  registrarRobo({ id: "central_lucro_real", nome: "Robô Conferidor da Central do Lucro Real", posto: "conferidor", missao: "De 2 em 2 horas, em cada empresa do Lucro Real (cada escritório só vê as suas): lista todas as obrigações (IRPJ/CSLL, PIS/COFINS não cumulativos, DCTFWeb, EFD-Contribuições até 12/2026, ECD e ECF, IRRF sobre JCP registrado — DARF 5706 — e as retenções feitas como tomadora — IRRF e CSRF 5952) com vencimento e fonte; confere a receita do balancete com as notas de saída do Fiscal, a folha do DP com o contabilizado e se o PIS/COFINS do mês foi confirmado no Fiscal; refaz o IRPJ/CSLL por um segundo caminho e, se não der igual ao centavo, avisa. Diferença aberta BLOQUEIA a guia até o contador decidir (o IRPJ/CSLL aqui e o DARF de PIS/COFINS no Fiscal, que pergunta à Central antes de confirmar). Avisa todo dia o que não foi confirmado e aos 10, 5, 3 e 1 dia, no dia e todo dia de atraso (com multa e juros estimados, Lei 9.430/96, art. 61). Uma vez por dia lê a Selic oficial no Banco Central (SGS 4390). Só lê; nunca paga nem transmite.", intervaloMs: 2 * 60 * 60_000 });
   let ultimaSelicLR = "";
   const rodarCentralLR = () => void executarRobo("central_lucro_real", async () => {
     if (!bancoContabilConfigurado()) return;

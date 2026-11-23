@@ -10,19 +10,22 @@
 //  - PIS/COFINS não cumulativos: Lei 10.637/2002, art. 10, e Lei 10.833/2003, art. 11 (dia 25 do mês seguinte, antecipado se não for
 //    dia útil). Apurados no Fiscal (DARF 6912/5856) e recebidos aqui.
 //  - ECD: último dia útil de junho do ano seguinte (IN RFB 2.003/2021, art. 5º). ECF com e-Lalur/e-Lacs: último dia útil de julho
-//    (IN RFB 2.004/2021, art. 3º). DCTFWeb (com o MIT dos tributos): último dia útil do mês seguinte (IN RFB 2.237/2024, art. 6º).
-//    EFD-Contribuições: 10º dia útil do 2º mês seguinte (IN RFB 1.252/2012, art. 7º), só até a competência 12/2026 (NT
+//    (IN RFB 2.004/2021, art. 3º). DCTFWeb (com o MIT dos tributos): último dia útil do mês seguinte (IN RFB 2.237/2024, art. 6º,
+//    caput, na redação da IN RFB 2.248/2025 — reconferido em 23/11/2026 na notícia oficial da Receita de 07/02/2025; as IN de 2026
+//    sobre a DCTFWeb, como a 2.319/2026, não mudaram o art. 6º).
+//    EFD-Contribuições: 10º dia útil do 2º mês seguinte (IN RFB 1.252/2012, art. 7º — reconferido em 23/11/2026 nas Perguntas e
+//    Respostas PJ da Receita, cap. XXVII, pergunta 002), só até a competência 12/2026 (NT
 //    EFD-Contribuições nº 013/2026: a apuração regular do PIS/COFINS termina em 31/12/2026).
 //  - Multa e juros de mora: Lei 9.430/1996, art. 61 (0,33% ao dia até 20%; Selic do mês seguinte ao vencimento até o anterior ao
 //    pagamento + 1% no mês do pagamento) — src/utils/acrescimosFederais.ts; Selic mensal: Banco Central, SGS série 4390.
 //
-// O que NÃO está aqui (pendência visível na tela, nunca escondida): IRRF sobre JCP (o cálculo existe, mas o pagamento do JCP não é
-// registrado em lugar nenhum para virar obrigação), retenções na fonte feitas pela empresa como tomadora (códigos 1708/5952) e
-// notificação "push" no celular (o Contábil não tem push: o aviso aparece na faixa da tela, também no aplicativo instalado no celular,
-// e na Agente IA).
+// Desde 23/11/2026 também entram (lucroRealObrigacoesExtras.ts): IRRF sobre JCP registrado (DARF 5706), retenções feitas pela empresa
+// como tomadora (IRRF e CSRF 5952, vindas do rascunho da EFD-Reinf do Fiscal), o bloqueio do DARF de PIS/COFINS não cumulativos do
+// Fiscal e o aviso no celular (avisoCelularLucroReal.ts, pelo mesmo mecanismo de aviso do Fiscal).
 import { calcularAcrescimosFederais, lerSerieSelicBcb, FONTE_ACRESCIMOS_FEDERAIS, type TabelaSelic } from "../utils/acrescimosFederais";
 import { ehDiaUtil, diaUtilDepois, ultimoDiaUtilDoMes } from "../utils/prazosFederaisContabil";
 import { vigenteNaCompetencia } from "../utils/vigenciaObrigacoes";
+import { listarJcp, listarRetencoes, obrigacoesExtras, registrarConferencia, lerConferencia, motivoBloqueioPisCofins, prepararExtrasLucroReal } from "./lucroRealObrigacoesExtras";
 import { lerConfigLucroReal, listarApuracoesReal, listarPagamentosReal, mesesDaContabilidade, prepararLucroReal, type Consultar, type LinhaApuracaoReal, type ConfigLucroReal } from "./lucroRealApuracao";
 
 const dois = (n: number) => String(n).padStart(2, "0");
@@ -55,7 +58,7 @@ export const vencimentoEcf = (anoCalendario: number) => ultimoDiaUtilDoMes(anoCa
 // ---------------------------------------------------------------------------------------------
 // Obrigações
 // ---------------------------------------------------------------------------------------------
-export type TipoObrigacao = "irpj" | "csll" | "pis_nc" | "cofins_nc" | "dctfweb" | "efd_contribuicoes" | "ecd" | "ecf";
+export type TipoObrigacao = "irpj" | "csll" | "pis_nc" | "cofins_nc" | "dctfweb" | "efd_contribuicoes" | "ecd" | "ecf" | "irrf_jcp" | "irrf_tomador" | "csrf_tomador";
 export type EstadoObrigacao = "aguardando_apuracao" | "conferir" | "confirmada" | "baixada";
 export interface Obrigacao {
   id: string; tipo: TipoObrigacao; periodo: string; descricao: string; vencimento: string; valorCentavos: number | null; codigoDarf: string | null;
@@ -118,11 +121,11 @@ export function montarObrigacoes(ano: number, e: EntradaObrigacoes): Obrigacao[]
     }
     const idD = `dctfweb:${c}`;
     out.push({ id: idD, tipo: "dctfweb", periodo: c, descricao: `DCTFWeb de ${dois(m)}/${ano} (IRPJ/CSLL/PIS/COFINS no MIT e a folha)`, vencimento: vencimentoDctfWeb(c), valorCentavos: null, codigoDarf: null,
-      estado: e.baixas.has(idD) ? "baixada" : "confirmada", oQueFalta: e.baixas.has(idD) ? "Entregue (baixa registrada)." : "Transmita a DCTFWeb (com o MIT) e dê baixa com o recibo.", fonte: "IN RFB 2.237/2024, art. 6º", guia: false, ...bloq(idD) });
+      estado: e.baixas.has(idD) ? "baixada" : "confirmada", oQueFalta: e.baixas.has(idD) ? "Entregue (baixa registrada)." : "Transmita a DCTFWeb (com o MIT) e dê baixa com o recibo.", fonte: "IN RFB 2.237/2024, art. 6º, caput (redação da IN RFB 2.248/2025)", guia: false, ...bloq(idD) });
     if (c <= ULTIMA_EFD_CONTRIBUICOES) {
       const idE = `efd_contribuicoes:${c}`;
       out.push({ id: idE, tipo: "efd_contribuicoes", periodo: c, descricao: `EFD-Contribuições de ${dois(m)}/${ano}`, vencimento: vencimentoEfdContribuicoes(c), valorCentavos: null, codigoDarf: null,
-        estado: e.baixas.has(idE) ? "baixada" : "confirmada", oQueFalta: e.baixas.has(idE) ? "Entregue (baixa registrada)." : "Transmita a EFD-Contribuições e dê baixa com o recibo.", fonte: "IN RFB 1.252/2012, art. 7º; NT EFD-Contribuições 013/2026", guia: false, ...bloq(idE) });
+        estado: e.baixas.has(idE) ? "baixada" : "confirmada", oQueFalta: e.baixas.has(idE) ? "Entregue (baixa registrada)." : "Transmita a EFD-Contribuições e dê baixa com o recibo.", fonte: "IN RFB 1.252/2012, art. 7º (Perguntas e Respostas PJ, cap. XXVII, perg. 002); NT EFD-Contribuições 013/2026", guia: false, ...bloq(idE) });
     }
   }
   // ECD e ECF do ano anterior (entregues no ano corrente)
@@ -328,7 +331,7 @@ export async function decidirDivergencia(q: Consultar, cnpj: string, id: string,
 }
 export async function darBaixa(q: Consultar, cnpj: string, obrigacaoId: string, recibo: string, por: string, desfazer: boolean): Promise<{ ok: true } | { erro: string }> {
   await prepararCentralLucroReal(q);
-  if (!/^(dctfweb|efd_contribuicoes):\d{4}-\d{2}$/.test(obrigacaoId)) return { erro: "Baixa aqui só para DCTFWeb e EFD-Contribuições. Guia: registre o pagamento; ECD/ECF: marque entregue em Demonstrações." };
+  if (!/^(dctfweb|efd_contribuicoes|irrf_tomador|csrf_tomador):\d{4}-\d{2}$/.test(obrigacaoId) && !/^irrf_jcp:jcp-\d{8}-[a-z0-9]{1,16}$/.test(obrigacaoId)) return { erro: "Baixa aqui só para DCTFWeb, EFD-Contribuições, IRRF do JCP e retenções como tomadora. IRPJ/CSLL: registre o pagamento; PIS/COFINS: no Fiscal; ECD/ECF: marque entregue em Demonstrações." };
   if (desfazer) { await q(`DELETE FROM contabil_lr_baixas WHERE cnpj=$1 AND obrigacao_id=$2`, [cnpj, obrigacaoId]); return { ok: true }; }
   await q(`INSERT INTO contabil_lr_baixas (cnpj, obrigacao_id, recibo, por) VALUES ($1,$2,$3,$4) ON CONFLICT (cnpj, obrigacao_id) DO UPDATE SET recibo=$3, por=$4, em=now()`, [cnpj, obrigacaoId, String(recibo || "").replace(/[^\w.\-/ ]/g, "").slice(0, 60) || null, por.slice(0, 120)]);
   return { ok: true };
@@ -346,11 +349,29 @@ export function bloqueiosDoAno(ano: number, apuracoes: LinhaApuracaoReal[], dive
     const motivo = `${doPeriodo.length} diferença(s) entre os sistemas no período (${[...new Set(doPeriodo.map((d) => d.competencia))].join(", ")}). Veja a Central do Lucro Real e decida cada uma.`;
     out.set(`irpj:${ano}:${ap.periodo}`, motivo); out.set(`csll:${ano}:${ap.periodo}`, motivo);
   }
+  // PIS/COFINS não cumulativos do mês (DARF 6912/5856 do Fiscal): mesma regra, só com as diferenças que mexem na receita/folha do mês.
+  const porMes = new Map<string, number>();
+  for (const d of abertas) if (d.tipo === "notas_x_receita" || d.tipo === "folha_x_contabil") porMes.set(d.competencia, (porMes.get(d.competencia) ?? 0) + 1);
+  for (const [comp, n] of porMes) { const m = `${n} diferença(s) entre os sistemas em ${comp}: o Fiscal não deixa confirmar o PIS/COFINS do mês até você decidir na Central.`; out.set(`pis_nc:${comp}`, m); out.set(`cofins_nc:${comp}`, m); }
   return out;
 }
 export async function periodoBloqueado(q: Consultar, cnpj: string, ano: number, periodo: string): Promise<string | null> {
   const aps = await listarApuracoesReal(q, cnpj, ano);
   return bloqueiosDoAno(ano, aps, await listarDivergencias(q, cnpj, ano)).get(`irpj:${ano}:${periodo}`) ?? null;
+}
+
+/**
+ * Bloqueio do DARF de PIS/COFINS não cumulativos de um mês (pergunta do Fiscal na hora de confirmar e de conferir a guia). Se a
+ * Central não conferiu a empresa nas últimas 2 horas, confere agora. Bloqueia com: conferência impossível (empresa sem contabilidade
+ * no Contábil) ou diferença aberta de receita/folha no mês. Libera quando o contador aceita a diferença (com o motivo) ou corrige.
+ */
+export async function bloqueioPisCofinsLR(deps: DepsCentral, cnpj: string, competencia: string, agoraMs = Date.now()): Promise<{ bloqueada: boolean; motivo: string | null; conferidoEm: string | null }> {
+  const q = deps.consultar; const ano = Number(competencia.slice(0, 4));
+  let conf = await lerConferencia(q, cnpj, ano);
+  if (!conf.conferidoEm || agoraMs - Date.parse(conf.conferidoEm) > 2 * 3600_000) { await conferirEmpresaLucroReal(deps, cnpj, ano); conf = await lerConferencia(q, cnpj, ano); }
+  const abertas = (await listarDivergencias(q, cnpj, ano)).filter((d) => d.estado === "aberta");
+  const motivo = motivoBloqueioPisCofins(competencia, abertas, conf);
+  return { bloqueada: motivo !== null, motivo, conferidoEm: conf.conferidoEm };
 }
 
 export interface DepsCentral {
@@ -383,15 +404,17 @@ export async function dadosDaConferencia(deps: DepsCentral, cnpj: string, ano: n
 export async function conferirEmpresaLucroReal(deps: DepsCentral, cnpj: string, ano: number): Promise<{ divergencias: Divergencia[]; doisCaminhos: Array<{ periodo: string } & ChecagemDoisCaminhos> }> {
   const q = deps.consultar; await prepararLucroReal(q); await prepararCentralLucroReal(q);
   const cfg = await lerConfigLucroReal(q, cnpj); const payload = await deps.lerWorkspace(cnpj);
-  if (!cfg || !payload) return { divergencias: [], doisCaminhos: [] };
+  if (!payload) { await registrarConferencia(q, cnpj, ano, "a empresa não tem a contabilidade (plano de contas e lançamentos) no Murad Contábil.").catch(() => undefined); return { divergencias: [], doisCaminhos: [] }; }
+  // A conferência cruzada (notas × receita, folha × contábil) não depende da configuração do IRPJ/CSLL: roda sempre (o PIS/COFINS do Fiscal depende dela).
   const achadas = conferirCruzado(await dadosDaConferencia(deps, cnpj, ano, payload));
   const doisCaminhos: Array<{ periodo: string } & ChecagemDoisCaminhos> = [];
-  for (const ap of await listarApuracoesReal(q, cnpj, ano)) {
+  if (cfg) for (const ap of await listarApuracoesReal(q, cnpj, ano)) {
     const r = irpjCsllPeloSegundoCaminho(ap, cfg.indAliquotaCsll); doisCaminhos.push({ periodo: ap.periodo, ...r });
     if (!r.ok) achadas.push({ id: `${ano}-${ap.periodo}:dois_caminhos`, competencia: `${ano}-${ap.periodo}`, tipo: "dois_caminhos", contabilCentavos: ap.irpjCentavos + ap.csllCentavos, outroCentavos: r.irpjCentavos + r.csllCentavos,
       explicacao: `O IRPJ/CSLL de ${ap.periodo} calculado por dois caminhos não deu igual ao centavo: ${r.diferencas.join(" ")} Não pague antes de conferir: avise o suporte com esta mensagem.` });
   }
   await gravarDivergencias(q, cnpj, ano, achadas);
+  await registrarConferencia(q, cnpj, ano, null);
   return { divergencias: achadas, doisCaminhos };
 }
 
@@ -408,15 +431,16 @@ export async function painelCentral(deps: DepsCentral, cnpj: string, ano: number
   const baixas = new Set((await q(`SELECT obrigacao_id FROM contabil_lr_baixas WHERE cnpj=$1`, [cnpj])).rows.map((x) => String(x.obrigacao_id)));
   const divergencias = await listarDivergencias(q, cnpj, ano);
   const bloqueios = bloqueiosDoAno(ano, apuracoes, divergencias);
-  const obrigacoes = montarObrigacoes(ano, { hoje, config, apuracoes, pagamentos, pisCofinsFiscal, competenciasComSaida, entregasSped: payload?.empresa?.entregasSped || {}, baixas, bloqueios });
+  await prepararExtrasLucroReal(q);
+  const extras = obrigacoesExtras(ano, await listarJcp(q, cnpj, ano), await listarRetencoes(q, cnpj, ano), baixas);
+  const obrigacoes = [...montarObrigacoes(ano, { hoje, config, apuracoes, pagamentos, pisCofinsFiscal, competenciasComSaida, entregasSped: payload?.empresa?.entregasSped || {}, baixas, bloqueios }), ...extras]
+    .sort((a, b) => a.vencimento.localeCompare(b.vencimento) || a.id.localeCompare(b.id));
   const alertas = alertasDasObrigacoes(obrigacoes, hoje, await tabelaSelicContabil(q));
   for (const d of divergencias.filter((x) => x.estado === "aberta")) alertas.unshift({ obrigacaoId: `divergencia:${d.id}`, nivel: "vermelho", titulo: `Diferença entre os sistemas em ${d.competencia}`, texto: d.explicacao, vencimento: "", dias: 0, multaCentavos: null, jurosCentavos: null, totalCentavos: null, estimativa: null });
   if (!config) alertas.unshift({ obrigacaoId: "config", nivel: "vermelho", titulo: "Lucro Real sem configuração", texto: "Configure a apuração (forma trimestral ou estimativa, obrigada ou optante, saldos de prejuízo) em Livros › Apuração do Lucro Real: sem isso o robô não apura o IRPJ/CSLL.", vencimento: "", dias: 0, multaCentavos: null, jurosCentavos: null, totalCentavos: null, estimativa: null });
   const pendenciasConhecidas = [
-    "IRRF sobre JCP (código 5706): o cálculo está em Livros › Apuração do Lucro Real › JCP, mas o pagamento do JCP não é registrado como obrigação: lance o DARF à parte.",
-    "Retenções feitas pela empresa como tomadora (IRRF 1708, CSRF 5952): ficam no Fiscal (Retenções) e na EFD-Reinf; não entram nesta lista.",
-    "EFD-Contribuições não cumulativa: o Fiscal não gera o arquivo do Lucro Real (C191/C195 e 1100 sem Nota Técnica oficial com o passo a passo); gere no PVA.",
-    "Celular: o Contábil não tem notificação push; o aviso aparece na faixa vermelha da tela (também no aplicativo instalado) e na Agente IA.",
+    "EFD-Contribuições não cumulativa (Lucro Real): o sistema NÃO gera o arquivo. Os registros C191/C195 (crédito sem o ICMS na base, Lei 14.592/2023) e o 1100 (controle do saldo credor) não têm Nota Técnica oficial com o passo a passo (procurado de novo em 23/11/2026 nos Documentos Técnicos da EFD-Contribuições em gov.br/sped). O arquivo é gerado no PVA da EFD-Contribuições; o valor do PIS/COFINS do mês sai pronto em Fiscal › Apuração e Guias.",
+    "Retenções como tomadora: vêm das NFS-e tomadas (rascunho da EFD-Reinf do Fiscal, padrão ABRASF), pela data de emissão. NFS-e do padrão Nacional e pagamento a pessoa física (R-4010) não entram: confira à parte.",
   ];
   return { obrigacoes, alertas, divergencias, pendenciasConhecidas };
 }
