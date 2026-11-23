@@ -179,6 +179,7 @@ const reconciliacaoRascunhosStatus: {
   app.use(["/api/workspaces", "/api/integracao/fiscal/documentos", "/api/integracao/fiscal/apuracoes"], express.json({ limit: "20mb" }));
   // Agente IA: corpo maior para nunca recusar texto longo (até 500.000 caracteres + histórico; o servidor corta e avisa).
   app.use(["/api/ai/agente", "/api/ai/chat"], express.json({ limit: "25mb" }));
+  app.use("/api/painel-escritorio/entrega/recibo", express.json({ limit: "5mb" })); // recibo da ECD/ECF de até 3 MB, em base64
   app.use(express.json({ limit: "2mb" }));
   const sessaoAtividade = (req: express.Request) => (req as express.Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
   const atividadeEquipe = criarAtividadeEscritorio({ consultar: consultaBancoContabil, tabela: "contabil_atividade_equipe", sessao: sessaoAtividade, podeVer: (req) => sessaoAtividade(req)?.administrador === true });

@@ -55,6 +55,12 @@ export function conferirDemonstracoesWorkspace(cnpj: string, payload: Record<str
       }
     }
   }
+  // ECD/ECF marcada como entregue sem o recibo do programa oficial guardado: sem o recibo não há prova da entrega no sistema.
+  for (const [chave, ent] of Object.entries(empresa.entregasSped || {})) {
+    if (!ent || ent.arquivoRecibo || String(ent.recibo || '').trim()) continue;
+    const [obr, anoEnt] = chave.split('-');
+    if (obr === 'ECD' || obr === 'ECF') itens.push({ id: `recibo_${chave}`, nivel: 'atencao', tela: 'demonstracoes', texto: `${obr} ${anoEnt} marcada como entregue sem o recibo: anexe o recibo gerado pelo programa da Receita (Demonstrações > Painel do escritório > Anexar recibo).` });
+  }
   return { cnpj, verificadoEm: agora.toISOString(), itens };
 }
 
@@ -88,8 +94,8 @@ export async function rodarRoboDemonstracoes(consultar: Consultar, agora = new D
 export type LinhaPainel = {
   cnpj: string; nome: string; regime: string;
   mesFechado: boolean; pendencias: string[];
-  ecd: { ano: number; situacao: string; prazo: string; entregue: boolean; recibo?: string; diasParaPrazo: number };
-  ecf: { ano: number; seAplica: 'sim' | 'nao' | 'depende'; prazo: string; entregue: boolean; recibo?: string; diasParaPrazo: number };
+  ecd: { ano: number; situacao: string; prazo: string; entregue: boolean; recibo?: string; arquivoRecibo?: string; diasParaPrazo: number };
+  ecf: { ano: number; seAplica: 'sim' | 'nao' | 'depende'; prazo: string; entregue: boolean; recibo?: string; arquivoRecibo?: string; diasParaPrazo: number };
   demonstracoes: AchadoDemonstracoes['itens'];
 };
 
@@ -114,8 +120,8 @@ export function linhaDoPainel(cnpj: string, payload: Record<string, any>, compet
   return {
     cnpj, nome: empresa.razaoSocial || empresa.nomeFantasia || cnpj, regime: empresa.regime || '',
     mesFechado, pendencias,
-    ecd: { ano, situacao: analise.situacao, prazo: prazoEcd, entregue: Boolean(entECD), recibo: entECD?.recibo, diasParaPrazo: dias(prazoEcd) },
-    ecf: { ano, seAplica: ecfSeAplica(empresa.regime), prazo: prazoEcf, entregue: Boolean(entECF), recibo: entECF?.recibo, diasParaPrazo: dias(prazoEcf) },
+    ecd: { ano, situacao: analise.situacao, prazo: prazoEcd, entregue: Boolean(entECD), recibo: entECD?.recibo, arquivoRecibo: entECD?.arquivoRecibo, diasParaPrazo: dias(prazoEcd) },
+    ecf: { ano, seAplica: ecfSeAplica(empresa.regime), prazo: prazoEcf, entregue: Boolean(entECF), recibo: entECF?.recibo, arquivoRecibo: entECF?.arquivoRecibo, diasParaPrazo: dias(prazoEcf) },
     demonstracoes: (achado ?? conferirDemonstracoesWorkspace(cnpj, payload || {}, agora))?.itens || [],
   };
 }
@@ -204,6 +210,45 @@ export function registrarRotasDemonstracoes(app: express.Express, mw: { exigirSe
     } catch (e: any) { return erroGravacao(res, e); }
   });
 
+  // Recibo de entrega da ECD/ECF: o governo só recebe pelo programa oficial (PGE/ReceitaNet); a contadora anexa aqui o recibo
+  // que ele gera, para ficar guardado e visível no painel. Um arquivo por empresa, obrigação e ano; só CNPJs do acesso.
+  app.post('/api/painel-escritorio/entrega/recibo', mw.exigirOrigem, mw.exigirSessao, async (req, res) => {
+    semCache(res);
+    const s = d.sessao(req); if (!s) return res.status(401).json({ sucesso: false, motivo: 'Entre no sistema.' });
+    const cnpj = cnpjDoAcesso(req, s, req.body?.cnpj);
+    if (!cnpj) return res.status(403).json({ sucesso: false, motivo: 'Este CNPJ não está vinculado ao seu acesso.' });
+    if (!s.podeEscrever(cnpj)) return res.status(403).json({ sucesso: false, motivo: 'Seu acesso a esta empresa é só de leitura.' });
+    const v = validarReciboSped(req.body);
+    if ('erro' in v) return res.status(400).json({ sucesso: false, motivo: v.erro });
+    try {
+      await gravarReciboSped(d.consultar, { cnpj, ...v, por: s.login });
+      const recibo = String(req.body?.recibo || '').replace(/[^\w.\-/ ]/g, '').slice(0, 60);
+      const r = await d.alterarWorkspace(cnpj, (payload) => {
+        const empresa = { ...(payload.empresa || {}) };
+        const entregas = { ...(empresa.entregasSped || {}) };
+        const chave = `${v.obrigacao}-${v.ano}`;
+        const atual = entregas[chave] || { entregueEm: new Date().toISOString(), marcadoPor: s.login };
+        entregas[chave] = { ...atual, ...(recibo ? { recibo } : {}), arquivoRecibo: v.nomeArquivo };
+        empresa.entregasSped = entregas;
+        return { payload: { ...payload, empresa }, resultado: true };
+      });
+      return res.json({ sucesso: true, mensagem: `Recibo da ${v.obrigacao} ${v.ano} guardado (${v.nomeArquivo}). A obrigação ficou marcada como entregue.`, dados: r.dados, versao: r.versao });
+    } catch (e: any) { return erroGravacao(res, e); }
+  });
+  app.get('/api/painel-escritorio/entrega/recibo', mw.exigirSessao, async (req, res) => {
+    semCache(res);
+    const s = d.sessao(req); if (!s) return res.status(401).json({ sucesso: false, motivo: 'Entre no sistema.' });
+    const cnpj = cnpjDoAcesso(req, s, req.query?.cnpj);
+    if (!cnpj) return res.status(403).json({ sucesso: false, motivo: 'Este CNPJ não está vinculado ao seu acesso.' });
+    const obrigacao = String(req.query?.obrigacao || ''); const ano = Number(req.query?.ano);
+    if (!['ECD', 'ECF'].includes(obrigacao) || !Number.isInteger(ano)) return res.status(400).json({ sucesso: false, motivo: 'Informe a obrigação (ECD ou ECF) e o ano.' });
+    const arq = await lerReciboSped(d.consultar, cnpj, obrigacao as 'ECD' | 'ECF', ano).catch(() => null);
+    if (!arq) return res.status(404).json({ sucesso: false, motivo: 'Nenhum recibo anexado para esta obrigação e ano.' });
+    res.setHeader('Content-Type', arq.tipo);
+    res.setHeader('Content-Disposition', `attachment; filename="${arq.nomeArquivo.replace(/"/g, '')}"`);
+    return res.send(arq.conteudo);
+  });
+
   app.get('/api/demonstracoes/:cnpj/resumo', mw.exigirSessao, async (req, res) => {
     semCache(res);
     const s = d.sessao(req); if (!s) return res.status(401).json({ sucesso: false, motivo: 'Entre no sistema.' });
@@ -265,4 +310,40 @@ export function capitalSocialNoFim(contas: ContaPlano[], lancamentos: Lancamento
   if (!codigos.length) return 0;
   const s = saldosNoFimDe(contas, lancamentos, competencia);
   return codigos.reduce((t, c) => t - (s.get(c) ?? 0), 0);
+}
+
+
+// ---------------------------------------------------------------------------------------------------------------
+// Recibo da ECD/ECF anexado pela contadora
+// ---------------------------------------------------------------------------------------------------------------
+const TIPOS_RECIBO: Record<string, string> = { pdf: 'application/pdf', rec: 'application/octet-stream', txt: 'text/plain; charset=utf-8', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
+export const LIMITE_RECIBO_BYTES = 3 * 1024 * 1024;
+/** Confere o pedido de anexo: obrigação, ano, nome e conteúdo (base64) de até 3 MB, nos formatos do recibo do PGE/ReceitaNet ou foto/print. */
+export function validarReciboSped(corpo: any): { obrigacao: 'ECD' | 'ECF'; ano: number; nomeArquivo: string; tipo: string; conteudo: Buffer } | { erro: string } {
+  const obrigacao = String(corpo?.obrigacao || ''); const ano = Number(corpo?.ano);
+  if (!['ECD', 'ECF'].includes(obrigacao) || !Number.isInteger(ano) || ano < 2014 || ano > 2100) return { erro: 'Informe a obrigação (ECD ou ECF) e o ano.' };
+  const nomeArquivo = String(corpo?.nomeArquivo || '').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '').trim().slice(0, 120);
+  const ext = (/\.([a-z0-9]+)$/i.exec(nomeArquivo)?.[1] || '').toLowerCase();
+  if (!nomeArquivo || !TIPOS_RECIBO[ext]) return { erro: 'Anexe o recibo em PDF, .REC, .TXT ou imagem (PNG/JPG).' };
+  const b64 = String(corpo?.arquivoBase64 || '').replace(/\s/g, '');
+  if (!b64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) return { erro: 'O arquivo do recibo não chegou inteiro. Tente de novo.' };
+  const conteudo = Buffer.from(b64, 'base64');
+  if (!conteudo.length || conteudo.length > LIMITE_RECIBO_BYTES) return { erro: 'O recibo deve ter conteúdo e no máximo 3 MB.' };
+  return { obrigacao: obrigacao as 'ECD' | 'ECF', ano, nomeArquivo, tipo: TIPOS_RECIBO[ext], conteudo };
+}
+let tabelaRecibos: Promise<unknown> | null = null;
+const prepararRecibos = (consultar: Consultar) => (tabelaRecibos ||= consultar(`CREATE TABLE IF NOT EXISTS contabil_recibos_sped (
+  cnpj text NOT NULL, obrigacao text NOT NULL, ano integer NOT NULL, nome_arquivo text NOT NULL, tipo text NOT NULL, conteudo_base64 text NOT NULL,
+  enviado_por text, enviado_em timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (cnpj, obrigacao, ano))`).catch((e) => { tabelaRecibos = null; throw e; }));
+export async function gravarReciboSped(consultar: Consultar, r: { cnpj: string; obrigacao: 'ECD' | 'ECF'; ano: number; nomeArquivo: string; tipo: string; conteudo: Buffer; por: string }): Promise<void> {
+  await prepararRecibos(consultar);
+  await consultar(`INSERT INTO contabil_recibos_sped (cnpj,obrigacao,ano,nome_arquivo,tipo,conteudo_base64,enviado_por) VALUES ($1,$2,$3,$4,$5,$6,$7)
+    ON CONFLICT (cnpj,obrigacao,ano) DO UPDATE SET nome_arquivo=EXCLUDED.nome_arquivo, tipo=EXCLUDED.tipo, conteudo_base64=EXCLUDED.conteudo_base64, enviado_por=EXCLUDED.enviado_por, enviado_em=now()`,
+  [r.cnpj, r.obrigacao, r.ano, r.nomeArquivo, r.tipo, r.conteudo.toString('base64'), r.por]);
+}
+export async function lerReciboSped(consultar: Consultar, cnpj: string, obrigacao: 'ECD' | 'ECF', ano: number): Promise<{ nomeArquivo: string; tipo: string; conteudo: Buffer } | null> {
+  await prepararRecibos(consultar);
+  const r = await consultar('SELECT nome_arquivo, tipo, conteudo_base64 FROM contabil_recibos_sped WHERE cnpj=$1 AND obrigacao=$2 AND ano=$3', [cnpj, obrigacao, ano]);
+  const l = r.rows[0];
+  return l ? { nomeArquivo: String(l.nome_arquivo), tipo: String(l.tipo), conteudo: Buffer.from(String(l.conteudo_base64), 'base64') } : null;
 }

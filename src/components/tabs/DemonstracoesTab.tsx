@@ -191,6 +191,29 @@ export const DemonstracoesTab: React.FC<Props> = ({ empresa, contas, lancamentos
     } catch { setMsg({ erro: true, texto: "Sem conexão com o servidor." }); }
   };
 
+  // Recibo da ECD/ECF: o arquivo que o PGE/ReceitaNet gera depois da transmissão fica guardado aqui (até 3 MB).
+  const anexarRecibo = async (linha: any, obrigacao: "ECD" | "ECF", arquivo: File | undefined) => {
+    if (!arquivo) return;
+    const anoObr = obrigacao === "ECD" ? linha.ecd.ano : linha.ecf.ano;
+    if (arquivo.size <= 0 || arquivo.size > 3 * 1024 * 1024) { setMsg({ erro: true, texto: "O recibo deve ter no máximo 3 MB." }); return; }
+    try {
+      const bytes = new Uint8Array(await arquivo.arrayBuffer());
+      let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, Math.min(i + 0x8000, bytes.length)));
+      const r = await fetch("/api/painel-escritorio/entrega/recibo", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cnpj: linha.cnpj, obrigacao, ano: anoObr, nomeArquivo: arquivo.name, arquivoBase64: btoa(bin) }) });
+      const j = await r.json().catch(() => ({}));
+      setMsg({ erro: !j.sucesso, texto: j.mensagem || j.motivo || "Não foi possível guardar o recibo." });
+      if (j.sucesso && j.dados) onDadosAtualizados(linha.cnpj, j.dados, Number.isSafeInteger(Number(j.versao)) ? Number(j.versao) : null);
+      if (j.sucesso) void carregarPainel();
+    } catch { setMsg({ erro: true, texto: "Sem conexão com o servidor." }); }
+  };
+  const BotaoRecibo = ({ linha, obrigacao }: { linha: any; obrigacao: "ECD" | "ECF" }) => {
+    const o = obrigacao === "ECD" ? linha.ecd : linha.ecf;
+    return <span className="ml-2 inline-flex flex-wrap items-center gap-2">
+      {o.arquivoRecibo && <a className="font-semibold underline" href={`/api/painel-escritorio/entrega/recibo?cnpj=${encodeURIComponent(linha.cnpj)}&obrigacao=${obrigacao}&ano=${o.ano}`}>Baixar recibo ({o.arquivoRecibo})</a>}
+      <label className="cursor-pointer font-semibold underline">{o.arquivoRecibo ? "Trocar recibo" : "Anexar recibo"}<input type="file" accept=".pdf,.rec,.txt,.png,.jpg,.jpeg" className="hidden" onChange={(ev) => { void anexarRecibo(linha, obrigacao, ev.target.files?.[0]); ev.target.value = ""; }} /></label>
+    </span>;
+  };
+
   // ---------------- Relatório para o cliente ----------------
   const [observacao, setObservacao] = useState("");
   const gerarRelatorioCliente = () => {
@@ -433,9 +456,9 @@ export const DemonstracoesTab: React.FC<Props> = ({ empresa, contas, lancamentos
           <div className="flex flex-wrap items-center justify-between gap-1"><p className="font-bold text-slate-900">{e.nome} <span className="font-normal text-slate-500">· {e.regime || "regime não informado"}</span></p><button type="button" className="font-semibold underline" onClick={() => onNavegar("demonstracoes", e.cnpj)}>Abrir empresa</button></div>
           <p>{e.mesFechado ? "✅ Mês fechado" : e.pendencias.length ? `⛔ Mês aberto — ${e.pendencias.join("; ")}` : "⚠️ Mês aberto, sem pendência automática: falta fechar"}</p>
           <p>ECD {e.ecd.ano}: {e.ecd.situacao === "obrigatoria" ? (e.ecd.entregue ? `✅ entregue${e.ecd.recibo ? ` (recibo ${e.ecd.recibo})` : ""}` : `${e.ecd.diasParaPrazo < 0 ? "⛔ ATRASADA" : "a entregar"} até ${e.ecd.prazo.split("-").reverse().join("/")}`) : e.ecd.situacao === "depende" ? "confirme a obrigatoriedade no cadastro" : "dispensada"}
-            {e.ecd.situacao !== "dispensada" && <button type="button" className="ml-2 font-semibold underline" onClick={() => void marcarEntrega(e, "ECD", e.ecd.entregue)}>{e.ecd.entregue ? "Desfazer" : "Marcar entregue"}</button>}</p>
+            {e.ecd.situacao !== "dispensada" && <button type="button" className="ml-2 font-semibold underline" onClick={() => void marcarEntrega(e, "ECD", e.ecd.entregue)}>{e.ecd.entregue ? "Desfazer" : "Marcar entregue"}</button>}{e.ecd.situacao !== "dispensada" && <BotaoRecibo linha={e} obrigacao="ECD" />}</p>
           <p>ECF {e.ecf.ano}: {e.ecf.seAplica === "nao" ? "dispensada (Simples Nacional)" : e.ecf.entregue ? `✅ entregue${e.ecf.recibo ? ` (recibo ${e.ecf.recibo})` : ""}` : `${e.ecf.diasParaPrazo < 0 ? "⛔ ATRASADA" : "a entregar"} até ${e.ecf.prazo.split("-").reverse().join("/")}${e.ecf.seAplica === "depende" ? " (confirme o regime)" : ""}`}
-            {e.ecf.seAplica !== "nao" && <button type="button" className="ml-2 font-semibold underline" onClick={() => void marcarEntrega(e, "ECF", e.ecf.entregue)}>{e.ecf.entregue ? "Desfazer" : "Marcar entregue"}</button>}</p>
+            {e.ecf.seAplica !== "nao" && <button type="button" className="ml-2 font-semibold underline" onClick={() => void marcarEntrega(e, "ECF", e.ecf.entregue)}>{e.ecf.entregue ? "Desfazer" : "Marcar entregue"}</button>}{e.ecf.seAplica !== "nao" && <BotaoRecibo linha={e} obrigacao="ECF" />}</p>
           {e.demonstracoes.length > 0 && <details><summary className="cursor-pointer font-semibold">Demonstrações ({e.demonstracoes.length})</summary><ul className="ml-4 list-disc">{e.demonstracoes.map((d: any) => <li key={d.id}>{d.texto}</li>)}</ul></details>}
         </li>)}</ul>}
         {painel && !painel.length && <p className="text-xs text-slate-600">Nenhuma empresa com dados salvos no seu acesso.</p>}

@@ -175,7 +175,7 @@ export interface EmpresaDados {
   /** ECF: Bloco Y (Y540/Y600) e Parte B do e-Lalur/e-Lacs por ano. */
   ecfComplementos?: import("./services/ecfComplementosService").ComplementosEcf;
   /** Entregas de ECD/ECF marcadas pela equipe (chave "ECD-2025", "ECF-2025"), para o painel do escritório. */
-  entregasSped?: Record<string, { entregueEm: string; recibo?: string; marcadoPor?: string }>;
+  entregasSped?: Record<string, { entregueEm: string; recibo?: string; marcadoPor?: string; arquivoRecibo?: string }>;
 }
 
 export interface LancamentoContabil {

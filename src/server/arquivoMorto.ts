@@ -31,6 +31,7 @@ export const TABELAS_GUARDA = [
   'contabil_period_closures', 'contabil_accounting_approval_audit', 'contabil_manual_journal_audit', 'contabil_manual_journal_events', 'contabil_opening_balance_audit',
   'contabil_lucro_real_config', 'contabil_lalur_lancamentos', 'contabil_lalur_parte_b_contas', 'contabil_lucro_real_apuracoes', 'contabil_lucro_real_pagamentos',
   'murade_documentos_fiscais_origem', 'murade_documentos_fiscais_versoes', 'murade_apuracoes_fiscais_origem', 'murade_folhas_dp_origem', 'murade_eventos_dp_origem', 'murade_prolabore_dp_origem',
+  'contabil_recibos_sped', // recibo da ECD/ECF anexado pela contadora (prova da entrega)
 ] as const;
 /** Operacional sem guarda legal: sai da base sem cópia. */
 export const TABELAS_OPERACIONAIS = ['contabil_ai_agent_log'] as const;

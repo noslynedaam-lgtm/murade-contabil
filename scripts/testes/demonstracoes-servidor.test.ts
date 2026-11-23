@@ -113,3 +113,25 @@ test("Agente: as ferramentas das demonstrações estão no kit e as ações vira
   assert.ok((await f.preparar({}, { cnpj: "x", obrigacao: "ECF", ano: 2025 })).erro);
   assert.match(kitContabil.instrucao, /DEMONSTRAÇÕES E RELATÓRIOS/);
 });
+
+test('recibo da ECD/ECF: aceita PDF/REC/imagem até 3 MB e recusa formato e tamanho errados', async () => {
+  const { validarReciboSped, LIMITE_RECIBO_BYTES } = await import('../../src/server/demonstracoesServidor');
+  const ok = validarReciboSped({ obrigacao: 'ECD', ano: 2025, nomeArquivo: 'recibo ECD 2025.pdf', arquivoBase64: Buffer.from('%PDF-1.4').toString('base64') });
+  assert.ok(!('erro' in ok) && ok.tipo === 'application/pdf' && ok.conteudo.toString() === '%PDF-1.4');
+  assert.ok('erro' in validarReciboSped({ obrigacao: 'DCTF', ano: 2025, nomeArquivo: 'a.pdf', arquivoBase64: 'QQ==' }));
+  assert.ok('erro' in validarReciboSped({ obrigacao: 'ECF', ano: 2025, nomeArquivo: 'a.exe', arquivoBase64: 'QQ==' }));
+  assert.ok('erro' in validarReciboSped({ obrigacao: 'ECF', ano: 2025, nomeArquivo: 'a.pdf', arquivoBase64: Buffer.alloc(LIMITE_RECIBO_BYTES + 1).toString('base64') }));
+});
+
+test('recibo da ECD/ECF vai para o arquivo morto na exclusão da empresa (guarda legal)', async () => {
+  const { TABELAS_GUARDA } = await import('../../src/server/arquivoMorto');
+  assert.ok((TABELAS_GUARDA as readonly string[]).includes('contabil_recibos_sped'));
+});
+
+test('conferidor: ECD/ECF entregue sem recibo vira atenção; com recibo anexado, não', () => {
+  const contas = [{ codigo: '1', nome: 'Ativo', tipo: 'sintetica', natureza: 'devedora', nivel: 1 }] as any;
+  const sem = conferirDemonstracoesWorkspace('11222333000181', { contas, lancamentos: [], empresa: { entregasSped: { 'ECD-2025': { entregueEm: '2026-05-01' } } } }, new Date('2026-11-23'));
+  assert.ok(sem!.itens.some((i) => i.id === 'recibo_ECD-2025'));
+  const com = conferirDemonstracoesWorkspace('11222333000181', { contas, lancamentos: [], empresa: { entregasSped: { 'ECD-2025': { entregueEm: '2026-05-01', arquivoRecibo: 'r.pdf' } } } }, new Date('2026-11-23'));
+  assert.ok(!com!.itens.some((i) => i.id === 'recibo_ECD-2025'));
+});
