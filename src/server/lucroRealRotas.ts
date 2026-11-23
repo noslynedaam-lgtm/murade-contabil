@@ -4,7 +4,7 @@ import type express from "express";
 import { acessoEmpresa } from "./escrituracaoRotas";
 import {
   adicionarLancamentoLalur, apurarAnoLucroReal, calcularJcp, confirmarApuracaoReal, excluirLancamentoLalur, itensProvisaoReal, lerConfigLucroReal,
-  listarApuracoesReal, listarLancamentosLalur, parteBDoAno, reabrirApuracaoReal, salvarConfigLucroReal, BUCKET_ESTIMATIVA, CONFIG_LR_PADRAO, type DepsLucroReal,
+  listarApuracoesReal, listarLancamentosLalur, listarPagamentosReal, parteBDoAno, registrarPagamentoReal, reabrirApuracaoReal, salvarConfigLucroReal, BUCKET_ESTIMATIVA, CONFIG_LR_PADRAO, type DepsLucroReal,
 } from "./lucroRealApuracao";
 
 type Mw = express.RequestHandler;
@@ -29,7 +29,7 @@ export function registrarRotasLucroReal(app: express.Express, mw: { exigirSessao
   const falha = (res: express.Response, e: any, padrao: string) => { const msg = e instanceof Error ? e.message : String(e); if (/inválid|Informe|precisa|já está confirmado|não encontrado|Diga de onde/.test(msg)) return res.status(400).json({ sucesso: false, motivo: msg }); console.error("[lucro-real]", msg); return res.status(503).json({ sucesso: false, motivo: padrao }); };
   const painel = async (cnpj: string, ano: number) => {
     const periodos = await listarApuracoesReal(consultar, cnpj, ano);
-    return { config: await lerConfigLucroReal(consultar, cnpj), padrao: CONFIG_LR_PADRAO, atividades: Object.entries(BUCKET_ESTIMATIVA).map(([id, b]) => ({ id, rotulo: b.rotulo })), periodos, parteB: parteBDoAno(periodos), lancamentos: await listarLancamentosLalur(consultar, cnpj, ano) };
+    return { config: await lerConfigLucroReal(consultar, cnpj), padrao: CONFIG_LR_PADRAO, atividades: Object.entries(BUCKET_ESTIMATIVA).map(([id, b]) => ({ id, rotulo: b.rotulo })), periodos, parteB: parteBDoAno(periodos), lancamentos: await listarLancamentosLalur(consultar, cnpj, ano), pagamentos: await listarPagamentosReal(consultar, cnpj, ano) };
   };
 
   app.get("/api/workspaces/:cnpj/lucro-real", mw.exigirSessao, async (req, res) => {
@@ -88,6 +88,16 @@ export function registrarRotasLucroReal(app: express.Express, mw: { exigirSessao
     const ano = anoDe(req.body?.ano); const periodo = String(req.body?.periodo ?? "");
     if (!ano || !periodo) return res.status(400).json({ sucesso: false, motivo: "Informe o ano e o período." });
     try { const r = await reabrirApuracaoReal(consultar, a.cnpj, ano, periodo); return "motivo" in r ? res.status(409).json({ sucesso: false, motivo: r.motivo }) : res.json({ sucesso: true }); } catch (e) { return falha(res, e, "Não foi possível reabrir."); }
+  });
+  // Pagamento do DARF (data e valor pago, com multa e juros se houver): vira pré-lançamento que baixa o IRPJ/CSLL a recolher.
+  app.post("/api/workspaces/:cnpj/lucro-real/pagamento", mw.exigirOrigem, mw.exigirSessao, async (req, res) => {
+    const a = acessoEmpresa(req, res, true); if (!a) return;
+    const b = req.body || {}; const ano = anoDe(b.ano);
+    if (!ano || !b.periodo) return res.status(400).json({ sucesso: false, motivo: "Informe o ano e o período." });
+    try {
+      const r = await registrarPagamentoReal(consultar, a.cnpj, ano, String(b.periodo), String(b.tributo || ""), String(b.dataPagamento || ""), centavos(b.valorPago), a.sessao.login, deps.hoje(), deps.enviarProvisao as any);
+      return "erro" in r ? res.status(409).json({ sucesso: false, motivo: r.erro }) : res.json({ sucesso: true, pagamento: r.pagamento });
+    } catch (e) { return falha(res, e, "Não foi possível registrar o pagamento."); }
   });
   // Documento do DARF para conferência (não é a guia oficial: emita no Sicalc).
   app.get("/api/workspaces/:cnpj/lucro-real/darf/:ano/:periodo/:tributo", mw.exigirSessao, async (req, res) => {

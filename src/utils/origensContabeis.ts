@@ -44,6 +44,8 @@ export const ORIGENS = [
   { id: "fiscal_darf_encargos", rotulo: "Fiscal — DARF (multa e juros)" },
   { id: "contabil_irpj_real", rotulo: "Contábil — IRPJ Lucro Real (provisão)" },
   { id: "contabil_csll_real", rotulo: "Contábil — CSLL Lucro Real (provisão)" },
+  { id: "contabil_irpj_real_pago", rotulo: "Contábil — IRPJ Lucro Real (pagamento)" },
+  { id: "contabil_csll_real_pago", rotulo: "Contábil — CSLL Lucro Real (pagamento)" },
   { id: "fiscal_das_simples", rotulo: "Fiscal — DAS Simples (provisão)" },
   { id: "fiscal_das_simples_pago", rotulo: "Fiscal — DAS Simples (pagamento)" },
   { id: "fiscal_das_simples_encargos", rotulo: "Fiscal — DAS Simples (multa e juros)" },
@@ -80,11 +82,13 @@ export const ORIGEM_POR_TRIBUTO: Record<string, IdOrigem> = {
   COFINS_NC_PAGO: "fiscal_cofins_nc_pago",
   IRPJ_REAL: "contabil_irpj_real",
   CSLL_REAL: "contabil_csll_real",
+  IRPJ_REAL_PAGO: "contabil_irpj_real_pago",
+  CSLL_REAL_PAGO: "contabil_csll_real_pago",
   DAS_SIMPLES: "fiscal_das_simples",
   DAS_SIMPLES_PAGO: "fiscal_das_simples_pago",
 };
 /** Pagamentos de DARF vindos do Fiscal (mesmo tratamento do DAS_SIMPLES_PAGO, com a multa/juros em fiscal_darf_encargos). */
-export const TRIBUTOS_DARF_PAGO = new Set(["IRPJ_PRESUMIDO_PAGO", "CSLL_PRESUMIDO_PAGO", "PIS_PRESUMIDO_PAGO", "COFINS_PRESUMIDO_PAGO", "PIS_NC_PAGO", "COFINS_NC_PAGO"]);
+export const TRIBUTOS_DARF_PAGO = new Set(["IRPJ_PRESUMIDO_PAGO", "CSLL_PRESUMIDO_PAGO", "PIS_PRESUMIDO_PAGO", "COFINS_PRESUMIDO_PAGO", "PIS_NC_PAGO", "COFINS_NC_PAGO", "IRPJ_REAL_PAGO", "CSLL_REAL_PAGO"]);
 /** Sufixo da referência da parte de multa e juros de um DAS pago em atraso. */
 export const SUFIXO_ENCARGOS_DAS = "ENCARGOS";
 

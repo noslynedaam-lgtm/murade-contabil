@@ -312,6 +312,8 @@ export type OrigemMapeadaContabil =
   | "fiscal_darf_encargos"
   | "contabil_irpj_real"
   | "contabil_csll_real"
+  | "contabil_irpj_real_pago"
+  | "contabil_csll_real_pago"
   | "fiscal_das_simples_encargos";
 
 export interface MapeamentoOrigemContabil {

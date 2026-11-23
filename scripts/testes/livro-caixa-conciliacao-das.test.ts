@@ -187,3 +187,17 @@ test("DARF pago no Fiscal (Presumido e Lucro Real): principal baixa o a recolher
   // com encargos e sem conta de encargos mapeada: não lança pela metade
   assert.equal(gerarRascunhosApuracoes(cnpj, [ap({ tributo: "IRPJ_PRESUMIDO_PAGO", competencia: "2026-11", referencia: "DARF:pagamento:irpj:2026-T3", valorCentavos: 366120, baseCentavos: 360000, versaoOrigem: "pago:2026-11-05:366120" })], contas, maps.slice(0, 1), "x").length, 0);
 });
+
+test("DARF do Lucro Real pago (nasce no Contábil): mesmo tratamento — principal baixa o IRPJ/CSLL a recolher, multa e juros à parte", () => {
+  for (const [t, o] of [["IRPJ_REAL_PAGO", "contabil_irpj_real_pago"], ["CSLL_REAL_PAGO", "contabil_csll_real_pago"]]) {
+    assert.equal(ORIGEM_POR_TRIBUTO[t], o, t);
+    assert.match(readFileSync("src/server/apuracoesFiscaisStore.ts", "utf8"), new RegExp(`"${t}"`));
+  }
+  assert.equal(origemDaReferencia(`FISCAL:${cnpj}:2027-01:APURACAO:CSLL_REAL_PAGO:LR:CSLL_REAL_PAGO:2026-T04:ENCARGOS`)?.id, "fiscal_darf_encargos");
+  const maps = [mapa("contabil_csll_real_pago", "2.1.08", "1.1.02"), mapa("fiscal_darf_encargos", "4.1.02", "1.1.02")];
+  // CSLL de R$ 12.780,00 paga em 29/01/2027 com R$ 0,00 de acréscimo, e outra com R$ 127,80 de multa e juros
+  const sem = gerarRascunhosApuracoes(cnpj, [ap({ tributo: "CSLL_REAL_PAGO", competencia: "2027-01", referencia: "LR:CSLL_REAL_PAGO:2026-T04", valorCentavos: 1278000, baseCentavos: 1278000, versaoOrigem: "pago:2027-01-29:1278000" })], contas, maps, "x");
+  assert.deepEqual(sem.map((x) => [x.data, x.contaDebitoCodigo, x.contaCreditoCodigo, x.valor]), [["2027-01-29", "2.1.08", "1.1.02", 12780]]);
+  const com = gerarRascunhosApuracoes(cnpj, [ap({ tributo: "CSLL_REAL_PAGO", competencia: "2027-02", referencia: "LR:CSLL_REAL_PAGO:2026-T04", valorCentavos: 1290780, baseCentavos: 1278000, versaoOrigem: "pago:2027-02-10:1290780" })], contas, maps, "x");
+  assert.deepEqual(com.map((x) => x.valor), [12780, 127.8]);
+});

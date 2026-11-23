@@ -8,7 +8,7 @@ const reais = (c: unknown) => (Number(c || 0) / 100).toLocaleString('pt-BR', { s
 const nome = (p: string) => (p === 'ANUAL' ? 'ajuste anual' : p.startsWith('T') ? `${p.slice(2)}º trimestre` : `estimativa do mês ${p.slice(1)}`);
 
 export const INSTRUCAO_LUCRO_REAL = `
-LUCRO REAL (Livros › Apuração do Lucro Real): o robô calcula o IRPJ e a CSLL pela contabilidade, trimestral ou estimativa mensal (pela receita bruta ou pelo balancete de suspensão/redução — fica o menor), com e-Lalur/e-Lacs e compensação de prejuízo até 30% (Lei 9.065/95). Use consultar_lucro_real para "quanto dá o IRPJ do trimestre", apurar_lucro_real para calcular na hora, lancar_lalur para adição/exclusão/retenção (sempre com o código da tabela M300A/M350A e de onde vem) e confirmar_lucro_real para confirmar um período (a provisão vai para os pré-lançamentos). Mês ainda não fechado na contabilidade sai como prévia e não confirma. O DARF é documento para conferência (códigos da Agenda Tributária: estimativa 2362/5993 e 2484, trimestral 0220/3373 e 6012); nada é pago nem transmitido. JCP: IRRF de 17,5% desde 2026 (LC 224/2025), DARF 5706.`;
+LUCRO REAL (Livros › Apuração do Lucro Real): o robô calcula o IRPJ e a CSLL pela contabilidade, trimestral ou estimativa mensal (pela receita bruta ou pelo balancete de suspensão/redução — fica o menor), com e-Lalur/e-Lacs e compensação de prejuízo até 30% (Lei 9.065/95). Use consultar_lucro_real para "quanto dá o IRPJ do trimestre", apurar_lucro_real para calcular na hora, lancar_lalur para adição/exclusão/retenção (sempre com o código da tabela M300A/M350A e de onde vem) e confirmar_lucro_real para confirmar um período (a provisão vai para os pré-lançamentos); registrar_pagamento_darf_lucro_real registra a data e o valor pago do DARF (baixa o imposto a recolher). Mês ainda não fechado na contabilidade sai como prévia e não confirma. O DARF é documento para conferência (códigos da Agenda Tributária: estimativa 2362/5993 e 2484, trimestral 0220/3373 e 6012; ajuste anual 2430/2456 e 6773, até o último dia útil de março); nada é pago nem transmitido. JCP: IRRF de 17,5% desde 2026 (LC 224/2025), DARF 5706.`;
 
 export const FERRAMENTAS_LUCRO_REAL: Ferramenta[] = [
   {
@@ -57,5 +57,25 @@ export const FERRAMENTAS_LUCRO_REAL: Ferramenta[] = [
       return { cnpj, params: { cnpj, ano, periodo }, titulo: `Confirmar ${nome(periodo)} de ${ano}`, descricao: [`Empresa ${cnpj}`, `IRPJ ${reais(p.irpjCentavos)} · CSLL ${reais(p.csllCentavos)}`, 'A provisão vai para os pré-lançamentos para aprovação.'], aviso: 'Confirme só depois de conferir o balancete e o e-Lalur/e-Lacs.', resumo: `Confirmar Lucro Real ${cnpj} ${ano} ${periodo}` };
     },
     async executar(ctx, p) { const r = await ctx.chamarApi('POST', `/api/workspaces/${q(String(p.cnpj))}/lucro-real/confirmar`, { ano: p.ano, periodo: p.periodo }); if (!ok(r)) return { sucesso: false, mensagem: erroApi(r).erro }; return { sucesso: true, mensagem: 'Período confirmado; a provisão foi para os pré-lançamentos.' }; },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'registrar_pagamento_darf_lucro_real', description: 'Propõe registrar o PAGAMENTO de um DARF do Lucro Real (IRPJ ou CSLL) de um período confirmado: data e valor pago (com multa e juros, se houver). Vira pré-lançamento que baixa o imposto a recolher contra o banco; multa e juros vão para a conta própria. Não paga nada no banco.', parameters: { type: 'OBJECT', properties: { cnpj: { type: 'STRING', description: 'CNPJ.' }, ano: { type: 'STRING', description: 'Ano.' }, periodo: { type: 'STRING', description: 'T01..T04, A01..A12 ou ANUAL.' }, tributo: { type: 'STRING', description: 'irpj ou csll.' }, dataPagamento: { type: 'STRING', description: 'AAAA-MM-DD.' }, valorPago: { type: 'NUMBER', description: 'Valor pago em reais.' } }, required: ['cnpj', 'periodo', 'tributo', 'dataPagamento', 'valorPago'] } },
+    async preparar(ctx, a) {
+      const cnpj = cnpjDe(a.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const ano = anoDe(a.ano); const periodo = String(a.periodo || '').toUpperCase(); const tributo = String(a.tributo || '').toLowerCase();
+      const valor = Number(a.valorPago); const data = String(a.dataPagamento || '');
+      if (!['irpj', 'csll'].includes(tributo)) return { erro: 'Diga se é o DARF do IRPJ ou da CSLL.' };
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return { erro: 'Informe a data do pagamento (AAAA-MM-DD).' };
+      if (!(valor > 0)) return { erro: 'Informe o valor pago.' };
+      const r = await ctx.chamarApi('GET', `/api/workspaces/${q(cnpj)}/lucro-real?ano=${ano}`); if (!ok(r)) return erroApi(r);
+      const p = (r.corpo.periodos || []).find((x: any) => x.periodo === periodo);
+      const d = p?.resultado?.darfs?.find((x: any) => x.tributo === tributo);
+      if (!p || p.status !== 'confirmado' || !d) return { erro: 'Período não confirmado ou sem DARF deste tributo.' };
+      if ((r.corpo.pagamentos || []).some((g: any) => g.periodo === periodo && g.tributo === tributo)) return { erro: 'O pagamento deste DARF já foi registrado.' };
+      const vc = Math.round(valor * 100);
+      return { cnpj, params: { cnpj, ano, periodo, tributo, dataPagamento: data, valorPago: valor }, titulo: `Pagamento do DARF ${tributo.toUpperCase()} — ${nome(periodo)} de ${ano}`, descricao: [`DARF ${d.codigo || ''} de ${reais(d.valorCentavos)}; pago em ${data.split('-').reverse().join('/')}: ${reais(vc)}.`, vc > d.valorCentavos ? `Multa e juros: ${reais(vc - d.valorCentavos)} (conta própria).` : 'Sem multa e juros.'], aviso: 'O pré-lançamento baixa o imposto a recolher contra o banco; aprove em Revisão.', resumo: `Pagamento DARF Lucro Real ${cnpj} ${ano} ${periodo} ${tributo}` };
+    },
+    async executar(ctx, p) { const r = await ctx.chamarApi('POST', `/api/workspaces/${q(String(p.cnpj))}/lucro-real/pagamento`, p); if (!ok(r)) return { sucesso: false, mensagem: erroApi(r).erro }; return { sucesso: true, mensagem: 'Pagamento registrado; o pré-lançamento foi para a Revisão.' }; },
   },
 ];

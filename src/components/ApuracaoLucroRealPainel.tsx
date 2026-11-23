@@ -28,6 +28,7 @@ export const ApuracaoLucroRealPainel: React.FC<{ cnpj: string; ano: number; empr
   const [andamento, setAndamento] = useState<{ etapa: number; texto: string } | null>(null);
   const [cfg, setCfg] = useState<P>({}); const [novo, setNovo] = useState<P>({ mes: "1", tributo: "ambos", tipo: "adicao" });
   const [jcp, setJcp] = useState<P>({}); const [resJcp, setResJcp] = useState<P | null>(null);
+  const [pag, setPag] = useState<P>({}); // formulário de pagamento aberto: chave "periodo:tributo" → { data, valor }
   const { pedir, dialogo } = useExclusaoDuasEtapas();
   const carregar = useCallback(async () => { const r = await chamar("GET", `${base}?ano=${ano}`); if (r.ok) { setD(r.dados); const c = r.dados.config || r.dados.padrao; setCfg({ ...c, obrigada: c.obrigada === null ? "" : String(c.obrigada), saldoPrejuizoInicial: ((c.saldoPrejuizoInicialCentavos || 0) / 100).toFixed(2).replace(".", ","), saldoBaseNegativaInicial: ((c.saldoBaseNegativaInicialCentavos || 0) / 100).toFixed(2).replace(".", ",") }); } else setMsg({ erro: true, texto: r.dados?.motivo || "Não foi possível carregar." }); }, [base, ano]);
   useEffect(() => { void carregar(); }, [carregar]);
@@ -81,6 +82,18 @@ export const ApuracaoLucroRealPainel: React.FC<{ cnpj: string; ano: number; empr
             {(p.revisar || []).length > 0 && <ul className="mt-1 list-disc pl-4 text-red-800">{p.revisar.map((x: string) => <li key={x}>{x}</li>)}</ul>}
             {(p.resultado?.avisos || []).length > 0 && <ul className="mt-1 list-disc pl-4 text-[11px] text-[#4E5969]">{p.resultado.avisos.map((x: string) => <li key={x}>{x}</li>)}</ul>}
             {(p.resultado?.darfs || []).length > 0 && <div className="mt-1 flex flex-wrap gap-2">{p.resultado.darfs.map((x: P) => <a key={x.tributo} className="text-[11px] font-bold text-[#165DFF] underline" href={`${base}/darf/${ano}/${p.periodo}/${x.tributo}`} target="_blank" rel="noreferrer">DARF {x.tributo.toUpperCase()} {x.codigo || "(código a informar)"} — vence {dataBR(x.vencimento)}</a>)}</div>}
+            {p.status === "confirmado" && (p.resultado?.darfs || []).filter((x: P) => x.valorCentavos > 0).map((x: P) => {
+              const chave = `${p.periodo}:${x.tributo}`; const feito = (d?.pagamentos || []).find((g: P) => g.periodo === p.periodo && g.tributo === x.tributo); const f = pag[chave];
+              if (feito) return <p key={chave} className="mt-1 text-[11px] font-semibold text-emerald-800">DARF {x.tributo.toUpperCase()} pago em {dataBR(feito.dataPagamento)}: {reais(feito.valorPagoCentavos)}{feito.valorPagoCentavos > feito.principalCentavos ? ` (principal ${reais(feito.principalCentavos)} + multa e juros ${reais(feito.valorPagoCentavos - feito.principalCentavos)})` : ""} — enviado aos pré-lançamentos.</p>;
+              if (!f) return <button key={chave} type="button" className={`${botao} mt-1 mr-2 border border-[#CBD5E1] bg-white`} disabled={ocupado} onClick={() => setPag({ ...pag, [chave]: { data: "", valor: (x.valorCentavos / 100).toFixed(2).replace(".", ",") } })}>DARF {x.tributo.toUpperCase()}: já foi pago (registrar)</button>;
+              return (
+                <div key={chave} className="mt-1 flex flex-wrap items-end gap-2 rounded-md border border-[#E5E6EB] bg-white p-2" data-campo="lr-pagamento">
+                  <label className="text-[11px] font-semibold">Data do pagamento<input type="date" className={`${entrada} block`} value={f.data} onChange={(e) => setPag({ ...pag, [chave]: { ...f, data: e.target.value } })} /></label>
+                  <label className="text-[11px] font-semibold">Valor pago (R$, com multa e juros se houver)<input inputMode="decimal" className={`${entrada} block`} value={f.valor} onChange={(e) => setPag({ ...pag, [chave]: { ...f, valor: e.target.value } })} /></label>
+                  <button type="button" className={`${botao} bg-emerald-700 text-white`} disabled={ocupado || !f.data} onClick={() => void fazer(async () => { const r = await chamar("POST", `${base}/pagamento`, { ano, periodo: p.periodo, tributo: x.tributo, dataPagamento: f.data, valorPago: f.valor }); if (r.ok) { const n = { ...pag }; delete n[chave]; setPag(n); } return r; }, "Pagamento registrado: foi para os pré-lançamentos (baixa do imposto a recolher contra o banco).")}>Confirmar pagamento</button>
+                  <button type="button" className={`${botao} border border-[#CBD5E1] bg-white`} onClick={() => { const n = { ...pag }; delete n[chave]; setPag(n); }}>Cancelar</button>
+                </div>);
+            })}
             <div className="mt-2 flex gap-2">
               {p.status === "calculado" && <button type="button" className={`${botao} bg-emerald-700 text-white`} disabled={ocupado} onClick={() => void fazer(() => chamar("POST", `${base}/confirmar`, { ano, periodo: p.periodo }), "Confirmado: a provisão foi para os pré-lançamentos (aprovar em Revisão).")}>Confirmar</button>}
               {p.status === "confirmado" && <button type="button" className={`${botao} border border-[#CBD5E1] bg-white`} disabled={ocupado} onClick={() => void fazer(() => chamar("POST", `${base}/reabrir`, { ano, periodo: p.periodo }), "Período reaberto.")}>Reabrir (administrador)</button>}

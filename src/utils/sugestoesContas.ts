@@ -98,6 +98,8 @@ export const SUGESTOES_CONTAS_POR_ORIGEM: Record<OrigemMapeadaContabil, RegraOri
   fiscal_darf_encargos: [],
   contabil_irpj_real: [],
   contabil_csll_real: [],
+  contabil_irpj_real_pago: [],
+  contabil_csll_real_pago: [],
 };
 
 /** Mantido por compatibilidade: primeira regra de cada origem (plano simples/Ferragista). */

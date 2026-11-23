@@ -244,6 +244,8 @@ export function prepararLucroReal(consultar: Consultar): Promise<void> {
     await consultar(`CREATE INDEX IF NOT EXISTS contabil_lalur_lancamentos_cnpj ON contabil_lalur_lancamentos (cnpj, ano)`);
     await consultar(`CREATE TABLE IF NOT EXISTS contabil_lucro_real_apuracoes (id text PRIMARY KEY, cnpj text NOT NULL, ano int NOT NULL, periodo text NOT NULL, status text NOT NULL, irpj_centavos bigint NOT NULL DEFAULT 0, csll_centavos bigint NOT NULL DEFAULT 0, resultado jsonb, revisar jsonb, calculado_em timestamptz NOT NULL DEFAULT now(), confirmado_por text, confirmado_em timestamptz)`);
     await consultar(`CREATE INDEX IF NOT EXISTS contabil_lucro_real_apuracoes_cnpj ON contabil_lucro_real_apuracoes (cnpj, ano)`);
+    await consultar(`CREATE TABLE IF NOT EXISTS contabil_lucro_real_pagamentos (id text PRIMARY KEY, cnpj text NOT NULL, ano int NOT NULL, periodo text NOT NULL, tributo text NOT NULL, data_pagamento text NOT NULL, valor_pago_centavos bigint NOT NULL, principal_centavos bigint NOT NULL, registrado_por text NOT NULL, registrado_em timestamptz NOT NULL DEFAULT now())`);
+    await consultar(`CREATE INDEX IF NOT EXISTS contabil_lucro_real_pagamentos_cnpj ON contabil_lucro_real_pagamentos (cnpj, ano)`);
   })().catch((e) => { pronta = null; throw e; });
   return pronta;
 }
@@ -368,6 +370,7 @@ export async function confirmarApuracaoReal(consultar: Consultar, cnpj: string, 
 /** Reabre um período. Não reabre se um período SEGUINTE do mesmo ano (ou o ano seguinte) já foi confirmado — ele usou os saldos deste. */
 export async function reabrirApuracaoReal(consultar: Consultar, cnpj: string, ano: number, periodo: string): Promise<{ ok: true } | { ok: false; motivo: string }> {
   await prepararLucroReal(consultar);
+  if ((await listarPagamentosReal(consultar, cnpj, ano)).some((p) => p.periodo === periodo)) return { ok: false, motivo: "Este período já tem pagamento de DARF registrado: o valor pago foi para a contabilidade. Para mudar a apuração, fale com o administrador do sistema." };
   const lista = await listarApuracoesReal(consultar, cnpj, ano);
   if (lista.some((a) => a.status === "confirmado" && a.periodo !== periodo && (a.periodo > periodo || a.periodo === "ANUAL"))) return { ok: false, motivo: "Um período seguinte já está confirmado e usou os saldos deste: reabra ele primeiro." };
   if ((await listarApuracoesReal(consultar, cnpj, ano + 1)).some((a) => a.status === "confirmado")) return { ok: false, motivo: `O ano ${ano + 1} já tem período confirmado que usou o saldo final deste ano.` };
@@ -386,6 +389,43 @@ export function itensProvisaoReal(l: LinhaApuracaoReal): Array<{ referencia: str
   const competencia = `${l.ano}-${dois(ultimo)}`; const versaoOrigem = l.confirmadoEm || new Date().toISOString();
   const ir = l.irpjCentavos + (Number(r.retencaoIrpjCentavos) || 0); const cs = l.csllCentavos + (Number(r.retencaoCsllCentavos) || 0);
   return ([["IRPJ_REAL", ir], ["CSLL_REAL", cs]] as const).filter(([, v]) => v > 0).map(([tributo, v]) => ({ referencia: `LR:${tributo}:${l.ano}-${l.periodo}`, tributo, competencia, valorCentavos: v, baseCentavos: null, situacao: "confirmado", versaoOrigem }));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Pagamento do DARF do Lucro Real (o DARF nasce aqui no Contábil): registra a data e o valor pago e manda ao mesmo caminho das
+// apurações, como os DARF do Fiscal. O principal baixa o IRPJ/CSLL a recolher contra o banco; multa e juros vão à parte.
+// ---------------------------------------------------------------------------------------------
+export interface PagamentoReal { ano: number; periodo: string; tributo: "irpj" | "csll"; dataPagamento: string; valorPagoCentavos: number; principalCentavos: number; registradoPor: string; registradoEm: string }
+export async function listarPagamentosReal(consultar: Consultar, cnpj: string, ano: number): Promise<PagamentoReal[]> {
+  await prepararLucroReal(consultar);
+  return (await consultar(`SELECT * FROM contabil_lucro_real_pagamentos WHERE cnpj=$1 AND ano=$2 ORDER BY periodo, tributo`, [cnpj, ano])).rows.map((r: any) => ({ ano: Number(r.ano), periodo: r.periodo, tributo: r.tributo, dataPagamento: r.data_pagamento, valorPagoCentavos: Number(r.valor_pago_centavos), principalCentavos: Number(r.principal_centavos), registradoPor: r.registrado_por, registradoEm: String(r.registrado_em) }));
+}
+export type ItemApuracaoContabil = ReturnType<typeof itensProvisaoReal>[number];
+/** Valida e monta o pagamento. Só período confirmado com DARF a pagar; data não futura; valor pago não menor que o principal. */
+export function montarPagamentoReal(l: LinhaApuracaoReal | undefined, tributo: string, dataPagamento: string, valorPagoCentavos: number | null, hoje: string): { erro: string } | { principal: number; item: ItemApuracaoContabil } {
+  if (!l) return { erro: "Período não encontrado." };
+  if (l.status !== "confirmado") return { erro: "Confirme a apuração do período antes de registrar o pagamento." };
+  if (tributo !== "irpj" && tributo !== "csll") return { erro: "Tributo inválido (irpj ou csll)." };
+  const d = (l.resultado?.darfs || []).find((x: any) => x.tributo === tributo);
+  if (!d || !(Number(d.valorCentavos) > 0)) return { erro: "Este período não tem DARF a pagar para este tributo." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dataPagamento) || new Date(`${dataPagamento}T00:00:00Z`).toISOString().slice(0, 10) !== dataPagamento) return { erro: "Informe a data do pagamento (AAAA-MM-DD)." };
+  if (dataPagamento > hoje) return { erro: "A data do pagamento não pode ser no futuro." };
+  const principal = Number(d.valorCentavos);
+  if (valorPagoCentavos === null || !Number.isSafeInteger(valorPagoCentavos) || valorPagoCentavos < principal) return { erro: `O valor pago não pode ser menor que o valor do DARF (${(principal / 100).toFixed(2).replace(".", ",")}). Se pagou com multa e juros, informe o total pago.` };
+  const trib = tributo === "irpj" ? "IRPJ_REAL_PAGO" : "CSLL_REAL_PAGO";
+  return { principal, item: { referencia: `LR:${trib}:${l.ano}-${l.periodo}`, tributo: trib, competencia: dataPagamento.slice(0, 7), valorCentavos: valorPagoCentavos, baseCentavos: principal, situacao: "confirmado", versaoOrigem: `pago:${dataPagamento}:${valorPagoCentavos}` } };
+}
+export async function registrarPagamentoReal(consultar: Consultar, cnpj: string, ano: number, periodo: string, tributo: string, dataPagamento: string, valorPagoCentavos: number | null, por: string, hoje: string, enviar: (cnpj: string, itens: ItemApuracaoContabil[]) => Promise<unknown>): Promise<{ erro: string } | { pagamento: PagamentoReal }> {
+  await prepararLucroReal(consultar);
+  const l = (await listarApuracoesReal(consultar, cnpj, ano)).find((p) => p.periodo === periodo);
+  const m = montarPagamentoReal(l, tributo, dataPagamento, valorPagoCentavos, hoje);
+  if ("erro" in m) return m;
+  const id = `${cnpj}:${ano}:${periodo}:${tributo}`;
+  const ja = await consultar(`SELECT id FROM contabil_lucro_real_pagamentos WHERE id=$1`, [id]);
+  if (ja.rows.length) return { erro: "O pagamento deste DARF já foi registrado." };
+  await enviar(cnpj, [m.item]); // primeiro a contabilidade: se falhar, nada fica registrado pela metade
+  await consultar(`INSERT INTO contabil_lucro_real_pagamentos (id, cnpj, ano, periodo, tributo, data_pagamento, valor_pago_centavos, principal_centavos, registrado_por) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [id, cnpj, ano, periodo, tributo, dataPagamento, valorPagoCentavos, m.principal, por]);
+  return { pagamento: { ano, periodo, tributo: tributo as "irpj" | "csll", dataPagamento, valorPagoCentavos: valorPagoCentavos!, principalCentavos: m.principal, registradoPor: por, registradoEm: new Date().toISOString() } };
 }
 
 /** Saldos da Parte B (prejuízo fiscal e base negativa) período a período, para a tela e para a Agente. */

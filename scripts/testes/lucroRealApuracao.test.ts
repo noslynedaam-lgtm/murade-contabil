@@ -37,6 +37,7 @@ function bancoFalso() {
     if (/^CREATE/.test(q)) return { rows: [], rowCount: 0 };
     if (q.startsWith("SELECT dados FROM contabil_lucro_real_config")) { const c = config.get(p[0]); return { rows: c ? [{ dados: c }] : [], rowCount: c ? 1 : 0 }; }
     if (q.startsWith("INSERT INTO contabil_lucro_real_config")) { config.set(p[0], JSON.parse(p[1])); return { rows: [], rowCount: 1 }; }
+    if (q.startsWith("SELECT * FROM contabil_lucro_real_pagamentos")) return { rows: [], rowCount: 0 };
     if (q.startsWith("SELECT * FROM contabil_lalur_lancamentos WHERE cnpj=$1 AND ano=$2")) { const rows = [...lanc.values()].filter((l) => l.cnpj === p[0] && l.ano === p[1]); return { rows, rowCount: rows.length }; }
     if (q.startsWith("SELECT * FROM contabil_lalur_lancamentos WHERE id=$1")) { const l = lanc.get(p[0]); return { rows: l && l.cnpj === p[1] ? [l] : [], rowCount: l ? 1 : 0 }; }
     if (q.startsWith("INSERT INTO contabil_lalur_lancamentos")) { const [id, cnpj, ano, mes, tributo, tipo, codigo, descricao, valor_centavos, justificativa, criado_por] = p; lanc.set(id, { id, cnpj, ano, mes, tributo, tipo, codigo, descricao, valor_centavos, justificativa, criado_por }); return { rows: [], rowCount: 1 }; }
@@ -155,4 +156,31 @@ test("rotas: todas passam pelo controle de acesso por escritório; reabrir é do
   for (const n of ["consultar_lucro_real", "apurar_lucro_real", "lancar_lalur", "confirmar_lucro_real"]) assert.equal(ag.split(`name: '${n}'`).length, 2, n);
   assert.match(fs.readFileSync("src/server/agenteContabil.ts", "utf8"), /\.\.\.FERRAMENTAS_LUCRO_REAL/);
   assert.ok(!/serpro/i.test(ag));
+});
+
+test("pagamento do DARF do Lucro Real: só período confirmado, data não futura, valor ≥ DARF; vai para a contabilidade e não repete", async () => {
+  const { montarPagamentoReal, registrarPagamentoReal } = await import("../../src/server/lucroRealApuracao");
+  const linha: any = { id: "x", cnpj: "C", ano: 2026, periodo: "T04", status: "confirmado", irpjCentavos: 19600_00, csllCentavos: 12780_00, resultado: { meses: [10, 11, 12], darfs: [{ tributo: "irpj", valorCentavos: 19600_00 }, { tributo: "csll", valorCentavos: 12780_00 }] }, revisar: [], calculadoEm: "", confirmadoPor: "a", confirmadoEm: "" };
+  assert.match((montarPagamentoReal({ ...linha, status: "calculado" }, "irpj", "2027-01-29", 19600_00, "2027-02-01") as any).erro, /Confirme/);
+  assert.match((montarPagamentoReal(linha, "irpj", "2027-03-01", 19600_00, "2027-02-01") as any).erro, /futuro/);
+  assert.match((montarPagamentoReal(linha, "irpj", "2027-01-29", 19000_00, "2027-02-01") as any).erro, /menor que o valor do DARF/);
+  const ok = montarPagamentoReal(linha, "irpj", "2027-01-29", 19796_00, "2027-02-01") as any;
+  assert.deepEqual(ok.item, { referencia: "LR:IRPJ_REAL_PAGO:2026-T04", tributo: "IRPJ_REAL_PAGO", competencia: "2027-01", valorCentavos: 19796_00, baseCentavos: 19600_00, situacao: "confirmado", versaoOrigem: "pago:2027-01-29:1979600" });
+  // banco falso: a apuração confirmada e a tabela de pagamentos
+  const pagos: any[] = []; const enviados: any[] = [];
+  const consultar = async (sql: string, p: any[] = []) => {
+    if (sql.startsWith("CREATE")) return { rows: [] };
+    if (sql.startsWith("SELECT * FROM contabil_lucro_real_apuracoes")) return { rows: [{ id: "C:2026:T04", cnpj: "C", ano: 2026, periodo: "T04", status: "confirmado", irpj_centavos: linha.irpjCentavos, csll_centavos: linha.csllCentavos, resultado: linha.resultado, revisar: [], calculado_em: "", confirmado_por: "a", confirmado_em: "" }] };
+    if (sql.startsWith("SELECT id FROM contabil_lucro_real_pagamentos")) return { rows: pagos.filter((x) => x[0] === p[0]) };
+    if (sql.startsWith("SELECT * FROM contabil_lucro_real_pagamentos")) return { rows: [] };
+    if (sql.startsWith("INSERT INTO contabil_lucro_real_pagamentos")) { pagos.push(p); return { rows: [] }; }
+    throw new Error(sql);
+  };
+  const r1 = await registrarPagamentoReal(consultar as any, "C", 2026, "T04", "csll", "2027-01-29", 12780_00, "ana", "2027-02-01", async (_c, itens) => { enviados.push(...itens); });
+  assert.ok("pagamento" in r1); assert.equal(enviados[0].tributo, "CSLL_REAL_PAGO"); assert.equal(pagos.length, 1);
+  const r2 = await registrarPagamentoReal(consultar as any, "C", 2026, "T04", "csll", "2027-01-29", 12780_00, "ana", "2027-02-01", async () => undefined);
+  assert.match((r2 as any).erro, /já foi registrado/);
+  // se a contabilidade falhar, nada fica registrado
+  await assert.rejects(registrarPagamentoReal(consultar as any, "C", 2026, "T04", "irpj", "2027-01-29", 19600_00, "ana", "2027-02-01", async () => { throw new Error("fora"); }));
+  assert.equal(pagos.length, 1);
 });

@@ -15,6 +15,8 @@ const TRIBUTOS_ACEITOS = new Set([
   "PIS_NAO_CUMULATIVO", "COFINS_NAO_CUMULATIVA", "PIS_NC_CREDITO", "COFINS_NC_CREDITO",
   // Lucro Real — IRPJ/CSLL apurados no próprio Contábil (lucroRealApuracao.ts) e confirmados pela contadora: provisão do período.
   "IRPJ_REAL", "CSLL_REAL",
+  // Pagamento do DARF do Lucro Real (nasce no próprio Contábil, Livros → Apuração do Lucro Real): mesmo tratamento dos DARF do Fiscal.
+  "IRPJ_REAL_PAGO", "CSLL_REAL_PAGO",
   // Pagamento dos DARF (registrado no Fiscal), como o DAS_SIMPLES_PAGO: principal baixa o "a recolher"; multa e juros à parte.
   "IRPJ_PRESUMIDO_PAGO", "CSLL_PRESUMIDO_PAGO", "PIS_PRESUMIDO_PAGO", "COFINS_PRESUMIDO_PAGO", "PIS_NC_PAGO", "COFINS_NC_PAGO",
 ]);

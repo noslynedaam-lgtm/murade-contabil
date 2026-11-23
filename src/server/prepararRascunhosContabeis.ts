@@ -125,6 +125,8 @@ const HISTORICO_POR_TRIBUTO: Record<string, string> = {
   COFINS_PRESUMIDO_PAGO: "COFINS do Lucro Presumido — pagamento do DARF registrado no Fiscal",
   PIS_NC_PAGO: "PIS não cumulativo — pagamento do DARF 6912 registrado no Fiscal",
   COFINS_NC_PAGO: "COFINS não cumulativa — pagamento do DARF 5856 registrado no Fiscal",
+  IRPJ_REAL_PAGO: "IRPJ do Lucro Real — pagamento do DARF registrado na Apuração do Lucro Real",
+  CSLL_REAL_PAGO: "CSLL do Lucro Real — pagamento do DARF registrado na Apuração do Lucro Real",
 
 };
 
