@@ -155,7 +155,9 @@ test("rotas: todas passam pelo controle de acesso por escritório; reabrir é do
   const ag = fs.readFileSync("src/server/agenteLucroReal.ts", "utf8");
   for (const n of ["consultar_lucro_real", "apurar_lucro_real", "lancar_lalur", "confirmar_lucro_real"]) assert.equal(ag.split(`name: '${n}'`).length, 2, n);
   assert.match(fs.readFileSync("src/server/agenteContabil.ts", "utf8"), /\.\.\.FERRAMENTAS_LUCRO_REAL/);
-  assert.ok(!/serpro/i.test(ag));
+  // Serpro (consulta paga) só na ferramenta gerar_darf_serpro_lucro_real, que é ação com cartão (ver darfSerproLucroReal.test.ts).
+  const semAFerramenta = ag.replace(/\{\s*\/\/ CONSOME CRÉDITO[\s\S]*?name: 'gerar_darf_serpro_lucro_real'[\s\S]*?\n  \},\n/, '');
+  assert.ok(!/serpro/i.test(semAFerramenta.replace(/export const INSTRUCAO_LUCRO_REAL = `[\s\S]*?`;/, '')));
 });
 
 test("pagamento do DARF do Lucro Real: só período confirmado, data não futura, valor ≥ DARF; vai para a contabilidade e não repete", async () => {

@@ -1,6 +1,7 @@
 import { CentralLucroRealPainel } from "./CentralLucroRealPainel";
 import React, { useCallback, useEffect, useState } from "react";
 import { useExclusaoDuasEtapas } from "./ConfirmaExclusaoDuasEtapas";
+import { DarfSerproLucroReal } from "./DarfSerproLucroReal";
 
 // Livros → "Apuração do Lucro Real (IRPJ e CSLL)": o robô calcula sozinho pela contabilidade; aqui a contadora configura, lança as
 // adições/exclusões (e-Lalur/e-Lacs Parte A), vê os saldos de prejuízo (Parte B), apura na hora, confirma, abre o DARF e calcula o JCP.
@@ -34,6 +35,10 @@ export const ApuracaoLucroRealPainel: React.FC<{ cnpj: string; ano: number; empr
   const { pedir, dialogo } = useExclusaoDuasEtapas();
   const carregar = useCallback(async () => { const r = await chamar("GET", `${base}?ano=${ano}`); if (r.ok) { setD(r.dados); const c = r.dados.config || r.dados.padrao; setCfg({ ...c, obrigada: c.obrigada === null ? "" : String(c.obrigada), saldoPrejuizoInicial: ((c.saldoPrejuizoInicialCentavos || 0) / 100).toFixed(2).replace(".", ","), saldoBaseNegativaInicial: ((c.saldoBaseNegativaInicialCentavos || 0) / 100).toFixed(2).replace(".", ",") }); } else setMsg({ erro: true, texto: r.dados?.motivo || "Não foi possível carregar." }); }, [base, ano]);
   useEffect(() => { void carregar(); }, [carregar]);
+  // DARF já gerados pelo Serpro (código de barras e PDF guardados). Só lê; gerar é por clique, com o cartão das 2 consultas pagas.
+  const [serpro, setSerpro] = useState<P[]>([]);
+  const carregarSerpro = useCallback(async () => { const r = await chamar("GET", `${base}/darf-serpro?ano=${ano}`); if (r.ok) setSerpro(r.dados.darfs || []); }, [base, ano]);
+  useEffect(() => { void carregarSerpro(); }, [carregarSerpro]);
   if (empresaRegime && !/real/i.test(empresaRegime)) return null;
   const fazer = async (f: () => Promise<{ ok: boolean; dados: any }>, ok: string) => { setOcupado(true); setMsg(null); const r = await f(); setOcupado(false); setMsg({ erro: !r.ok, texto: r.ok ? ok : r.dados?.motivo || "Não foi possível concluir." }); if (r.ok) await carregar(); return r; };
   const apurar = async () => {
@@ -88,7 +93,8 @@ export const ApuracaoLucroRealPainel: React.FC<{ cnpj: string; ano: number; empr
             {p.status === "confirmado" && (p.resultado?.darfs || []).filter((x: P) => x.valorCentavos > 0).map((x: P) => {
               const chave = `${p.periodo}:${x.tributo}`; const feito = (d?.pagamentos || []).find((g: P) => g.periodo === p.periodo && g.tributo === x.tributo); const f = pag[chave];
               if (feito) return <p key={chave} className="mt-1 text-[11px] font-semibold text-emerald-800">DARF {x.tributo.toUpperCase()} pago em {dataBR(feito.dataPagamento)}: {reais(feito.valorPagoCentavos)}{feito.valorPagoCentavos > feito.principalCentavos ? ` (principal ${reais(feito.principalCentavos)} + multa e juros ${reais(feito.valorPagoCentavos - feito.principalCentavos)})` : ""} — enviado aos pré-lançamentos.</p>;
-              if (!f) return <button key={chave} type="button" className={`${botao} mt-1 mr-2 border border-[#CBD5E1] bg-white`} disabled={ocupado} onClick={() => setPag({ ...pag, [chave]: { data: "", valor: (x.valorCentavos / 100).toFixed(2).replace(".", ",") } })}>DARF {x.tributo.toUpperCase()}: já foi pago (registrar)</button>;
+              const gerado = serpro.find((g: P) => g.periodo === p.periodo && g.tributo === x.tributo) || null;
+              if (!f) return <div key={chave}>{x.valorCentavos >= 1000 && <DarfSerproLucroReal base={base} ano={ano} periodo={p.periodo} darf={x} gerado={gerado} desabilitado={ocupado} aoGerar={async () => { await carregarSerpro(); setMsg({ erro: false, texto: `DARF ${x.tributo.toUpperCase()} gerado pelo Serpro: copie o código de barras ou baixe o PDF.` }); }} />}<button type="button" className={`${botao} mt-1 mr-2 border border-[#CBD5E1] bg-white`} disabled={ocupado} onClick={() => setPag({ ...pag, [chave]: { data: "", valor: (x.valorCentavos / 100).toFixed(2).replace(".", ",") } })}>DARF {x.tributo.toUpperCase()}: já foi pago (registrar)</button></div>;
               return (
                 <div key={chave} className="mt-1 flex flex-wrap items-end gap-2 rounded-md border border-[#E5E6EB] bg-white p-2" data-campo="lr-pagamento">
                   <label className="text-[11px] font-semibold">Data do pagamento<input type="date" className={`${entrada} block`} value={f.data} onChange={(e) => setPag({ ...pag, [chave]: { ...f, data: e.target.value } })} /></label>
@@ -161,7 +167,7 @@ export const ApuracaoLucroRealPainel: React.FC<{ cnpj: string; ano: number; empr
           <button type="button" className={`${botao} border border-[#CBD5E1] bg-white`} disabled={ocupado} onClick={() => void fazer(async () => { const r = await chamar("POST", `${base}/jcp`, jcp); if (r.ok) setResJcp(r.dados.jcp); return r; }, "JCP calculado.")}>Calcular</button>
         </div>
         {resJcp && <ul className="mt-2 list-disc pl-4 text-xs"><li>Máximo pela TJLP: {reais(resJcp.maximoTjlpCentavos)}; limite pelos lucros (metade): {reais(resJcp.limiteLucrosCentavos)}</li><li><b>JCP dedutível: {reais(resJcp.jcpDedutivelCentavos)}</b> · IRRF {resJcp.aliquotaIrrfPercentual}%: <b>{reais(resJcp.irrfCentavos)}</b> (DARF {resJcp.codigoDarf}, vence {dataBR(resJcp.vencimentoIrrf)}) · líquido ao sócio {reais(resJcp.liquidoCentavos)}</li>{(resJcp.avisos || []).map((x: string) => <li key={x} className="text-amber-900">{x}</li>)}</ul>}
-        <p className="mt-1 text-[10px] text-[#86909C]">Lei 9.249/1995, art. 9º; IRRF de 17,5% desde 2026 (LC 224/2025, art. 8º); DARF 5706, 3º dia útil depois do decêndio do pagamento (Agenda Tributária). Se o JCP foi lançado contra lucros acumulados (e não como despesa), lance a exclusão na Parte A.</p>
+        <p className="mt-1 text-[10px] text-[#86909C]">Lei 9.249/1995, art. 9º; IRRF de 17,5% desde 2026 (LC 224/2025, art. 8º); DARF 5706, 3º dia útil depois do decêndio do pagamento (Agenda Tributária); emita pelo Sicalc Web (o 5706 não tem extensão vigente confirmada na tabela oficial, então não sai pelo Serpro). Se o JCP foi lançado contra lucros acumulados (e não como despesa), lance a exclusão na Parte A.</p>
       </details>
     </section>
   );

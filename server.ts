@@ -19,7 +19,10 @@ import dotenv from "dotenv";
 import { timingSafeEqual } from "node:crypto";
 import { ErroValidacaoDocumentoFiscal, fiscalStoreConfigurado, gravarDocumentosFiscais, lerDocumentosFiscais, lerVersoesDocumentoFiscal, verificarEstadoStoreFiscal } from "./src/server/documentosFiscaisStore";
 import { registrarRotasLucroReal } from "./src/server/lucroRealRotas";
-import { rodarRoboLucroReal } from "./src/server/lucroRealApuracao";
+import { rodarRoboLucroReal, listarApuracoesReal, listarPagamentosReal } from "./src/server/lucroRealApuracao";
+import { registrarRotasDarfSerproLucroReal, pedirDarfAoFiscal, conferirDarfsSerpro } from "./src/server/darfSerproLucroReal";
+import { acessoEmpresa } from "./src/server/escrituracaoRotas";
+import { periodoBloqueado } from "./src/server/centralLucroReal";
 import { ErroValidacaoApuracaoFiscal, apuracoesStoreConfigurado, gravarApuracoesFiscais, lerApuracoesFiscais, verificarEstadoStoreApuracoes } from "./src/server/apuracoesFiscaisStore";
 import { dpStoreConfigurado, ErroConflitoResumoDP, ErroValidacaoResumoDP, gravarResumoDP, lerResumosDP, verificarEstadoStoreDP } from "./src/server/dadosDpStore";
 import { gravarResumoProLaboreDP } from "./src/server/dadosProLaboreStore";
@@ -1393,6 +1396,18 @@ const reconciliacaoRascunhosStatus: {
     enviarProvisao: (cnpj: string, itens: any[]) => gravarApuracoesFiscais(cnpj, itens),
   };
   registrarRotasLucroReal(app, { exigirSessao: exigirSessaoContabil, exigirOrigem: exigirOrigemNavegador }, depsLucroReal);
+  // DARF do Lucro Real com código de barras e PDF pelo Serpro: CONSOME CRÉDITO, só por clique depois do cartão. O pedido vai ao Murad
+  // Fiscal (credencial e procuração ficam lá; o Fiscal só gera para o escritório dono da empresa). Ver src/server/darfSerproLucroReal.ts.
+  registrarRotasDarfSerproLucroReal(app, { exigirSessao: exigirSessaoContabil, exigirOrigem: exigirOrigemNavegador }, acessoEmpresa, {
+    consultar: depsLucroReal.consultar,
+    periodo: async (cnpj, ano, periodo) => ({
+      linha: (await listarApuracoesReal(depsLucroReal.consultar, cnpj, ano)).find((x) => x.periodo === periodo),
+      tributosPagos: (await listarPagamentosReal(depsLucroReal.consultar, cnpj, ano)).filter((x) => x.periodo === periodo).map((x) => String(x.tributo)),
+    }),
+    bloqueio: (cnpj, ano, periodo) => periodoBloqueado(depsLucroReal.consultar, cnpj, ano, periodo),
+    escritorioCnpj: async (tenantId) => { try { return String((await consultaBancoContabil("SELECT cnpj FROM contabil_escritorio_cnpj WHERE tenant_id=$1", [tenantId])).rows[0]?.cnpj || "") || null; } catch { return null; } },
+    pedir: pedirDarfAoFiscal(),
+  });
   // Arquivo morto das empresas excluídas (documentos com guarda legal, cifrados por escritório; só o admin recupera).
   registrarRotasArquivoMorto(app, {
     banco: bancoTransacionalContabil(), exigirSessao: exigirSessaoContabil, exigirOrigem: exigirOrigemNavegador, hoje: () => new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10),
@@ -1505,6 +1520,16 @@ const reconciliacaoRascunhosStatus: {
     registrarResultadoRobo("lucro_real", r.resumo);
   }).catch((e) => console.error("Falha no Robô do Lucro Real:", e?.message || e));
   registrarRotinaManual("lucro_real", rodarRoboLucroRealAgora);
+  registrarRobo({ id: "conferidor_darf_serpro_lr", nome: "Robô Conferidor do DARF pelo Serpro (Lucro Real)", posto: "conferidor", missao: "De 2 em 2 horas confere se cada DARF do IRPJ/CSLL já gerado pelo Serpro ainda bate com a apuração confirmada (período reaberto ou valor mudado deixam o código de barras velho) e se algum vencido continua sem o pagamento registrado. Só lê e avisa: nunca gera DARF nem consulta o Serpro, que é só por clique.", intervaloMs: 2 * 60 * 60_000 });
+  const rodarConferidorDarfSerpro = () => void executarRobo("conferidor_darf_serpro_lr", async () => {
+    if (!bancoContabilConfigurado()) return;
+    const r = await conferirDarfsSerpro((sql, params) => consultaBancoContabil(sql, params));
+    registrarResultadoRobo("conferidor_darf_serpro_lr", r.resumo);
+    if (r.alerta) console.warn(`Robô Conferidor do DARF pelo Serpro: ${r.resumo}`);
+  }).catch((e) => console.error("Falha no Robô Conferidor do DARF pelo Serpro:", e?.message || e));
+  registrarRotinaManual("conferidor_darf_serpro_lr", rodarConferidorDarfSerpro);
+  setTimeout(rodarConferidorDarfSerpro, 19 * 60_000).unref();
+  setInterval(rodarConferidorDarfSerpro, 2 * 60 * 60_000).unref();
   setTimeout(rodarRoboLucroRealAgora, 150_000).unref();
   setInterval(rodarRoboLucroRealAgora, 6 * 60 * 60_000).unref();
   // CNPJ do escritório e liberação do adicional "Consultor Murade completo" (Consultor + serviço completo), por escritório.
