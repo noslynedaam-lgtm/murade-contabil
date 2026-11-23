@@ -22,6 +22,7 @@
 // e na Agente IA).
 import { calcularAcrescimosFederais, lerSerieSelicBcb, FONTE_ACRESCIMOS_FEDERAIS, type TabelaSelic } from "../utils/acrescimosFederais";
 import { ehDiaUtil, diaUtilDepois, ultimoDiaUtilDoMes } from "../utils/prazosFederaisContabil";
+import { vigenteNaCompetencia } from "../utils/vigenciaObrigacoes";
 import { lerConfigLucroReal, listarApuracoesReal, listarPagamentosReal, mesesDaContabilidade, prepararLucroReal, type Consultar, type LinhaApuracaoReal, type ConfigLucroReal } from "./lucroRealApuracao";
 
 const dois = (n: number) => String(n).padStart(2, "0");
@@ -104,7 +105,8 @@ export function montarObrigacoes(ano: number, e: EntradaObrigacoes): Obrigacao[]
   // PIS/COFINS não cumulativos (Fiscal), DCTFWeb e EFD-Contribuições — mês a mês
   for (let m = 1; m <= ultimoMesTerminado; m += 1) {
     const c = `${ano}-${dois(m)}`;
-    for (const [tipo, deb, pag, nome] of [["pis_nc", "PIS_NAO_CUMULATIVO", "PIS_NC_PAGO", "PIS"], ["cofins_nc", "COFINS_NAO_CUMULATIVA", "COFINS_NC_PAGO", "COFINS"]] as const) {
+    // Vigência (src/utils/vigenciaObrigacoes.ts): PIS e Cofins acabam depois de dez/2026 (EC 132/2023, art. 126, II) — sem cobrança de período novo.
+    if (vigenteNaCompetencia("pis_cofins", c)) for (const [tipo, deb, pag, nome] of [["pis_nc", "PIS_NAO_CUMULATIVO", "PIS_NC_PAGO", "PIS"], ["cofins_nc", "COFINS_NAO_CUMULATIVA", "COFINS_NC_PAGO", "COFINS"]] as const) {
       const id = `${tipo}:${c}`;
       const debito = e.pisCofinsFiscal.find((x) => x.tributo === deb && x.competencia === c);
       const pago = e.pisCofinsFiscal.some((x) => x.tributo === pag && x.competencia === c);

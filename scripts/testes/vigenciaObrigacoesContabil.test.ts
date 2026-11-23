@@ -5,7 +5,8 @@ import assert from "node:assert/strict";
 import { ASSINATURA_VIGENCIA, avisosVigencia } from "../../src/utils/vigenciaObrigacoes";
 import { tributoVigenteNaCompetencia } from "../../src/server/prepararRascunhosContabeis";
 import { conferirVigencia, rodarRoboVigencia } from "../../src/server/vigenciaObrigacoesServidor";
-import { conferenciasVigenciaContabil } from "../../src/server/vigenciaConferenciasContabil";
+import { conferenciasVigenciaContabil, conferirCentralLucroRealVigencia } from "../../src/server/vigenciaConferenciasContabil";
+import { montarObrigacoes } from "../../src/server/centralLucroReal";
 import { kitContabil } from "../../src/server/agenteContabil";
 
 // A mesma linha está nos testes do Fiscal e do DP.
@@ -42,4 +43,14 @@ test("robô sem repetir aviso; conferidor sem problema e acusa apuração recebi
   const ruim = await conferirVigencia(conferenciasVigenciaContabil(consultar), "2027-02-01");
   assert.equal(ruim.problemas.length, 1); assert.match(ruim.resumo, /PIS_PRESUMIDO de 2027-01/);
   assert.equal(kitContabil.ferramentas.find((f: any) => f.declaracao.name === "consultar_vigencia_obrigacoes")?.tipo, "acao");
+});
+
+test("Central do Lucro Real: PIS/Cofins não cumulativo de dez/2026 é cobrado; de 2027 não (nem a EFD-Contribuições)", () => {
+  assert.deepEqual(conferirCentralLucroRealVigencia(), []);
+  const base = { config: null, apuracoes: [], pagamentos: [], pisCofinsFiscal: [], entregasSped: {}, baixas: new Set<string>(), bloqueios: new Map<string, string>() };
+  const de2026 = montarObrigacoes(2026, { ...base, hoje: "2027-01-15", competenciasComSaida: new Set(["2026-12"]) });
+  assert.deepEqual(de2026.filter((o) => o.tipo === "pis_nc" || o.tipo === "cofins_nc").map((o) => o.periodo), ["2026-12", "2026-12"]);
+  const de2027 = montarObrigacoes(2027, { ...base, hoje: "2027-06-15", competenciasComSaida: new Set(["2027-01", "2027-02"]) });
+  assert.equal(de2027.some((o) => o.tipo === "pis_nc" || o.tipo === "cofins_nc" || o.tipo === "efd_contribuicoes"), false);
+  assert.ok(de2027.some((o) => o.tipo === "dctfweb" && o.periodo === "2027-01"));
 });

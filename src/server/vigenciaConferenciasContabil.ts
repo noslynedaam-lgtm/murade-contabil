@@ -1,7 +1,8 @@
 // Conferências do Robô Conferidor de Vigência no Contábil: alguma provisão nova ainda nasce de obrigação encerrada?
 // Só lê. Os fins vêm da lista única (src/utils/vigenciaObrigacoes.ts).
 import { tributoVigenteNaCompetencia, vigenciaDoTributoContabil } from "./prepararRascunhosContabeis";
-import { itemVigencia } from "../utils/vigenciaObrigacoes";
+import { itemVigencia, vigenteNaCompetencia } from "../utils/vigenciaObrigacoes";
+import { montarObrigacoes } from "./centralLucroReal";
 import type { Consultar, ConferenciaVigencia, ProblemaVigencia } from "./vigenciaObrigacoesServidor";
 
 const somaMes = (comp: string, n: number) => { const [a, m] = comp.split("-").map(Number); const t = a * 12 + (m - 1) + n; return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, "0")}`; };
@@ -19,8 +20,18 @@ export function conferirGeradorProvisoesVigencia(): ProblemaVigencia[] {
   return out;
 }
 
+/** Central do Lucro Real: no ano depois do fim, com nota de saída em todos os meses, não cobra PIS/Cofins nem EFD-Contribuições encerrados. */
+export function conferirCentralLucroRealVigencia(): ProblemaVigencia[] {
+  const fim = itemVigencia("pis_cofins")?.fim; if (!fim) return [];
+  const ano = Number(somaMes(fim, 1).slice(0, 4));
+  const meses = new Set(Array.from({ length: 12 }, (_, i) => `${ano}-${String(i + 1).padStart(2, "0")}`));
+  const lista = montarObrigacoes(ano, { hoje: `${ano + 1}-01-15`, config: null, apuracoes: [], pagamentos: [], pisCofinsFiscal: [], competenciasComSaida: meses, entregasSped: {}, baixas: new Set(), bloqueios: new Map() });
+  return lista.filter((o) => (o.tipo === "pis_nc" || o.tipo === "cofins_nc" ? !vigenteNaCompetencia("pis_cofins", o.periodo) : o.tipo === "efd_contribuicoes" ? !vigenteNaCompetencia("efd_contribuicoes", o.periodo) : false))
+    .map((o) => ({ onde: "Central do Lucro Real", texto: `${o.descricao} cobrada depois do fim` }));
+}
+
 export function conferenciasVigenciaContabil(consultar: Consultar | null): ConferenciaVigencia[] {
-  const lista: ConferenciaVigencia[] = [{ nome: "Gerador de provisões", conferir: () => conferirGeradorProvisoesVigencia() }];
+  const lista: ConferenciaVigencia[] = [{ nome: "Gerador de provisões", conferir: () => conferirGeradorProvisoesVigencia() }, { nome: "Central do Lucro Real", conferir: () => conferirCentralLucroRealVigencia() }];
   if (consultar) {
     lista.push({ nome: "Apurações recebidas", conferir: async () => {
       let rows: any[] = [];
