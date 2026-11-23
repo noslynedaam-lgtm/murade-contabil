@@ -10,7 +10,11 @@ export type ConsultaSql = (sql: string, params?: unknown[]) => Promise<{ rows: a
 export interface BancoTransacional { transacao<T>(fn: (consultar: ConsultaSql) => Promise<T>): Promise<T>; consultar: ConsultaSql }
 
 /** O que a exclusão apaga (chave = nome mostrado na resposta). */
-export interface Apagados { acessosDeUsuarios: number; empresaCompartilhada: number; workspace: number; atividadeEquipe: number; sistemaAnterior: number; titulos: number; cartoes: number; extrato: number }
+export interface Apagados { acessosDeUsuarios: number; empresaCompartilhada: number; workspace: number; atividadeEquipe: number; sistemaAnterior: number; titulos: number; cartoes: number; extrato: number; lucroReal: number }
+
+/** Apuração do Lucro Real feita no Contábil (configuração, e-Lalur/e-Lacs Parte A, Parte B, períodos e pagamentos dos DARF): sai da base
+ *  viva junto com a empresa, depois de copiada para o arquivo (mesma regra da escrituração: nada some sem cópia). */
+export const TABELAS_LUCRO_REAL = ['contabil_lucro_real_config', 'contabil_lalur_lancamentos', 'contabil_lalur_parte_b_contas', 'contabil_lucro_real_apuracoes', 'contabil_lucro_real_pagamentos'] as const;
 
 /** Tabelas por CNPJ que a exclusão NÃO toca. A escrituração mora no payload do workspace: por isso ele é copiado para o arquivo antes de apagar. */
 export const PRESERVADOS = [
@@ -57,10 +61,20 @@ export async function removerEmpresaCompleta(banco: BancoTransacional, cnpjBruto
     await q('SELECT pg_advisory_xact_lock(hashtext($1))', [cnpj]);
     // 1) copia a escrituração para o arquivo (só se o workspace existe), antes de apagar
     const ws = await q('SELECT payload,version FROM contabil_company_workspaces WHERE cnpj=$1 FOR UPDATE', [cnpj]);
-    if (ws.rows.length) {
+    // Lucro Real (cada tabela só existe depois do primeiro uso): lido para ir junto na cópia do arquivo.
+    const lucroReal: Record<string, any[]> = {};
+    for (const tabela of TABELAS_LUCRO_REAL) {
+      if (!(await q(`SELECT to_regclass('${tabela}') AS t`, [])).rows[0]?.t) continue;
+      const linhas = (await q(`SELECT * FROM ${tabela} WHERE cnpj=$1`, [cnpj])).rows;
+      if (linhas.length) lucroReal[tabela] = linhas;
+    }
+    const temLucroReal = Object.keys(lucroReal).length > 0;
+    if (ws.rows.length || temLucroReal) {
       const comp = await q('SELECT dados FROM contabil_empresas_compartilhadas WHERE cnpj=$1', [cnpj]);
+      const base = ws.rows.length ? semDadosDoSistemaAnterior(ws.rows[0].payload ?? null) : {};
+      const payload = temLucroReal ? { ...(base && typeof base === 'object' ? base : {}), lucroRealArquivado: lucroReal } : base;
       await q(`INSERT INTO ${TABELA_ARQUIVO}(cnpj,payload,versao,cadastro_compartilhado,excluido_por,origem) VALUES($1,$2::jsonb,$3,$4::jsonb,$5,$6)`,
-        [cnpj, JSON.stringify(semDadosDoSistemaAnterior(ws.rows[0].payload ?? null)), ws.rows[0].version ?? null, comp.rows[0]?.dados ? JSON.stringify(comp.rows[0].dados) : null, quem.por ?? null, quem.origem ?? null]);
+        [cnpj, JSON.stringify(payload), ws.rows[0]?.version ?? null, comp.rows[0]?.dados ? JSON.stringify(comp.rows[0].dados) : null, quem.por ?? null, quem.origem ?? null]);
     }
     const n = async (sql: string) => Number((await q(sql, [cnpj])).rowCount ?? 0);
     const acessos = await n('DELETE FROM contabil_auth_company_access WHERE cnpj=$1');
@@ -77,9 +91,11 @@ export async function removerEmpresaCompleta(banco: BancoTransacional, cnpjBruto
     const titulos = await seExiste('contabil_titulos');
     const cartoes = await seExiste('contabil_cartoes');
     const extrato = await seExiste('contabil_extrato_movimentos');
-    return { acessosDeUsuarios: acessos, empresaCompartilhada: comp, workspace: work, atividadeEquipe: ativ, sistemaAnterior: anterior, titulos, cartoes, extrato } as Apagados;
+    let lucroRealN = 0;
+    for (const tabela of TABELAS_LUCRO_REAL) if (lucroReal[tabela]) lucroRealN += await n(`DELETE FROM ${tabela} WHERE cnpj=$1`);
+    return { acessosDeUsuarios: acessos, empresaCompartilhada: comp, workspace: work, atividadeEquipe: ativ, sistemaAnterior: anterior, titulos, cartoes, extrato, lucroReal: lucroRealN } as Apagados;
   });
-  const total = apagados.acessosDeUsuarios + apagados.empresaCompartilhada + apagados.workspace + apagados.atividadeEquipe + apagados.sistemaAnterior + apagados.titulos + apagados.cartoes + apagados.extrato;
+  const total = apagados.acessosDeUsuarios + apagados.empresaCompartilhada + apagados.workspace + apagados.atividadeEquipe + apagados.sistemaAnterior + apagados.titulos + apagados.cartoes + apagados.extrato + apagados.lucroReal;
   return { sucesso: true, cnpj, apagados, preservados: [...PRESERVADOS], jaNaoExistia: total === 0 };
 }
 
