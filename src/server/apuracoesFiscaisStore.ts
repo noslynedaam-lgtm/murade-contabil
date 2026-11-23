@@ -19,6 +19,9 @@ const TRIBUTOS_ACEITOS = new Set([
   "IRPJ_REAL_PAGO", "CSLL_REAL_PAGO",
   // CPRB do mês (desoneração da folha, Lei 12.546/2011, art. 9º-A), calculada no DP com a receita do mês: provisão do tributo.
   "CPRB",
+  // Lucro Arbitrado (trimestre marcado no Fiscal: IRPJ/CSLL e PIS/COFINS cumulativos dos meses) e COFINS de 3% da entidade imune/isenta
+  // sobre receita que não é da atividade própria (MP 2.158-35/2001, art. 14, X): provisões.
+  "IRPJ_ARBITRADO", "CSLL_ARBITRADO", "PIS_ARBITRADO", "COFINS_ARBITRADO", "COFINS_ENTIDADE",
   // Pagamento dos DARF (registrado no Fiscal), como o DAS_SIMPLES_PAGO: principal baixa o "a recolher"; multa e juros à parte.
   "IRPJ_PRESUMIDO_PAGO", "CSLL_PRESUMIDO_PAGO", "PIS_PRESUMIDO_PAGO", "COFINS_PRESUMIDO_PAGO", "PIS_NC_PAGO", "COFINS_NC_PAGO",
 ]);

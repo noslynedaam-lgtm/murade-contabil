@@ -37,6 +37,7 @@ import { definirAlertaRobo, dispararRoboAgora, executarRobo, registrarResultadoR
 import { conferirEmpresasRepetidas } from "./src/server/conferidorEmpresaRepetida";
 import { criarServicoBackupBanco } from "./src/server/backupBanco/servico";
 import { buscarEmpresasDoFiscal, cnpjsValidosDoFiscal } from "./src/server/empresasDoFiscal";
+import { conferirSincroniaEntidadesContabil, criarLigacaoFiscalEntidade, divergenciasEntidadeContabil, sincronizarEntidadesContabil } from "./src/server/entidadeSincroniaContabil";
 import { resumoRelatorioAcessos, rodarConferidorAcessos } from "./src/server/conferidorAcessos";
 import { achadosEcdDoConferidor, rodarConferidorContabil } from "./src/server/conferidorContabil";
 import { empresasParadas, situacaoEmpresasContabil, textoAvisoParadas } from "./src/server/conferidorEmpresasParadas";
@@ -1642,6 +1643,54 @@ const reconciliacaoRascunhosStatus: {
     try { const r = await sincronizarEmpresasDoFiscal(); return res.status(r.ok ? 200 : 502).json({ sucesso: r.ok, ...r }); }
     catch (e: any) { return res.status(500).json({ sucesso: false, motivo: e?.message || "Falha ao importar." }); }
   });
+  // Marca de entidade imune/isenta (tipo, certificação e validade) entre Fiscal, DP e Contábil: em branco recebe; diferente vira aviso.
+  let ultimaSincroniaEntidades: { em: string | null; ok: boolean } = { em: null, ok: false };
+  registrarRobo({ id: "sincronia_entidades", nome: "Robô de Sincronia de Entidades (Fiscal, DP e Contábil)", posto: "integrador", missao: "De hora em hora lê no Murad Fiscal a marca de entidade imune ou isenta (com a certificação de entidade beneficente e a validade) feita no Fiscal ou no DP e preenche no Contábil só o que está em branco, na empresa que já existe (nunca cria nem duplica empresa). Se aqui foi marcado à mão algo diferente, não sobrescreve: guarda o aviso em Cadastro de Empresa. Manda ao Fiscal as marcas feitas no Contábil, para chegarem ao DP. Com a marca, o plano de contas da entidade e a Demonstração do Superávit ou Déficit vêm sozinhos. Nunca mexe em lançamento.", intervaloMs: 60 * 60_000 });
+  const sincronizarEntidadesAgora = async (cnpjs?: string[]) => {
+    const r = await sincronizarEntidadesContabil((sql, params) => consultaBancoContabil(sql, params), { ...criarLigacaoFiscalEntidade(), ...(cnpjs ? { cnpjs } : {}) });
+    if (!cnpjs) ultimaSincroniaEntidades = { em: new Date().toISOString(), ok: r.ok };
+    return r;
+  };
+  const rodarSincroniaEntidades = () => bancoContabilConfigurado() ? executarRobo("sincronia_entidades", async () => {
+    const r = await sincronizarEntidadesAgora();
+    registrarResultadoRobo("sincronia_entidades", r.motivo);
+    if (!r.ok) throw new Error(r.motivo);
+  }).catch((e) => console.error("Falha no Robô de Sincronia de Entidades:", e?.message || e)) : undefined;
+  setTimeout(() => void rodarSincroniaEntidades(), 230_000).unref();
+  setInterval(() => void rodarSincroniaEntidades(), 60 * 60_000).unref();
+  registrarRobo({ id: "conferidor_sincronia_entidades", nome: "Robô Conferidor da Sincronia de Entidades", posto: "conferidor", missao: "De duas em duas horas confere, só em leitura, se a sincronia da marca de entidade imune/isenta com o Fiscal e o DP rodou com sucesso nas últimas 3 horas e se alguma empresa está com a marca diferente entre os sistemas (e há quanto tempo). Avisa no painel dos robôs e em Cadastro de Empresa. Nunca sobrescreve nada.", intervaloMs: 2 * 60 * 60_000 });
+  const rodarConferidorSincroniaEntidades = () => bancoContabilConfigurado() ? executarRobo("conferidor_sincronia_entidades", async () => {
+    const r = await conferirSincroniaEntidadesContabil((sql, params) => consultaBancoContabil(sql, params), ultimaSincroniaEntidades);
+    registrarResultadoRobo("conferidor_sincronia_entidades", r.resumo);
+    definirAlertaRobo("conferidor_sincronia_entidades", r.atencao ? { nivel: "aviso", texto: r.resumo } : null);
+  }).catch((e) => console.error("Falha no Robô Conferidor da Sincronia de Entidades:", e?.message || e)) : undefined;
+  setTimeout(() => void rodarConferidorSincroniaEntidades(), 430_000).unref();
+  setInterval(() => void rodarConferidorSincroniaEntidades(), 2 * 60 * 60_000).unref();
+  app.get("/api/entidades/sincronia", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const sessao = sessaoDaRequisicaoContabil(req);
+    if (!sessao) return res.status(401).json({ sucesso: false, motivo: "Entre no sistema." });
+    if (!bancoContabilConfigurado()) return res.json({ sucesso: true, divergencias: [], ultimaSincronia: null });
+    const pedido = String(req.query.cnpj || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const cnpjs = pedido ? sessao.cnpjs.filter((c) => c === pedido) : sessao.cnpjs;
+    try { return res.json({ sucesso: true, divergencias: await divergenciasEntidadeContabil((sql, params) => consultaBancoContabil(sql, params), cnpjs), ultimaSincronia: ultimaSincroniaEntidades.em }); }
+    catch (e: any) { console.error("Falha ao ler a sincronia de entidades:", e?.message || e); return res.status(503).json({ sucesso: false, motivo: "Não foi possível consultar agora." }); }
+  });
+  app.post("/api/entidades/sincronizar", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const sessao = sessaoDaRequisicaoContabil(req);
+    if (!sessao) return res.status(401).json({ sucesso: false, motivo: "Entre no sistema." });
+    if (!bancoContabilConfigurado()) return res.status(503).json({ sucesso: false, motivo: "PostgreSQL não configurado." });
+    const pedido = String(req.body?.cnpj || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const cnpjs = sessao.cnpjs.filter((c) => (sessao.administrador || sessao.memberships.find((m) => m.cnpj === c)?.role !== "viewer") && (!pedido || c === pedido));
+    if (!cnpjs.length) return res.status(403).json({ sucesso: false, motivo: "Nenhuma empresa com acesso de edição para sincronizar." });
+    try {
+      const r = await sincronizarEntidadesAgora(cnpjs);
+      const p = pedido ? (await consultaBancoContabil("SELECT payload->'empresa' AS empresa, version FROM contabil_company_workspaces WHERE cnpj=$1", [pedido])).rows[0] : null;
+      const marcaAtual = p?.empresa ? { regime: String(p.empresa.regime || ""), entidadeCertificada: p.empresa.entidadeCertificada === true, entidadeCertificacaoValidade: String(p.empresa.entidadeCertificacaoValidade || ""), entidadeSincronizada: p.empresa.entidadeSincronizada ?? null, versao: Number(p.version) } : null;
+      return res.status(r.ok ? 200 : 502).json({ sucesso: r.ok, ...r, mensagem: r.motivo, marcaAtual, divergencias: await divergenciasEntidadeContabil((sql, params) => consultaBancoContabil(sql, params), cnpjs) });
+    } catch (e: any) { console.error("Falha na sincronia de entidades:", e?.message || e); return res.status(500).json({ sucesso: false, motivo: "Não foi possível sincronizar agora." }); }
+  });
   // Robô Conferidor de Empresas Excluídas: se o Fiscal diz que uma empresa foi excluída (lápide) e ela ainda tem acesso, cadastro ou workspace aqui,
   // avisa o dono no painel de Saúde dos robôs. Só lê: apagar é sempre uma empresa por vez, com confirmação de uma pessoa.
   registrarRobo({ id: "empresas_excluidas", nome: "Robô Conferidor de Empresas Excluídas", posto: "conferidor", missao: "Conferir, só em leitura, se alguma empresa excluída no Murad Fiscal ainda sobrou no Contábil (acesso, cadastro ou workspace) e avisar o dono do sistema aqui. Nunca apaga nada sozinho: a exclusão é uma empresa por vez, com confirmação de uma pessoa, e nunca bloqueia o CNPJ para novo cadastro.", intervaloMs: 60 * 60_000 });
@@ -1754,6 +1803,8 @@ const reconciliacaoRascunhosStatus: {
   registrarRotinaManual("mensageiro", () => executarRobo("mensageiro", () => centralDePedidos.reenviarPendentes()).catch((e) => console.error("Falha ao reenviar pedidos entre agentes:", e?.message || e)));
   registrarRotinaManual("conferidor", rodarConferidor);
   registrarRotinaManual("empresas_fiscal", rodarEmpresasFiscal);
+  registrarRotinaManual("sincronia_entidades", rodarSincroniaEntidades);
+  registrarRotinaManual("conferidor_sincronia_entidades", rodarConferidorSincroniaEntidades);
   registrarRotinaManual("empresas_excluidas", rodarEmpresasExcluidas);
   registrarRotinaManual("acessos", rodarConferidorDeAcessos);
   // Nenhuma empresa repetida (ver src/server/conferidorEmpresaRepetida.ts): só lê e conta; nunca apaga nem junta.

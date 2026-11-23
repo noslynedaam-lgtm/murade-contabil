@@ -42,6 +42,7 @@ import { ModalConexaoMuradFiscal } from "../modals/ModalConexaoMuradFiscal";
 import { conectarEPuxarEmpresaMuradFiscal, conectarMuradDP } from "../../services/integracaoMuradService";
 import { baixarPacoteEmpresasMurade, lerPacoteEmpresasMurade } from "../../services/migracaoEmpresaService";
 import { chaveCnpjEmpresa, dedupEmpresasPorCnpj } from "../../utils/dedupEmpresas";
+import { SincroniaEntidadeContabil } from "../SincroniaEntidadeContabil";
 
 const competenciaAtualISO = () => { const hoje = new Date(); return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`; };
 
@@ -152,6 +153,10 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
   const [nomeFantasia, setNomeFantasia] = useState("");
   const [naturezaJuridica, setNaturezaJuridica] = useState("");
   const [regimeTributario, setRegimeTributario] = useState("");
+  // Entidade imune/isenta: certificação de entidade beneficente (LC 187/2021) e validade, iguais às do Fiscal e do DP (Robô de Sincronia de Entidades).
+  const [entidadeCertificada, setEntidadeCertificada] = useState(false);
+  const [entidadeCertificacaoValidade, setEntidadeCertificacaoValidade] = useState("");
+  const [entidadeSincronizada, setEntidadeSincronizada] = useState<unknown>(undefined);
   const [cnaePrincipal, setCnaePrincipal] = useState("");
   const [capitalSocial, setCapitalSocial] = useState("");
   const [endereco, setEndereco] = useState("");
@@ -303,6 +308,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     setNomeFantasia("");
     setNaturezaJuridica("");
     setRegimeTributario("");
+    setEntidadeCertificada(false); setEntidadeCertificacaoValidade(""); setEntidadeSincronizada(undefined);
     setCnaePrincipal("");
     setCapitalSocial("");
     setEndereco("");
@@ -343,6 +349,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     setNomeFantasia(emp.nomeFantasia || "");
     setNaturezaJuridica(emp.naturezaJuridica || "");
     setRegimeTributario(emp.regime || "");
+    setEntidadeCertificada((emp as any).entidadeCertificada === true); setEntidadeCertificacaoValidade(String((emp as any).entidadeCertificacaoValidade || "")); setEntidadeSincronizada((emp as any).entidadeSincronizada);
     setCnaePrincipal(emp.cnae || "");
     setCapitalSocial(emp.capitalSocialFormatado || "");
     setEndereco(emp.endereco || "");
@@ -660,6 +667,9 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
       razaoSocial: razaoSocial.trim(),
       nomeFantasia: (nomeFantasia.trim() || razaoSocial.trim()),
       regime: regimeTributario as any,
+      entidadeCertificada: regimeTributario.startsWith("Entidade") ? entidadeCertificada : false,
+      entidadeCertificacaoValidade: regimeTributario.startsWith("Entidade") && entidadeCertificada ? entidadeCertificacaoValidade : "",
+      ...(entidadeSincronizada ? { entidadeSincronizada } : {}),
       inscricaoEstadual: ie.trim(),
       inscricaoMunicipal: im.trim(),
       naturezaJuridica: naturezaJuridica.trim(),
@@ -1256,6 +1266,13 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
               <option value="Entidade isenta">Entidade isenta (filantrópica, recreativa, cultural, científica, associação)</option>
               <option value="Lucro Arbitrado">Lucro Arbitrado</option>
             </select>
+            {regimeTributario.startsWith("Entidade") && (
+              <div className="mt-2 grid grid-cols-1 gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-950 sm:grid-cols-2">
+                <label className="flex items-center gap-2 font-semibold"><input type="checkbox" data-campo="empresa-entidade-certificada" checked={entidadeCertificada} onChange={(e) => setEntidadeCertificada(e.target.checked)} /> Tem certificação de entidade beneficente (LC 187/2021)</label>
+                {entidadeCertificada && <label className="font-semibold">Validade da certificação<input type="date" data-campo="empresa-entidade-validade" value={entidadeCertificacaoValidade} onChange={(e) => setEntidadeCertificacaoValidade(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5" /></label>}
+              </div>
+            )}
+            {modoEdicaoId && <div className="mt-2"><SincroniaEntidadeContabil cnpj={cnpj} ehEntidade={regimeTributario.startsWith("Entidade")} aoAtualizar={(m) => { setRegimeTributario(m.regime); setEntidadeCertificada(m.entidadeCertificada); setEntidadeCertificacaoValidade(m.entidadeCertificacaoValidade); setEntidadeSincronizada(m.entidadeSincronizada ?? undefined); }} /></div>}
           </div>
 
           {/* INSCRIÇÃO ESTADUAL */}

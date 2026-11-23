@@ -11,6 +11,7 @@ import {
 } from "../../utils/demonstracoesAvancadas";
 import { gerarWorkbookExcel, moedaContabil } from "../../utils/livrosContabeis";
 import { escaparHtml, htmlRelatorioCliente, svgEvolucao, valorIndice } from "../../utils/relatorioCliente";
+import { ehRegimeEntidade } from "../../utils/planoEntidade";
 import { saldosParteB, type ComplementosEcfAno, type ContaParteB, type EstabY540, type SocioY600 } from "../../services/ecfComplementosService";
 import { confirmarNaTela, perguntarNaTela } from "../../utils/dialogoNaTela";
 import { useExclusaoDuasEtapas } from "../ConfirmaExclusaoDuasEtapas";
@@ -302,7 +303,7 @@ export const DemonstracoesTab: React.FC<Props> = ({ empresa, contas, lancamentos
             <p className="mt-1 text-[10px] text-slate-500">Fórmula: {i.formula}</p>
           </div>)}
         </div>
-        <div className="rounded-lg border border-slate-200 p-2"><p className="text-xs font-bold">Receita líquida e resultado — últimos 12 meses</p><div dangerouslySetInnerHTML={{ __html: svgEvolucao(serie) }} /></div>
+        <div className="rounded-lg border border-slate-200 p-2"><p className="text-xs font-bold">Receita líquida e resultado — últimos 12 meses</p><div dangerouslySetInnerHTML={{ __html: svgEvolucao(serie, 640, 240, ehRegimeEntidade(empresa.regime)) }} /></div>
         <div className="overflow-x-auto"><table className="w-full min-w-[480px] text-xs"><thead className="bg-slate-100"><tr><th className="px-2 py-1 text-left">Mês</th><th className="px-2 py-1 text-right">Receita líquida</th><th className="px-2 py-1 text-right">Resultado</th></tr></thead><tbody>{serie.map((p) => <tr key={p.competencia} className="border-t border-slate-100"><td className="px-2 py-1">{mesAnoBR(p.competencia)}</td><td className="px-2 py-1 text-right">{moedaContabil(p.receitaLiquida)}</td><td className={`px-2 py-1 text-right ${p.lucroLiquido < 0 ? "text-rose-700" : ""}`}>{moedaContabil(p.lucroLiquido)}</td></tr>)}</tbody></table></div>
         {ind.balanco.naoClassificado !== 0 && <p className="text-xs text-amber-900">• Há saldo em conta sem classificação ({moedaContabil(ind.balanco.naoClassificado)}): os índices podem ficar incompletos. Classifique na aba “Classificação das contas”.</p>}
         <p className="text-[11px] text-slate-500">Os índices são fórmulas usuais de análise das demonstrações (não são norma). Margens: de janeiro até o mês. Balanço: posição no fim do mês, com o resultado ainda não encerrado somado ao patrimônio líquido.</p>
@@ -313,7 +314,7 @@ export const DemonstracoesTab: React.FC<Props> = ({ empresa, contas, lancamentos
         <p className="text-xs text-slate-600">Resumo do resultado do ano até o mês, situação patrimonial, os 6 índices com explicação simples e o gráfico dos 12 meses, num PDF bonito para mandar ao cliente. O Contábil ainda não tem caminho para o app do cliente do Fiscal: gere o PDF (Imprimir → Salvar como PDF) ou compartilhe o arquivo.</p>
         <div className="grid gap-2 sm:grid-cols-4 text-xs">
           <div className="rounded-lg border p-2"><span className="text-slate-500">Receita líquida (ano)</span><strong className="block text-base">{moedaContabil(ind.dre.receitaLiquida)}</strong></div>
-          <div className="rounded-lg border p-2"><span className="text-slate-500">{ind.dre.lucroLiquido >= 0 ? "Lucro (ano)" : "Prejuízo (ano)"}</span><strong className="block text-base">{moedaContabil(ind.dre.lucroLiquido)}</strong></div>
+          <div className="rounded-lg border p-2"><span className="text-slate-500">{ehRegimeEntidade(empresa.regime) ? (ind.dre.lucroLiquido >= 0 ? "Superávit (ano)" : "Déficit (ano)") : ind.dre.lucroLiquido >= 0 ? "Lucro (ano)" : "Prejuízo (ano)"}</span><strong className="block text-base">{moedaContabil(ind.dre.lucroLiquido)}</strong></div>
           <div className="rounded-lg border p-2"><span className="text-slate-500">Caixa e bancos</span><strong className="block text-base">{moedaContabil(ind.balanco.disponivel)}</strong></div>
           <div className="rounded-lg border p-2"><span className="text-slate-500">Patrimônio líquido</span><strong className="block text-base">{moedaContabil(ind.balanco.patrimonioLiquido)}</strong></div>
         </div>

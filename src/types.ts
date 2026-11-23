@@ -50,6 +50,11 @@ export interface EmpresaDados {
   razaoSocial: string;
   nomeFantasia: string;
   regime: "Lucro Presumido" | "Lucro Real" | "Simples Nacional" | "MEI" | string;
+  /** Entidade imune/isenta: certificação de entidade beneficente (LC 187/2021) e validade (AAAA-MM-DD). */
+  entidadeCertificada?: boolean;
+  entidadeCertificacaoValidade?: string;
+  /** Última marca gravada pelo Robô de Sincronia de Entidades (para saber o que foi marcado à mão aqui). */
+  entidadeSincronizada?: unknown;
   municipio: string;
   uf: string;
   competencia: string;
@@ -315,6 +320,11 @@ export type OrigemMapeadaContabil =
   | "contabil_irpj_real_pago"
   | "contabil_csll_real_pago"
   | "dp_cprb"
+  | "fiscal_irpj_arbitrado"
+  | "fiscal_csll_arbitrado"
+  | "fiscal_pis_arbitrado"
+  | "fiscal_cofins_arbitrado"
+  | "fiscal_cofins_entidade"
   | "fiscal_das_simples_encargos";
 
 export interface MapeamentoOrigemContabil {

@@ -68,5 +68,14 @@ export function planoEstaComoEntidade(contas: ContaPlano[]): boolean {
   return contas.some((c) => /patrim[oô]nio social/i.test(String(c.descricao))) && contas.some((c) => c.codigo === "3.4");
 }
 
-/** Nome das demonstrações para a entidade (superávit/déficit no lugar de lucro/prejuízo). */
-export const NOMES_DEMONSTRACOES_ENTIDADE = { dre: "Demonstração do Superávit ou Déficit do Período", dmpl: "Demonstração das Mutações do Patrimônio Social", resultado: "Superávit ou Déficit do Exercício" } as const;
+/** Rótulos da DRE na tela, na impressão e no Excel: na entidade sem finalidade de lucros vira "Demonstração do Superávit ou Déficit" e o
+ *  resultado vira superávit/déficit (ITG 2002 (R1), item 23 — Resolução CFC 1.409/2012: "as palavras lucro ou prejuízo devem ser substituídas por superávit ou déficit do período"). Nas demais empresas fica como sempre foi. */
+export function rotulosDreDaEmpresa(regime: unknown): { titulo: string; resultado: string; abaExcel: string; entidade: boolean } {
+  return ehRegimeEntidade(regime)
+    ? { titulo: "Demonstração do Superávit ou Déficit", resultado: "Superávit ou déficit do período", abaExcel: "Superavit ou Deficit", entidade: true }
+    : { titulo: "DRE gerencial", resultado: "Resultado gerencial do período", abaExcel: "DRE gerencial", entidade: false };
+}
+
+/** Nome das demonstrações para a entidade (superávit/déficit no lugar de lucro/prejuízo). A DMPL mantém o nome (ITG 2002 (R1), item 22);
+ *  dentro do PL, a conta Capital vira Patrimônio Social (item 23). */
+export const NOMES_DEMONSTRACOES_ENTIDADE = { dre: "Demonstração do Superávit ou Déficit do Período", dmpl: "Demonstração das Mutações do Patrimônio Líquido", resultado: "Superávit ou Déficit do Exercício" } as const;

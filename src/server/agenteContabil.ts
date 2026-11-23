@@ -341,6 +341,28 @@ const FERRAMENTAS: Ferramenta[] = [
   },
   {
     tipo: 'acao',
+    declaracao: { name: 'sincronizar_entidades', description: 'Propõe SINCRONIZAR agora, com o Murad Fiscal e o Murad DP, a marca de entidade imune ou isenta (com a certificação de entidade beneficente e a validade) das empresas do usuário (ou de uma). Só preenche o que está em branco no Contábil e manda ao Fiscal o que foi marcado aqui; o que estiver diferente entre os sistemas NÃO é sobrescrito: vira aviso. Não cria nem duplica empresa e não mexe em lançamento. Com a marca, o plano de contas da entidade e a Demonstração do Superávit ou Déficit vêm sozinhos.', parameters: { type: 'OBJECT', properties: { cnpj: { type: 'STRING', description: 'Opcional: CNPJ de uma empresa. Vazio = todas as empresas do usuário com acesso de edição.' } } } },
+    async preparar(ctx, args) {
+      const cnpj = args.cnpj ? cnpjDe(args.cnpj) : '';
+      if (args.cnpj && !cnpj) return { erro: 'CNPJ inválido.' };
+      const r = await ctx.chamarApi('GET', `/api/entidades/sincronia${cnpj ? `?cnpj=${q(cnpj)}` : ''}`);
+      if (!ok(r)) return erroApi(r);
+      const div: any[] = r.corpo?.divergencias || [];
+      return { cnpj: cnpj || '', params: { cnpj: cnpj || '' }, titulo: 'Sincronizar a marca de entidade com o Fiscal e o DP', descricao: [
+        cnpj ? `Empresa ${cnpj}.` : 'Todas as suas empresas com acesso de edição.',
+        'Preenche no Contábil só o que está em branco (entidade imune/isenta, certificação e validade) e manda ao Fiscal o que foi marcado aqui.',
+        div.length ? `Hoje há ${div.length} diferença(s) entre os sistemas; elas continuam como aviso, nada é sobrescrito.` : 'Nenhuma diferença guardada entre os sistemas até agora.',
+      ], resumo: 'Sincronizar marca de entidade (Fiscal, DP e Contábil)' };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', '/api/entidades/sincronizar', params?.cnpj ? { cnpj: params.cnpj } : {});
+      if (!ok(r)) return { sucesso: false, mensagem: erroApi(r).erro };
+      const div: any[] = r.corpo?.divergencias || [];
+      return { sucesso: true, mensagem: `${r.corpo?.mensagem || 'Sincronizado.'}${div.length ? ` Diferenças: ${div.slice(0, 3).map((d) => `${d.cnpj}: ${d.motivo}`).join('; ')}.` : ''}` };
+    },
+  },
+  {
+    tipo: 'acao',
     declaracao: { name: 'reprocessar_recepcao', description: 'Propõe REPROCESSAR a recepção de uma empresa: refaz agora os rascunhos contábeis com o que o Fiscal e o DP já enviaram, sem esperar o robô (que tenta sozinho a cada minuto). Não aprova nem apaga nada. Use quando algo enviado pelo Fiscal ou pelo DP não apareceu para conferência.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj }, required: ['cnpj'] } },
     async preparar(_ctx, args) {
       const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
@@ -1066,6 +1088,7 @@ Tela Inicial (tem a caixinha "Pedir para alguém"); Cadastro de Empresa; Tarefas
 Quando perguntarem "onde eu faço X", diga o nome da tela do menu. Não invente telas que não estão nesta lista.
 
 COMO TRABALHAR
+- Entidade imune/isenta: a marca (com a certificação e a validade) passa sozinha entre Fiscal, DP e Contábil; para fazer na hora use sincronizar_entidades (cartão de confirmação). O que estiver diferente entre os sistemas nunca é sobrescrito: diga a diferença e peça para corrigir no sistema errado. Na entidade, a DRE se chama Demonstração do Superávit ou Déficit. O IRPJ/CSLL e o PIS/COFINS do trimestre arbitrado e a COFINS da entidade chegam do Fiscal como provisão em Revisão de origens (mesma referência: não duplica).
 - Para saber qualquer coisa do sistema (empresas, pendências de conferência, fechamentos, integrações, robôs), use as ferramentas de consulta. Nunca responda de memória sobre dados do cliente.
 - Para dúvidas de legislação, regra, alíquota ou prazo, use consultar_legislacao (passe o CNPJ quando a dúvida for de uma empresa) e repasse as fontes oficiais e o aviso de responsabilidade. Se vier acoesSugeridas, ofereça "Quer que eu faça para você?".
 - Se o usuário tem uma única empresa, use-a. Se há várias e ele não disse qual, pergunte. Se não disse a competência (mês), pergunte antes de agir.

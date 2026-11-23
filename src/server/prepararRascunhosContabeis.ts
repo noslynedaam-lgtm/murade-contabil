@@ -128,6 +128,11 @@ const HISTORICO_POR_TRIBUTO: Record<string, string> = {
   IRPJ_REAL_PAGO: "IRPJ do Lucro Real — pagamento do DARF registrado na Apuração do Lucro Real",
   CSLL_REAL_PAGO: "CSLL do Lucro Real — pagamento do DARF registrado na Apuração do Lucro Real",
   CPRB: "CPRB do mês (desoneração da folha) calculada no DP",
+  IRPJ_ARBITRADO: "IRPJ do Lucro Arbitrado (trimestre) marcado no Fiscal",
+  CSLL_ARBITRADO: "CSLL do Lucro Arbitrado (trimestre) marcada no Fiscal",
+  PIS_ARBITRADO: "PIS do Lucro Arbitrado (mês, cumulativo) calculado no Fiscal",
+  COFINS_ARBITRADO: "COFINS do Lucro Arbitrado (mês, cumulativa) calculada no Fiscal",
+  COFINS_ENTIDADE: "COFINS da entidade sobre receita não própria (mês) confirmada no Fiscal",
 
 };
 
@@ -142,7 +147,7 @@ const mapeamentoValido = (mapeamentos: Registro[], idOrigem: string, analiticas:
  * DARF (tributos *_PAGO). Provisões do Lucro Presumido e do PIS/COFINS não cumulativos: último dia do mês da competência (o tributo é
  * do período; para IRPJ/CSLL a competência é o último mês do trimestre). As demais (DIFAL) seguem no dia 1º.
  */
-const PROVISAO_NO_FIM_DO_MES = new Set(["CPRB", "IRPJ_REAL", "CSLL_REAL", "IRPJ_PRESUMIDO", "CSLL_PRESUMIDO", "PIS_PRESUMIDO", "COFINS_PRESUMIDO", "PIS_NAO_CUMULATIVO", "COFINS_NAO_CUMULATIVA", "PIS_NC_CREDITO", "COFINS_NC_CREDITO"]);
+const PROVISAO_NO_FIM_DO_MES = new Set(["IRPJ_ARBITRADO", "CSLL_ARBITRADO", "PIS_ARBITRADO", "COFINS_ARBITRADO", "COFINS_ENTIDADE", "CPRB", "IRPJ_REAL", "CSLL_REAL", "IRPJ_PRESUMIDO", "CSLL_PRESUMIDO", "PIS_PRESUMIDO", "COFINS_PRESUMIDO", "PIS_NAO_CUMULATIVO", "COFINS_NAO_CUMULATIVA", "PIS_NC_CREDITO", "COFINS_NC_CREDITO"]);
 export function dataDaApuracao(apuracao: Pick<ApuracaoFiscalArmazenada, "tributo" | "competencia" | "versaoOrigem">): string {
   if (apuracao.tributo === "DAS_SIMPLES" || PROVISAO_NO_FIM_DO_MES.has(apuracao.tributo)) {
     const [a, m] = apuracao.competencia.split("-").map(Number);

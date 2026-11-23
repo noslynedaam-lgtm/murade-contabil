@@ -101,6 +101,12 @@ export const SUGESTOES_CONTAS_POR_ORIGEM: Record<OrigemMapeadaContabil, RegraOri
   contabil_irpj_real_pago: [],
   contabil_csll_real_pago: [],
   dp_cprb: [],
+  // Arbitrado e COFINS da entidade: mesma orientação do Presumido (sem código fixo; a contadora escolhe as contas na revisão).
+  fiscal_irpj_arbitrado: [],
+  fiscal_csll_arbitrado: [],
+  fiscal_pis_arbitrado: [],
+  fiscal_cofins_arbitrado: [],
+  fiscal_cofins_entidade: [],
 };
 
 /** Mantido por compatibilidade: primeira regra de cada origem (plano simples/Ferragista). */
