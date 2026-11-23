@@ -326,6 +326,8 @@ export type OrigemMapeadaContabil =
   | "fiscal_pis_arbitrado"
   | "fiscal_cofins_arbitrado"
   | "fiscal_cofins_entidade"
+  | "fiscal_iss_proprio"
+  | "fiscal_iss_retido_tomador"
   | "fiscal_das_simples_encargos";
 
 export interface MapeamentoOrigemContabil {

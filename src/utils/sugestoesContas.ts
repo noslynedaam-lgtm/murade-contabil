@@ -107,6 +107,9 @@ export const SUGESTOES_CONTAS_POR_ORIGEM: Record<OrigemMapeadaContabil, RegraOri
   fiscal_pis_arbitrado: [],
   fiscal_cofins_arbitrado: [],
   fiscal_cofins_entidade: [],
+  // ISS municipal: sem código fixo; a contadora escolhe as contas na revisão das origens.
+  fiscal_iss_proprio: [],
+  fiscal_iss_retido_tomador: [],
 };
 
 /** Mantido por compatibilidade: primeira regra de cada origem (plano simples/Ferragista). */

@@ -22,6 +22,9 @@ const TRIBUTOS_ACEITOS = new Set([
   // Lucro Arbitrado (trimestre marcado no Fiscal: IRPJ/CSLL e PIS/COFINS cumulativos dos meses) e COFINS de 3% da entidade imune/isenta
   // sobre receita que não é da atividade própria (MP 2.158-35/2001, art. 14, X): provisões.
   "IRPJ_ARBITRADO", "CSLL_ARBITRADO", "PIS_ARBITRADO", "COFINS_ARBITRADO", "COFINS_ENTIDADE",
+  // ISS municipal apurado no Fiscal pelas NFS-e (src/server/issMunicipal.ts de lá), mês encerrado: provisão do ISS próprio a recolher e do
+  // ISS que a empresa reteve como tomadora (LC 116/2003, art. 6º). Referência ISS:<proprio|retido>:<IBGE>:<AAAA-MM>.
+  "ISS_PROPRIO", "ISS_RETIDO_TOMADOR",
   // Pagamento dos DARF (registrado no Fiscal), como o DAS_SIMPLES_PAGO: principal baixa o "a recolher"; multa e juros à parte.
   "IRPJ_PRESUMIDO_PAGO", "CSLL_PRESUMIDO_PAGO", "PIS_PRESUMIDO_PAGO", "COFINS_PRESUMIDO_PAGO", "PIS_NC_PAGO", "COFINS_NC_PAGO",
 ]);

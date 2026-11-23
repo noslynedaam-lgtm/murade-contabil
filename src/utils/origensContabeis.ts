@@ -52,6 +52,8 @@ export const ORIGENS = [
   { id: "fiscal_pis_arbitrado", rotulo: "Fiscal — PIS Arbitrado" },
   { id: "fiscal_cofins_arbitrado", rotulo: "Fiscal — COFINS Arbitrado" },
   { id: "fiscal_cofins_entidade", rotulo: "Fiscal — COFINS da entidade (receita não própria)" },
+  { id: "fiscal_iss_proprio", rotulo: "Fiscal — ISS a recolher (provisão)" },
+  { id: "fiscal_iss_retido_tomador", rotulo: "Fiscal — ISS retido de terceiros (provisão)" },
   { id: "fiscal_das_simples", rotulo: "Fiscal — DAS Simples (provisão)" },
   { id: "fiscal_das_simples_pago", rotulo: "Fiscal — DAS Simples (pagamento)" },
   { id: "fiscal_das_simples_encargos", rotulo: "Fiscal — DAS Simples (multa e juros)" },
@@ -96,6 +98,8 @@ export const ORIGEM_POR_TRIBUTO: Record<string, IdOrigem> = {
   PIS_ARBITRADO: "fiscal_pis_arbitrado",
   COFINS_ARBITRADO: "fiscal_cofins_arbitrado",
   COFINS_ENTIDADE: "fiscal_cofins_entidade",
+  ISS_PROPRIO: "fiscal_iss_proprio",
+  ISS_RETIDO_TOMADOR: "fiscal_iss_retido_tomador",
   DAS_SIMPLES: "fiscal_das_simples",
   DAS_SIMPLES_PAGO: "fiscal_das_simples_pago",
 };
