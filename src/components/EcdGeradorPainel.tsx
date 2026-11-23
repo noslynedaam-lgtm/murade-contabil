@@ -150,10 +150,10 @@ export const EcdGeradorPainel: React.FC<Props> = ({ empresa, ano, contas, lancam
   return (
     <div className="mt-4 rounded-md border border-amber-300 bg-white/80 p-3">
       <h4 className="flex items-center gap-2 font-bold"><FileText className="h-4 w-4" /> Gerar arquivo ECD (Leiaute 9) — {ano}</h4>
-      <p className="mt-1 text-[11px]">Gera o TXT do Livro Diário (forma G) com plano de contas, saldos mensais, lançamentos, termos e signatários. Ainda não inclui Balanço/DRE (J100/J150) nem plano referencial (I051/I052). Valide sempre no PGE do Sped Contábil antes de assinar.</p>
+      <p className="mt-1 text-[11px]">Gera o TXT do Livro Diário (forma G) com plano de contas, saldos mensais, lançamentos, termos, signatários, Balanço Patrimonial (J100), DRE (J150) e aglutinação (I052); o plano referencial (I051) entra para as contas vinculadas ao referencial. Não inclui notas explicativas. Valide sempre no PGE do Sped Contábil antes de assinar.</p>
       <div role="status" className={`mt-2 rounded border p-2 ${analise.situacao === "obrigatoria" ? "border-red-200 bg-red-50 text-red-900" : analise.situacao === "depende" ? "border-amber-300 bg-amber-50" : "border-emerald-200 bg-emerald-50 text-emerald-950"}`}>
         <strong>{analise.titulo} — {empresa.regime || "regime não informado"}.</strong> {analise.motivo}
-        <div className="mt-1">Prazo de entrega do ano-calendário {ano}: {prazo.split("-").reverse().join("/")} (último dia útil de junho; confira feriados).{analise.planoReferencial ? ` Plano referencial do regime: ${analise.planoReferencial} – ${analise.descricaoPlanoReferencial} (mapeamento I051 ainda não incluído).` : ""}</div>
+        <div className="mt-1">Prazo de entrega do ano-calendário {ano}: {prazo.split("-").reverse().join("/")} (último dia útil de junho; confira feriados).{analise.planoReferencial ? ` Plano referencial do regime: ${analise.planoReferencial} – ${analise.descricaoPlanoReferencial} (o I051 entra no arquivo para as contas vinculadas ao referencial).` : ""}</div>
       </div>
       <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         <label>Nº de ordem do livro<input className={campo} type="number" min="1" value={f.numeroLivro} onChange={set("numeroLivro")} /></label>

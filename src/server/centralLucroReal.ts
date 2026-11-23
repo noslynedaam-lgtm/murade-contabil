@@ -23,6 +23,7 @@
 // como tomadora (IRRF e CSRF 5952, vindas do rascunho da EFD-Reinf do Fiscal), o bloqueio do DARF de PIS/COFINS não cumulativos do
 // Fiscal e o aviso no celular (avisoCelularLucroReal.ts, pelo mesmo mecanismo de aviso do Fiscal).
 import { calcularAcrescimosFederais, lerSerieSelicBcb, FONTE_ACRESCIMOS_FEDERAIS, type TabelaSelic } from "../utils/acrescimosFederais";
+import { estimarMultaDeclaracao, type DeclaracaoMulta } from "../utils/multaAtrasoDeclaracao";
 import { ehDiaUtil, diaUtilDepois, ultimoDiaUtilDoMes } from "../utils/prazosFederaisContabil";
 import { vigenteNaCompetencia } from "../utils/vigenciaObrigacoes";
 import { listarJcp, listarRetencoes, obrigacoesExtras, registrarConferencia, lerConferencia, motivoBloqueioPisCofins, prepararExtrasLucroReal } from "./lucroRealObrigacoesExtras";
@@ -146,7 +147,21 @@ export interface AlertaLR { obrigacaoId: string; nivel: NivelAlerta; titulo: str
  * Regra (decisão do Beny, 23/11/2026): sem confirmação, avisa todo dia; confirmada e sem baixa, avisa aos 10, 5, 3 e 1 dia antes, no
  * dia e todo dia de atraso (com multa e juros estimados quando há valor). Só para com a confirmação E a baixa. Bloqueio = vermelho.
  */
-export function alertasDasObrigacoes(obrigacoes: Obrigacao[], hoje: string, selic: TabelaSelic): AlertaLR[] {
+/** Bases da multa por atraso de declaração (centavos), por ano-calendário da ECD/ECF. Sem dado, a multa não é calculada (só a regra). */
+export interface BasesMultaDeclaracao { receitaBrutaPorAno?: Record<string, number>; lucroAntesIrpjCsllPorAno?: Record<string, number> }
+const TIPO_MULTA: Record<string, DeclaracaoMulta> = { dctfweb: "dctfweb", efd_contribuicoes: "efd_contribuicoes", ecd: "ecd", ecf: "ecf_real" };
+/** Multa por atraso de uma declaração da Central (MAED, ECD, ECF), em texto com a fonte. */
+export function estimativaMultaDeclaracaoLR(o: Pick<Obrigacao, "tipo" | "periodo" | "vencimento">, hoje: string, bases: BasesMultaDeclaracao = {}): string {
+  const tipo = TIPO_MULTA[o.tipo];
+  if (!tipo) return "Declaração em atraso: há multa por atraso na entrega; transmita o quanto antes.";
+  const ano = String(o.periodo).slice(0, 4); const anoAnt = String(Number(ano) - 1);
+  const base = tipo === "ecd" ? bases.receitaBrutaPorAno?.[ano] ?? null : tipo === "ecf_real" ? bases.lucroAntesIrpjCsllPorAno?.[ano] ?? null : null;
+  const r = estimarMultaDeclaracao({ tipo, prazo: o.vencimento, entrega: hoje, baseCentavos: base, porte: "demais", receitaBrutaAnoAnteriorCentavos: bases.receitaBrutaPorAno?.[anoAnt] ?? null });
+  if (r.calculada) return r.emDia ? "" : `${r.texto} (${r.fonte})`;
+  return `${'motivo' in r ? r.motivo : ''}${r.fonte ? ` (${r.fonte})` : ""}`;
+}
+
+export function alertasDasObrigacoes(obrigacoes: Obrigacao[], hoje: string, selic: TabelaSelic, bases: BasesMultaDeclaracao = {}): AlertaLR[] {
   const out: AlertaLR[] = [];
   for (const o of obrigacoes) {
     if (o.estado === "baixada") continue;
@@ -160,7 +175,7 @@ export function alertasDasObrigacoes(obrigacoes: Obrigacao[], hoje: string, seli
       if (r.ok && !r.emDia) { multa = r.multaCentavos; juros = r.jurosCentavos; total = r.totalCentavos; estimativa = `Pagando hoje: multa ${reais(r.multaCentavos)} (${r.multaPercentual.toLocaleString("pt-BR")}%) e juros ${reais(r.jurosCentavos)} (${r.jurosPercentual.toLocaleString("pt-BR")}%), total ${reais(r.totalCentavos)}. Estimativa (${FONTE_ACRESCIMOS_FEDERAIS}); o valor oficial sai no Sicalc.`; }
       else if (r.ok === false) estimativa = `Multa de 0,33% ao dia até 20% e juros Selic (Lei 9.430/1996, art. 61). ${r.motivo}`;
     } else if (dias < 0 && o.guia) estimativa = "Em atraso: multa de 0,33% ao dia (até 20%) e juros Selic (Lei 9.430/1996, art. 61). O valor a pagar está no sistema de origem (Fiscal) e o atualizado sai no Sicalc.";
-    else if (dias < 0) estimativa = "Declaração em atraso: há multa por atraso na entrega; transmita o quanto antes.";
+    else if (dias < 0) estimativa = estimativaMultaDeclaracaoLR(o, hoje, bases) || null;
     const quando = dias > 0 ? `vence em ${dias} dia(s) (${dataBR(o.vencimento)})` : dias === 0 ? `vence HOJE (${dataBR(o.vencimento)})` : `ATRASADA há ${-dias} dia(s) (venceu em ${dataBR(o.vencimento)})`;
     const nivel: NivelAlerta = o.bloqueada || dias <= 3 || semConfirmar && dias <= 10 ? "vermelho" : "amarelo";
     out.push({ obrigacaoId: o.id, nivel, titulo: `${o.descricao}: ${quando}`, texto: o.bloqueada ? `GUIA BLOQUEADA até você decidir: ${o.motivoBloqueio}` : o.oQueFalta, vencimento: o.vencimento, dias, multaCentavos: multa, jurosCentavos: juros, totalCentavos: total, estimativa });
@@ -435,11 +450,19 @@ export async function painelCentral(deps: DepsCentral, cnpj: string, ano: number
   const extras = obrigacoesExtras(ano, await listarJcp(q, cnpj, ano), await listarRetencoes(q, cnpj, ano), baixas);
   const obrigacoes = [...montarObrigacoes(ano, { hoje, config, apuracoes, pagamentos, pisCofinsFiscal, competenciasComSaida, entregasSped: payload?.empresa?.entregasSped || {}, baixas, bloqueios }), ...extras]
     .sort((a, b) => a.vencimento.localeCompare(b.vencimento) || a.id.localeCompare(b.id));
-  const alertas = alertasDasObrigacoes(obrigacoes, hoje, await tabelaSelicContabil(q));
+  // Bases da multa por atraso da ECD (receita bruta do ano) e da ECF (lucro antes do IRPJ e da CSLL), pela própria contabilidade.
+  const bases: BasesMultaDeclaracao = { receitaBrutaPorAno: {}, lucroAntesIrpjCsllPorAno: {} };
+  if (payload) for (const a of [ano - 2, ano - 1]) {
+    const ms = mesesDaContabilidade(payload, a);
+    const rb = ms.reduce((t, m) => t + m.receitaBrutaCentavos, 0);
+    if (rb > 0) { bases.receitaBrutaPorAno![String(a)] = rb; bases.lucroAntesIrpjCsllPorAno![String(a)] = ms.reduce((t, m) => t + m.resultadoCentavos + m.irpjCentavos + m.csllCentavos, 0); }
+  }
+  const alertas = alertasDasObrigacoes(obrigacoes, hoje, await tabelaSelicContabil(q), bases);
   for (const d of divergencias.filter((x) => x.estado === "aberta")) alertas.unshift({ obrigacaoId: `divergencia:${d.id}`, nivel: "vermelho", titulo: `Diferença entre os sistemas em ${d.competencia}`, texto: d.explicacao, vencimento: "", dias: 0, multaCentavos: null, jurosCentavos: null, totalCentavos: null, estimativa: null });
   if (!config) alertas.unshift({ obrigacaoId: "config", nivel: "vermelho", titulo: "Lucro Real sem configuração", texto: "Configure a apuração (forma trimestral ou estimativa, obrigada ou optante, saldos de prejuízo) em Livros › Apuração do Lucro Real: sem isso o robô não apura o IRPJ/CSLL.", vencimento: "", dias: 0, multaCentavos: null, jurosCentavos: null, totalCentavos: null, estimativa: null });
   const pendenciasConhecidas = [
     "EFD-Contribuições não cumulativa (Lucro Real): o sistema NÃO gera o arquivo. Os registros C191/C195 (crédito sem o ICMS na base, Lei 14.592/2023) e o 1100 (controle do saldo credor) não têm Nota Técnica oficial com o passo a passo (procurado de novo em 23/11/2026 nos Documentos Técnicos da EFD-Contribuições em gov.br/sped). O arquivo é gerado no PVA da EFD-Contribuições; o valor do PIS/COFINS do mês sai pronto em Fiscal › Apuração e Guias.",
+    "Estimativa mensal pela receita bruta: o acréscimo de 10% da LC 224/2025 (receita acima de R$ 5 milhões no ano) NÃO é aplicado. A IN RFB 2.305/2025 e o Perguntas e Respostas da Receita sobre a LC 224 (v5, pergs. 11 a 14) tratam do acréscimo no Lucro Presumido e não falam da estimativa do Lucro Real; sem texto oficial, o sistema não aplica. Se a empresa passar de R$ 5 milhões no ano, confirme com a Receita.",
     "Retenções como tomadora: vêm das NFS-e tomadas (rascunho da EFD-Reinf do Fiscal, padrão ABRASF), pela data de emissão. NFS-e do padrão Nacional e pagamento a pessoa física (R-4010) não entram: confira à parte.",
   ];
   return { obrigacoes, alertas, divergencias, pendenciasConhecidas };
