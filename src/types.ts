@@ -328,6 +328,9 @@ export type OrigemMapeadaContabil =
   | "fiscal_cofins_entidade"
   | "fiscal_iss_proprio"
   | "fiscal_iss_retido_tomador"
+  | "fiscal_ipi_recolher"
+  | "fiscal_icms_st_entrada"
+  | "fiscal_icms_st_recuperar"
   | "fiscal_das_simples_encargos";
 
 export interface MapeamentoOrigemContabil {

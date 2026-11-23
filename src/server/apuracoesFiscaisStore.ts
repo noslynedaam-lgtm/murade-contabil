@@ -25,6 +25,9 @@ const TRIBUTOS_ACEITOS = new Set([
   // ISS municipal apurado no Fiscal pelas NFS-e (src/server/issMunicipal.ts de lá), mês encerrado: provisão do ISS próprio a recolher e do
   // ISS que a empresa reteve como tomadora (LC 116/2003, art. 6º). Referência ISS:<proprio|retido>:<IBGE>:<AAAA-MM>.
   "ISS_PROPRIO", "ISS_RETIDO_TOMADOR",
+  // IPI a recolher (apuração do industrial no Fiscal, mês encerrado e sem pendência) e ICMS-ST de outros estados (empresa de Goiás): ST devida
+  // na entrada (provisão) e ST a recuperar (ressarcimento/restituição confirmados). Referências IPI:<AAAA-MM> e ICMSST:<entrada|recuperar>:<AAAA-MM>.
+  "IPI_A_RECOLHER", "ICMS_ST_ENTRADA", "ICMS_ST_RESSARCIR",
   // Pagamento dos DARF (registrado no Fiscal), como o DAS_SIMPLES_PAGO: principal baixa o "a recolher"; multa e juros à parte.
   "IRPJ_PRESUMIDO_PAGO", "CSLL_PRESUMIDO_PAGO", "PIS_PRESUMIDO_PAGO", "COFINS_PRESUMIDO_PAGO", "PIS_NC_PAGO", "COFINS_NC_PAGO",
 ]);

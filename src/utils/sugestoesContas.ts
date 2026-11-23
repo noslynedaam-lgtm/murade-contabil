@@ -110,6 +110,10 @@ export const SUGESTOES_CONTAS_POR_ORIGEM: Record<OrigemMapeadaContabil, RegraOri
   // ISS municipal: sem código fixo; a contadora escolhe as contas na revisão das origens.
   fiscal_iss_proprio: [],
   fiscal_iss_retido_tomador: [],
+  // IPI e ICMS-ST: sem código fixo; a contadora escolhe as contas na revisão das origens.
+  fiscal_ipi_recolher: [],
+  fiscal_icms_st_entrada: [],
+  fiscal_icms_st_recuperar: [],
 };
 
 /** Mantido por compatibilidade: primeira regra de cada origem (plano simples/Ferragista). */
