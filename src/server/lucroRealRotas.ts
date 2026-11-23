@@ -2,6 +2,7 @@
 // escritório da pessoa; perfil somente leitura não grava; reabrir é do administrador.
 import type express from "express";
 import { acessoEmpresa } from "./escrituracaoRotas";
+import { periodoBloqueado } from "./centralLucroReal";
 import {
   adicionarLancamentoLalur, apurarAnoLucroReal, calcularJcp, confirmarApuracaoReal, excluirLancamentoLalur, itensProvisaoReal, lerConfigLucroReal,
   listarApuracoesReal, listarLancamentosLalur, listarPagamentosReal, listarContasParteB, criarContaParteB, excluirContaParteB, saldosParteB, parteBDoAno, registrarPagamentoReal, reabrirApuracaoReal, salvarConfigLucroReal, BUCKET_ESTIMATIVA, CONFIG_LR_PADRAO, type DepsLucroReal,
@@ -93,6 +94,10 @@ export function registrarRotasLucroReal(app: express.Express, mw: { exigirSessao
     const ano = anoDe(req.body?.ano); const periodo = String(req.body?.periodo ?? "");
     if (!ano || !/^(T0[1-4]|A(0[1-9]|1[0-2])|ANUAL)$/.test(periodo)) return res.status(400).json({ sucesso: false, motivo: "Informe o ano e o período." });
     try {
+      // Conferidor cruzado (Central do Lucro Real): com diferença aberta entre Fiscal, DP e Contábil no período, ou o segundo caminho
+      // do IRPJ/CSLL sem bater, a guia fica BLOQUEADA até o contador decidir cada diferença.
+      const bloqueio = await periodoBloqueado(consultar, a.cnpj, ano, periodo);
+      if (bloqueio) return res.status(409).json({ sucesso: false, motivo: `Guia bloqueada: ${bloqueio}` });
       const l = await confirmarApuracaoReal(consultar, a.cnpj, ano, periodo, a.sessao.login);
       if (!l) return res.status(409).json({ sucesso: false, motivo: "Não há cálculo pronto para confirmar (prévia de mês não fechado, item para revisar ou já confirmado)." });
       const itens = itensProvisaoReal(l);
@@ -126,6 +131,8 @@ export function registrarRotasLucroReal(app: express.Express, mw: { exigirSessao
       const d = l?.resultado?.darfs?.find((x: any) => x.tributo === req.params.tributo);
       if (!l || !d) return res.status(404).json({ sucesso: false, motivo: "DARF não encontrado." });
       const linhas: Array<[string, string]> = [["CNPJ", a.cnpj], ["Período de apuração", dataBR(d.periodoApuracao)], ["Código da receita", d.codigo || "A INFORMAR (obrigada ou optante?)"], ["Descrição", d.descricao], ["Vencimento", dataBR(d.vencimento)], ["Valor principal", reais(d.valorCentavos)], ["Situação da apuração", l.status === "confirmado" ? "Confirmada" : "AINDA NÃO CONFIRMADA"]];
+      const bloqueio = await periodoBloqueado(consultar, a.cnpj, ano!, String(req.params.periodo));
+      if (bloqueio) linhas.unshift(["ATENÇÃO", `GUIA BLOQUEADA — ${bloqueio}`]);
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       return res.send(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>DARF para conferência</title><style>body{font-family:sans-serif;max-width:640px;margin:24px auto}td{padding:6px;border-bottom:1px solid #ddd}.t{background:#fff3cd;padding:8px;border:1px solid #e0b000}</style></head><body><h2>DARF — ${esc(d.tributo.toUpperCase())} Lucro Real</h2><p class="t">Este documento NÃO é a guia oficial e não tem código de barras. Confira e emita a guia no Sicalc Web da Receita Federal. Fonte do código e do vencimento: ${esc(d.fonte)}.</p><table>${linhas.map(([k, v]) => `<tr><td><b>${esc(k)}</b></td><td>${esc(v)}</td></tr>`).join("")}</table></body></html>`);
     } catch (e) { return falha(res, e, "Não foi possível montar o documento."); }

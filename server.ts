@@ -1,3 +1,9 @@
+import { registrarRotasCentralLucroReal } from "./src/server/centralLucroRealRotas";
+import { atualizarSelicContabil, painelCentral, rodarCentralLucroReal, type DepsCentral } from "./src/server/centralLucroReal";
+// Preenchido quando as rotas do Lucro Real são montadas (a saudação da Agente usa para lembrar os avisos vermelhos).
+let centralLRParaSaudacao: { deps: DepsCentral; empresas: (cnpjs?: string[]) => Promise<string[]> } | null = null;
+const depsCentralLRSaudacao = (): DepsCentral => { if (!centralLRParaSaudacao) throw new Error("Central do Lucro Real ainda não montada."); return centralLRParaSaudacao.deps; };
+const empresasLucroRealSaudacao = async (cnpjs: string[]) => (centralLRParaSaudacao ? centralLRParaSaudacao.empresas(cnpjs) : []);
 import { registrarRotaVozGemini } from './src/server/vozGeminiTTS';
 import express from "express";
 import path from "path";
@@ -1246,7 +1252,16 @@ const reconciliacaoRascunhosStatus: {
       if (!perfil.nome) return res.json({ sucesso: true, precisaNome: false, saudar: false });
       if (perfil.saudadoHoje) return res.json({ sucesso: true, precisaNome: false, saudar: false, nome: perfil.nome });
       await marcarSaudadoHojeContabil(sessao.userId);
-      return res.json({ sucesso: true, precisaNome: false, saudar: true, nome: perfil.nome, frase: fraseDeSaudacao(perfil.nome) });
+      // Central do Lucro Real: a Agente começa o dia pelos avisos vermelhos (sem confirmar, vencendo, vencidos, guia bloqueada).
+      let lembreteLR = "";
+      try {
+        const ano = Number(new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 4)); let n = 0; let primeiro = "";
+        for (const cnpj of (await empresasLucroRealSaudacao(sessao.cnpjs.map((c: string) => String(c).toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 50)) {
+          const v = (await painelCentral(depsCentralLRSaudacao(), cnpj, ano)).alertas.filter((x) => x.nivel === "vermelho"); n += v.length; if (!primeiro && v[0]) primeiro = v[0].titulo;
+        }
+        if (n) lembreteLR = ` Atenção: ${n} aviso(s) vermelho(s) do Lucro Real. O primeiro: ${primeiro}. Quer que eu leia todos?`;
+      } catch { /* a saudação nunca falha por causa do lembrete */ }
+      return res.json({ sucesso: true, precisaNome: false, saudar: true, nome: perfil.nome, frase: fraseDeSaudacao(perfil.nome) + lembreteLR });
     } catch (error) { console.error("Falha na saudação da Agente IA do Contábil:", error instanceof Error ? error.message : error); return res.json({ sucesso: false }); }
   });
   app.post("/api/ai/agente/nome", exigirSessaoContabil, async (req, res) => {
@@ -1387,6 +1402,30 @@ const reconciliacaoRascunhosStatus: {
   registrarRotinaManual("prazo_guarda", rodarPrazoGuarda);
   setTimeout(rodarPrazoGuarda, 170_000).unref();
   setInterval(rodarPrazoGuarda, 24 * 60 * 60_000).unref();
+  // Central do Lucro Real: obrigações com vencimento, avisos que insistem até a confirmação e a baixa, conferidor Fiscal × DP × Contábil
+  // (bloqueia a guia até o contador decidir) e o IRPJ/CSLL refeito por um segundo caminho.
+  const empresasLucroReal = async (cnpjs?: string[]) => {
+    const r = await consultaBancoContabil(`SELECT cnpj FROM contabil_company_workspaces WHERE (payload->'empresa'->>'regime') ILIKE '%real%'${cnpjs ? " AND cnpj = ANY($1::text[])" : ""} UNION SELECT cnpj FROM contabil_lucro_real_config${cnpjs ? " WHERE cnpj = ANY($1::text[])" : ""}`, cnpjs ? [cnpjs] : []).catch(() => ({ rows: [] as any[] }));
+    return [...new Set(r.rows.map((x: any) => String(x.cnpj).trim()))];
+  };
+  const depsCentralLR = { consultar: depsLucroReal.consultar, hoje: depsLucroReal.hoje, lerWorkspace: depsLucroReal.lerWorkspace };
+  centralLRParaSaudacao = { deps: depsCentralLR, empresas: empresasLucroReal };
+  registrarRotasCentralLucroReal(app, { exigirSessao: exigirSessaoContabil, exigirOrigem: exigirOrigemNavegador }, { ...depsCentralLR, sessao: (req) => sessaoDaRequisicaoContabil(req) ?? undefined, empresasLucroReal: (cnpjs) => empresasLucroReal(cnpjs) });
+  registrarRobo({ id: "central_lucro_real", nome: "Robô Conferidor da Central do Lucro Real", posto: "conferidor", missao: "De 2 em 2 horas, em cada empresa do Lucro Real (cada escritório só vê as suas): lista todas as obrigações (IRPJ/CSLL, PIS/COFINS não cumulativos, DCTFWeb, EFD-Contribuições até 12/2026, ECD e ECF) com vencimento e fonte; confere a receita do balancete com as notas de saída do Fiscal, a folha do DP com o contabilizado e se o PIS/COFINS do mês foi confirmado no Fiscal; refaz o IRPJ/CSLL por um segundo caminho e, se não der igual ao centavo, avisa. Diferença aberta BLOQUEIA a guia até o contador decidir. Avisa todo dia o que não foi confirmado e aos 10, 5, 3 e 1 dia, no dia e todo dia de atraso (com multa e juros estimados, Lei 9.430/96, art. 61). Uma vez por dia lê a Selic oficial no Banco Central (SGS 4390). Só lê; nunca paga nem transmite.", intervaloMs: 2 * 60 * 60_000 });
+  let ultimaSelicLR = "";
+  const rodarCentralLR = () => void executarRobo("central_lucro_real", async () => {
+    if (!bancoContabilConfigurado()) return;
+    const hoje = depsLucroReal.hoje(); let selicTxt = "";
+    if (ultimaSelicLR !== hoje) {
+      try { const n = await atualizarSelicContabil(depsLucroReal.consultar, async (url) => { const r = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(20_000) }); if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }); ultimaSelicLR = hoje; selicTxt = ` Selic oficial lida no Banco Central (${n} mês(es)).`; }
+      catch (e: any) { selicTxt = ` A Selic do Banco Central não respondeu (${String(e?.message || e).slice(0, 80)}); juros de atraso podem ficar sem estimativa até a próxima rodada.`; }
+    }
+    const r = await rodarCentralLucroReal(depsCentralLR, () => empresasLucroReal());
+    registrarResultadoRobo("central_lucro_real", `${r.alertasVermelhos || r.divergencias || r.doisCaminhos ? "ATENÇÃO: " : ""}${r.resumo}${selicTxt}`);
+  }).catch((e) => console.error("Falha no Robô Conferidor da Central do Lucro Real:", e?.message || e));
+  registrarRotinaManual("central_lucro_real", rodarCentralLR);
+  setTimeout(rodarCentralLR, 260_000).unref();
+  setInterval(rodarCentralLR, 2 * 60 * 60_000).unref();
   registrarRobo({ id: "lucro_real", nome: "Robô do Lucro Real", posto: "calculador", missao: "Apurar sozinho o IRPJ e a CSLL do Lucro Real de cada empresa configurada (estimativa mensal pela receita ou pelo balancete de suspensão/redução, ou trimestral), com e-Lalur/e-Lacs e saldos de prejuízo fiscal e base negativa, deixando tudo pronto para a contadora confirmar. Nunca confirma, paga nem transmite.", intervaloMs: 6 * 60 * 60_000 });
   const rodarRoboLucroRealAgora = () => void executarRobo("lucro_real", async () => {
     if (!bancoContabilConfigurado()) return;

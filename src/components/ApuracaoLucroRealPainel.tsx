@@ -1,3 +1,4 @@
+import { CentralLucroRealPainel } from "./CentralLucroRealPainel";
 import React, { useCallback, useEffect, useState } from "react";
 import { useExclusaoDuasEtapas } from "./ConfirmaExclusaoDuasEtapas";
 
@@ -50,6 +51,7 @@ export const ApuracaoLucroRealPainel: React.FC<{ cnpj: string; ano: number; empr
   return (
     <section className="space-y-3 rounded-xl border border-[#E5E6EB] bg-white p-3 sm:p-4" data-campo="apuracao-lucro-real">
       {dialogo}
+      <CentralLucroRealPainel cnpj={cnpj} ano={ano} />
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div><h3 className="text-sm font-bold">Apuração do Lucro Real (IRPJ e CSLL) — {ano}</h3>
           <p className="text-[11px] text-[#86909C]">O robô calcula sozinho a cada 6 horas pela contabilidade. Aqui você configura, lança adições e exclusões, apura na hora e confirma. Nada é pago nem transmitido.</p></div>

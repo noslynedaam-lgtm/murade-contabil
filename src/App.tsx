@@ -12,6 +12,7 @@ import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import { EVENTO_ABRIR_ROBOS } from "./components/RobotSidebar";
 import { FaixaEcd } from "./components/FaixaEcd";
+import { FaixaLucroReal } from "./components/FaixaLucroReal";
 import { ErroTela } from "./components/ErroTela";
 import { AvisoServicoFeito } from "./components/AvisoServicoFeito";
 import { fetchComGuarda, tratarBloqueioServico } from "./utils/servicoFeitoCliente";
@@ -980,6 +981,7 @@ function AppWorkspace() {
         <div className="flex-1 overflow-y-auto overscroll-contain content-scroll">
           <AlertaRobosParados />
           <FaixaEcd cnpj={empresa.cnpj} onAbrir={() => setTabAtiva("livros" as TabId)} />
+          <FaixaLucroReal onAbrir={() => setTabAtiva("livros" as TabId)} />
           <AvisosBackupEscritorio api="/api/contabil/backup-agendado" sistema="contabil" aoAbrirBackup={() => setTabAtiva("backups")} />
           <main className="p-2 sm:p-3 w-full mx-auto">
             {/* Grid Principal: 2 Colunas (Área de Trabalho + Sidebar do Robô) */}
