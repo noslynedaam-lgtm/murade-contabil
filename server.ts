@@ -1,3 +1,4 @@
+import { enviarExtratoParaBaixa } from "./src/server/baixaGuiasFiscal";
 import { registrarRotasCentralLucroReal } from "./src/server/centralLucroRealRotas";
 import { atualizarSelicContabil, painelCentral, rodarCentralLucroReal, type DepsCentral } from "./src/server/centralLucroReal";
 import { conferirAvisosCelular, enviarAvisosCelular, enviarPeloFiscal, type ItemAviso as ItemAvisoLR } from "./src/server/avisoCelularLucroReal";
@@ -1483,7 +1484,8 @@ const reconciliacaoRascunhosStatus: {
     return res.json({ sucesso: true, mensagem: "Robô disparado. O resultado aparece no painel em instantes." });
   });
   // Escrituração avançada: várias partidas, histórico e lançamento padrão, encerramento, Livro Caixa e conciliação bancária.
-  registrarRotasEscrituracao(app, { exigirOrigemNavegador, exigirSessaoContabil, consultar: (sql, params) => consultaBancoContabil(sql, params) });
+  // Extrato importado: na hora, confere os movimentos com as guias do aplicativo do cliente no Fiscal (baixa pelo extrato; ver baixaGuiasFiscal.ts).
+  registrarRotasEscrituracao(app, { exigirOrigemNavegador, exigirSessaoContabil, consultar: (sql, params) => consultaBancoContabil(sql, params), aoImportarExtrato: (cnpj) => { setTimeout(() => void enviarExtratoParaBaixa((sql, params) => consultaBancoContabil(sql, params), { cnpjs: [cnpj] }).catch((e) => console.error("Falha na baixa das guias pelo extrato:", e?.message || e)), 1_000).unref(); } });
   // Ler foto ou PDF de documento (recibo, boleto pago, nota de despesa, comprovante) → pré-lançamento para conferir (Lançamentos › Ler documento).
   // A IA só transcreve (modelo completo, temperatura 0); o servidor confere e o que não der para confiar fica em branco.
   const lerDocumentoComGemini = (): LerComIA | null => {
@@ -2281,6 +2283,8 @@ const reconciliacaoRascunhosStatus: {
   const rodarEncerramento = () => bancoContabilConfigurado() ? executarRobo("encerramento", async () => registrarResultadoRobo("encerramento", await roboEncerramento(consultarEscrituracao))).catch((e) => console.error("Falha no Robô do Encerramento:", e?.message || e)) : undefined;
   registrarRobo({ id: "conciliacao", nome: "Robô da Conciliação Bancária", posto: "conferidor", missao: "Olhar o extrato guardado de cada empresa e sugerir, para cada movimento sem conciliação, o lançamento aprovado que casa (mesmo sentido e valor) ou a conta pela regra do escritório (quando o histórico tiver o texto) ou pelo histórico. Só grava sugestão: conciliar e lançar é sempre uma pessoa.", ...(bancoContabilConfigurado() ? { intervaloMs: 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
   const rodarConciliacao = () => bancoContabilConfigurado() ? executarRobo("conciliacao", async () => registrarResultadoRobo("conciliacao", await roboConciliacao(consultarEscrituracao))).catch((e) => console.error("Falha no Robô da Conciliação:", e?.message || e)) : undefined;
+  registrarRobo({ id: "baixa_guias_extrato", nome: "Robô da Baixa das Guias pelo Extrato", posto: "integrador", missao: "De hora em hora (e logo depois de cada extrato importado) manda ao Murad Fiscal os movimentos dos últimos 60 dias do extrato bancário guardado de cada empresa. O Fiscal baixa a guia do aplicativo do cliente só quando o débito tem o mesmo valor e a mesma data da guia ou o código dela no histórico, e o honorário quando o crédito cai no extrato do banco do escritório. O que serve para mais de uma guia fica para o contador. Não mexe no extrato, na conciliação nem nos lançamentos e não consulta o Serpro.", ...(bancoContabilConfigurado() ? { intervaloMs: 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  const rodarBaixaGuiasExtrato = () => bancoContabilConfigurado() ? executarRobo("baixa_guias_extrato", async () => { const r = await enviarExtratoParaBaixa((sql, params) => consultaBancoContabil(sql, params)); definirAlertaRobo("baixa_guias_extrato", r.atencao ? { nivel: "aviso", texto: r.resumo } : null); registrarResultadoRobo("baixa_guias_extrato", r.resumo); }).catch((e) => console.error("Falha no Robô da Baixa das Guias pelo Extrato:", e?.message || e)) : undefined;
   registrarRobo({ id: "conferidor_extratos_pdf", nome: "Robô Conferidor dos Extratos em PDF", posto: "conferidor", missao: "De 6 em 6 horas, em cada empresa que importou extrato bancário em PDF, confere se os movimentos guardados de cada extrato ainda somam o saldo final menos o saldo inicial (nenhum sumiu) e se o saldo inicial de um extrato é o saldo final do anterior da mesma conta (sem extrato faltando no meio). Só lê; o extrato em PDF só entra quando saldo inicial + movimentos = saldo final.", ...(bancoContabilConfigurado() ? { intervaloMs: 6 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
   const rodarConferidorExtratosPdf = () => bancoContabilConfigurado() ? executarRobo("conferidor_extratos_pdf", async () => { const t = await roboConferidorExtratosPdf(consultarEscrituracao); definirAlertaRobo("conferidor_extratos_pdf", t.startsWith("ATENÇÃO") ? { nivel: "aviso", texto: t } : null); registrarResultadoRobo("conferidor_extratos_pdf", t); }).catch((e) => console.error("Falha no Conferidor dos Extratos em PDF:", e?.message || e)) : undefined;
   // Fisco IA → Contábil: conferidor (só lê) dos itens recebidos (guias, dívida ativa e parcelamentos consultados por clique no Integra Contador).
@@ -2336,6 +2340,8 @@ const reconciliacaoRascunhosStatus: {
     registrarRotinaManual("conferidor_fiscoia", rodarConferidorFiscoIa);
     setTimeout(() => void rodarConferidorPagoAMaior(), 240_000).unref(); setInterval(() => void rodarConferidorPagoAMaior(), 6 * 60 * 60_000).unref();
     registrarRotinaManual("conferidor_pago_a_maior", rodarConferidorPagoAMaior);
+    setTimeout(() => void rodarBaixaGuiasExtrato(), 225_000).unref(); setInterval(() => void rodarBaixaGuiasExtrato(), 60 * 60_000).unref();
+    registrarRotinaManual("baixa_guias_extrato", rodarBaixaGuiasExtrato);
   }
 
   // Demonstrações e relatórios (DFC, DMPL, notas, índices, relatório para o cliente, painel do escritório, ECF Y/Parte B).
