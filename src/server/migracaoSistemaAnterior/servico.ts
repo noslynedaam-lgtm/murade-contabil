@@ -61,6 +61,8 @@ export function iniciarLimpezaMigracaoContabil(): void {
 function obter(token: unknown, userId: string): Sessao {
   const s = sessoes.get(String(token || ''));
   if (!s || s.userId !== userId) throw new Error('Este envio não foi encontrado (pode ter vencido em 2 horas). Escolha o arquivo de novo.');
+  // O prazo conta do ÚLTIMO uso (lista, prévia, gravação), não do envio: quem está trabalhando não perde o arquivo no meio.
+  s.criadoEm = Date.now();
   return s;
 }
 
