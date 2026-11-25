@@ -113,6 +113,12 @@ export const SUGESTOES_CONTAS_POR_ORIGEM: Record<OrigemMapeadaContabil, RegraOri
   fiscal_parcelamento_adesao: [],
   fiscal_parcelamento_parcela: [],
   fiscal_parcelamento_juros: [],
+  // Do Fisco IA (Integra Contador): sem código fixo; a contadora escolhe as contas na revisão das origens.
+  fiscoia_debito: [],
+  fiscoia_multa_juros: [],
+  fiscoia_divida_ativa: [],
+  fiscoia_parc_consolidacao: [],
+  fiscoia_parc_parcela: [],
   fiscal_iss_retido_tomador: [],
   // IPI e ICMS-ST: sem código fixo; a contadora escolhe as contas na revisão das origens.
   fiscal_ipi_recolher: [],

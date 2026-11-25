@@ -60,6 +60,11 @@ export const ORIGENS = [
   { id: "fiscal_parcelamento_adesao", rotulo: "Fiscal — Parcelamento (consolidação dos débitos)" },
   { id: "fiscal_parcelamento_parcela", rotulo: "Fiscal — Parcelamento (parcela paga)" },
   { id: "fiscal_parcelamento_juros", rotulo: "Fiscal — Parcelamento (juros e encargos da parcela)" },
+  { id: "fiscoia_debito", rotulo: "Fisco IA — Débito da guia consultada (provisão)" },
+  { id: "fiscoia_multa_juros", rotulo: "Fisco IA — Multa e juros da guia consultada" },
+  { id: "fiscoia_divida_ativa", rotulo: "Fisco IA — Débito em dívida ativa (provisão)" },
+  { id: "fiscoia_parc_consolidacao", rotulo: "Fisco IA — Parcelamento (consolidação)" },
+  { id: "fiscoia_parc_parcela", rotulo: "Fisco IA — Parcelamento (parcela paga)" },
   { id: "fiscal_das_simples", rotulo: "Fiscal — DAS Simples (provisão)" },
   { id: "fiscal_das_simples_pago", rotulo: "Fiscal — DAS Simples (pagamento)" },
   { id: "fiscal_das_simples_encargos", rotulo: "Fiscal — DAS Simples (multa e juros)" },
@@ -113,6 +118,12 @@ export const ORIGEM_POR_TRIBUTO: Record<string, IdOrigem> = {
   DAS_SIMPLES_PAGO: "fiscal_das_simples_pago",
   PARCELAMENTO_ADESAO: "fiscal_parcelamento_adesao",
   PARCELAMENTO_PARCELA_PAGA: "fiscal_parcelamento_parcela",
+  // Do Fisco IA (consultas ao Integra Contador feitas por clique): guias, dívida ativa e parcelamentos — ver apuracoesFiscaisStore.ts.
+  FIA_DEBITO: "fiscoia_debito",
+  FIA_MULTA_JUROS: "fiscoia_multa_juros",
+  FIA_DIVIDA_ATIVA: "fiscoia_divida_ativa",
+  FIA_PARC_CONSOLIDACAO: "fiscoia_parc_consolidacao",
+  FIA_PARC_PARCELA_PAGA: "fiscoia_parc_parcela",
 };
 /** Pagamentos de DARF vindos do Fiscal (mesmo tratamento do DAS_SIMPLES_PAGO, com a multa/juros em fiscal_darf_encargos). */
 export const TRIBUTOS_DARF_PAGO = new Set(["IRPJ_PRESUMIDO_PAGO", "CSLL_PRESUMIDO_PAGO", "PIS_PRESUMIDO_PAGO", "COFINS_PRESUMIDO_PAGO", "PIS_NC_PAGO", "COFINS_NC_PAGO", "IRPJ_REAL_PAGO", "CSLL_REAL_PAGO"]);

@@ -36,6 +36,12 @@ const TRIBUTOS_ACEITOS = new Set([
   "PARCELAMENTO_ADESAO", "PARCELAMENTO_PARCELA_PAGA",
 ]);
 
+// Do Fisco IA (rota própria POST /api/integracao/fiscoia/apuracoes): o que a pessoa consultou POR CLIQUE no Integra Contador e o Fisco IA
+// leu da resposta oficial — guia do DAS do MEI (principal e multa/juros), débito em dívida ativa e parcelamentos (consolidação e parcelas
+// pagas pelo demonstrativo da Receita). Referências FIA:...; a data vem na versão de origem ("data:AAAA-MM-DD:..."). O Fisco IA nunca manda
+// tributo do Fiscal, e o Fiscal nunca manda FIA_*.
+export const TRIBUTOS_FISCOIA = new Set(["FIA_DEBITO", "FIA_MULTA_JUROS", "FIA_DIVIDA_ATIVA", "FIA_PARC_CONSOLIDACAO", "FIA_PARC_PARCELA_PAGA"]);
+
 let pool: Pool | null | undefined;
 
 function obterPool(): Pool | null {
@@ -101,7 +107,7 @@ export interface ResultadoGravacaoApuracoes {
 }
 
 /** Persists tax assessments already confirmed by the accountant in Fiscal; never creates journal entries. */
-export async function gravarApuracoesFiscais(cnpj: string, apuracoes: any[]): Promise<ResultadoGravacaoApuracoes> {
+export async function gravarApuracoesFiscais(cnpj: string, apuracoes: any[], sistema: "fiscal" | "fiscoia" = "fiscal"): Promise<ResultadoGravacaoApuracoes> {
   const db = obterPool();
   if (!db) throw new Error("DATABASE_URL não configurada no Murad Contábil.");
   if (!cnpjContabilValido(cnpj)) throw new ErroValidacaoApuracaoFiscal("CNPJ inválido.");
@@ -114,7 +120,7 @@ export async function gravarApuracoesFiscais(cnpj: string, apuracoes: any[]): Pr
       throw new ErroValidacaoApuracaoFiscal("Apuração inválida; nenhum registro foi gravado.");
     }
     const tributo = String(item.tributo || "").trim().toUpperCase();
-    if (!TRIBUTOS_ACEITOS.has(tributo)) throw new ErroValidacaoApuracaoFiscal("Tributo não suportado; nenhum registro foi gravado.");
+    if (!(sistema === "fiscoia" ? TRIBUTOS_FISCOIA : TRIBUTOS_ACEITOS).has(tributo)) throw new ErroValidacaoApuracaoFiscal("Tributo não suportado; nenhum registro foi gravado.");
     const competencia = String(item.competencia || "").trim();
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(competencia)) throw new ErroValidacaoApuracaoFiscal("Competência inválida; use AAAA-MM.");
     const referencia = String(item.referencia || "").trim();
@@ -143,13 +149,13 @@ export async function gravarApuracoesFiscais(cnpj: string, apuracoes: any[]): Pr
     await client.query("BEGIN");
     for (const item of ordenados) {
       const r = await client.query(`
-        INSERT INTO murade_apuracoes_fiscais_origem (cnpj, tributo, competencia, referencia_origem, valor_centavos, base_centavos, situacao, versao_origem)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        INSERT INTO murade_apuracoes_fiscais_origem (cnpj, tributo, competencia, referencia_origem, valor_centavos, base_centavos, situacao, versao_origem, origem)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
         ON CONFLICT (cnpj, tributo, competencia, referencia_origem) DO UPDATE SET
           valor_centavos=$5, base_centavos=$6, situacao=$7, versao_origem=$8, atualizado_em=now()
         WHERE murade_apuracoes_fiscais_origem.versao_origem <> $8
         RETURNING (xmax = 0) AS inserido
-      `, [cnpj, item.tributo, item.competencia, item.referencia, item.valorCentavos, item.baseCentavos, item.situacao, item.versaoOrigem]);
+      `, [cnpj, item.tributo, item.competencia, item.referencia, item.valorCentavos, item.baseCentavos, item.situacao, item.versaoOrigem, sistema === "fiscoia" ? "Murad Fisco IA" : "Murad Fiscal"]);
       if (r.rowCount) { if (r.rows[0]?.inserido) novos += 1; else atualizados += 1; }
       else inalterados += 1;
     }

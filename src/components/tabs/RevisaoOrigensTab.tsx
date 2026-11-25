@@ -1,4 +1,5 @@
 import { ITENS_FOLHA_DP, conciliarResumoFolhaDP } from "../../utils/origensContabeis";
+import { FiscoIaItensPainel } from "../FiscoIaItensPainel";
 import { sugerirMapeamentosPadrao } from "../../utils/sugestoesContas";
 import { confirmarNaTela } from "../../utils/dialogoNaTela";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -57,6 +58,11 @@ const origensMapeaveis: Array<{ id: OrigemMapeadaContabil; titulo: string; descr
   { id: "fiscal_parcelamento_adesao", titulo: "Parcelamento — consolidação dos débitos (cadastrado no Fiscal)", descricao: "Débito: Tributos a Recolher (o débito que entrou no parcelamento; multa e juros já lançados ficam junto) ou Despesas com multas e juros, se ainda não estavam no passivo; Crédito: Parcelamentos de Tributos a Pagar (passivo). Valor consolidado no dia da adesão." },
   { id: "fiscal_parcelamento_parcela", titulo: "Parcelamento — parcela paga (amortização do principal)", descricao: "Débito: Parcelamentos de Tributos a Pagar (passivo); Crédito: Banco/Caixa. Só a parte que amortiza o saldo consolidado." },
   { id: "fiscal_parcelamento_juros", titulo: "Parcelamento — juros e encargos da parcela paga", descricao: "Débito: Juros Passivos / Despesas Financeiras (resultado); Crédito: Banco/Caixa. Diferença entre o valor pago e a amortização (Selic acumulada e 1% do mês, quando houver)." },
+  { id: "fiscoia_debito", titulo: "Fisco IA — débito da guia consultada no Integra Contador (provisão)", descricao: "Débito: Despesas Tributárias (resultado) ou a conta do tributo; Crédito: Tributos a Recolher (passivo circulante). Só o principal da guia (DAS do MEI) consultada por clique no Fisco IA; não entra se o Fiscal já mandou a mesma provisão." },
+  { id: "fiscoia_multa_juros", titulo: "Fisco IA — multa e juros da guia em atraso", descricao: "Débito: Multas e Juros sobre Tributos (despesa); Crédito: Tributos a Recolher (passivo). Multa e juros calculados pela Receita na guia consultada." },
+  { id: "fiscoia_divida_ativa", titulo: "Fisco IA — débito inscrito em dívida ativa", descricao: "Débito: Despesas Tributárias (ou reclassificação de Tributos a Recolher); Crédito: Tributos em Dívida Ativa (passivo). Não entra quando a guia do mesmo mês já foi provisionada." },
+  { id: "fiscoia_parc_consolidacao", titulo: "Fisco IA — parcelamento consultado (consolidação)", descricao: "Débito: Tributos a Recolher (o que entrou no parcelamento); Crédito: Parcelamentos de Tributos a Pagar (passivo). Valor consolidado da Receita; não entra se o Fiscal já mandou o mesmo parcelamento com o mesmo valor." },
+  { id: "fiscoia_parc_parcela", titulo: "Fisco IA — parcela paga do parcelamento consultado", descricao: "Débito: Parcelamentos de Tributos a Pagar (passivo); Crédito: Banco/Caixa. Valor arrecadado da parcela, pelo demonstrativo da Receita; não entra se o Fiscal já mandou a mesma parcela." },
   { id: "fiscal_iss_proprio", titulo: "ISS a recolher do mês (apurado no Fiscal pelas NFS-e prestadas)", descricao: "Débito: ISS sobre Serviços, como dedução da receita bruta (resultado); Crédito: ISS a Recolher (passivo circulante). Só o ISS próprio que a empresa recolhe; o do Simples vai no DAS e não vem para cá." },
   { id: "fiscal_ipi_recolher", titulo: "IPI a recolher do mês (apurado no Fiscal: débitos das saídas − créditos das entradas)", descricao: "Crédito: IPI a Recolher (passivo circulante). Débito: a conta que o escritório usa para o saldo do IPI do mês (por exemplo, IPI a Recuperar ou IPI sobre Faturamento). Só vem o saldo devedor do mês, a partir de R$ 10,00." },
   { id: "fiscal_icms_st_entrada", titulo: "ICMS-ST devido na entrada (mercadoria de outro estado sem retenção)", descricao: "Crédito: ICMS-ST a Recolher (passivo circulante). Débito: Estoque de Mercadorias ou Custo, conforme o plano (para o substituído, a ST integra o custo da mercadoria)." },
@@ -698,6 +704,7 @@ export const RevisaoOrigensTab: React.FC<{
           <RefreshCw className={`h-4 w-4 ${carregando ? "animate-spin" : ""}`} /> Atualizar
         </button>
       </header>
+      <FiscoIaItensPainel cnpj={cnpj} />
 
       {cnpj && <ConferenciaOrigensPainel cnpj={cnpj} />}
 
