@@ -170,6 +170,8 @@ export interface EmpresaDados {
   contasDisponibilidadesCodigo?: string[];
   /** Classificação das contas para DFC, DMPL e índices escolhida pela contadora (código da conta → categoria). Sem escolha, vale a sugestão do sistema. */
   classificacaoDemonstracoes?: Record<string, string>;
+  /** DVA: linha escolhida pela contadora para cada conta de resultado (código da conta → linha do Modelo I do CPC 09 (R1)). Sem escolha, vale a sugestão (plano referencial ou descrição). */
+  classificacaoDva?: Record<string, string>;
   /** Notas explicativas por ano (modelo simples ME/EPP editado pela contadora). */
   notasExplicativas?: Record<string, import("./utils/demonstracoesAvancadas").NotasExplicativas>;
   /** ECF: Bloco Y (Y540/Y600) e Parte B do e-Lalur/e-Lacs por ano. */

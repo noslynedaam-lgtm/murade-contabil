@@ -63,6 +63,7 @@ import { resumoRelatorioAcessos, rodarConferidorAcessos } from "./src/server/con
 import { achadosEcdDoConferidor, rodarConferidorContabil } from "./src/server/conferidorContabil";
 import { empresasParadas, situacaoEmpresasContabil, textoAvisoParadas } from "./src/server/conferidorEmpresasParadas";
 import { registrarRotasDemonstracoes, rodarRoboDemonstracoes } from "./src/server/demonstracoesServidor";
+import { registrarRotasDva, rodarConferidorDva } from "./src/server/dvaServidor";
 import { conferirBackupsEscritorios } from "./src/server/conferidorBackupsContabil";
 import { gerarBackupEscritorio, listarBackupsEscritorio, baixarBackupEscritorio, periodoDe } from "./src/services/backupEscritorioContabilService";
 import { servicoBackupAgendadoContabil } from "./src/server/backupAgendadoContabil";
@@ -2201,6 +2202,25 @@ const reconciliacaoRascunhosStatus: {
     lerWorkspace: async (cnpj) => (await lerWorkspaceInternoContabil(cnpj)) as Record<string, any> | null,
     alterarWorkspace: (cnpj, alterar) => alterarWorkspaceNoServidorContabil(cnpj, alterar),
     dispararRobo: () => { const r = dispararRoboAgora("demonstracoes"); return "codigo" in r ? { ok: false, motivo: r.motivo } : { ok: true }; },
+  });
+
+  // DVA (CPC 09 (R1); Lei 6.404/1976, art. 176, V): conferidor de 6 em 6 horas (distribuído = gerado), "Rodar agora" com barra e rotas da tela e da Agente.
+  registrarRobo({ id: "conferidor_dva", nome: "Robô Conferidor da DVA", posto: "conferidor", missao: "De 6 em 6 horas, monta a DVA do ano anterior de cada empresa (CPC 09 (R1), Modelo I) pelas contas, pelo plano referencial e pela DRE e confere se o valor distribuído é igual ao valor gerado; aponta as contas de resultado sem linha da DVA. Na companhia aberta a DVA é obrigatória (Lei 6.404/1976, art. 176, V) e o aviso é mais forte. Só lê; nunca lança nada.", ...(bancoContabilConfigurado() ? { intervaloMs: 6 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  const rodarDva = () => bancoContabilConfigurado() ? executarRobo("conferidor_dva", async () => { const r = await rodarConferidorDva((sql, params) => consultaBancoContabil(sql, params)); definirAlertaRobo("conferidor_dva", r.resumo.startsWith("ATENÇÃO") ? { nivel: "aviso", texto: r.resumo } : null); registrarResultadoRobo("conferidor_dva", r.resumo); }).catch((e) => console.error("Falha no Conferidor da DVA:", e?.message || e)) : undefined;
+  if (bancoContabilConfigurado()) {
+    setTimeout(() => void rodarDva(), 245_000).unref(); setInterval(() => void rodarDva(), 6 * 60 * 60_000).unref();
+    registrarRotinaManual("conferidor_dva", rodarDva);
+  }
+  registrarRotasDva(app, { exigirSessao: exigirSessaoContabil, exigirOrigem: exigirOrigemNavegador }, {
+    sessao: (req) => {
+      const s = sessaoDaRequisicaoContabil(req);
+      if (!s) return undefined;
+      return { userId: s.userId, login: s.login, tenant: String(s.tenantId || s.escritorioDe || s.userId), cnpjs: s.cnpjs.map(normalizarCnpjAcesso), podeEscrever: (c) => s.administrador || s.memberships.find((m) => normalizarCnpjAcesso(m.cnpj) === c)?.role !== "viewer" };
+    },
+    normalizarCnpj: (v) => normalizarCnpjAcesso(String(v ?? "")),
+    consultar: (sql, params) => consultaBancoContabil(sql, params),
+    lerWorkspace: async (cnpj) => (await lerWorkspaceInternoContabil(cnpj)) as Record<string, any> | null,
+    alterarWorkspace: (cnpj, alterar) => alterarWorkspaceNoServidorContabil(cnpj, alterar),
   });
 
   registrarRotaVozGemini(app, { obterIA: () => getAI(), autorizar: () => true, antes: [exigirSessaoContabil] });

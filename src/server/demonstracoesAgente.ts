@@ -6,6 +6,7 @@
 //  - conferir_demonstracoes_agora (ação, cartão): dispara o Robô Conferidor das Demonstrações.
 // Nada aqui aprova, lança, fecha ou transmite.
 import { erroApi, ok, q, type Ferramenta } from './agenteMotor';
+import { ehLinhaDva, ROTULO_DVA } from '../utils/dva';
 
 const cnpjDe = (v: unknown): string | null => { const d = String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, ''); return /^[A-Z0-9]{12}\d{2}$/.test(d) ? d : null; };
 const competenciaDe = (v: unknown): string | null => { const t = String(v ?? '').trim(); let m = /^(\d{4})-(\d{2})$/.exec(t); if (m) return Number(m[2]) >= 1 && Number(m[2]) <= 12 ? t : null; m = /^(\d{2})\/(\d{4})$/.exec(t); return m && Number(m[1]) >= 1 && Number(m[1]) <= 12 ? `${m[2]}-${m[1]}` : null; };
@@ -88,6 +89,51 @@ export const FERRAMENTAS_DEMONSTRACOES: Ferramenta[] = [
       return ok(r) ? { sucesso: true, mensagem: String(r.corpo?.mensagem || 'Iniciado.') } : { sucesso: false, mensagem: erroApi(r).erro };
     },
   },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'consultar_dva', description: 'DVA (Demonstração do Valor Adicionado, CPC 09 (R1)): mostra, de UMA empresa e UM ano, a riqueza gerada (receitas, insumos, depreciação, transferências) e a distribuída (pessoal, impostos, juros/aluguéis, capitais próprios), se o distribuído é igual ao gerado e as contas de resultado sem linha da DVA. Obrigatória só para companhia aberta (Lei 6.404/1976, art. 176, V). Só lê.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, ano: { type: 'NUMBER', description: 'Ano (AAAA).' } }, required: ['cnpj', 'ano'] } },
+    async executar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); const ano = Number(args.ano);
+      if (!cnpj || !Number.isInteger(ano)) return { erro: 'Informe CNPJ e ano (AAAA).' };
+      const r = await ctx.chamarApi('GET', `/api/demonstracoes/${q(cnpj)}/dva?ano=${ano}`);
+      if (!ok(r)) return erroApi(r);
+      const d = r.corpo?.dva || {};
+      return { ano, resumo: d.resumo, fecha: d.completa, obrigatoria: d.obrigatoria, linhas: (d.linhasModelo || []).filter((l: any) => l.total).map((l: any) => ({ item: l.codigo, descricao: l.rotulo, valor: (l.centavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) })), pendentes: (d.pendentes || []).slice(0, 20).map((c: any) => `${c.codigo} ${c.descricao}`), avisos: d.avisos, fontes: (d.fontes || []).map((f: any) => f.nome), tela: 'Demonstrações e relatórios › DVA' };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'escolher_linha_dva', description: 'DVA: propõe gravar a linha da DVA de UMA conta de resultado (ex.: "Demais impostos" vai para impostos municipais). Linhas: 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4, 4, 6.1, 6.2, 6.3, 8.1.1, 8.1.2, 8.1.3, 8.2.1, 8.2.2, 8.2.3, 8.3.1, 8.3.2, 8.3.3, 8.4.1; vazio volta à sugestão. Vira cartão.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, conta: { type: 'STRING', description: 'Código da conta analítica.' }, linha: { type: 'STRING', description: 'Linha da DVA (ex.: 8.2.3) ou vazio.' } }, required: ['cnpj', 'conta'] } },
+    async preparar(_ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); const conta = String(args.conta || '').trim(); const linha = String(args.linha || '').trim();
+      if (!cnpj || !conta) return { erro: 'Informe CNPJ e a conta.' };
+      if (linha && !ehLinhaDva(linha)) return { erro: 'Linha da DVA inválida. Use, por exemplo, 8.2.1 (federais), 8.2.2 (estaduais), 8.2.3 (municipais).' };
+      return { cnpj, params: { cnpj, conta, linha }, titulo: `DVA: conta ${conta}`, descricao: [linha ? `Linha ${linha} — ${ROTULO_DVA[linha as keyof typeof ROTULO_DVA]}` : 'Volta para a sugestão do sistema.', 'Só muda a DVA; não mexe em lançamento nenhum.'], resumo: `Linha DVA ${conta} ${linha || 'sugestão'}` };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', `/api/demonstracoes/${q(String(params.cnpj))}/dva/classificar`, { conta: params.conta, linha: params.linha });
+      return ok(r) ? { sucesso: true, mensagem: String(r.corpo?.mensagem || 'Gravado.') } : { sucesso: false, mensagem: erroApi(r).erro };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'conferir_dva_agora', description: 'DVA: propõe rodar AGORA o Robô Conferidor da DVA nas empresas do usuário (o mesmo do botão "Rodar agora: conferir a DVA"): confere se o valor distribuído é igual ao valor gerado. Só lê. Vira cartão.', parameters: { type: 'OBJECT', properties: { ano: { type: 'NUMBER', description: 'Ano (AAAA). Sem ele, o ano anterior.' } } } },
+    async preparar(_ctx, args) {
+      const ano = Number(args.ano);
+      return { cnpj: '', params: Number.isInteger(ano) ? { ano } : {}, titulo: 'Conferir agora a DVA', descricao: [`Ano ${Number.isInteger(ano) ? ano : 'anterior'}, em cada empresa sua com movimento.`, 'Confere se o valor distribuído é igual ao valor gerado e lista as contas sem linha da DVA.', 'Só lê.'], resumo: 'Conferir DVA' };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', '/api/demonstracoes/dva/conferir-agora', params || {});
+      if (!ok(r)) return { sucesso: false, mensagem: erroApi(r).erro };
+      for (let i = 0; i < 40; i++) {
+        await new Promise((fim) => setTimeout(fim, 1500));
+        const g = await ctx.chamarApi('GET', '/api/demonstracoes/dva/conferir-agora');
+        const p = ok(g) ? g.corpo?.progresso : null;
+        if (p?.fim) return p.erro ? { sucesso: false, mensagem: `A conferência falhou: ${p.erro}` } : { sucesso: true, mensagem: String(p.resultado || 'Conferida.') };
+      }
+      return { sucesso: true, mensagem: 'A conferência continua rodando; o resultado aparece em Demonstrações e relatórios › DVA.' };
+    },
+  },
 ];
 
 export const INSTRUCAO_DEMONSTRACOES = `
@@ -98,4 +144,5 @@ DEMONSTRAÇÕES E RELATÓRIOS (tela "Demonstrações e relatórios")
 - Notas explicativas: preparar_notas_explicativas cria o modelo (cartão) e a contadora completa o que está entre colchetes na tela; nunca invente fato da empresa.
 - Classificação das contas para a DFC, Bloco Y (sócios Y600, receita por estabelecimento Y540) e Parte B do e-Lalur/e-Lacs (M010, M410, M500, com o saldo passando de um ano para o outro) são preenchidos na tela; você pode preencher_na_tela, quem salva é a pessoa.
 - Importar a ECD (TXT oficial) de outro sistema (o sistema anterior, Domínio...), é na tela Migração Contábil: a pessoa escolhe o arquivo; entram plano, saldos de abertura e lançamentos pendentes de aprovação, sem duplicar.
+- DVA (Demonstração do Valor Adicionado, CPC 09 (R1); obrigatória para companhia aberta pela Lei 6.404/1976, art. 176, V): consultar_dva mostra a riqueza gerada e a distribuída e se fecham; para a conta pendente use escolher_linha_dva (cartão, uma conta por vez) e para conferir conferir_dva_agora (cartão). PDF e Excel saem na tela Demonstrações e relatórios › DVA.
 - Para conferir tudo isso na hora, conferir_demonstracoes_agora (cartão).`;

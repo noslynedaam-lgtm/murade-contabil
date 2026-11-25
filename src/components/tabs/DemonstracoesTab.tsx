@@ -16,9 +16,10 @@ import { saldosParteB, type ComplementosEcfAno, type ContaParteB, type EstabY540
 import { confirmarNaTela, perguntarNaTela } from "../../utils/dialogoNaTela";
 import { useExclusaoDuasEtapas } from "../ConfirmaExclusaoDuasEtapas";
 import { CampoData, CampoMes } from '../CampoData';
+import { FONTES_DVA, LINHAS_DVA, ROTULO_DVA, calcularDva, linhasDaDva, resumoDva } from "../../utils/dva";
 
-type Aba = "dfc" | "dmpl" | "notas" | "indices" | "cliente" | "classificacao" | "ecf" | "painel";
-const ABAS: Array<[Aba, string]> = [["dfc", "DFC"], ["dmpl", "DMPL"], ["notas", "Notas explicativas"], ["indices", "Índices e gráficos"], ["cliente", "Relatório para o cliente"], ["classificacao", "Classificação das contas"], ["ecf", "ECF: Bloco Y e Parte B"], ["painel", "Painel do escritório"]];
+type Aba = "dfc" | "dmpl" | "dva" | "notas" | "indices" | "cliente" | "classificacao" | "ecf" | "painel";
+const ABAS: Array<[Aba, string]> = [["dfc", "DFC"], ["dmpl", "DMPL"], ["dva", "DVA"], ["notas", "Notas explicativas"], ["indices", "Índices e gráficos"], ["cliente", "Relatório para o cliente"], ["classificacao", "Classificação das contas"], ["ecf", "ECF: Bloco Y e Parte B"], ["painel", "Painel do escritório"]];
 const SECAO_ROTULO: Record<SecaoDfc, string> = { operacional: "Atividades operacionais", investimento: "Atividades de investimento", financiamento: "Atividades de financiamento", nao_classificada: "Contas sem classificação (classifique para fechar a DFC)" };
 const hoje = () => new Date().toISOString().slice(0, 7);
 const mesAnoBR = (c: string) => `${c.slice(5)}/${c.slice(0, 4)}`;
@@ -105,6 +106,42 @@ export const DemonstracoesTab: React.FC<Props> = ({ empresa, contas, lancamentos
     const titulo = `${dmpl.soDlpa ? "Demonstração dos Lucros ou Prejuízos Acumulados" : "Demonstração das Mutações do Patrimônio Líquido"} — ${dmpl.ano}`;
     if (tipo === "excel") baixar(`DMPL-${cnpj}-${dmpl.ano}.xls`, gerarWorkbookExcel([{ nome: "DMPL", linhas: [[titulo], [empresa.razaoSocial || "", `CNPJ ${empresa.cnpj}`], ["Descrição", ...COLUNAS_DMPL.map((c) => c.rotulo), "Total"], ...linhas.map((l) => [l.rotulo, ...COLUNAS_DMPL.map((c) => l.valores[c.id] / 100), l.total / 100])] }]), "application/vnd.ms-excel;charset=utf-8");
     else imprimir(titulo, `${cab}<h1>${escaparHtml(titulo)}</h1><table><tr><th>Descrição</th>${COLUNAS_DMPL.map((c) => `<th class="v">${c.rotulo}</th>`).join("")}<th class="v">Total</th></tr>${linhas.map((l, i) => `<tr${i === 0 || i === linhas.length - 1 ? ' class="forte"' : ""}><td>${escaparHtml(l.rotulo)}</td>${COLUNAS_DMPL.map((c) => `<td class="v">${moedaContabil(l.valores[c.id])}</td>`).join("")}<td class="v">${moedaContabil(l.total)}</td></tr>`).join("")}</table>`);
+  };
+
+  // ---------------- DVA (CPC 09 (R1); Lei 6.404/1976, art. 176, V) ----------------
+  const [rascunhoDva, setRascunhoDva] = useState<Record<string, string>>({});
+  const dvaGravada = (empresa as EmpresaDados & { classificacaoDva?: Record<string, string> }).classificacaoDva;
+  useEffect(() => setRascunhoDva({ ...(dvaGravada || {}) }), [dvaGravada, cnpj]);
+  const [soPendentesDva, setSoPendentesDva] = useState(false);
+  const dva = useMemo(() => (aba === "dva" ? calcularDva({ contas, lancamentos: lancs, de: `${ano}-01`, ate: `${ano}-12`, empresa, classificacao: rascunhoDva }) : null), [aba, contas, lancs, ano, empresa, rascunhoDva]);
+  const dvaAlterada = JSON.stringify(rascunhoDva) !== JSON.stringify(dvaGravada || {});
+  const salvarDva = () => {
+    const limpo = Object.fromEntries(Object.entries(rascunhoDva).filter(([cod, l]) => l && contas.some((c) => c.codigo === cod) && (LINHAS_DVA as string[]).includes(String(l))));
+    onAtualizarEmpresa({ classificacaoDva: limpo } as Partial<EmpresaDados>);
+    setMsg({ erro: false, texto: `Linhas da DVA salvas (${Object.keys(limpo).length} conta(s) com escolha sua; as outras seguem a sugestão do sistema).` });
+  };
+  const exportarDva = (tipo: "excel" | "pdf") => {
+    if (!dva) return;
+    const ls = linhasDaDva(dva); const titulo = `Demonstração do Valor Adicionado — ${ano}`;
+    const conf = dva.completa ? "Confere: valor distribuído = valor a distribuir." : `Não fecha: ${resumoDva(dva)}`;
+    if (tipo === "excel") baixar(`DVA-${cnpj}-${ano}.xls`, gerarWorkbookExcel([{ nome: "DVA", linhas: [[titulo], [empresa.razaoSocial || "", `CNPJ ${empresa.cnpj}`], ["Item", "Descrição", "Valor"], ...ls.map((l) => [l.codigo, l.rotulo, l.centavos / 100]), [conf], ["Base: CPC 09 (R1), Modelo I; Lei 6.404/1976, art. 176, V, e art. 188, II."]] }]), "application/vnd.ms-excel;charset=utf-8");
+    else imprimir(titulo, `${cab}<h1>${escaparHtml(titulo)}</h1><table><tr><th>Item</th><th>Descrição</th><th class="v">Valor</th></tr>${ls.map((l) => `<tr${l.total ? ' class="forte"' : ""}><td>${l.codigo}</td><td>${escaparHtml(l.rotulo)}</td><td class="v">${moedaContabil(l.centavos)}</td></tr>`).join("")}</table><p>${escaparHtml(conf)}</p><p>Base: CPC 09 (R1), Modelo I; Lei 6.404/1976, art. 176, V, e art. 188, II.</p>`);
+  };
+  type AndamentoDva = { feito: number; total: number; fase: string; fim?: number; resultado?: string; erro?: string; naoFecham?: Array<{ cnpj: string; texto: string }> };
+  const [andamentoDva, setAndamentoDva] = useState<AndamentoDva | null>(null);
+  const rodarConferidorDva = async () => {
+    try {
+      const r = await fetch("/api/demonstracoes/dva/conferir-agora", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ ano }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.progresso) { setMsg({ erro: true, texto: j.motivo || "Não foi possível rodar agora." }); return; }
+      setAndamentoDva(j.progresso);
+      for (let i = 0; i < 240; i++) {
+        await new Promise((ok) => window.setTimeout(ok, 1500));
+        const g = await fetch("/api/demonstracoes/dva/conferir-agora", { credentials: "include", cache: "no-store", headers: { Accept: "application/json" } }).then((x) => x.json()).catch(() => null);
+        if (g?.progresso) setAndamentoDva(g.progresso);
+        if (!g?.progresso || g.progresso.fim) break;
+      }
+    } catch { setMsg({ erro: true, texto: "Sem conexão com o servidor." }); }
   };
 
   // ---------------- Notas ----------------
@@ -294,6 +331,44 @@ export const DemonstracoesTab: React.FC<Props> = ({ empresa, contas, lancamentos
         <p role="status" className={`rounded-md border p-2 text-xs font-semibold ${dmpl.confereComBalanco ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-amber-300 bg-amber-50 text-amber-950"}`}>{dmpl.confereComBalanco ? "Confere com o patrimônio líquido do balanço em 31/12." : `Diferença com o balanço: ${moedaContabil(dmpl.diferenca)}.`}</p>
         {dmpl.avisos.map((a) => <p key={a} className="text-xs text-amber-900">• {a}</p>)}
         <p className="text-[11px] text-slate-500">Base: NBC TG 26 (R5) e NBC TG 1001, seção 6 (saldos iniciais, resultado, dividendos, aumentos/reduções de capital, saldos finais). Quando só há movimento em lucros acumulados, a norma permite apresentar só a DLPA (6.2); para microentidades a DLPA faz parte do conjunto (NBC TG 1002, 3.6). A ECD continua montando a DLPA/DMPL própria dela (J210/J215) na tela Livros Fiscais & ECD.</p>
+      </div>}
+
+      {aba === "dva" && dva && <div className="space-y-2" data-campo="dva">
+        <h3 className="text-sm font-bold">Demonstração do Valor Adicionado (DVA)</h3>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="text-[11px] font-semibold text-slate-600">Ano<input data-campo="dva-ano" type="number" min={2000} max={2100} className={campo} value={ano} onChange={(e) => setAno(Number(e.target.value) || ano)} /></label>
+          <button type="button" className={botao} data-campo="dva-pdf" onClick={() => exportarDva("pdf")}><Printer className="h-3.5 w-3.5" /> PDF</button>
+          <button type="button" className={botaoClaro} data-campo="dva-excel" onClick={() => exportarDva("excel")}><FileSpreadsheet className="h-3.5 w-3.5" /> Excel</button>
+          <button type="button" className={botaoClaro} data-campo="dva-rodar-agora" disabled={Boolean(andamentoDva && !andamentoDva.fim)} onClick={() => void rodarConferidorDva()}><RefreshCw className={`h-3.5 w-3.5 ${andamentoDva && !andamentoDva.fim ? "animate-spin" : ""}`} /> {andamentoDva && !andamentoDva.fim ? "Conferindo…" : "Rodar agora: conferir a DVA"}</button>
+        </div>
+        {andamentoDva && !andamentoDva.fim && <div role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round((andamentoDva.feito / Math.max(1, andamentoDva.total)) * 100)} aria-label="Andamento da conferência da DVA">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200"><div className="h-2 rounded-full bg-blue-700 transition-all" style={{ width: `${Math.max(5, Math.round((andamentoDva.feito / Math.max(1, andamentoDva.total)) * 100))}%` }} /></div>
+          <p className="mt-0.5 text-[11px] text-slate-600">{andamentoDva.feito} de {andamentoDva.total} empresa(s) conferida(s)…</p>
+        </div>}
+        {andamentoDva?.fim && <div role="status" className={`rounded-md border p-2 text-xs ${andamentoDva.erro || (andamentoDva.naoFecham || []).length ? "border-amber-300 bg-amber-50 text-amber-950" : "border-emerald-300 bg-emerald-50 text-emerald-900"}`}><p>{andamentoDva.erro ? `A conferência falhou: ${andamentoDva.erro}` : andamentoDva.resultado}</p>{(andamentoDva.naoFecham || []).length > 0 && <ul className="mt-1 list-disc pl-4">{(andamentoDva.naoFecham || []).slice(0, 15).map((a) => <li key={a.cnpj}>{a.cnpj}: {a.texto}</li>)}</ul>}</div>}
+        {dva.obrigatoria ? <p className="rounded-md border border-blue-200 bg-blue-50 p-2 text-xs text-blue-950">Companhia aberta: a DVA é obrigatória (Lei 6.404/1976, art. 176, V).</p> : <p className="text-xs text-slate-600">A DVA é obrigatória para a companhia aberta (Lei 6.404/1976, art. 176, V); para as demais empresas é opcional e serve de análise.</p>}
+        <div className="overflow-x-auto rounded-lg border border-slate-200"><table className="w-full min-w-[520px] text-xs"><tbody>
+          {linhasDaDva(dva).map((l) => <tr key={l.codigo} className={`border-t border-slate-100 ${l.total ? "bg-slate-50 font-bold" : ""}`}><td className="w-14 px-2 py-1 font-mono">{l.codigo}</td><td className="px-2 py-1">{l.rotulo}</td><td className="px-2 py-1 text-right tabular-nums">{moedaContabil(l.centavos)}</td></tr>)}
+        </tbody></table></div>
+        <p role="status" data-campo="dva-conferencia" className={`rounded-md border p-2 text-xs font-semibold ${dva.completa ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-amber-300 bg-amber-50 text-amber-950"}`}>{dva.completa ? `Confere: valor distribuído (${moedaContabil(dva.totalDistribuido)}) = valor a distribuir (${moedaContabil(dva.totalADistribuir)}). O lucro do exercício veio da DRE (${moedaContabil(dva.lucroLiquidoDre)}).` : resumoDva(dva)}</p>
+        {dva.avisos.map((a) => <p key={a} className="text-xs text-amber-900">• {a}</p>)}
+        <h4 className="pt-1 text-xs font-bold">Linha de cada conta de resultado</h4>
+        <p className="text-xs text-slate-600">O sistema usa, nesta ordem: a sua escolha, o vínculo da conta com o plano referencial (feito na ECD) e a descrição. Quando não tiver certeza (por exemplo "Demais impostos", que não diz se é federal, estadual ou municipal), a conta fica em amarelo: escolha a linha e toque em "Salvar linhas da DVA".</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-1.5 text-xs"><input type="checkbox" checked={soPendentesDva} onChange={(e) => setSoPendentesDva(e.target.checked)} /> Só as pendentes ({dva.pendentes.length})</label>
+          <button type="button" className={botao} data-campo="dva-salvar" disabled={!dvaAlterada} onClick={salvarDva}>Salvar linhas da DVA</button>
+        </div>
+        <div className="overflow-x-auto rounded-lg border border-slate-200"><table className="w-full min-w-[680px] text-xs"><thead className="bg-slate-100"><tr><th className="px-2 py-1 text-left">Conta</th><th className="px-2 py-1 text-left">Descrição</th><th className="px-2 py-1 text-right">Movimento</th><th className="px-2 py-1 text-left">Linha da DVA</th></tr></thead><tbody>
+          {dva.contas.map((c) => { if (soPendentesDva && c.linha) return null; return <tr key={c.codigo} className={`border-t border-slate-100 ${c.linha ? "" : "bg-amber-50"}`}>
+            <td className="px-2 py-1 font-mono">{c.codigo}</td><td className="px-2 py-1">{c.descricao}{c.referencial ? <span className="block text-[10px] text-slate-500">Referencial {c.referencial}</span> : null}</td>
+            <td className="px-2 py-1 text-right tabular-nums">{moedaContabil(c.movimento)}</td>
+            <td className="px-2 py-1"><select aria-label={`Linha da DVA da conta ${c.codigo}`} className="w-full rounded border border-slate-300 bg-white p-1" value={rascunhoDva[c.codigo] || ""} onChange={(e) => setRascunhoDva((r) => { const n = { ...r }; if (e.target.value) n[c.codigo] = e.target.value; else delete n[c.codigo]; return n; })}>
+              <option value="">{c.origem === "contadora" || !c.linha ? "— escolha —" : `Sugestão: ${c.linha} ${ROTULO_DVA[c.linha]}${c.origem === "referencial" ? " (plano referencial)" : ""}`}</option>
+              {LINHAS_DVA.map((k) => <option key={k} value={k}>{k} {ROTULO_DVA[k]}</option>)}
+            </select></td></tr>; })}
+          {!dva.contas.length && <tr><td colSpan={4} className="p-4 text-center text-slate-500">Nenhuma conta de resultado com movimento em {ano}.</td></tr>}
+        </tbody></table></div>
+        <p className="text-[11px] text-slate-500">Base: {FONTES_DVA.map((f) => f.nome).join("; ")}. A receita entra com os tributos sobre ela (ICMS, PIS, COFINS, ISS vão para a distribuição); os insumos levam os tributos recuperáveis das compras (CPC 09 (R1), itens 14 e 35); o INSS que é ônus do empregador vai para impostos federais e o FGTS para pessoal; dividendos só os do resultado do próprio exercício (item 15).</p>
       </div>}
 
       {aba === "notas" && <div className="space-y-2">
