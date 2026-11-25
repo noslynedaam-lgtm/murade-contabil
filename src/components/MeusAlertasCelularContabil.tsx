@@ -17,7 +17,7 @@ export function MeusAlertasCelularContabil() {
   return (
     <details className="mx-2 mt-2 rounded-lg border border-slate-200 bg-white p-2 text-sm" data-campo="meus-alertas-celular-contabil">
       <summary className="cursor-pointer font-bold text-slate-900">🔔 Meus alertas de vencimento no celular</summary>
-      <p className="mt-1 text-xs text-slate-600">Vale só para você. Desligar não apaga nada: a faixa vermelha e a Central do Lucro Real continuam. O aviso chega pelo aplicativo do Murad Fiscal (o horário silencioso e o “bip” são os de lá).</p>
+      <p className="mt-1 text-xs text-slate-600">Vale só para você. Desligar não apaga nada: a faixa vermelha e a Central do Lucro Real continuam. O aviso chega neste aparelho depois de tocar em “Ativar avisos neste aparelho” no Início; quem ainda não ativou aqui recebe pelo aplicativo do Murad Fiscal (com o horário silencioso de lá).</p>
       <ul className="mt-1 space-y-1 pl-5 text-xs">{tipos.map((t) => (
         <li key={t.tipo}><label className="flex items-center gap-2"><input type="checkbox" checked={!desligados.includes(t.tipo)} onChange={(e) => void salvar(e.target.checked ? desligados.filter((x) => x !== t.tipo) : [...desligados, t.tipo])} /> {t.nome}</label></li>
       ))}</ul>

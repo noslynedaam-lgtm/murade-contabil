@@ -202,7 +202,7 @@ export async function quemDesligou(q: Consultar): Promise<Map<string, string[]>>
 // ---------------------------------------------------------------------------------------------
 // Envio (pelo Fiscal) e conferidor
 // ---------------------------------------------------------------------------------------------
-export interface CargaUrgente { chave: string; titulo: string; corpo: string; tipo: TipoUrgenteContabil; silenciadosPor: string[] }
+export interface CargaUrgente { chave: string; titulo: string; corpo: string; tipo: TipoUrgenteContabil; silenciadosPor: string[]; /** Quem já recebeu no aparelho ativado no próprio Contábil (o Fiscal não repete). */ entreguesNoContabil?: string[] }
 export interface ResultadoEnvioFiscal { destinatarios: number; enviados: number; semAparelho: number; silenciados: number; adiados: number; falhas: number }
 export type EnviarUrgente = (cnpj: string, avisos: CargaUrgente[]) => Promise<ResultadoEnvioFiscal>;
 export interface ResumoUrgente { itens: number; avisosNovos: number; entregues: number; semAparelho: number; silenciados: number; jaEnviados: number; falhasFiscal: number; erros: string[] }

@@ -1,7 +1,7 @@
 // Service worker do Murade: o sistema abre sem internet (guarda só a casca do aplicativo) e se atualiza sozinho.
 // Nunca guarda respostas /api com dados de clientes. Única exceção: a identificação da sessão (quem está logado),
 // para o sistema não pedir login de novo só porque a internet caiu; ela é apagada ao sair.
-const VERSAO = 'murade-casca-v4';
+const VERSAO = 'murade-casca-v5';
 const SESSAO = ['/api/auth/session', '/api/auth/me'];
 const PUBLICAS = ['/api/auth/status']; // situação do serviço de login (sem dados de usuário)
 self.addEventListener('install', () => self.skipWaiting());
@@ -44,6 +44,22 @@ async function publica(req) {
     throw new Error('sem rede');
   }
 }
+
+// Avisos do próprio Murad Contábil (alerta urgente de vencimento: ECD, ECF, IRPJ/CSLL do Lucro Real, IRRF sobre JCP): chegam mesmo
+// com o aplicativo fechado. Ao tocar, abre o Contábil. Sem valores nem dados sensíveis no título.
+self.addEventListener('push', (e) => {
+  let d = {}; try { d = e.data ? e.data.json() : {}; } catch { d = {}; }
+  e.waitUntil(self.registration.showNotification(String(d.titulo || 'Murad Contábil: prazo a conferir'), { body: String(d.corpo || ''), tag: String(d.tag || 'contabil-urgente'), data: { url: String(d.url || '/') }, icon: '/icone-app-192.png', badge: '/favicon-48.png', requireInteraction: true }));
+});
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || '/';
+  e.waitUntil((async () => {
+    const abertas = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of abertas) { try { await c.focus(); if ('navigate' in c) await c.navigate(url); return; } catch { /* tenta a próxima */ } }
+    await self.clients.openWindow(url);
+  })());
+});
 
 self.addEventListener('fetch', (e) => {
   const req = e.request; const url = new URL(req.url);

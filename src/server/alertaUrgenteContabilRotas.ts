@@ -8,6 +8,7 @@ import {
   aparelhosNoFiscal, urlDoFiscal, basesDaMulta, conferirAlertasUrgentes, enviarAlertasUrgentes, itensUrgentes, lerPrefsAlerta, marcarResolvido, obrigacoesEcdEcfGerais, resolvidosDe, salvarPrefsAlerta,
   TIPOS_URGENTE_CONTABIL, DIAS_ATRASO_NO_URGENTE, type EnviarUrgente, type ItemUrgenteContabil, type ResumoUrgente,
 } from "./alertaUrgenteContabil";
+import { pushConfiguradoContabil } from "./avisoAparelhoContabil";
 
 type Mw = express.RequestHandler;
 const diasEntre = (de: string, ate: string) => Math.round((Date.parse(`${ate}T00:00:00Z`) - Date.parse(`${de}T00:00:00Z`)) / 86_400_000);
@@ -50,12 +51,13 @@ export async function montarItensUrgentesContabil(deps: DepsUrgenteContabil, cnp
 }
 
 export interface Progresso { inicio: number; fase: string; feito: number; total: number; fim?: number; resultado?: string; erro?: string }
-export function resumoTexto(r: ResumoUrgente, c: { semEnvio: string[]; semAparelho: string[] }): string {
+export function resumoTexto(r: ResumoUrgente, c: { semEnvio: string[]; semAparelho: string[]; semChave?: boolean }): string {
   const p = [`${r.itens} vencimento(s) do Contábil no alerta urgente; ${r.avisosNovos} aviso(s) novo(s) agora (${r.entregues} entregue(s) no celular, ${r.semAparelho} de quem ainda não ativou o aparelho, ${r.silenciados} desligado(s) pela pessoa); ${r.jaEnviados} já avisado(s) nesta etapa.`];
   if (r.falhasFiscal) p.push(`${r.falhasFiscal} aviso(s) não saíram porque o Murad Fiscal não respondeu (${r.erros.join("; ")}); tenta de novo na próxima rodada.`);
   if (c.semEnvio.length) p.push(`Conferidor: ${c.semEnvio.length} vencimento(s) sem aviso aceito agora (${c.semEnvio.slice(0, 4).join("; ")}).`);
   if (c.semAparelho.length) p.push(`Conferidor: ninguém recebeu no celular (${c.semAparelho.slice(0, 4).join("; ")}) — peça para tocar em "Ativar avisos neste aparelho".`);
-  return `${r.falhasFiscal || c.semEnvio.length || c.semAparelho.length ? "ATENÇÃO: " : ""}${p.join(" ")}`;
+  if (c.semChave) p.push("Conferidor: o Contábil está sem as chaves de aviso (VAPID_PUBLIC_KEY e VAPID_PRIVATE_KEY no Render): os avisos só saem pelo Murad Fiscal.");
+  return `${r.falhasFiscal || c.semEnvio.length || c.semAparelho.length || c.semChave ? "ATENÇÃO: " : ""}${p.join(" ")}`;
 }
 
 export function registrarAlertaUrgenteContabil(app: express.Express, mw: { exigirSessao: Mw; exigirOrigem: Mw }, deps: DepsUrgenteContabil) {
@@ -100,7 +102,7 @@ export function registrarAlertaUrgenteContabil(app: express.Express, mw: { exigi
     const hoje = deps.hoje(); const min = minutosSP();
     const r = await enviarAlertasUrgentes(deps.consultar, itens, deps.enviar(), hoje, min, (f, t) => { if (st) { st.feito = t + f; st.total = Math.max(1, t * 2); } });
     if (st) st.fase = "Conferindo se cada vencimento gerou aviso";
-    return resumoTexto(r, await conferirAlertasUrgentes(deps.consultar, itens, hoje, min));
+    return resumoTexto(r, { ...(await conferirAlertasUrgentes(deps.consultar, itens, hoje, min)), semChave: !pushConfiguradoContabil() });
   };
   const rodadas = new Map<string, Progresso>();
   app.post("/api/alerta-urgente/rodar-agora", mw.exigirOrigem, mw.exigirSessao, async (req, res) => {

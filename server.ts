@@ -3,6 +3,8 @@ import { atualizarSelicContabil, painelCentral, rodarCentralLucroReal, type Deps
 import { conferirAvisosCelular, enviarAvisosCelular, enviarPeloFiscal, type ItemAviso as ItemAvisoLR } from "./src/server/avisoCelularLucroReal";
 import { registrarAlertaUrgenteContabil } from "./src/server/alertaUrgenteContabilRotas";
 import { enviarUrgentePeloFiscal } from "./src/server/alertaUrgenteContabil";
+import { aparelhosDoUsuario, assinarAparelho, cancelarAparelho, chavePublicaContabil, enviarAoUsuario, enviarUrgenteContabilEFiscal, pushConfiguradoContabil } from "./src/server/avisoAparelhoContabil";
+import { linhaFalhaAvisoAparelho } from "./src/server/falhaAvisoAparelho";
 import { buscarRetencoesNoFiscal, gravarRetencoes } from "./src/server/lucroRealObrigacoesExtras";
 // Preenchido quando as rotas do Lucro Real são montadas (a saudação da Agente usa para lembrar os avisos vermelhos).
 let centralLRParaSaudacao: { deps: DepsCentral; empresas: (cnpjs?: string[]) => Promise<string[]> } | null = null;
@@ -1501,9 +1503,41 @@ const reconciliacaoRascunhosStatus: {
     sessao: (req) => { const s = sessaoDaRequisicaoContabil(req); return s ? { cnpjs: s.cnpjs, login: s.login, tenantId: String(s.tenantId || s.escritorioDe || s.userId) } : undefined; },
     empresasLucroReal: (cnpjs) => empresasLucroReal(cnpjs),
     todasEmpresas: async (cnpjs) => [...new Set((await consultaBancoContabil(`SELECT cnpj FROM contabil_company_workspaces${cnpjs ? " WHERE cnpj = ANY($1::text[])" : ""}`, cnpjs ? [cnpjs] : []).catch(() => ({ rows: [] as any[] }))).rows.map((x: any) => String(x.cnpj).trim()))],
-    enviar: () => enviarUrgentePeloFiscal(),
+    // Primeiro os aparelhos ativados no próprio Contábil; quem não recebeu aqui recebe pelo Fiscal, como antes (sem aviso em dobro).
+    enviar: () => enviarUrgenteContabilEFiscal(consultaBancoContabil, enviarUrgentePeloFiscal()),
   });
-  registrarRobo({ id: "alerta_urgente_contabil", nome: "Robô do Alerta Urgente de Vencimento do Contábil", posto: "conferidor", missao: "De 30 em 30 minutos, em cada empresa (cada escritório só as suas), avisa a equipe inteira no celular (pelo aviso do Murad Fiscal) dos vencimentos do Contábil — ECD, ECF, IRPJ/CSLL do Lucro Real (DARF 2362, 2484, trimestrais e ajuste) e IRRF sobre JCP (DARF 5706): 7, 3 e 1 dia antes; no dia às 7h, ao meio-dia e às 16h30; e todo dia no atraso (até 30 dias), com o motivo, o passo a passo e a multa se não resolver hoje pelos cálculos oficiais. Respeita quem desligou o tipo em Configurações e o \"Resolvido\". Conferidor: vencimento sem aviso aceito pelo Fiscal ou sem ninguém com o aparelho ativado vira ATENÇÃO. Só avisa; nunca paga, transmite nem faz consulta paga.", intervaloMs: 30 * 60_000 });
+  // "Ativar avisos neste aparelho" do próprio Contábil (antes o botão abria o Murad Fiscal): chave pública, assinar, cancelar, testar
+  // e o registro da etapa que falhou (só log, sem dado do aparelho). Cada pessoa só mexe nos próprios aparelhos.
+  app.get("/api/avisos-aparelho/chave", exigirSessaoContabil, (_req, res) => { res.setHeader("Cache-Control", "no-store"); return res.json({ sucesso: true, ativo: pushConfiguradoContabil(), chave: chavePublicaContabil() }); });
+  app.get("/api/avisos-aparelho/situacao", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const s = sessaoDaRequisicaoContabil(req); if (!s) return res.status(401).json({ sucesso: false });
+    try { return res.json({ sucesso: true, servidorConfigurado: pushConfiguradoContabil(), aparelhos: await aparelhosDoUsuario(consultaBancoContabil, s.userId) }); }
+    catch { return res.status(503).json({ sucesso: false, motivo: "Não foi possível conferir agora." }); }
+  });
+  app.post("/api/avisos-aparelho/assinar", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
+    const s = sessaoDaRequisicaoContabil(req); if (!s) return res.status(401).json({ sucesso: false });
+    try { await assinarAparelho(consultaBancoContabil, s.userId, req.body?.assinatura); return res.json({ sucesso: true }); }
+    catch (e: any) { return res.status(400).json({ sucesso: false, motivo: e?.message || "Não foi possível ativar os avisos." }); }
+  });
+  app.post("/api/avisos-aparelho/cancelar", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
+    const s = sessaoDaRequisicaoContabil(req); if (!s) return res.status(401).json({ sucesso: false });
+    try { await cancelarAparelho(consultaBancoContabil, s.userId, String(req.body?.endpoint || "")); return res.json({ sucesso: true }); }
+    catch { return res.status(503).json({ sucesso: false, motivo: "Não foi possível desativar." }); }
+  });
+  app.post("/api/avisos-aparelho/testar", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
+    const s = sessaoDaRequisicaoContabil(req); if (!s) return res.status(401).json({ sucesso: false });
+    if (!pushConfiguradoContabil()) return res.json({ sucesso: false, motivo: "O servidor ainda não tem as chaves de aviso (VAPID) configuradas no Render." });
+    try {
+      const r = await enviarAoUsuario(consultaBancoContabil, s.userId, { titulo: "Teste do aviso do Murad Contábil", corpo: "Se você recebeu este aviso, este aparelho está pronto para os vencimentos do Contábil.", tag: "contabil-teste" });
+      return res.json({ sucesso: r.enviados > 0, enviados: r.enviados, motivo: r.aparelhos === 0 ? "Este usuário ainda não ativou o aviso em nenhum aparelho." : r.enviados === 0 ? "O aviso não chegou ao aparelho; tente ativar de novo." : "" });
+    } catch { return res.status(503).json({ sucesso: false, motivo: "Não foi possível enviar o teste." }); }
+  });
+  app.post("/api/avisos-aparelho/falha", exigirOrigemNavegador, exigirSessaoContabil, (req, res) => {
+    console.warn(`[Avisos no aparelho] ${linhaFalhaAvisoAparelho(req.body, req.get("user-agent"))}`);
+    return res.json({ sucesso: true });
+  });
+  registrarRobo({ id: "alerta_urgente_contabil", nome: "Robô do Alerta Urgente de Vencimento do Contábil", posto: "conferidor", missao: "De 30 em 30 minutos, em cada empresa (cada escritório só as suas), avisa a equipe inteira no celular (nos aparelhos ativados no próprio Contábil e, para quem ainda não ativou aqui, pelo aviso do Murad Fiscal, sem aviso em dobro) dos vencimentos do Contábil — ECD, ECF, IRPJ/CSLL do Lucro Real (DARF 2362, 2484, trimestrais e ajuste) e IRRF sobre JCP (DARF 5706): 7, 3 e 1 dia antes; no dia às 7h, ao meio-dia e às 16h30; e todo dia no atraso (até 30 dias), com o motivo, o passo a passo e a multa se não resolver hoje pelos cálculos oficiais. Respeita quem desligou o tipo em Configurações e o \"Resolvido\". Conferidor: vencimento sem aviso aceito pelo Fiscal ou sem ninguém com o aparelho ativado vira ATENÇÃO. Só avisa; nunca paga, transmite nem faz consulta paga.", intervaloMs: 30 * 60_000 });
   const rodarAlertaUrgenteContabil = () => void executarRobo("alerta_urgente_contabil", async () => {
     if (!bancoContabilConfigurado()) return;
     const t = await alertaUrgenteContabil.rodarRobo();
