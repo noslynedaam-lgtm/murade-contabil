@@ -3,6 +3,7 @@ import { confirmarNaTela } from "../../utils/dialogoNaTela";
 import React, { useState, useMemo } from "react";
 import { LancamentoContabil, ContaPlano, HistoricoPadrao, LancamentoPadrao } from "../../types";
 import { PadroesLancamentoPainel } from "../PadroesLancamentoPainel";
+import { LerDocumentoPainel } from "../LerDocumentoPainel";
 import { aplicarHistoricoPadrao, textoParaCentavos } from "../../utils/escrituracaoAvancada";
 import { moedaContabil } from "../../utils/livrosContabeis";
 import { revisarLancamento, revisarMultipartida } from "../../utils/revisorContabil";
@@ -410,6 +411,8 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
           </div>
         </div>
       </div>
+
+      {onRota && <LerDocumentoPainel contas={contas} onRota={onRota} podeGravar={workspacePersistido} />}
 
       {onRota && <PadroesLancamentoPainel contas={contas} historicosPadrao={historicosPadrao} lancamentosPadrao={lancamentosPadrao} onRota={onRota} podeGravar={workspacePersistido} />}
 

@@ -65,6 +65,9 @@ export const ConciliacaoBancariaPainel: React.FC<{ contas: ContaPlano[]; lancame
     if (r.ok) { setMovs(r.corpo?.movimentos || []); setResumo(r.corpo?.resumo || []); setMarcados(new Set()); }
   }, [banco, periodo]);
   useEffect(() => { void carregar(); }, [carregar]);
+  // Baixa das guias do aplicativo do cliente no Fiscal pelo extrato (só leitura; quem baixa é o Fiscal, só quando casa com uma guia).
+  const [baixaGuias, setBaixaGuias] = useState<{ enviados: number; guiasBaixadas: number } | null>(null);
+  useEffect(() => { void rotaRef.current("GET", "extratos/baixa-guias").then((r) => { if (r.ok) setBaixaGuias({ enviados: Number(r.corpo?.enviados || 0), guiasBaixadas: Number(r.corpo?.guiasBaixadas || 0) }); }).catch(() => undefined); }, [movs]);
 
   const ler = async (arquivo?: File | null) => {
     if (!arquivo) return;
@@ -163,6 +166,7 @@ export const ConciliacaoBancariaPainel: React.FC<{ contas: ContaPlano[]; lancame
       {revisor.painel}
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
         <h3 className="mb-2 text-sm font-bold text-slate-900">Importar extrato bancário (OFX, CSV, Excel ou PDF)</h3>
+        {baixaGuias && baixaGuias.enviados > 0 && <p data-campo="extrato-baixa-guias" className="mb-2 rounded bg-emerald-50 p-2 text-emerald-900">Guias do aplicativo do cliente (Murad Fiscal): {baixaGuias.enviados} movimento(s) conferido(s), {baixaGuias.guiasBaixadas} guia(s) dada(s) como paga(s) pelo extrato. Grátis; o que serve para duas guias fica para o contador.</p>}
         <div className="flex flex-wrap items-end gap-2">
           <label className="grid gap-1">Conta do banco no plano<select data-campo="extrato-conta" value={banco} onChange={(e) => setBanco(e.target.value)} className="max-w-[260px] rounded border px-2 py-1"><option value="">Escolha…</option>{analiticas.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} {c.descricao}</option>)}</select></label>
           <label className="grid gap-1">Arquivo<input data-campo="extrato-arquivo" type="file" accept=".ofx,.OFX,.csv,.txt,.xlsx,.xls,.pdf,.PDF,application/pdf" onChange={(e) => void ler(e.target.files?.[0])} /></label>

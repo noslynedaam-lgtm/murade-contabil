@@ -249,6 +249,11 @@ const HISTORICO_POR_TRIBUTO: Record<string, string> = {
   IPI_A_RECOLHER: "IPI a recolher do mês (débitos − créditos) apurado no Fiscal",
   ICMS_ST_ENTRADA: "ICMS-ST devido na entrada (mercadoria de outro estado sem retenção) calculado no Fiscal",
   ICMS_ST_RESSARCIR: "ICMS-ST a recuperar (ressarcimento ou restituição confirmados no Fiscal)",
+  FIA_DEBITO: "Débito da guia consultada no Integra Contador pelo Fisco IA (principal)",
+  FIA_MULTA_JUROS: "Multa e juros da guia consultada no Integra Contador pelo Fisco IA",
+  FIA_DIVIDA_ATIVA: "Débito em dívida ativa consultado no Integra Contador pelo Fisco IA",
+  FIA_PARC_CONSOLIDACAO: "Consolidação do parcelamento consultado no Integra Contador pelo Fisco IA",
+  FIA_PARC_PARCELA_PAGA: "Parcela paga do parcelamento consultado no Integra Contador pelo Fisco IA",
 
 };
 
@@ -268,6 +273,16 @@ export function dataDaApuracao(apuracao: Pick<ApuracaoFiscalArmazenada, "tributo
   if (apuracao.tributo === "DAS_SIMPLES" || PROVISAO_NO_FIM_DO_MES.has(apuracao.tributo)) {
     const [a, m] = apuracao.competencia.split("-").map(Number);
     return `${apuracao.competencia}-${String(new Date(Date.UTC(a, m, 0)).getUTCDate()).padStart(2, "0")}`;
+  }
+  if (/^FIA_/.test(apuracao.tributo)) {
+    // Fisco IA: a data vem na versão de origem ("data:AAAA-MM-DD:..."), dentro do mês da competência; sem ela, a provisão do débito vai para o
+    // último dia do mês e o resto para o dia 1º.
+    const d = /^data:(\d{4}-\d{2}-\d{2}):/.exec(String(apuracao.versaoOrigem || ""))?.[1];
+    if (d && d.slice(0, 7) === apuracao.competencia && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d) return d;
+    if (apuracao.tributo === "FIA_DEBITO" || apuracao.tributo === "FIA_DIVIDA_ATIVA") {
+      const [a, m] = apuracao.competencia.split("-").map(Number);
+      return `${apuracao.competencia}-${String(new Date(Date.UTC(a, m, 0)).getUTCDate()).padStart(2, "0")}`;
+    }
   }
   if (apuracao.tributo === "PARCELAMENTO_ADESAO" || apuracao.tributo === "PARCELAMENTO_PARCELA_PAGA") {
     const d = /^(?:adesao|pago):(\d{4}-\d{2}-\d{2}):/.exec(String(apuracao.versaoOrigem || ""))?.[1];
@@ -303,12 +318,42 @@ export function partesDoPagamentoDas(valorPagoCentavos: number, principalCentavo
 export const vigenciaDoTributoContabil = (tributo: string): string | null => (/^(PIS|COFINS)_/.test(String(tributo)) ? "pis_cofins" : tributo === "CPRB" ? "cprb" : /^ISS_/.test(String(tributo)) ? "iss" : /^ICMS_ST_/.test(String(tributo)) ? "icms" : null);
 export function tributoVigenteNaCompetencia(tributo: string, competencia: string): boolean { const id = vigenciaDoTributoContabil(tributo); return !id || vigenteNaCompetencia(id, competencia); }
 
+/**
+ * O que veio do Fisco IA e JÁ está na contabilidade por outro caminho não vira pré-lançamento de novo (nunca lançar em dobro):
+ *  - consolidação de parcelamento igual (mesmo mês e mesmo valor) à adesão cadastrada no Fiscal;
+ *  - parcela paga igual (mesma data e mesmo valor) à parcela registrada no Fiscal;
+ *  - débito da guia igual (mesmo mês e mesmo valor) à provisão do DAS mandada pelo Fiscal;
+ *  - dívida ativa de um mês cuja guia já foi provisionada (pelo Fiscal ou pelo Fisco IA);
+ *  - multa e juros de uma guia emitida de novo depois (vale só a guia mais nova do mesmo período).
+ * Devolve o motivo (para a tela/robô) ou null quando o item deve entrar.
+ */
+export function motivoDuplicadoFiscoIa(apuracao: ApuracaoFiscalArmazenada, todas: ApuracaoFiscalArmazenada[]): string | null {
+  const outras = todas.filter((x) => x !== apuracao && x.situacao === "confirmado");
+  const mesmo = (t: string, f: (x: ApuracaoFiscalArmazenada) => boolean) => outras.some((x) => x.tributo === t && f(x));
+  switch (apuracao.tributo) {
+    case "FIA_PARC_CONSOLIDACAO":
+      return mesmo("PARCELAMENTO_ADESAO", (x) => x.competencia === apuracao.competencia && x.valorCentavos === apuracao.valorCentavos) ? "o Fiscal já mandou este parcelamento (mesmo mês e valor)" : null;
+    case "FIA_PARC_PARCELA_PAGA":
+      return mesmo("PARCELAMENTO_PARCELA_PAGA", (x) => dataDaApuracao(x) === dataDaApuracao(apuracao) && x.valorCentavos === apuracao.valorCentavos) ? "o Fiscal já mandou esta parcela paga (mesma data e valor)" : null;
+    case "FIA_DEBITO":
+      return mesmo("DAS_SIMPLES", (x) => x.competencia === apuracao.competencia && x.valorCentavos === apuracao.valorCentavos) ? "o Fiscal já provisionou o DAS deste mês com o mesmo valor" : null;
+    case "FIA_MULTA_JUROS":
+      // A guia do mesmo período emitida de novo em outro mês traz a multa e os juros atualizados: vale só a mais nova.
+      return mesmo("FIA_MULTA_JUROS", (x) => x.referencia === apuracao.referencia && x.competencia > apuracao.competencia) ? "uma guia mais nova do mesmo período substitui esta multa e juros" : null;
+    case "FIA_DIVIDA_ATIVA":
+      return mesmo("FIA_DEBITO", (x) => x.competencia === apuracao.competencia) || mesmo("DAS_SIMPLES", (x) => x.competencia === apuracao.competencia) ? "a guia deste mês já foi provisionada" : null;
+    default:
+      return null;
+  }
+}
+
 export function gerarRascunhosApuracoes(cnpj: string, apuracoes: ApuracaoFiscalArmazenada[], contas: Registro[], mapeamentos: Registro[], agora: string): RascunhoAutomaticoContabil[] {
   const contasAnaliticas = new Set(contas.filter((conta) => conta?.tipo === "analitica").map((conta) => conta.codigo));
   const candidatos: RascunhoAutomaticoContabil[] = [];
   const reais = (c: number) => Math.round((c / 100 + Number.EPSILON) * 100) / 100;
   for (const apuracao of apuracoes) {
     if (apuracao.situacao !== "confirmado") continue;
+    if (/^FIA_/.test(apuracao.tributo) && motivoDuplicadoFiscoIa(apuracao, apuracoes)) continue;
     const origem = ORIGEM_POR_TRIBUTO[apuracao.tributo];
     if (!origem) continue;
     const valor = valorNumerico(apuracao.valorCentavos);
@@ -359,7 +404,7 @@ export function gerarRascunhosApuracoes(cnpj: string, apuracoes: ApuracaoFiscalA
       contaDebitoCodigo: String(mapping.contaDebitoCodigo),
       contaCreditoCodigo: String(mapping.contaCreditoCodigo),
       valor: reais(valor),
-      historico: `${HISTORICO_POR_TRIBUTO[apuracao.tributo] || apuracao.tributo} — pré-lançamento para conferência`,
+      historico: `${HISTORICO_POR_TRIBUTO[apuracao.tributo] || apuracao.tributo}${apuracao.tributo === "FIA_PARC_CONSOLIDACAO" && apuracoes.some((x) => x.tributo === "PARCELAMENTO_ADESAO" && x.competencia === apuracao.competencia) ? " (o Fiscal também tem parcelamento neste mês, com outro valor: confira se não é o mesmo)" : ""} — pré-lançamento para conferência`,
       criadoEm: agora,
     });
   }

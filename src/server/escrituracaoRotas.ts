@@ -24,6 +24,7 @@ import {
 } from "./extratoBancarioStore";
 import { naturezasDasContas } from "../services/ecdService";
 import { conferirExtratosPdf, gravarConferenciaPdf, lerExtratoPdf, pdfDoCorpo, type AchadoExtratoPdf } from "./extratoPdfServidor";
+import { situacaoBaixaGuias } from "./baixaGuiasFiscal";
 import { adaptarPlanoParaEntidade, ehRegimeEntidade, planoEstaComoEntidade } from "../utils/planoEntidade";
 import { ordenarContasPorSequenciaNumerica } from "../utils/planoContasUtils";
 import { gerarRelatoriosContabeis, normalizarDataContabil } from "../utils/livrosContabeis";
@@ -82,7 +83,7 @@ export function planejarEncerramento(payload: Record<string, any>, ano: number, 
 
 // ------------------------------------------------------------------ rotas
 
-interface Deps { exigirOrigemNavegador: Mw; exigirSessaoContabil: Mw; consultar: Consultar }
+interface Deps { exigirOrigemNavegador: Mw; exigirSessaoContabil: Mw; consultar: Consultar; /** Extrato importado: confere na hora com as guias do aplicativo do cliente no Fiscal (baixa pelo extrato). */ aoImportarExtrato?: (cnpj: string) => void }
 
 export function erroHttp(res: express.Response, erro: any, padrao: string) {
   const status = erro instanceof ErroAlteracaoWorkspace || erro instanceof ErroExtrato ? erro.status : 503;
@@ -339,6 +340,12 @@ export function registrarRotasEscrituracao(app: express.Express, deps: Deps): vo
       return res.json({ sucesso: true, movimentos, resumo });
     } catch (e) { return erroHttp(res, e, "Não foi possível ler o extrato guardado."); }
   });
+  // Baixa das guias do aplicativo do cliente (Fiscal) pelo extrato: quantos movimentos já foram conferidos e quantas guias baixaram.
+  app.get("/api/workspaces/:cnpj/extratos/baixa-guias", sessaoMw, async (req, res) => {
+    const a = acessoEmpresa(req, res, false); if (!a) return;
+    try { return res.json({ sucesso: true, ...(await situacaoBaixaGuias(consultar, a.cnpj)) }); }
+    catch (e) { return erroHttp(res, e, "Não foi possível ler a baixa das guias agora."); }
+  });
   app.post("/api/workspaces/:cnpj/extratos", origem, sessaoMw, async (req, res) => {
     const a = acessoEmpresa(req, res, true); if (!a) return;
     try {
@@ -347,6 +354,7 @@ export function registrarRotasEscrituracao(app: express.Express, deps: Deps): vo
       if (!payload || !contaBancoValida(payload, contaBanco)) return res.status(400).json({ sucesso: false, motivo: "Escolha a conta analítica do banco no plano de contas." });
       const movimentos = validarMovimentosRecebidos(req.body?.movimentos);
       const r = await gravarMovimentosExtrato(consultar, a.cnpj, contaBanco, movimentos, a.sessao.login, String(req.body?.arquivo || ""));
+      if (r.novos && deps.aoImportarExtrato) { try { deps.aoImportarExtrato(a.cnpj); } catch { /* a baixa das guias nunca atrapalha a importação */ } }
       return res.json({ sucesso: true, ...r, mensagem: `${r.novos} movimento(s) novo(s) guardado(s)${r.jaExistiam ? `; ${r.jaExistiam} já estavam guardados e não foram duplicados` : ""}. O Robô da Conciliação prepara as sugestões; você aprova.` });
     } catch (e) { return erroHttp(res, e, "Não foi possível guardar o extrato."); }
   });
@@ -373,6 +381,7 @@ export function registrarRotasEscrituracao(app: express.Express, deps: Deps): vo
       const arquivo = String(req.body?.arquivo || "").slice(0, 160);
       const r = await gravarMovimentosExtrato(consultar, a.cnpj, contaBanco, l.movimentos, a.sessao.login, arquivo);
       await gravarConferenciaPdf(consultar, a.cnpj, contaBanco, l, arquivo, a.sessao.login);
+      if (r.novos && deps.aoImportarExtrato) { try { deps.aoImportarExtrato(a.cnpj); } catch { /* a baixa das guias nunca atrapalha a importação */ } }
       return res.json({ sucesso: true, ...r, conferencia: l.conferencia, mensagem: `Extrato em PDF conferido (saldo inicial + entradas − saídas = saldo final) e guardado: ${r.novos} movimento(s) novo(s)${r.jaExistiam ? `; ${r.jaExistiam} já estavam guardados e não foram duplicados` : ""}. O Robô da Conciliação prepara as sugestões; você aprova.` });
     } catch (e) { return erroHttp(res, e, "Não foi possível guardar o extrato em PDF."); }
   });

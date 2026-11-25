@@ -6,6 +6,7 @@ import { CentroCustoContabil, ContaPlano, EmpresaDados, LancamentoContabil, PreL
 import { ConciliacaoBancariaPainel } from "../ConciliacaoBancariaPainel";
 import { AjustesFechamentoPainel } from "../AjustesFechamentoPainel";
 import { CartoesPainel, TitulosPainel } from "../TitulosCartoesPainel";
+import { RegimesPagoAMaiorPainel } from "../RegimesPagoAMaiorPainel";
 import { compararPeriodos, explicarVariacoes, resultadoPorCentroCusto } from "../../utils/analiseContabil";
 import { BemImobilizado, definirAjusteQuota, depreciacaoAcumulada, filialAtual, quotaAutomatica, quotaDoMes, quotaFoiAjustada, removerAjusteQuota, resultadoDaBaixa, totalQuotasDoMes, validarBem, valorContabilLiquido } from "../../utils/imobilizado";
 import { centavosParaTexto, liquidoLancado, montarComplemento, paraCentavos, valorEfetivoCentavos } from "../../utils/ajusteManual";
@@ -36,7 +37,7 @@ interface Props {
   regrasConciliacao?: RegraConciliacao[];
 }
 
-type Secao = "comparativo" | "centros" | "imobilizado" | "extrato" | "provisoes" | "dlpa" | "fechamento" | "titulos" | "cartoes";
+type Secao = "comparativo" | "centros" | "imobilizado" | "extrato" | "provisoes" | "dlpa" | "fechamento" | "titulos" | "cartoes" | "regimes";
 const mesAtual = () => new Date().toISOString().slice(0, 7);
 const pct = (v: number | null) => (v === null ? "—" : `${v > 0 ? "+" : ""}${v.toLocaleString("pt-BR")}%`);
 const reais = (s: string) => { const n = Number(String(s).replace(/\./g, "").replace(",", ".")); return Number.isFinite(n) ? Math.round(n * 100) : NaN; };
@@ -59,6 +60,7 @@ export const GestaoContabilTab: React.FC<Props> = (p) => {
           {aba("provisoes", "Provisões")}{aba("dlpa", "Lucros acumulados (DLPA)")}
           {p.onRota && <BotaoAba data-campo="gestao-aba-titulos" data-piloto-abrir="" ativo={secao === "titulos"} onClick={() => setSecao("titulos")}>Títulos a pagar e receber</BotaoAba>}
           {p.onRota && aba("cartoes", "Cartões (antiga DIRF)")}
+          {p.onRota && <BotaoAba data-campo="gestao-aba-regimes" data-piloto-abrir="" ativo={secao === "regimes"} onClick={() => setSecao("regimes")}>Regimes e pago a maior</BotaoAba>}
           <BotaoAba data-campo="gestao-aba-fechamento" data-piloto-abrir="" ativo={secao === "fechamento"} onClick={() => setSecao("fechamento")}>Fechamento guiado</BotaoAba>
           <label className="ml-auto text-xs font-bold text-slate-700">Competência
             <CampoMes data-campo="gestao-periodo" value={periodo} onChange={(e) => setPeriodo(e.target.value)} className="ml-2 rounded-md border border-slate-300 px-2 py-1 text-sm font-medium" />
@@ -76,6 +78,7 @@ export const GestaoContabilTab: React.FC<Props> = (p) => {
           {secao === "fechamento" && <Fechamento {...p} periodo={periodo} />}
           {secao === "titulos" && p.onRota && <TitulosPainel onRota={p.onRota} contas={p.contas} podeGravar={p.workspacePersistido} />}
           {secao === "cartoes" && p.onRota && <CartoesPainel onRota={p.onRota} />}
+          {secao === "regimes" && p.onRota && <RegimesPagoAMaiorPainel onRota={p.onRota} />}
         </>
       )}
     </div>
