@@ -39,6 +39,10 @@ export interface ResumoMigracaoGuardado extends ReferenciaConferencia {
 
 export async function prepararTabelaSistemaAnterior(consultar: ConsultaSql): Promise<void> { await consultar(SQL_TABELA); }
 
+/** Teste grátis: limite de empresas do escritório em teste (o server.ts liga; sem ele, nada muda). */
+let limiteTesteMigracao: ((escritorioId: string, cnpj: string) => Promise<string | null>) | null = null;
+export function definirLimiteTesteMigracaoContabil(fn: typeof limiteTesteMigracao): void { limiteTesteMigracao = fn; }
+
 /** Grava UMA empresa. Lança ErroMigracao com o motivo (em português) quando a empresa não pode ser gravada; nada fica pela metade. */
 export async function gravarEmpresaMigrada(
   banco: BancoTransacional, dados: DadosContabeisEmpresa, quem: QuemMigra,
@@ -46,6 +50,7 @@ export async function gravarEmpresaMigrada(
 ): Promise<ResultadoGravacaoEmpresa> {
   const cnpj = dados.cnpj;
   if (!/^[A-Z0-9]{12}[0-9]{2}$/.test(cnpj)) throw new ErroMigracao('CNPJ inválido para gravar.');
+  if (limiteTesteMigracao) { const motivo = await limiteTesteMigracao(quem.escritorioId, cnpj); if (motivo) throw new ErroMigracao(motivo); }
   await prepararTabelaSistemaAnterior(banco.consultar);
   return banco.transacao(async (q) => {
     await q('SELECT pg_advisory_xact_lock(hashtext($1))', [cnpj]);

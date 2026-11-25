@@ -58,6 +58,11 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
     const params = new URLSearchParams(window.location.hash.slice(1));
     const token = params.get("convite");
     if (token) { setConvite(token); setLogin(params.get("login") || ""); setModo("ativar"); }
+    // Teste grátis: o link de entrada do site vale 2 minutos e uma vez só; vencido, a pessoa entra com o e-mail e a senha que criou.
+    if (new URLSearchParams(window.location.search).get("teste") === "link-expirado") {
+      setMensagem("O link de entrada do teste grátis já foi usado ou venceu. Entre com o e-mail e a senha que você criou no site.");
+      window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
+    }
   }, []);
 
   const atualizarAcesso = async () => {

@@ -324,11 +324,32 @@ async function montarSessaoContabil(user: { id: string; login: string; global_ad
   };
 }
 
+// ---- Teste grátis (src/server/testeGratisLocal.ts): o server.ts liga as travas. Sem elas, nada muda.
+type TravasTesteContabil = { limiteEmpresas: (escritorioId: string, cnpj: string) => Promise<string | null>; encerrado: (escritorioId: string, metodo: string, caminho: string) => Promise<string | null> };
+let travasTesteContabil: TravasTesteContabil | null = null;
+export function definirTravasTesteContabil(t: TravasTesteContabil | null): void { travasTesteContabil = t; }
+
+/** Teste grátis: troca o link de entrada de uso único pela sessão (mesmo cookie e mesma duração do login com senha). */
+export async function criarSessaoPorIdContabil(req: Request, res: Response, userId: string): Promise<boolean> {
+  await prepararAuthContabil();
+  const u = await obterBanco().query("SELECT id FROM contabil_auth_users WHERE id::text=$1 AND disabled=false", [userId]);
+  if (!u.rowCount) return false;
+  const token = crypto.randomBytes(32).toString("base64url"); const duracao = duracaoSessaoContabil(req);
+  await obterBanco().query("INSERT INTO contabil_auth_sessions(token_hash,user_id,expires_at) VALUES($1,$2,now() + ($3 * interval '1 second'))", [crypto.createHash("sha256").update(token).digest("hex"), u.rows[0].id, duracao]);
+  gravarCookie(res, token, duracao);
+  return true;
+}
+
 export async function exigirSessaoContabil(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const sessao = await obterSessaoContabil(req);
     if (!sessao) { res.status(401).json({ sucesso: false, motivo: "Entre para acessar os dados contábeis." }); return; }
     (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil = sessao;
+    // Teste grátis encerrado: vê e baixa tudo, mas não cria, calcula nem transmite (nada é apagado).
+    if (travasTesteContabil && !["GET", "HEAD", "OPTIONS"].includes(req.method.toUpperCase())) {
+      const motivo = await travasTesteContabil.encerrado(String(sessao.tenantId || sessao.escritorioDe || sessao.userId), req.method, `${req.baseUrl}${req.path}`).catch(() => null);
+      if (motivo) { res.status(403).json({ sucesso: false, testeEncerrado: true, motivo }); return; }
+    }
     // Dono do sistema sem o código de segurança ligado: só liga o código (ou sai); o resto do sistema espera.
     if (sessao.donoSistema === true && obrigatorio2faDono() && !ROTAS_LIVRES_SEM_CODIGO.test(`${req.method} ${req.baseUrl}${req.path}`) && !(await tem2faAtivo(consultarSeguranca, PREFIXO_SEGURANCA_CONTABIL, sessao.userId))) {
       res.status(403).json({ sucesso: false, precisaAtivar2fa: true, motivo: "Antes de continuar, ligue o código de segurança da sua conta (obrigatório para o dono do sistema)." }); return;
@@ -468,6 +489,7 @@ export async function adicionarEmpresaAcessoContabil(req: Request, res: Response
   try {
     const outro = await obterBanco().query("SELECT 1 FROM contabil_auth_company_access a JOIN contabil_auth_users u ON u.id=a.user_id WHERE a.cnpj=$1 AND u.tenant_id IS NOT NULL AND u.tenant_id<>$2 LIMIT 1", [cnpj, sessao.tenantId]);
     if (outro.rowCount) { res.status(409).json({ sucesso: false, motivo: "Este CNPJ já está cadastrado em outro escritório. Cada empresa pertence a um único escritório." }); return; }
+    if (travasTesteContabil) { const motivo = await travasTesteContabil.limiteEmpresas(String(sessao.escritorioDe || sessao.userId), cnpj); if (motivo) { res.status(409).json({ sucesso: false, testeGratis: true, motivo }); return; } }
     await obterBanco().query("INSERT INTO contabil_auth_company_access(user_id,cnpj,role) VALUES($1,$2,'admin') ON CONFLICT(user_id,cnpj) DO UPDATE SET role='admin'", [sessao.escritorioDe || sessao.userId, cnpj]);
     res.setHeader("Cache-Control", "no-store");
     res.status(201).json({ sucesso: true, cnpj, mensagem: "Empresa cadastrada no escritório. Toda a equipe passa a enxergá-la." });
@@ -2185,6 +2207,7 @@ export async function importarCnpjsCompartilhados(itens: Array<{ cnpj: string; e
     const existe = await obterBanco().query("SELECT user_id FROM contabil_auth_company_access WHERE cnpj=$1 LIMIT 1", [cnpj]);
     let meu = false;
     if (existe.rowCount) { jaExistiam++; meu = String(existe.rows[0].user_id) === alvo; }
+    else if (travasTesteContabil && await travasTesteContabil.limiteEmpresas(alvo, cnpj).catch(() => null)) { semEscritorio.push(cnpj); continue; }
     else {
       const r = await obterBanco().query("INSERT INTO contabil_auth_company_access(user_id,cnpj,role) VALUES($1,$2,'admin') ON CONFLICT(user_id,cnpj) DO NOTHING RETURNING cnpj", [alvo, cnpj]);
       if (r.rowCount) { criadas.push(cnpj); meu = true; } else jaExistiam++;

@@ -50,6 +50,9 @@ import { extrairNomeDaResposta, fraseDeSaudacao } from "./src/server/agenteSauda
 import { opcoesConexaoBancoContabil, bancoTransacionalContabil } from "./src/server/authContabil";
 import { removerEmpresaCompleta, sobrasDeEmpresasExcluidas } from "./src/server/exclusaoEmpresaCascata";
 import { listarRegistroAgenteIAContabil, bancoContabilConfigurado, consultaBancoContabil, hashSessaoContabil, registrarAcaoAgenteIAContabil, listarDuvidasSemRespostaDonoSistemaContabil, resolverDuvidaSemRespostaDonoSistemaContabil } from "./src/server/authContabil";
+import { definirTravasTesteContabil, criarSessaoPorIdContabil, sessaoDaRequisicaoContabil as sessaoTesteContabil } from "./src/server/authContabil";
+import * as testeLocal from "./src/server/testeGratisLocal";
+import { definirLimiteTesteMigracaoContabil } from "./src/server/migracaoSistemaAnterior/banco";
 import { definirAlertaRobo, dispararRoboAgora, executarRobo, registrarResultadoRobo, registrarRobo, registrarRotinaManual, statusRobos } from "./src/server/robosStatus";
 import { conferirEmpresasRepetidas } from "./src/server/conferidorEmpresaRepetida";
 import { criarServicoBackupBanco } from "./src/server/backupBanco/servico";
@@ -327,6 +330,37 @@ const reconciliacaoRascunhosStatus: {
     if (!token || !tokenValido(req.header("authorization"), token)) return res.status(token ? 401 : 503).json({ sucesso: false, motivo: "Credencial de integração inválida ou não configurada." });
     try { return res.json({ sucesso: true, sistema: "Contábil", sinais: await presencaDono.sinaisLocais(30) }); }
     catch { return res.status(503).json({ sucesso: false, motivo: "Presença indisponível." }); }
+  });
+  // ---- TESTE GRÁTIS (o DP é a fonte da verdade; aqui: criar o escritório pela integração, entrada de uso único, faixa e travas) ----
+  const consultarTesteContabil = (sql: string, params?: unknown[]) => consultaBancoContabil(sql, params ?? []);
+  if (bancoContabilConfigurado()) {
+    definirTravasTesteContabil({
+      limiteEmpresas: (escritorioId, cnpj) => testeLocal.checarLimiteLocal(consultarTesteContabil, "contabil", escritorioId, cnpj),
+      encerrado: (escritorioId, metodo, caminho) => testeLocal.travaEncerradoLocal(consultarTesteContabil, "contabil", escritorioId, metodo, caminho),
+    });
+    definirLimiteTesteMigracaoContabil((escritorioId, cnpj) => testeLocal.checarLimiteLocal(consultarTesteContabil, "contabil", escritorioId, cnpj));
+  }
+  app.post("/api/integracao/teste-gratis/escritorio", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const token = process.env.MURADE_INTEGRATION_TOKEN;
+    if (!token || !tokenValido(req.header("authorization"), token)) return res.status(token ? 401 : 503).json({ sucesso: false, motivo: "Credencial de integração inválida ou não configurada." });
+    if (!bancoContabilConfigurado()) return res.status(503).json({ sucesso: false, motivo: "O banco do Contábil não está configurado." });
+    try { await prepararAuthContabil(); const r = await testeLocal.receberIntegracaoTeste(consultarTesteContabil, "contabil", req.body); return res.status(r.status).json(r.corpo); }
+    catch (e: any) { console.error("Falha na integração do teste grátis (Contábil):", e?.message || e); return res.status(503).json({ sucesso: false, motivo: "O Contábil não conseguiu concluir agora." }); }
+  });
+  app.get("/api/teste-gratis/entrar", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    try {
+      const userId = bancoContabilConfigurado() ? await testeLocal.trocarEntradaLocal(consultarTesteContabil, "contabil", req.query.t) : null;
+      if (!userId || !(await criarSessaoPorIdContabil(req, res, userId))) return res.redirect(303, "/?teste=link-expirado");
+      return res.redirect(303, "/");
+    } catch (e: any) { console.error("Falha na entrada do teste grátis (Contábil):", e?.message || e); return res.redirect(303, "/?teste=link-expirado"); }
+  });
+  app.get("/api/teste-gratis/minha-situacao", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const s = sessaoTesteContabil(req);
+    try { return res.json({ sucesso: true, ...(await testeLocal.situacaoLocal(consultarTesteContabil, "contabil", s ? String(s.tenantId || s.escritorioDe || s.userId) : null)) }); }
+    catch { return res.json({ sucesso: true, emTeste: false }); }
   });
   app.post("/api/auth/tenants/invite", exigirOrigemNavegador, exigirSessaoContabil, convidarEscritorioContabil);
   app.post("/api/auth/tenants/:login/reenviar", exigirOrigemNavegador, exigirSessaoContabil, reenviarAcessoEscritorioContabil);

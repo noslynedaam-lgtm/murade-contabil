@@ -88,6 +88,11 @@ export const INTEGRACOES_APRESENTACAO: IntegracaoApresentacao[] = [
     rotas: ['GET /api/integracao/presenca-dono'],
   },
   {
+    id: 'teste-gratis', titulo: 'Teste grátis vindo do site', soDono: true,
+    falar: 'Quem se cadastra no teste grátis pelo site entra direto. O DP cria o escritório em teste e, por uma rota autenticada, o Contábil cria o mesmo escritório com a mesma senha. No teste vale o limite de empresas, a faixa com os dias que faltam e, quando o teste acaba, o escritório só vê e baixa os dados; nada é apagado.',
+    rotas: ['POST /api/integracao/teste-gratis/escritorio'],
+  },
+  {
     id: 'fiscal-notas', titulo: 'Do Fiscal: notas fiscais', tela: 'revisao-origens',
     falar: 'O Fiscal envia ao Contábil as notas fiscais e os XMLs autorizados de cada empresa, por uma fila autenticada que repete se falhar. O Contábil só guarda e usa para preparar rascunhos; quem consulta a SEFAZ é o Fiscal, o Contábil não.',
     rotas: ['POST /api/integracao/fiscal/documentos', 'GET /api/integracao/fiscal/documentos', 'GET /api/integracao/fiscal/documentos/versoes'],

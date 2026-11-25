@@ -73,6 +73,7 @@ import { PilotoVisivel } from "./components/PilotoVisivel";
 import { IDS_DE_TELAS_CONTABIL } from "./data/mapaTelasContabil";
 import { VigenciaObrigacoesView } from "./components/VigenciaObrigacoesView";
 import { TelaEscolaMurade } from "./components/escola/TelaEscolaMurade";
+import { FaixaTesteGratis } from "./components/FaixaTesteGratis";
 
 export default function App() {
   return <ContabilAccessGate><AppWorkspace /></ContabilAccessGate>;
@@ -1020,6 +1021,7 @@ function AppWorkspace() {
           <FaixaEcd cnpj={empresa.cnpj} onAbrir={() => setTabAtiva("livros" as TabId)} />
           <FaixaLucroReal onAbrir={() => setTabAtiva("livros" as TabId)} />
           <AvisosBackupEscritorio api="/api/contabil/backup-agendado" sistema="contabil" aoAbrirBackup={() => setTabAtiva("backups")} />
+          <FaixaTesteGratis />
           <main className="p-2 sm:p-3 w-full mx-auto">
             {/* Grid Principal: 2 Colunas (Área de Trabalho + Sidebar do Robô) */}
             <div className="grid grid-cols-1 gap-5 items-start">
