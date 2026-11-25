@@ -1048,6 +1048,34 @@ const FERRAMENTAS: Ferramenta[] = [
     },
   },
   {
+    tipo: 'leitura',
+    declaracao: { name: 'consultar_extratos_pdf', description: 'EXTRATO EM PDF: mostra a conferência dos extratos bancários importados em PDF de UMA empresa — se os movimentos guardados ainda somam o saldo de cada extrato e se falta extrato entre um mês e outro. Só lê.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj }, required: ['cnpj'] } },
+    async executar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const r = await ctx.chamarApi('GET', `/api/workspaces/${q(cnpj)}/extratos-pdf/conferencia`);
+      if (!ok(r)) return erroApi(r);
+      return { cnpj, conferidos: r.corpo?.conferidos ?? 0, resumo: r.corpo?.resumo, achados: (r.corpo?.achados || []).slice(0, 15).map((a: any) => a.texto), tela: 'Gestão contábil › Extrato e conciliação' };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'conferir_extratos_pdf_agora', description: 'EXTRATO EM PDF: propõe rodar AGORA o Robô Conferidor dos Extratos em PDF nas empresas do usuário (o mesmo do botão "Rodar agora: conferir extratos em PDF"). Só lê: confere saldos e extrato faltando entre meses. Vira cartão.', parameters: { type: 'OBJECT', properties: {} } },
+    async preparar() {
+      return { cnpj: '', params: {}, titulo: 'Conferir agora os extratos em PDF', descricao: ['Confere, em cada empresa sua com extrato em PDF guardado, se os movimentos ainda somam o saldo de cada extrato.', 'Confere também se o saldo inicial de um extrato é o saldo final do anterior (sem extrato faltando no meio).', 'Só lê: não muda nada.'], resumo: 'Conferir extratos em PDF' };
+    },
+    async executar(ctx) {
+      const r = await ctx.chamarApi('POST', '/api/extratos-pdf/conferir-agora', {});
+      if (!ok(r)) return { sucesso: false, mensagem: erroApi(r).erro };
+      for (let i = 0; i < 40; i++) {
+        await new Promise((fim) => setTimeout(fim, 1500));
+        const g = await ctx.chamarApi('GET', '/api/extratos-pdf/conferir-agora');
+        const p = ok(g) ? g.corpo?.progresso : null;
+        if (p?.fim) return p.erro ? { sucesso: false, mensagem: `A conferência falhou: ${p.erro}` } : { sucesso: true, mensagem: String(p.resultado || 'Conferido.') + ((p.achados || []).length ? ` ${(p.achados || []).slice(0, 3).map((a: any) => a.texto).join(' ')}` : '') };
+      }
+      return { sucesso: true, mensagem: 'A conferência continua rodando; o resultado aparece em Gestão contábil › Extrato e conciliação.' };
+    },
+  },
+  {
     tipo: 'acao',
     declaracao: { name: 'criar_regra_conciliacao', description: 'Propõe criar uma REGRA de conciliação bancária: quando o histórico do extrato tiver o texto, o robô sugere a conta. Ex.: "quando tiver TARIFA, usar despesas bancárias". Vira cartão.', parameters: { type: 'OBJECT', properties: { cnpj: props.cnpj, texto: { type: 'STRING', description: 'Texto que aparece no histórico do extrato (3 a 80 caracteres).' }, conta: { type: 'STRING', description: 'Código da conta analítica.' }, sentido: { type: 'STRING', description: 'entrada, saida ou ambos.' } }, required: ['cnpj', 'texto', 'conta'] } },
     async preparar(_ctx, args) {
@@ -1119,7 +1147,7 @@ COMO TRABALHAR
 - Se o usuário tem uma única empresa, use-a. Se há várias e ele não disse qual, pergunte. Se não disse a competência (mês), pergunte antes de agir.
 - Ações que alteram dados (contabilizar_prelancamentos, fechar_competencia, delegar_tarefa) NÃO são executadas por você: viram um cartão de confirmação. Depois de chamar uma ação, diga em uma frase o que ficou pronto para ele confirmar. Nunca diga que algo foi feito antes de ele confirmar.
 - PEDIR SERVIÇO À EQUIPE (delegar_tarefa): quando a contadora pedir algo como "peça para a Nilva conciliar o banco da empresa X", use delegar_tarefa com o nome da pessoa como foi dito, o serviço, a empresa (se disse) e o prazo (só se disse; converta para AAAA-MM-DD pela data de hoje). Vira cartão de confirmação; diga em uma frase para quem é o pedido e que ele só vale ao confirmar. Se a ferramenta disser que o nome é ambíguo ou não existe, pergunte UMA vez qual pessoa, sem escolher sozinha. Só a administradora do escritório pede para outra pessoa; funcionário comum só anota tarefa para si (sem destinatário). Isso funciona de qualquer tela. A pessoa recebe o pedido na tela de Tarefas da equipe.
-- LANÇAMENTO COM VÁRIAS PARTIDAS (lancar_varias_partidas), LANÇAMENTO PADRÃO (cadastrar_lancamento_padrao, ligar_desligar_lancamento_padrao, preparar_lancamentos_padrao), HISTÓRICO PADRÃO, ENCERRAMENTO DO RESULTADO (consultar_encerramento, preparar_encerramento, estornar_encerramento), LIVRO CAIXA DO SIMPLES (consultar_livro_caixa, emitir_livro_caixa) e CONCILIAÇÃO BANCÁRIA (consultar_conciliacao_bancaria, aceitar_sugestoes_conciliacao, criar_regra_conciliacao): use as ferramentas próprias; todas viram cartão e o que é lançamento continua pendente de aprovação depois do sim. Para o que os robôs dessas rotinas acharam, use achados_escrituracao.
+- LANÇAMENTO COM VÁRIAS PARTIDAS (lancar_varias_partidas), LANÇAMENTO PADRÃO (cadastrar_lancamento_padrao, ligar_desligar_lancamento_padrao, preparar_lancamentos_padrao), HISTÓRICO PADRÃO, ENCERRAMENTO DO RESULTADO (consultar_encerramento, preparar_encerramento, estornar_encerramento), LIVRO CAIXA DO SIMPLES (consultar_livro_caixa, emitir_livro_caixa) e CONCILIAÇÃO BANCÁRIA (consultar_conciliacao_bancaria, aceitar_sugestoes_conciliacao, criar_regra_conciliacao; extrato em PDF: consultar_extratos_pdf e conferir_extratos_pdf_agora): use as ferramentas próprias; todas viram cartão e o que é lançamento continua pendente de aprovação depois do sim. Para o que os robôs dessas rotinas acharam, use achados_escrituracao. EXTRATO EM PDF: a pessoa importa na tela Gestão contábil › Extrato e conciliação (escolhe a conta do banco, toca em Arquivo, escolhe o PDF e toca em Guardar extrato); ele só entra se saldo inicial + entradas − saídas = saldo final, e o PDF escaneado não entra (peça o OFX do internet banking).
 - Fora disso, você não grava lançamentos manuais, plano de contas ou mapeamentos: isso é feito nas telas. Você pode PREENCHER o formulário à vista com preencher_na_tela, e quem clica em gravar é o usuário.
 - Antes de propor fechar o período ou contabilizar, se o usuário perguntar se alguém já fez, ou se vários colegas trabalham na empresa, use consultar_servico_feito. Se a ação for barrada porque outra pessoa (ou o robô) já fez, repasse a frase do sistema com o nome e a hora, sem tentar de novo; se o sistema avisar que alguém está fazendo agora, conte isso ao usuário e só prossiga se ele pedir de novo. Nunca invente quem fez.
 - EXCLUIR EMPRESA (apagar_empresa): só quando a pessoa pedir expressamente, UMA empresa por vez (nunca todas de uma vez: se pedirem em lote, explique que o sistema só apaga uma por vez, por segurança). Diga o nome e o CNPJ completos; vira cartão de duas confirmações e só vale depois das duas. Se o nome for ambíguo, pergunte qual. O CNPJ continua livre para cadastrar de novo.

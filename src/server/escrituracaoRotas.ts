@@ -23,6 +23,7 @@ import {
   resumoExtratoEmpresa, validarMovimentosRecebidos,
 } from "./extratoBancarioStore";
 import { naturezasDasContas } from "../services/ecdService";
+import { conferirExtratosPdf, gravarConferenciaPdf, lerExtratoPdf, pdfDoCorpo, type AchadoExtratoPdf } from "./extratoPdfServidor";
 import { adaptarPlanoParaEntidade, ehRegimeEntidade, planoEstaComoEntidade } from "../utils/planoEntidade";
 import { ordenarContasPorSequenciaNumerica } from "../utils/planoContasUtils";
 import { gerarRelatoriosContabeis, normalizarDataContabil } from "../utils/livrosContabeis";
@@ -48,7 +49,7 @@ export function planejarRecorrentes(payload: Record<string, any>, competencia: s
   return prepararRecorrentesDoMes({ padroes, lancamentos: lancamentosDe(payload), contas: contasDe(payload), competencia, fechadas, novoId: novoId("rec") });
 }
 
-export type AchadoEscrituracao = { cnpj: string; tipo: "livro_caixa" | "encerramento" | "conciliacao" | "recorrentes" | "ajustes_fechamento" | "plano_entidade"; titulo: string; detalhe: string; verificadoEm: string };
+export type AchadoEscrituracao = { cnpj: string; tipo: "livro_caixa" | "encerramento" | "conciliacao" | "recorrentes" | "ajustes_fechamento" | "plano_entidade" | "extrato_pdf"; titulo: string; detalhe: string; verificadoEm: string };
 const achados = new Map<string, AchadoEscrituracao>(); // chave: tipo:cnpj
 export const achadosEscrituracao = (cnpjs?: string[]): AchadoEscrituracao[] => [...achados.values()].filter((a) => !cnpjs || cnpjs.includes(a.cnpj)).sort((a, b) => a.cnpj.localeCompare(b.cnpj) || a.tipo.localeCompare(b.tipo));
 export const limparAchadosEscrituracaoParaTeste = () => achados.clear();
@@ -349,6 +350,60 @@ export function registrarRotasEscrituracao(app: express.Express, deps: Deps): vo
       return res.json({ sucesso: true, ...r, mensagem: `${r.novos} movimento(s) novo(s) guardado(s)${r.jaExistiam ? `; ${r.jaExistiam} já estavam guardados e não foram duplicados` : ""}. O Robô da Conciliação prepara as sugestões; você aprova.` });
     } catch (e) { return erroHttp(res, e, "Não foi possível guardar o extrato."); }
   });
+  // ---------- extrato em PDF (com texto): o PDF é lido NO SERVIDOR e só entra se o saldo inicial + movimentos = saldo final.
+  // "ler-pdf" só mostra a leitura e a conferência (nada é gravado); "pdf" lê de novo, confere de novo e guarda.
+  const resumoLeitura = (l: Awaited<ReturnType<typeof lerExtratoPdf>>) => ({ movimentos: l.movimentos, erros: l.erros, motivo: l.motivo, banco: l.banco, periodo: l.periodo, conferencia: l.conferencia, semTexto: l.semTexto, paginas: l.paginas });
+  app.post("/api/workspaces/:cnpj/extratos/ler-pdf", origem, sessaoMw, async (req, res) => {
+    const a = acessoEmpresa(req, res, false); if (!a) return;
+    const pdf = pdfDoCorpo(req.body?.pdfBase64);
+    if (!pdf) return res.status(400).json({ sucesso: false, motivo: "Envie o PDF do extrato (até 8 MB)." });
+    try { return res.json({ sucesso: true, ...resumoLeitura(await lerExtratoPdf(pdf)) }); }
+    catch (e) { return erroHttp(res, e, "Não foi possível ler o PDF agora."); }
+  });
+  app.post("/api/workspaces/:cnpj/extratos/pdf", origem, sessaoMw, async (req, res) => {
+    const a = acessoEmpresa(req, res, true); if (!a) return;
+    const pdf = pdfDoCorpo(req.body?.pdfBase64);
+    if (!pdf) return res.status(400).json({ sucesso: false, motivo: "Envie o PDF do extrato (até 8 MB)." });
+    try {
+      const contaBanco = String(req.body?.contaBanco || "");
+      const payload = await lerWorkspaceInternoContabil(a.cnpj);
+      if (!payload || !contaBancoValida(payload, contaBanco)) return res.status(400).json({ sucesso: false, motivo: "Escolha a conta analítica do banco no plano de contas." });
+      const l = await lerExtratoPdf(pdf);
+      if (!l.conferencia.bate || !l.movimentos.length) return res.status(422).json({ sucesso: false, motivo: l.motivo || "O extrato não fechou com o saldo e não entrou.", ...resumoLeitura(l) });
+      const arquivo = String(req.body?.arquivo || "").slice(0, 160);
+      const r = await gravarMovimentosExtrato(consultar, a.cnpj, contaBanco, l.movimentos, a.sessao.login, arquivo);
+      await gravarConferenciaPdf(consultar, a.cnpj, contaBanco, l, arquivo, a.sessao.login);
+      return res.json({ sucesso: true, ...r, conferencia: l.conferencia, mensagem: `Extrato em PDF conferido (saldo inicial + entradas − saídas = saldo final) e guardado: ${r.novos} movimento(s) novo(s)${r.jaExistiam ? `; ${r.jaExistiam} já estavam guardados e não foram duplicados` : ""}. O Robô da Conciliação prepara as sugestões; você aprova.` });
+    } catch (e) { return erroHttp(res, e, "Não foi possível guardar o extrato em PDF."); }
+  });
+  // Conferidor dos extratos em PDF: "Rodar agora" com barra (só as empresas da sessão) e os achados de uma empresa.
+  const rodadasPdf = new Map<string, { inicio: number; fase: string; feito: number; total: number; fim?: number; resultado?: string; erro?: string; achados?: AchadoExtratoPdf[] }>();
+  app.post("/api/extratos-pdf/conferir-agora", origem, sessaoMw, (req, res) => {
+    const s = sessaoDaRequisicaoContabil(req); if (!s) return res.status(401).json({ sucesso: false });
+    const chave = String(s.tenantId || s.escritorioDe || s.userId);
+    const atual = rodadasPdf.get(chave);
+    if (atual && !atual.fim && Date.now() - atual.inicio < 10 * 60_000) return res.json({ sucesso: true, jaRodando: true, progresso: atual });
+    const st = { inicio: Date.now(), fase: "Conferindo os extratos em PDF", feito: 0, total: 1 } as NonNullable<ReturnType<typeof rodadasPdf.get>>; rodadasPdf.set(chave, st);
+    const cnpjs = s.cnpjs.map(normalizarCnpjAcesso).filter(cnpjContabilValido).slice(0, 2000);
+    void conferirExtratosPdf(consultar, cnpjs, (f, t) => { st.feito = f; st.total = Math.max(1, t); })
+      .then((r) => { st.achados = r.achados; st.resultado = resumoConferidorPdf(r); st.fase = "Pronto"; st.feito = st.total; })
+      .catch((e) => { st.erro = String(e?.message || e).slice(0, 200); st.fase = "Falhou"; })
+      .finally(() => { st.fim = Date.now(); });
+    return res.json({ sucesso: true, progresso: st });
+  });
+  app.get("/api/extratos-pdf/conferir-agora", sessaoMw, (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const s = sessaoDaRequisicaoContabil(req); if (!s) return res.status(401).json({ sucesso: false });
+    const st = rodadasPdf.get(String(s.tenantId || s.escritorioDe || s.userId)) || null;
+    const meus = new Set(s.cnpjs.map(normalizarCnpjAcesso));
+    return res.json({ sucesso: true, progresso: st ? { ...st, achados: (st.achados || []).filter((x) => meus.has(x.cnpj)) } : null });
+  });
+  app.get("/api/workspaces/:cnpj/extratos-pdf/conferencia", sessaoMw, async (req, res) => {
+    const a = acessoEmpresa(req, res, false); if (!a) return;
+    try { const r = await conferirExtratosPdf(consultar, [a.cnpj]); return res.json({ sucesso: true, conferidos: r.conferidos, achados: r.achados, resumo: resumoConferidorPdf(r) }); }
+    catch (e) { return erroHttp(res, e, "Não foi possível conferir os extratos em PDF."); }
+  });
+
   /** Concilia vários de uma vez com lançamentos aprovados (mesmo sentido e valor). */
   const conciliarItens = async (cnpj: string, contaBanco: string, itens: Array<{ fitid: string; lancamentoId: string }>, quem: string) => {
     const payload = await lerWorkspaceInternoContabil(cnpj);
@@ -632,6 +687,23 @@ export async function roboConciliacao(consultar: Consultar, agora = new Date()):
 }
 
 export { agruparPorLote };
+
+export function resumoConferidorPdf(r: { conferidos: number; achados: AchadoExtratoPdf[] }): string {
+  const faltas = r.achados.filter((a) => a.nivel === "falta").length;
+  if (!r.conferidos) return "Nenhum extrato em PDF guardado para conferir.";
+  return `${faltas || r.achados.length ? "ATENÇÃO: " : ""}${r.conferidos} extrato(s) em PDF conferido(s): ${r.achados.length ? `${r.achados.length} achado(s) — ${r.achados.slice(0, 3).map((a) => a.texto).join(" ")}` : "movimentos guardados batem com o saldo de cada extrato e os saldos encadeiam de um extrato para o outro."}`;
+}
+
+/** Robô Conferidor dos Extratos em PDF (todas as empresas com extrato em PDF; só lê). */
+export async function roboConferidorExtratosPdf(consultar: Consultar): Promise<string> {
+  const cnpjs = (await consultar("SELECT DISTINCT cnpj FROM contabil_extrato_pdf_conferencias").catch(() => ({ rows: [] as any[] }))).rows.map((x: any) => String(x.cnpj).trim());
+  const r = await conferirExtratosPdf(consultar, cnpjs);
+  for (const cnpj of cnpjs) {
+    const meus = r.achados.filter((a) => a.cnpj === cnpj);
+    guardarAchado(meus.length ? { cnpj, tipo: "extrato_pdf", titulo: "Extrato em PDF a conferir", detalhe: meus.slice(0, 3).map((a) => a.texto).join(" "), verificadoEm: new Date().toISOString() } : null, "extrato_pdf", cnpj);
+  }
+  return resumoConferidorPdf(r);
+}
 
 export function resumoAjustesFechamento(p: PropostaFechamento[]): string {
   const pend = p.filter((x) => x.situacao === "pendente");
