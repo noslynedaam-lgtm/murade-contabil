@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   ESTADOS_FINAIS, MS_POR_CARACTERE, MSG_INTERFERENCIA, MSG_SO_TELA, PilotoExecutor, aplicarIntencaoAoPiloto, analisarAlvo, intencaoDoTexto,
   registrarPilotoAtivo, transicaoPiloto, validarPlanoPiloto,
-  type AmbientePiloto, type EstadoPiloto, type EventoPiloto, type ModoCampo, type PassoPiloto, type PlanoPiloto,
+  type AmbientePiloto, type EstadoPiloto, type EventoPiloto, type ModoCampo, type PassoPiloto, type PlanoPiloto, MSG_SEGUNDO_PLANO,
 } from '../../src/utils/pilotoVisivel';
 
 // ---- ambiente falso: registra tudo que o piloto faz na "tela"
@@ -59,7 +59,7 @@ const PLANO: PlanoPiloto = {
 };
 const ocioso = async (n = 40) => { for (let i = 0; i < n; i += 1) await new Promise((r) => setImmediate(r)); };
 
-test('executa a sequência, digita um caractere por vez no ritmo e PARA no botão sem clicar', async () => {
+test('sem como apertar (ambiente sem clique animado): executa a sequência, digita no ritmo e PARA no botão esperando a pessoa', async () => {
   const amb = telaLancamento();
   const falas: string[] = [];
   const exec = new PilotoExecutor(PLANO, amb, { ritmo: 'normal', aoFalar: (t) => falas.push(t) });
@@ -77,7 +77,7 @@ test('executa a sequência, digita um caractere por vez no ritmo e PARA no botã
   assert.equal(amb.cliquesFinais, 0, 'parar_no_botao nunca clica');
   assert.ok(!amb.log.some((l) => l === 'clicar:[data-campo=lancamento-gravar]'));
   assert.ok(amb.log.includes('destacar:[data-campo=lancamento-gravar]:final'));
-  assert.match(falas[falas.length - 1], /Confira e clique você/);
+  assert.match(falas[falas.length - 1], /Sua vez: aperte/);
   // o clique real do contador conclui
   amb.cliqueReal?.();
   assert.equal(exec.getEstado(), 'concluido');
@@ -208,13 +208,69 @@ test('navegar nunca clica em botão que não seja de abrir (nem em botão final)
   assert.ok(!amb.log.some((l) => l.startsWith('clicar')));
 });
 
-test('elemento não encontrado vira erro com mensagem, nunca silêncio', async () => {
+test('elemento não encontrado vira aviso em texto e o piloto termina (nunca trava nem fica em silêncio)', async () => {
   const amb = new Falso({});
-  const exec = new PilotoExecutor({ titulo: 'x', passos: [{ tipo: 'destacar', alvo: '[data-campo=nao-existe]', legenda: 'Aqui' }] }, amb);
+  const falas: string[] = [];
+  const exec = new PilotoExecutor({ titulo: 'x', passos: [{ tipo: 'destacar', alvo: '[data-campo=nao-existe]', legenda: 'Aqui' }] }, amb, { aoFalar: (t) => falas.push(t) });
   void exec.iniciar();
   const r = await exec.terminou;
-  assert.equal(r.estado, 'erro');
-  assert.match(exec.instantaneo().legenda, /Não encontrei/);
+  assert.equal(r.estado, 'concluido');
+  assert.ok(exec.instantaneo().avisos.some((a) => /Não achei o campo nao-existe/.test(a)));
+  assert.ok(falas.some((f) => /Avisos: Não achei/.test(f)), 'avisa em texto/voz o que faltou');
+});
+
+// ---- ambiente que também aperta (como o do navegador): botões com texto e clique animado
+class FalsoQueAperta extends Falso {
+  apertados: string[] = [];
+  textos: Record<string, string> = {};
+  descrever(e: any) { return e.alvo in this.textos ? { texto: this.textos[e.alvo] } : null; }
+  async clicarAnimado(e: any, animar: boolean) { this.apertados.push(`${e.alvo}${animar ? '' : ' (sem animação)'}`); return true; }
+  async clicarMenu(t: string) { this.log.push(`menu:${t}`); this.tela = t; return true; }
+  async esperarPessoaParar() { this.log.push('esperou-a-pessoa'); }
+}
+const telaQueAperta = () => {
+  const f = new FalsoQueAperta(Object.fromEntries([
+    campo('#btn-novo-lancamento', { abre: true }), campo('[data-campo=lancamento-data]'), campo('[data-campo=lancamento-valor]', { modo: 'numero' }),
+    campo('[data-campo=lancamento-debito-codigo]'), campo('[data-campo=lancamento-gravar]', { final: 'salvar' }), campo('#btn-serpro'), campo('#btn-lote'),
+  ]));
+  f.textos = { '#btn-novo-lancamento': 'Novo lançamento', '[data-campo=lancamento-gravar]': 'Gravar Lançamento', '#btn-serpro': 'Consultar no Serpro', '#btn-lote': 'Excluir todos os lançamentos' };
+  return f;
+};
+
+test('a Agente FAZ: abre pelo menu, aperta o de abrir, preenche e só aperta Gravar depois do OK no cartão', async () => {
+  const amb = telaQueAperta();
+  const exec = new PilotoExecutor(PLANO, amb, { ritmo: 'rapido' });
+  void exec.iniciar();
+  for (let i = 0; i < 400 && exec.getEstado() !== 'aguardando_confirmacao'; i += 1) await ocioso(2);
+  assert.equal(exec.getEstado(), 'aguardando_confirmacao');
+  assert.equal(exec.instantaneo().pedeOk, true, 'cartão "Confira e dê o OK"');
+  assert.equal(exec.instantaneo().rotuloBotao, 'Gravar Lançamento');
+  assert.ok(amb.log.includes('menu:lancamentos'), 'foi clicando no menu');
+  assert.deepEqual(amb.apertados, ['#btn-novo-lancamento'], 'Gravar só depois do OK');
+  assert.equal(await exec.confirmarPeloCartao(), true);
+  assert.deepEqual(amb.apertados, ['#btn-novo-lancamento', '[data-campo=lancamento-gravar]']);
+  assert.equal((await exec.terminou).estado, 'concluido');
+});
+
+test('Serpro fica para a pessoa; apagar em lote nunca é apertado; cancelar no cartão não grava', async () => {
+  const amb = telaQueAperta();
+  const exec = new PilotoExecutor({ titulo: 'x', passos: [
+    { tipo: 'destacar', alvo: '#btn-lote', legenda: 'apagar' },
+    { tipo: 'destacar', alvo: '#btn-serpro', legenda: 'consultar' },
+    { tipo: 'parar_no_botao', alvo: '[data-campo=lancamento-gravar]', legenda: 'Gravar' },
+  ] }, amb);
+  void exec.iniciar();
+  for (let i = 0; i < 200 && exec.getEstado() !== 'aguardando_confirmacao'; i += 1) await ocioso(2);
+  assert.equal(exec.instantaneo().pedeOk, false, 'consulta paga: só a pessoa aperta');
+  assert.deepEqual(amb.apertados, []);
+  assert.ok(exec.instantaneo().avisos.some((a) => /lote/.test(a)));
+  assert.equal(await exec.confirmarPeloCartao(), false, 'o cartão não aperta consulta paga');
+  amb.cliqueReal?.(); // a PESSOA apertou a consulta
+  for (let i = 0; i < 200 && !exec.instantaneo().pedeOk; i += 1) await ocioso(2);
+  assert.equal(exec.instantaneo().pedeOk, true);
+  exec.cancelar();
+  assert.equal((await exec.terminou).estado, 'cancelado');
+  assert.ok(!amb.apertados.includes('[data-campo=lancamento-gravar]'));
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -251,60 +307,54 @@ const PLANO_BG: PlanoPiloto = {
   ],
 };
 
-test('segundo plano: nunca navega nem toca a tela; etapa que só existe na tela pausa e avisa', async () => {
-  const amb = telaLancamento();
+test('segundo plano executa DE VERDADE: sem animação, volta à tela, preenche, aperta o de abrir e o que grava pede o OK', async () => {
+  const amb = telaQueAperta();
   const falas: string[] = [];
   const exec = new PilotoExecutor(PLANO, amb, { aoFalar: (t) => falas.push(t) });
   void exec.iniciar();
   exec.interferir('toque'); // pausa antes de qualquer passo tocar a tela
   await ocioso();
   assert.equal(exec.getEstado(), 'pausado');
-  const toquesAntes = amb.toques();
+  amb.tela = 'balancete'; // a pessoa foi usar outra tela
+  const esperasAntes = amb.esperas.filter((ms) => ms === MS_POR_CARACTERE.normal).length;
   exec.segundoPlano();
-  await ocioso(100);
-  assert.equal(amb.toques(), toquesAntes, 'em segundo plano nenhum resolver/navegar/rolar/destacar/digitar/clicar');
-  assert.ok(!amb.log.slice(-5).some((l) => l.startsWith('navegar')));
-  assert.equal(exec.getEstado(), 'pausado', 'etapa só de tela: pausa');
-  assert.ok(falas.includes(MSG_SO_TELA));
-  assert.equal(MSG_SO_TELA, 'Esta etapa só dá para fazer na tela; me chame quando quiser que eu continue aqui.');
-  assert.equal(exec.resultado().usouSegundoPlano, true);
+  for (let i = 0; i < 400 && exec.getEstado() !== 'aguardando_confirmacao'; i += 1) await ocioso(2);
+  assert.equal(exec.getEstado(), 'aguardando_confirmacao');
+  assert.equal(exec.instantaneo().pedeOk, true, 'o que grava pede o OK também em segundo plano');
+  assert.ok(amb.log.includes('esperou-a-pessoa'), 'esperou a pessoa parar de digitar antes de trocar de tela');
+  assert.ok(amb.log.includes('menu:lancamentos'));
+  assert.equal(amb.valores['[data-campo=lancamento-debito-codigo]'], '1.1.01');
+  assert.equal(amb.esperas.filter((ms) => ms === MS_POR_CARACTERE.normal).length, esperasAntes, 'sem digitação animada');
+  assert.deepEqual(amb.apertados, ['#btn-novo-lancamento (sem animação)']);
+  assert.ok(falas.includes(MSG_SEGUNDO_PLANO));
+  await exec.confirmarPeloCartao();
+  const r = await exec.terminou;
+  assert.equal(r.estado, 'concluido'); assert.equal(r.usouSegundoPlano, true);
+  assert.ok(falas.some((f) => /Pronto, terminei/.test(f)), 'avisa quando termina');
+  assert.match(MSG_SO_TELA, /só dá para fazer na tela/);
 });
 
-test('segundo plano: passos com caminho de API rodam sem tela; no botão final avisa "Falta só você confirmar" e "Ir ao botão" leva à tela', async () => {
-  const amb = telaLancamento();
-  amb.apiResultado = { ok: true };
-  const falas: string[] = [];
+test('segundo plano: passos com caminho de API rodam pelo servidor; se o servidor recusa, faz pela tela e avisa', async () => {
+  const amb = telaLancamento(); amb.apiResultado = { ok: true };
   const plano: PlanoPiloto = { titulo: 'Preparar', passos: [
     { tipo: 'rolar', alvo: '[data-campo=lancamento-data]', legenda: 'Visual' },
     { tipo: 'preencher', alvo: '[data-campo=lancamento-data]', valor: '05/11/2026', legenda: 'Data', via: 'api', api: { ferramenta: 'preparar_lancamento', args: { n: 1 } } },
-    { tipo: 'parar_no_botao', alvo: '[data-campo=lancamento-gravar]', legenda: 'Gravar Lançamento' },
   ] };
-  const exec = new PilotoExecutor(plano, amb, { aoFalar: (t) => falas.push(t) });
-  void exec.iniciar(); exec.interferir('toque');
-  await ocioso();
+  const exec = new PilotoExecutor(plano, amb);
+  void exec.iniciar(); exec.interferir('toque'); await ocioso();
   exec.segundoPlano();
-  await ocioso(100);
-  assert.equal(exec.getEstado(), 'aguardando_confirmacao');
+  assert.equal((await exec.terminou).estado, 'concluido');
   assert.deepEqual(amb.log.filter((l) => l.startsWith('api:')), ['api:preparar_lancamento']);
-  assert.equal(amb.toques() <= 0 || !amb.log.some((l) => l.startsWith('clicar')), true);
-  assert.match(falas[falas.length - 1], /Falta só você confirmar: Gravar Lançamento/);
-  assert.equal(exec.instantaneo().botaoForaDaTela, true);
-  assert.equal(amb.cliquesFinais, 0, 'segundo plano nunca clica em salvar');
-  assert.equal(exec.confirmarPorVoz(), 'levado_ao_botao');
-  await ocioso(200);
-  assert.equal(exec.getEstado(), 'aguardando_confirmacao');
-  assert.equal(exec.instantaneo().botaoForaDaTela, false);
-  assert.ok(amb.log.includes('destacar:[data-campo=lancamento-gravar]:final'));
-  assert.equal(amb.cliquesFinais, 0);
+  assert.equal(amb.valores['[data-campo=lancamento-data]'], undefined, 'o servidor fez: a tela não foi tocada');
+  const amb2 = telaLancamento(); amb2.apiResultado = { ok: false, motivo: 'servidor recusou' };
+  const e2 = new PilotoExecutor({ titulo: 'x', passos: [plano.passos[1]] }, amb2);
+  void e2.iniciar(); e2.interferir('toque'); await ocioso(); e2.segundoPlano();
+  assert.equal((await e2.terminou).estado, 'concluido');
+  assert.equal(amb2.valores['[data-campo=lancamento-data]'], '05/11/2026');
+  assert.ok(e2.instantaneo().avisos.some((a) => /servidor recusou/.test(a)));
 });
 
-test('segundo plano: interferência é ignorada e o cancelar funciona; erro da API vira aviso (pausa), nunca silêncio', async () => {
-  const amb = telaLancamento(); amb.apiResultado = { ok: false, motivo: 'servidor recusou' };
-  const exec = new PilotoExecutor({ titulo: 'x', passos: [{ tipo: 'preencher', alvo: '[data-campo=lancamento-data]', valor: '1', legenda: 'Data', via: 'api', api: { ferramenta: 'preparar_lancamento' } }] }, amb);
-  void exec.iniciar(); exec.interferir('toque'); await ocioso();
-  exec.segundoPlano(); await ocioso(60);
-  assert.equal(exec.getEstado(), 'pausado');
-  assert.equal(exec.resultado().ultimoErro, 'servidor recusou');
+test('segundo plano: interferência é ignorada e o cancelar funciona', async () => {
   const e2 = new PilotoExecutor(PLANO_BG, telaLancamento());
   void e2.iniciar(); e2.interferir('toque'); await ocioso(); e2.segundoPlano();
   e2.interferir('toque'); e2.interferir('teclado');

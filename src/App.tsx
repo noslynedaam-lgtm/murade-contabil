@@ -50,6 +50,8 @@ import { GuiaPassoAPasso, type PassoGuia } from "./components/GuiaPassoAPasso";
 import { AssistenteProvider } from "./contexts/AssistenteContext";
 import { useDetectorDificuldade, type DificuldadeDetectada } from "./hooks/useDetectorDificuldade";
 import { roteiroParaChave } from "./data/roteirosAjuda";
+import { enviarAoPiloto } from "./components/PilotoVisivel";
+import { validarPlanoPiloto } from "./utils/pilotoVisivel";
 import { BotaoPararAgente } from "./components/BotaoPararAgente";
 import type { AssistenteHandle } from "./types/assistenteHandle";
 import { ordenarContasPorSequenciaNumerica } from "./utils/planoContasUtils";
@@ -108,7 +110,9 @@ function AppWorkspace() {
     if (!dificuldadeAtual) return;
     const roteiro = roteiroParaChave(dificuldadeAtual.chave);
     if (roteiro) {
-      setRoteiroAtivo(roteiro);
+      // A Agente FAZ mostrando (piloto com a seta animada); se o roteiro não virar piloto válido, a seta antiga.
+      const plano = validarPlanoPiloto({ titulo: "Ajuda da Agente", passos: roteiro.map((x) => ({ tipo: "destacar", alvo: x.seletor, legenda: x.texto })) });
+      if ("plano" in plano) enviarAoPiloto(plano.plano); else setRoteiroAtivo(roteiro);
     } else {
       assistenteRef.current?.abrir();
       assistenteRef.current?.falar(
@@ -180,6 +184,12 @@ function AppWorkspace() {
   // Botão VOLTAR do celular/navegador: volta para a tela anterior em vez de fechar o app; antes fecha o que estiver aberto por cima.
   useVoltarCelular({ telaAtual: tabAtiva, telaInicial: "inicio", irParaTela: (tela) => setTabAtiva(tela as TabId), telasSemHistorico: ["ia-premium"] });
   useFecharNoVoltar(mobileSidebarOpen, () => setMobileSidebarOpen(false));
+  // A Agente (piloto) abre a gaveta do menu no celular antes de "ir clicando" num item.
+  React.useEffect(() => {
+    const abrir = () => { if (window.matchMedia?.('(max-width: 1023px)').matches) setMobileSidebarOpen(true); };
+    window.addEventListener("murade:abrir-menu", abrir);
+    return () => window.removeEventListener("murade:abrir-menu", abrir);
+  }, []);
   useFecharNoVoltar(modalFiscalAberto, () => setModalFiscalAberto(false));
   useFecharNoVoltar(!!dificuldadeAtual, () => setDificuldadeAtual(null));
   useFecharNoVoltar(!!roteiroAtivo, () => setRoteiroAtivo(null));
@@ -916,7 +926,7 @@ function AppWorkspace() {
 
   return (
     <AssistenteProvider assistenteRef={assistenteRef}>
-    <div className="h-screen w-full overflow-hidden bg-[#F1F5F9] text-slate-800 flex font-sans selection:bg-blue-600 selection:text-white">
+    <div className="h-full w-full overflow-hidden bg-[#F1F5F9] text-slate-800 flex font-sans selection:bg-blue-600 selection:text-white">
       {/* 1. BARRA LATERAL NO LADO ESQUERDO (DESKTOP) — FIXA COM ROLAGEM INDEPENDENTE */}
       <div className="hidden lg:flex shrink-0 h-full">
         <Sidebar

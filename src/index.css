@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Altura da parte visível da tela (no celular desconta a barra de endereço). Navegador antigo fica com 100vh. */
+.altura-tela-visivel { height: 100vh; height: 100dvh; }
+
 @keyframes floatUpDown {
   0%, 100% {
     transform: translateY(0);

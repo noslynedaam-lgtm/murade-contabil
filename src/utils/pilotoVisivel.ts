@@ -4,12 +4,15 @@
 // rola, destaca (anel + seta) e, se o pedido for de preencher, digita campo por campo em ritmo legível, com uma legenda curta
 // de cada passo. Se o contador interferir (clicar, digitar, trocar de tela), o piloto PAUSA e devolve o controle.
 //
-// Regras de segurança (valem no código, não só no texto):
-//  - só MOSTRA e PREENCHE; nunca clica em salvar/lançar/encerrar/enviar/transmitir/pagar/excluir/estornar: para no botão;
+// O piloto FAZ MOSTRANDO (pedido do dono, 24/11/2026): abre a tela pelo menu, aperta os botões de abrir/escolher, preenche e
+// aperta os botões, com a seta animada, até terminar. Regras de segurança (valem no código, não só no texto):
+//  - salvar/lançar/encerrar/enviar/transmitir/pagar/excluir/estornar só é apertado depois do cartão "Confira e dê o OK"
+//    (o OK é da pessoa); consulta paga ao Serpro e decisão reservada à pessoa ficam no clique dela; apagar em lote: nunca;
 //  - nunca preenche senha, token, certificado nem dados bancários;
 //  - nunca calcula nem altera valor: digita exatamente o texto recebido;
 //  - não lê nem registra o que o contador digita durante a interferência (os ouvintes só sabem QUE houve toque/tecla);
-//  - em segundo plano nunca navega nem mexe na tela: só executa o que tem caminho de API; o resto pausa e avisa.
+//  - em segundo plano executa DE VERDADE, sem animação (abre a tela, preenche, aperta o que só abre), mostra o andamento e
+//    avisa no fim; o que grava continua pedindo o OK; o que não achar na tela vira aviso em texto (não trava).
 //
 // Este arquivo é puro (sem React). O DOM só é tocado dentro de criarAmbienteDom().
 
@@ -43,7 +46,7 @@ export const MS_APOS_DESTAQUE: Record<Ritmo, number> = { devagar: 1800, normal: 
 
 export const MSG_INTERFERENCIA = 'Você interferiu, vou pausar. Quando quiser que eu continue, é só me avisar.';
 export const MSG_CONTINUANDO = 'Certo, continuando de onde parei.';
-export const MSG_SEGUNDO_PLANO = 'Pode deixar, termino em segundo plano. Fique à vontade para usar outra tela.';
+export const MSG_SEGUNDO_PLANO = 'Pode deixar, termino em segundo plano, sem animação. O andamento aparece aqui embaixo e eu aviso quando acabar.';
 export const MSG_SO_TELA = 'Esta etapa só dá para fazer na tela; me chame quando quiser que eu continue aqui.';
 export const MSG_CANCELADO = 'Cancelado. O que já foi preenchido continua na tela.';
 export const MSG_CONFIRMADO = 'Confirmado.';
@@ -80,6 +83,24 @@ export const textoSensivel = (t: string): boolean => SENSIVEL.test(String(t || '
 
 const DESTRUTIVO = /\b(salvar|gravar|lan[cç]ar|encerrar|fechar|enviar|transmitir|pagar|excluir|apagar|remover|estornar|aprovar|rejeitar|confirmar|finalizar|assinar)\b/i;
 export const textoDeAcaoFinal = (t: string): boolean => DESTRUTIVO.test(String(t || ''));
+
+/** O que o piloto pode apertar (mesma regra nos sistemas Murade):
+ *  'abrir' aperta sozinho; 'confirmar' só depois do OK; 'pessoa' (Serpro pago, "você mesmo") só a pessoa; 'proibido' (lote) nunca. */
+export type TipoClique = 'abrir' | 'confirmar' | 'pessoa' | 'proibido';
+const semAcentoT = (t: string) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+const RE_LOTE = /\b(apagar|excluir|remover|limpar|deletar|zerar)\b.{0,30}\b(tud[oa]|todos|todas|em lote|base)\b|\b(tud[oa]|todos|todas)\b.{0,20}\b(apagar|excluir|remover|deletar)\b/;
+const RE_PAGO = /\bserpro\b|consulta paga|consultas pagas/;
+const RE_SO_PESSOA = /voce mesm[oa]|o clique e seu|clique seu|confirmacao e sua|so voce pode|escolha voce|marque voce|clique voce/;
+const RE_MUDA = /\b(salvar|salve|gravar|grave|enviar|envie|transmit\w*|pagar|excluir|exclua|apagar|apague|remover|deletar|emitir|retificar|confirmar|confirmo|finalizar|assinar|assine|declarar|autorizar|importar|lancar|aprovar|rejeitar|estornar|encerrar|registrar|cadastrar|liberar|desfazer|revogar|aplicar|rodar|duplicar|substituir|sincronizar|corrigir para mim)\b|\bfechar (o |a )?(periodo|mes|competencia|exercicio|balanco|livro|folha)\b|\bpreparar (os |as |o |a )?(rascunho|pre-?lancamento|lancamento|guia|declarac)|\bgerar (tudo|todos|todas)\b|\bgerar (o |a )?(rascunho|guia|darf|das|arquivo|evento|ecd|ecf|sped|declaracao)\b/;
+export function tipoDoClique(texto: string, legenda = '', marcacao: { final?: boolean; abrir?: boolean; pago?: boolean } = {}): TipoClique {
+  const t = semAcentoT(texto); const l = semAcentoT(legenda);
+  if (RE_LOTE.test(t)) return 'proibido';
+  if (marcacao.pago || RE_PAGO.test(t)) return 'pessoa';
+  if (RE_SO_PESSOA.test(l)) return 'pessoa';
+  if (marcacao.final) return 'confirmar';
+  if (marcacao.abrir) return 'abrir';
+  return RE_MUDA.test(t) ? 'confirmar' : 'abrir';
+}
 
 export function validarPlanoPiloto(entrada: unknown): { ok: true; plano: PlanoPiloto } | { ok: false; motivo: string } {
   const e = entrada as any;
@@ -222,6 +243,14 @@ export interface AmbientePiloto {
   /** Caminho de API do servidor para o segundo plano. */
   executarApi(passo: PassoPiloto): Promise<{ ok: boolean; motivo?: string }>;
   esperar(ms: number): Promise<void>;
+  /** Texto do botão/aba (texto, aria-label, title) e marcações. null = não é algo de apertar. */
+  descrever?(el: unknown): { texto: string; final?: boolean; abrir?: boolean; pago?: boolean } | null;
+  /** Aperta com a seta animada (quando `animar`). Só depois das travas de tipoDoClique e do OK. */
+  clicarAnimado?(el: unknown, animar: boolean): Promise<boolean>;
+  /** Aperta o item do menu que abre a tela (abre a gaveta do celular antes). false = não achou o item. */
+  clicarMenu?(tela: string, animar: boolean): Promise<boolean>;
+  /** Segundo plano: espera a pessoa parar de digitar (no máximo `maxMs`) antes de trocar de tela. */
+  esperarPessoaParar?(maxMs: number): Promise<void>;
 }
 
 export interface InstantaneoPiloto {
@@ -235,6 +264,11 @@ export interface InstantaneoPiloto {
   interferencias: number;
   /** No estado aguardando_confirmacao: o botão ainda não está destacado na tela (parou em segundo plano). */
   botaoForaDaTela: boolean;
+  /** Cartão "Confira e dê o OK": o piloto aperta o botão depois do OK (false = só a pessoa pode apertar, ex.: Serpro). */
+  pedeOk: boolean;
+  rotuloBotao: string;
+  /** Avisos em texto do que não deu para fazer (não achou na tela etc.). */
+  avisos: string[];
 }
 export interface ResultadoPiloto { estado: EstadoPiloto; titulo: string; passosFeitos: number; total: number; interferencias: number; recusados: number; usouSegundoPlano: boolean; ultimoErro: string | null }
 
@@ -266,6 +300,12 @@ export class PilotoExecutor {
   /** Verdadeiro só durante o reposicionamento (refaz o que já foi feito sem animar). */
   private semAnimacao = false;
   private botaoForaDaTela = false;
+  private pedeOk = false;
+  private rotuloBotao = '';
+  private voltarAoBg = false;
+  private avisos: string[] = [];
+  /** Até quando uma troca de tela vem de um botão que o próprio piloto apertou (não é interferência). */
+  private cliqueProprioAte = 0;
   private acordar: (() => void) | null = null;
   private emLoop = false;
   private fimAvisado = false;
@@ -281,7 +321,7 @@ export class PilotoExecutor {
   // ---- consulta
   getEstado(): EstadoPiloto { return this.estado; }
   instantaneo(): InstantaneoPiloto {
-    return { estado: this.estado, titulo: this.plano.titulo, passo: Math.min(this.cursor + 1, this.plano.passos.length), total: this.plano.passos.length, legenda: this.legenda, ritmo: this.ritmo, recusados: this.recusados, interferencias: this.interferencias, botaoForaDaTela: this.botaoForaDaTela };
+    return { estado: this.estado, titulo: this.plano.titulo, passo: Math.min(this.cursor + 1, this.plano.passos.length), total: this.plano.passos.length, legenda: this.legenda, ritmo: this.ritmo, recusados: this.recusados, interferencias: this.interferencias, botaoForaDaTela: this.botaoForaDaTela, pedeOk: this.pedeOk, rotuloBotao: this.rotuloBotao, avisos: [...this.avisos] };
   }
   resultado(): ResultadoPiloto { return { estado: this.estado, titulo: this.plano.titulo, passosFeitos: this.feitos, total: this.plano.passos.length, interferencias: this.interferencias, recusados: this.recusados, usouSegundoPlano: this.usouBg, ultimoErro: this.erro }; }
   private final(): boolean { return ESTADOS_FINAIS.includes(this.estado); }
@@ -307,6 +347,7 @@ export class PilotoExecutor {
   /** A tela mudou. Se não foi o próprio piloto que mudou, é interferência. */
   telaMudou(tela: string): void {
     if (this.telaEsperada !== null && tela === this.telaEsperada) { this.telaEsperada = null; return; }
+    if (Date.now() < this.cliqueProprioAte) { this.telaDoPlano = tela; return; } // tela aberta por um botão que o piloto apertou
     if (this.estado === 'rodando') this.interferir('rota');
   }
   retomar(): void {
@@ -320,7 +361,31 @@ export class PilotoExecutor {
   segundoPlano(): void {
     if (this.estado !== 'rodando' && this.estado !== 'pausado') return;
     this.usouBg = true; this.amb.limparDestaque();
+    // A pessoa pode estar em outra tela/empresa: o segundo plano refaz (sem animar) o que precisa para voltar ao ponto.
+    this.reposicionar = !!this.telaDoPlano && (this.amb.telaAtual() !== this.telaDoPlano || (!!this.empresaDoPlano && this.amb.empresaAtual() !== this.empresaDoPlano));
     this.mudar('segundo_plano'); this.falar(MSG_SEGUNDO_PLANO);
+    this.ligarLoop();
+  }
+  /** "Conferi, pode seguir" no cartão: o piloto aperta o botão que estava esperando o OK e continua. */
+  async confirmarPeloCartao(): Promise<boolean> {
+    if (this.estado !== 'aguardando_confirmacao' || !this.pedeOk) return false;
+    const passo = this.plano.passos[this.cursor];
+    const el = passo ? await this.amb.aguardar(passo.alvo, 2500) : null;
+    if (!el || this.estado !== 'aguardando_confirmacao') { if (!el) this.falar('O botão sumiu da tela. Aperte você quando ele aparecer.'); return false; }
+    this.cliqueProprioAte = Date.now() + 2500;
+    const ok = this.amb.clicarAnimado ? await this.amb.clicarAnimado(el, !this.voltarAoBg) : (this.amb.clicar(el), true);
+    if (!ok) { this.falar('Não consegui apertar o botão. Aperte você.'); return false; }
+    this.seguirDepoisDoBotao();
+    return true;
+  }
+  /** O botão esperado foi apertado (pelo cartão de OK ou pela pessoa): fim do plano ou próximo passo. */
+  private seguirDepoisDoBotao(): void {
+    this.limparBotao(); this.amb.limparDestaque();
+    this.pedeOk = false; this.rotuloBotao = '';
+    if (this.cursor >= this.plano.passos.length - 1) { this.cursor = this.plano.passos.length; this.feitos += 1; this.mudar('confirmado'); this.concluirComResumo(); return; }
+    this.cursor += 1; this.feitos += 1;
+    this.mudar('continuar');
+    if (this.voltarAoBg) { this.voltarAoBg = false; this.mudar('segundo_plano'); }
     this.ligarLoop();
   }
   cancelar(): void {
@@ -338,7 +403,7 @@ export class PilotoExecutor {
   /** Botão "Pausar" do próprio piloto: pausa sem dizer que o contador interferiu. */
   pausarPeloBotao(): void { if (this.estado !== 'rodando') return; this.mudar('interferencia'); this.amb.limparDestaque(); this.legenda = 'Pausado. Toque em "Continuar de onde parou" quando quiser.'; this.avisar(); }
   /** Clique REAL do contador no botão final. */
-  confirmadoPeloContador(): void { if (this.estado === 'aguardando_confirmacao') { this.mudar('confirmado'); this.limparBotao(); this.amb.limparDestaque(); this.concluir(); } }
+  confirmadoPeloContador(): void { if (this.estado === 'aguardando_confirmacao') this.seguirDepoisDoBotao(); }
   /** "Pode confirmar" por voz. Só vale para botão de salvar; ação irreversível exige o clique do contador. */
   confirmarPorVoz(): 'confirmado' | 'levado_ao_botao' | 'so_clique' | 'nada' {
     if (this.estado !== 'aguardando_confirmacao') return 'nada';
@@ -382,7 +447,7 @@ export class PilotoExecutor {
       if (this.final()) return;
       if (this.estado === 'pausado') { await new Promise<void>((res) => { this.acordar = res; }); continue; }
       if (this.estado === 'aguardando_confirmacao') return;
-      if (this.reposicionar && this.estado === 'rodando') { this.reposicionar = false; if (!(await this.repor())) return; continue; }
+      if (this.reposicionar && (this.estado === 'rodando' || this.estado === 'segundo_plano')) { this.reposicionar = false; if (!(await this.repor())) return; continue; }
       if (this.cursor >= passos.length) { this.mudar('terminou'); this.concluirComResumo(); return; }
       const passo = passos[this.cursor];
       const r = this.estado === 'segundo_plano' ? await this.passoEmSegundoPlano(passo) : await this.passoNaTela(passo, !this.semAnimacao);
@@ -394,7 +459,9 @@ export class PilotoExecutor {
     }
   }
   private concluirComResumo(): void {
-    if (this.usouBg) this.falar(`Pronto, terminei: ${this.plano.titulo}. ${this.feitos} de ${this.plano.passos.length} passos feitos.`);
+    this.amb.limparDestaque();
+    const faltou = this.avisos.length ? ` Avisos: ${this.avisos.slice(0, 4).join(' ')}` : '';
+    if (this.usouBg || faltou) this.falar(`Pronto, terminei: ${this.plano.titulo}. ${Math.min(this.feitos, this.plano.passos.length)} de ${this.plano.passos.length} passos feitos.${faltou}`);
     this.concluir();
   }
 
@@ -408,30 +475,23 @@ export class PilotoExecutor {
         if (p.tipo === 'rolar' || p.tipo === 'destacar') continue;
         const r = await this.passoNaTela(p, false);
         if (r === 'falha') { this.mudar('falhou'); this.concluir(); return false; }
-        if (this.estado !== 'rodando') return false;
+        if (!this.livre()) return false;
       }
     } finally { this.semAnimacao = rapido; }
     return true;
   }
 
   private async passoEmSegundoPlano(p: PassoPiloto): Promise<Retorno> {
-    // Segundo plano nunca toca a tela: nada de resolver, navegar, rolar, destacar, digitar ou clicar.
-    if (p.tipo === 'rolar' || p.tipo === 'destacar') return 'ok';
-    if (p.tipo === 'parar_no_botao') {
-      this.botaoForaDaTela = true;
-      this.mudar('parou_no_botao');
-      this.falar(`Pronto, terminei o que dava. Falta só você confirmar: ${p.legenda}`);
-      return 'parou';
-    }
+    // Segundo plano executa de verdade, sem animação. Passo com caminho de servidor vai pelo servidor; o resto, na tela.
     if (p.via === 'api' && p.api) {
       let r: { ok: boolean; motivo?: string };
       try { r = await this.amb.executarApi(p); } catch (e) { r = { ok: false, motivo: String((e as Error)?.message || e) }; }
       if (r.ok) return 'ok';
-      this.erro = r.motivo || 'A etapa não pôde ser feita pelo servidor.';
+      this.avisos.push(`O servidor não fez esta etapa (${(r.motivo || 'sem resposta').slice(0, 120)}); fiz pela tela.`);
     }
-    this.mudar('precisa_tela');
-    this.falar(MSG_SO_TELA);
-    return 'repetir';
+    if (p.tipo === 'rolar') return 'ok'; // só para a pessoa ver
+    if (p.tipo === 'navegar' || (p.tipo === 'selecionar' && p.alvo.includes('empresa-ativa'))) await this.amb.esperarPessoaParar?.(8000);
+    return this.passoNaTela(p, false);
   }
 
   /** Espera o elemento. Devolve INTERROMPIDO se o contador pausou/cancelou enquanto esperava (nada pode ser feito na tela depois disso). */
@@ -440,7 +500,38 @@ export class PilotoExecutor {
     return !this.livre() && !this.semAnimacao ? INTERROMPIDO : el;
   }
   private falhar(texto: string): Retorno { this.erro = texto; this.legenda = texto; this.avisar(); return 'falha'; }
-  private livre(): boolean { return this.estado === 'rodando'; }
+  private livre(): boolean { return this.estado === 'rodando' || this.estado === 'segundo_plano'; }
+
+  /** Destaca o botão e espera: o OK do cartão (pedeOk) ou o clique da própria pessoa. Fica em aguardando_confirmacao. */
+  private esperarBotao(el: unknown, p: PassoPiloto, pedeOk: boolean, animar: boolean, rotulo = ''): void {
+    this.amb.rolarAte(el); this.amb.destacar(el, p.legenda, true);
+    this.botaoForaDaTela = false;
+    this.pedeOk = pedeOk; this.rotuloBotao = rotulo || p.legenda;
+    this.voltarAoBg = !animar && this.estado === 'segundo_plano';
+    this.limparBotao();
+    this.desligarBotao = this.amb.aoClicarUmaVez(el, () => this.confirmadoPeloContador());
+    this.mudar('parou_no_botao');
+    this.falar(pedeOk ? `Confira e dê o OK: eu aperto "${this.rotuloBotao}" para você.` : `Sua vez: aperte "${this.rotuloBotao}" (este clique é só seu).`);
+  }
+
+  /** Botão achado: o piloto aperta (abrir), pede o OK antes (grava/envia) ou deixa para a pessoa (Serpro/"você mesmo"). */
+  private async apertar(el: unknown, p: PassoPiloto, d: { texto: string; final?: boolean; abrir?: boolean; pago?: boolean }, pontoFinal: boolean, animar: boolean): Promise<Retorno> {
+    const a = analisarAlvo(p.alvo);
+    const nomeAlvo = a?.tipo === 'texto' ? a.texto : p.alvo.replace(/^#|^\[data-campo=["']?|["']?\]$/g, '').replace(/[-_]+/g, ' ').replace(/^btn /, '');
+    const rotulo = (d.texto.split(' · ')[0] || nomeAlvo).replace(/\s+/g, ' ').trim().slice(0, 60);
+    let tipo = tipoDoClique(`${d.texto} ${nomeAlvo}`, p.legenda, d);
+    if (pontoFinal && tipo === 'abrir' && !d.texto.trim()) tipo = 'confirmar'; // botão final sem texto reconhecível: OK antes
+    if (tipo === 'proibido') { this.avisos.push(`Não apertei "${rotulo}": apagar em lote não é permitido. Apague um por vez, com confirmação.`); return 'ok'; }
+    if (tipo === 'pessoa') { this.esperarBotao(el, p, false, animar, rotulo); return 'parou'; }
+    if (tipo === 'confirmar') { this.esperarBotao(el, p, true, animar, rotulo); return 'parou'; }
+    if (animar) { this.amb.rolarAte(el); this.amb.destacar(el, p.legenda, false); }
+    this.cliqueProprioAte = Date.now() + 2500;
+    const ok = await this.amb.clicarAnimado!(el, animar);
+    this.cliqueProprioAte = Math.max(this.cliqueProprioAte, Date.now() + 1500);
+    if (!ok) { this.avisos.push(`Não consegui apertar "${rotulo}"; aperte você.`); return 'ok'; }
+    await this.dormir(animar ? MS_APOS_DESTAQUE[this.ritmo] / 2 : 0);
+    return 'ok';
+  }
 
   private async passoNaTela(p: PassoPiloto, animar: boolean): Promise<Retorno> {
     this.legenda = p.legenda; this.avisar();
@@ -452,7 +543,13 @@ export class PilotoExecutor {
       if (a.tipo === 'menu') {
         this.telaEsperada = a.tela;
         if (this.amb.telaAtual() === a.tela) this.telaEsperada = null;
-        else if (!this.amb.navegarPara(a.tela)) { this.telaEsperada = null; return this.falhar('Não encontrei essa tela.'); }
+        else {
+          // "Ir clicando": aperta o item do menu (a gaveta do celular abre sozinha); sem o item, abre a tela direto.
+          let foi = false;
+          if (this.amb.clicarMenu) { try { foi = await this.amb.clicarMenu(a.tela, animar); } catch { foi = false; } }
+          for (let i = 0; foi && i < 10 && this.amb.telaAtual() !== a.tela; i += 1) await this.amb.esperar(100);
+          if (this.amb.telaAtual() !== a.tela && !this.amb.navegarPara(a.tela)) { this.telaEsperada = null; return this.falhar(`Não encontrei a tela "${a.tela}". Abra pelo menu e me peça de novo.`); }
+        }
         this.telaDoPlano = a.tela;
         await this.dormir(animar ? 500 : 0);
         return this.livre() || this.semAnimacao ? 'ok' : 'repetir';
@@ -460,11 +557,18 @@ export class PilotoExecutor {
       const el = await this.achar(p.alvo);
       if (el === INTERROMPIDO) return 'repetir';
       if (!el) return this.falhar('Não encontrei esse botão na tela.');
-      if (!this.amb.podeClicarParaAbrir(el)) return this.falhar('Por segurança, o piloto só abre telas e formulários; não clica em botões de ação.');
-      this.amb.rolarAte(el); this.amb.destacar(el, p.legenda, false);
+      if (!this.amb.podeClicarParaAbrir(el)) {
+        // Botão que grava/envia num passo de "abrir": passa pela regra do OK (nunca aperta direto).
+        const d = this.amb.descrever?.(el);
+        if (d && this.amb.clicarAnimado) return this.apertar(el, p, d, false, animar);
+        return this.falhar('Por segurança, o piloto só abre telas e formulários por aqui; não aperta botão de gravar sem o seu OK.');
+      }
+      if (animar) { this.amb.rolarAte(el); this.amb.destacar(el, p.legenda, false); }
       await this.dormir(animar ? MS_APOS_DESTAQUE[ritmo] / 2 : 0);
       if (!this.livre()) return 'repetir';
-      this.amb.clicar(el);
+      this.cliqueProprioAte = Date.now() + 2500;
+      if (this.amb.clicarAnimado) await this.amb.clicarAnimado(el, animar); else this.amb.clicar(el);
+      this.cliqueProprioAte = Math.max(this.cliqueProprioAte, Date.now() + 1500);
       await this.dormir(animar ? 400 : 0);
       return 'ok';
     }
@@ -483,24 +587,31 @@ export class PilotoExecutor {
 
     const el = await this.achar(p.alvo);
     if (el === INTERROMPIDO) return 'repetir';
-    if (!el) return this.falhar(p.tipo === 'parar_no_botao' ? 'Não encontrei o botão na tela.' : 'Não encontrei essa parte na tela.');
+    if (!el) {
+      const nome = a.tipo === 'texto' ? `"${a.texto}"` : a.tipo === 'campo' ? `o campo ${a.campo}` : `o item ${p.alvo.replace(/^#/, '')}`;
+      if (p.tipo === 'rolar' || p.tipo === 'destacar' || p.tipo === 'parar_no_botao') {
+        // Não trava: explica em texto o que faltou e segue (no botão final, avisa que a pessoa aperta quando aparecer).
+        this.avisos.push(p.tipo === 'parar_no_botao' ? `Não achei o botão ${nome} na tela (procurei por alguns segundos). Confira se a tela abriu e aperte você.` : `Não achei ${nome} na tela. Faça este passo você: ${p.legenda}`);
+        this.legenda = this.avisos[this.avisos.length - 1]; this.avisar();
+        return 'ok';
+      }
+      return this.falhar(`Não achei ${nome} na tela.`);
+    }
 
-    if (p.tipo === 'rolar') { this.amb.rolarAte(el); await this.dormir(animar ? 500 : 0); return this.livre() || this.semAnimacao ? 'ok' : 'repetir'; }
+    if (p.tipo === 'rolar') { if (animar) this.amb.rolarAte(el); await this.dormir(animar ? 500 : 0); return this.livre() || this.semAnimacao ? 'ok' : 'repetir'; }
 
     if (p.tipo === 'destacar') {
-      this.amb.rolarAte(el); this.amb.destacar(el, p.legenda, false);
+      const d = this.amb.descrever?.(el) ?? null;
+      if (d && this.amb.clicarAnimado) return this.apertar(el, p, d, false, animar);
+      if (animar) { this.amb.rolarAte(el); this.amb.destacar(el, p.legenda, false); }
       await this.dormir(animar ? MS_APOS_DESTAQUE[ritmo] : 0);
       return this.livre() || this.semAnimacao ? 'ok' : 'repetir';
     }
 
     if (p.tipo === 'parar_no_botao') {
-      this.amb.rolarAte(el); this.amb.destacar(el, p.legenda, true);
-      // NUNCA clica aqui. Só o clique do contador (ou "pode confirmar" por voz, para botão de salvar) conclui.
-      this.botaoForaDaTela = false;
-      this.limparBotao();
-      this.desligarBotao = this.amb.aoClicarUmaVez(el, () => this.confirmadoPeloContador());
-      this.mudar('parou_no_botao');
-      this.falar(`Confira e clique você: ${p.legenda}`);
+      const d = this.amb.descrever?.(el) ?? { texto: a.tipo === 'texto' ? a.texto : '' };
+      if (this.amb.clicarAnimado) return this.apertar(el, p, d, true, animar);
+      this.esperarBotao(el, p, false, animar);
       return 'parou';
     }
 
@@ -585,6 +696,17 @@ export interface OpcoesAmbienteDom {
 
 const semAcento = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const visivel = (el: Element) => { const h = el as HTMLElement; return !!(h.offsetParent || h.getClientRects().length); };
+
+// Última vez que a pessoa digitou (só o momento; o conteúdo nunca é lido): o segundo plano não troca de tela no meio da digitação.
+let ultimaDigitacao = 0;
+if (typeof window !== 'undefined') {
+  const marcar = (e: Event) => { if (e.isTrusted) ultimaDigitacao = Date.now(); };
+  window.addEventListener('keydown', marcar, true);
+  window.addEventListener('input', marcar, true);
+}
+const BOTOES = 'button, a[href], a[role="button"], summary, [role="button"], [role="tab"], input[type="button"], input[type="submit"]';
+/** Abre a gaveta do menu no celular (o App escuta este evento). */
+const abrirGaveta = () => { try { window.dispatchEvent(new Event('murade:abrir-menu')); } catch { /* sem menu */ } };
 
 export function criarAmbienteDom(o: OpcoesAmbienteDom): AmbientePiloto {
   let anel: HTMLDivElement | null = null;
@@ -698,5 +820,32 @@ export function criarAmbienteDom(o: OpcoesAmbienteDom): AmbientePiloto {
     empresaPronta: o.empresaPronta,
     executarApi: async (p) => (o.executarApi ? o.executarApi(p) : { ok: false, motivo: 'Sem caminho de servidor para esta etapa.' }),
     esperar: (ms) => new Promise((r) => setTimeout(r, ms)),
+    descrever: (el) => {
+      const b = (el as Element).closest?.(BOTOES) as HTMLElement | null;
+      if (!b) return null;
+      const texto = [b.getAttribute('aria-label'), (b.innerText || b.textContent || '').trim(), b.tagName === 'INPUT' ? (b as HTMLInputElement).value : '', b.getAttribute('title')]
+        .filter((x): x is string => !!x && !!x.trim()).join(' · ').replace(/\s+/g, ' ').slice(0, 160);
+      const m = b.closest('[data-piloto-final],[data-piloto-abrir],[data-consulta-paga]') as HTMLElement | null;
+      const fin = m?.getAttribute('data-piloto-final');
+      return { texto, final: fin !== null && fin !== undefined, abrir: !!m?.hasAttribute('data-piloto-abrir'), pago: !!m?.hasAttribute('data-consulta-paga') };
+    },
+    clicarAnimado: async (el, animar) => {
+      const b = ((el as Element).closest?.(BOTOES) as HTMLElement | null) || (el as HTMLElement);
+      const { clicarComCursor } = await import('./cursorPiloto');
+      return clicarComCursor(b, { animar, abrirGaveta });
+    },
+    clicarMenu: async (tela, animar) => {
+      if (!o.telasValidas.has(tela)) return false;
+      const { clicarComCursor, naTela } = await import('./cursorPiloto');
+      let b = document.getElementById(`btn-menu-${tela}`);
+      // No celular o menu é uma gaveta que só existe aberta: abre e procura de novo.
+      if ((!b || !naTela(b)) && animar) { abrirGaveta(); await new Promise((r) => setTimeout(r, 380)); b = Array.from(document.querySelectorAll<HTMLElement>(`#btn-menu-${tela}`)).find((x) => naTela(x)) || b; }
+      if (!b) return false;
+      return clicarComCursor(b, { animar, abrirGaveta });
+    },
+    esperarPessoaParar: async (maxMs) => {
+      const fim = Date.now() + maxMs;
+      while (Date.now() - ultimaDigitacao < 1500 && Date.now() < fim) await new Promise((r) => setTimeout(r, 250));
+    },
   };
 }

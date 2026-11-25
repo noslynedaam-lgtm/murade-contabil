@@ -149,8 +149,8 @@ export const FERRAMENTAS_PILOTO: Ferramenta[] = [
   },
   {
     tipo: 'leitura',
-    declaracao: { name: 'piloto_segundo_plano', description: 'O contador pediu para terminar EM SEGUNDO PLANO ("pode continuar em segundo plano", "faz por trás enquanto eu uso outra tela"). A tela dele não muda. Só avança o que não depende da tela; o resto pausa e avisa.', parameters: { type: 'OBJECT', properties: {} } },
-    async executar() { return { status: 'comando_enviado', instrucao: 'Diga que vai fazer em segundo plano e que ele pode usar outra tela; avise que etapas que só existem na tela ficam esperando por ele.', piloto: { comando: 'segundo_plano' } }; },
+    declaracao: { name: 'piloto_segundo_plano', description: 'O contador pediu para terminar EM SEGUNDO PLANO ("pode continuar em segundo plano", "faz por trás enquanto eu uso outra tela"). O piloto termina de verdade, sem animação (abre a tela, preenche, aperta o que só abre), mostra o andamento num chip pequeno e avisa quando acaba ou se algo falhar; o que grava continua pedindo o OK.', parameters: { type: 'OBJECT', properties: {} } },
+    async executar() { return { status: 'comando_enviado', instrucao: 'Diga em uma frase que vai terminar em segundo plano, mostrando o andamento, e avisar quando acabar; o que grava continua pedindo o OK dele.', piloto: { comando: 'segundo_plano' } }; },
   },
   {
     tipo: 'leitura',
@@ -262,7 +262,7 @@ export const INSTRUCAO_PILOTO = `
 
 PILOTO VISÍVEL (a tela muda sozinha)
 - Quando o pedido envolve uma tela ("mostre onde está o problema", "abre o balancete da empresa X", "me leva lá"), use mostrar_na_tela: a tela do usuário navega, escolhe a empresa e a competência e destaca o ponto exato. Depois de consultar o problema, mostre a tela onde ele se resolve.
-- Quando pedirem para preencher ("preenche esse lançamento", "cadastra essa conta", "cadastra essa empresa"), use preencher_na_tela. Ele preenche à vista, campo por campo, e PARA no botão de gravar: quem clica é o contador. Use só os dados que o usuário disse; se faltar data, valor, conta ou histórico, pergunte ANTES. Nunca invente nem calcule valores, contas ou datas.
-- Depois de chamar, diga em UMA frase o que ele vai ver e que pode interromper. Nunca diga que gravou: você só preenche.
-- O piloto nunca mexe em senha, token, certificado nem dados bancários, e nunca clica em salvar, fechar período, enviar, pagar ou excluir.
-- Se o contador interferir, o piloto pausa sozinho. "Pode continuar", "continua", "segue" → continuar_piloto. "Em segundo plano", "faz por trás enquanto eu uso outra tela" → piloto_segundo_plano. "Cancela", "para" → cancelar_piloto.`;
+- Quando pedirem para preencher ("preenche esse lançamento", "cadastra essa conta", "cadastra essa empresa"), use preencher_na_tela. Ele FAZ à vista: abre pelo menu, aperta os botões de abrir e preenche campo por campo; no botão de gravar mostra o cartão "Confira e dê o OK" e só aperta depois do OK do contador. Use só os dados que o usuário disse; se faltar data, valor, conta ou histórico, pergunte ANTES. Nunca invente nem calcule valores, contas ou datas.
+- Depois de chamar, diga em UMA frase o que ele vai ver e que pode interromper. Nunca diga que gravou: só grava depois do OK dele.
+- O piloto nunca mexe em senha, token, certificado nem dados bancários; salvar, fechar período, enviar, pagar ou excluir só depois do OK no cartão; consulta paga ao Serpro só no clique do contador; nada em lote.
+- Se o contador interferir, o piloto pausa sozinho. "Pode continuar", "continua", "segue" → continuar_piloto. "Em segundo plano", "faz por trás enquanto eu uso outra tela" → piloto_segundo_plano (termina de verdade, sem animação, mostrando o andamento, e avisa no fim; o que grava continua pedindo o OK). "Cancela", "para" → cancelar_piloto.`;

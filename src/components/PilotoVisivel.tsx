@@ -1,5 +1,6 @@
-// Piloto Visível: recebe o roteiro da Agente IA (evento 'murade:piloto'), conduz a tela e mostra controles compactos
-// (sem faixa fixa: um cartão pequeno no canto). Toda a lógica está em src/utils/pilotoVisivel.ts.
+// Piloto Visível: recebe o roteiro da Agente IA (evento 'murade:piloto'), FAZ na tela mostrando (abre pelo menu, aperta os
+// botões com a seta animada, preenche) e mostra controles compactos (sem faixa fixa: um cartão pequeno no canto).
+// O que grava/envia passa pelo cartão "Confira e dê o OK". Toda a lógica está em src/utils/pilotoVisivel.ts.
 import React, { useEffect, useRef, useState } from 'react';
 import {
   PilotoExecutor, aplicarIntencaoAoPiloto, criarAmbienteDom, pilotoAtivo, registrarPilotoAtivo, validarPlanoPiloto,
@@ -7,6 +8,7 @@ import {
 } from '../utils/pilotoVisivel';
 import { esquecerRetomada, registrarParador } from '../utils/agenteParar';
 import { BotaoPararAgente } from './BotaoPararAgente';
+import { esconderCursor } from '../utils/cursorPiloto';
 
 export const EVENTO_PILOTO = 'murade:piloto';
 /** Envia um roteiro (ou comando) da Agente para o piloto. */
@@ -61,7 +63,9 @@ export const PilotoVisivel: React.FC<Props> = (props) => {
         aoFim: (res) => {
           // Registro no log de ações da Agente: só título, contagens e estado. Nunca valores digitados.
           void fetch('/api/ai/agente/piloto/registro', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ titulo: res.titulo, estado: res.estado, passosFeitos: res.passosFeitos, total: res.total, interferencias: res.interferencias, recusados: res.recusados, usouSegundoPlano: res.usouSegundoPlano }) }).catch(() => undefined);
-          window.setTimeout(() => { if (execRef.current === exec) setOculto(true); }, res.estado === 'erro' ? 12000 : 3500);
+          esconderCursor();
+          // Terminou certinho: some em 3,5 s. Se faltou algo (avisos) ou deu erro, o texto fica até a pessoa fechar.
+          if (res.estado === 'concluido' && !exec.instantaneo().avisos.length) window.setTimeout(() => { if (execRef.current === exec) setOculto(true); }, 3500);
         },
       });
       execRef.current = exec; registrarPilotoAtivo(exec);
@@ -107,7 +111,7 @@ export const PilotoVisivel: React.FC<Props> = (props) => {
     return (
       <div data-piloto-ignorar="1" role="status" className="fixed bottom-3 left-3 z-[10060] flex max-w-[calc(100vw-1.5rem)] items-center gap-2 rounded-full bg-slate-900 py-1.5 pl-3 pr-1.5 text-xs font-semibold text-white shadow-xl" style={{ marginBottom: 'env(safe-area-inset-bottom)' }}>
         <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" aria-hidden="true" />
-        <span className="truncate">Fazendo em segundo plano…</span>
+        <span className="truncate">Fazendo em segundo plano: passo {snap.passo} de {snap.total}{snap.legenda ? ` — ${snap.legenda}` : ''}</span>
         <button type="button" onClick={() => exec.cancelar()} className="rounded-full bg-white/15 px-3 py-1.5 font-bold hover:bg-white/25">Cancelar</button>
       </div>
     );
@@ -129,10 +133,19 @@ export const PilotoVisivel: React.FC<Props> = (props) => {
           <button type="button" onClick={() => exec.segundoPlano()} className={`${btn} bg-white/15 hover:bg-white/25`}>Em segundo plano</button>
           <button type="button" onClick={() => exec.cancelar()} className={`${btn} text-rose-200 hover:bg-white/10`}>Cancelar</button>
         </>)}
-        {e === 'aguardando_confirmacao' && (<>
+        {e === 'aguardando_confirmacao' && snap.pedeOk && !snap.botaoForaDaTela && (
+          <div role="dialog" aria-label="Confira e dê o OK" className="w-full rounded-lg bg-white p-2.5 text-slate-900">
+            <p className="text-sm font-extrabold text-amber-800">Confira e dê o OK</p>
+            <p className="mt-0.5 text-xs leading-snug">Vou apertar "{snap.rotuloBotao}". Isso grava ou envia dados: confira a tela antes. Sem o OK, nada é gravado nem enviado.</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <button type="button" onClick={() => void exec.confirmarPeloCartao()} className={`${btn} flex-1 bg-emerald-600 text-white hover:bg-emerald-700`}>Conferi, pode seguir</button>
+              <button type="button" onClick={() => exec.cancelar()} className={`${btn} border border-slate-300 text-slate-800 hover:bg-slate-50`}>Cancelar</button>
+            </div>
+          </div>
+        )}
+        {e === 'aguardando_confirmacao' && (!snap.pedeOk || snap.botaoForaDaTela) && (<>
           {snap.botaoForaDaTela && <button type="button" onClick={() => exec.retomar()} className={`${btn} bg-emerald-500 text-slate-950 hover:bg-emerald-400`}>Ir ao botão</button>}
           <button type="button" onClick={() => exec.cancelar()} className={`${btn} text-rose-200 hover:bg-white/10`}>Cancelar</button>
-          {!snap.botaoForaDaTela && <span className="text-[10px] text-slate-300">Ou diga: "pode confirmar"</span>}
         </>)}
         {(e === 'erro' || e === 'concluido') && <button type="button" onClick={() => setOculto(true)} className={`${btn} bg-white/15 hover:bg-white/25`}>Fechar</button>}
       </div>
