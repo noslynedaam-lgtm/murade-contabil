@@ -57,6 +57,9 @@ export const ORIGENS = [
   { id: "fiscal_ipi_recolher", rotulo: "Fiscal — IPI a recolher (provisão)" },
   { id: "fiscal_icms_st_entrada", rotulo: "Fiscal — ICMS-ST devido na entrada (provisão)" },
   { id: "fiscal_icms_st_recuperar", rotulo: "Fiscal — ICMS-ST a recuperar" },
+  { id: "fiscal_parcelamento_adesao", rotulo: "Fiscal — Parcelamento (consolidação dos débitos)" },
+  { id: "fiscal_parcelamento_parcela", rotulo: "Fiscal — Parcelamento (parcela paga)" },
+  { id: "fiscal_parcelamento_juros", rotulo: "Fiscal — Parcelamento (juros e encargos da parcela)" },
   { id: "fiscal_das_simples", rotulo: "Fiscal — DAS Simples (provisão)" },
   { id: "fiscal_das_simples_pago", rotulo: "Fiscal — DAS Simples (pagamento)" },
   { id: "fiscal_das_simples_encargos", rotulo: "Fiscal — DAS Simples (multa e juros)" },
@@ -108,6 +111,8 @@ export const ORIGEM_POR_TRIBUTO: Record<string, IdOrigem> = {
   ICMS_ST_RESSARCIR: "fiscal_icms_st_recuperar",
   DAS_SIMPLES: "fiscal_das_simples",
   DAS_SIMPLES_PAGO: "fiscal_das_simples_pago",
+  PARCELAMENTO_ADESAO: "fiscal_parcelamento_adesao",
+  PARCELAMENTO_PARCELA_PAGA: "fiscal_parcelamento_parcela",
 };
 /** Pagamentos de DARF vindos do Fiscal (mesmo tratamento do DAS_SIMPLES_PAGO, com a multa/juros em fiscal_darf_encargos). */
 export const TRIBUTOS_DARF_PAGO = new Set(["IRPJ_PRESUMIDO_PAGO", "CSLL_PRESUMIDO_PAGO", "PIS_PRESUMIDO_PAGO", "COFINS_PRESUMIDO_PAGO", "PIS_NC_PAGO", "COFINS_NC_PAGO", "IRPJ_REAL_PAGO", "CSLL_REAL_PAGO"]);

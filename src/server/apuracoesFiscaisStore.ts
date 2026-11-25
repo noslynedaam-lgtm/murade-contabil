@@ -30,6 +30,10 @@ const TRIBUTOS_ACEITOS = new Set([
   "IPI_A_RECOLHER", "ICMS_ST_ENTRADA", "ICMS_ST_RESSARCIR",
   // Pagamento dos DARF (registrado no Fiscal), como o DAS_SIMPLES_PAGO: principal baixa o "a recolher"; multa e juros à parte.
   "IRPJ_PRESUMIDO_PAGO", "CSLL_PRESUMIDO_PAGO", "PIS_PRESUMIDO_PAGO", "COFINS_PRESUMIDO_PAGO", "PIS_NC_PAGO", "COFINS_NC_PAGO",
+  // Parcelamentos cadastrados no Fiscal (Simples, federal ordinário, PERT, transação, ICMS-GO): a consolidação (débitos que saem do
+  // "a recolher" e vão para "parcelamentos a pagar") e cada parcela paga (amortização do principal; juros/encargos à parte).
+  // Referências PARC:<id>:adesao e PARC:<id>:parcela:<n>; a data vem na versão de origem ("adesao:AAAA-MM-DD:..." / "pago:AAAA-MM-DD:...").
+  "PARCELAMENTO_ADESAO", "PARCELAMENTO_PARCELA_PAGA",
 ]);
 
 let pool: Pool | null | undefined;

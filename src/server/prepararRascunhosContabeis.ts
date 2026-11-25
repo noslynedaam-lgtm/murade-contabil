@@ -243,6 +243,8 @@ const HISTORICO_POR_TRIBUTO: Record<string, string> = {
   COFINS_ARBITRADO: "COFINS do Lucro Arbitrado (mês, cumulativa) calculada no Fiscal",
   COFINS_ENTIDADE: "COFINS da entidade sobre receita não própria (mês) confirmada no Fiscal",
   ISS_PROPRIO: "ISS a recolher do mês (NFS-e prestadas) apurado no Fiscal",
+  PARCELAMENTO_ADESAO: "Consolidação do parcelamento de tributos cadastrado no Fiscal",
+  PARCELAMENTO_PARCELA_PAGA: "Parcela paga do parcelamento de tributos (amortização) registrada no Fiscal",
   ISS_RETIDO_TOMADOR: "ISS retido de prestadores (empresa tomadora) apurado no Fiscal",
   IPI_A_RECOLHER: "IPI a recolher do mês (débitos − créditos) apurado no Fiscal",
   ICMS_ST_ENTRADA: "ICMS-ST devido na entrada (mercadoria de outro estado sem retenção) calculado no Fiscal",
@@ -266,6 +268,10 @@ export function dataDaApuracao(apuracao: Pick<ApuracaoFiscalArmazenada, "tributo
   if (apuracao.tributo === "DAS_SIMPLES" || PROVISAO_NO_FIM_DO_MES.has(apuracao.tributo)) {
     const [a, m] = apuracao.competencia.split("-").map(Number);
     return `${apuracao.competencia}-${String(new Date(Date.UTC(a, m, 0)).getUTCDate()).padStart(2, "0")}`;
+  }
+  if (apuracao.tributo === "PARCELAMENTO_ADESAO" || apuracao.tributo === "PARCELAMENTO_PARCELA_PAGA") {
+    const d = /^(?:adesao|pago):(\d{4}-\d{2}-\d{2}):/.exec(String(apuracao.versaoOrigem || ""))?.[1];
+    if (d && d.slice(0, 7) === apuracao.competencia && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d) return d;
   }
   if (apuracao.tributo === "DAS_SIMPLES_PAGO" || TRIBUTOS_DARF_PAGO.has(apuracao.tributo)) {
     const d = /^pago:(\d{4}-\d{2}-\d{2}):/.exec(String(apuracao.versaoOrigem || ""))?.[1];
@@ -313,6 +319,21 @@ export function gerarRascunhosApuracoes(cnpj: string, apuracoes: ApuracaoFiscalA
     if (!mapping) continue;
     const referencia = `FISCAL:${cnpj}:${apuracao.competencia}:APURACAO:${apuracao.tributo}:${apuracao.referencia}`;
     const base = { competencia: apuracao.competencia, data: dataDaApuracao(apuracao), criadoEm: agora };
+    if (apuracao.tributo === "PARCELAMENTO_PARCELA_PAGA") {
+      // Parcela paga: a amortização (baseCentavos) baixa "parcelamentos a pagar"; a diferença (juros/encargos) vai para a origem própria.
+      // Tudo ou nada: com juros e sem conta de juros mapeada, a parcela não sai pela metade.
+      const partes = partesDoPagamentoDas(valor, valorNumerico(apuracao.baseCentavos));
+      const mapJur = mapeamentoValido(mapeamentos, "fiscal_parcelamento_juros", contasAnaliticas);
+      if (partes.length > 1 && !mapJur) continue;
+      for (const p of partes) {
+        const ref = p.parte === "principal" ? referencia : `${referencia}:JUROS`;
+        const m = p.parte === "principal" ? mapping : mapJur!;
+        candidatos.push({ id: ref, referenciaOrigem: ref, ...base, origem: p.parte === "principal" ? origem : ID_PARA_ROTULO.fiscal_parcelamento_juros,
+          contaDebitoCodigo: String(m.contaDebitoCodigo), contaCreditoCodigo: String(m.contaCreditoCodigo), valor: reais(p.centavos),
+          historico: p.parte === "principal" ? `${HISTORICO_POR_TRIBUTO[apuracao.tributo]}${partes.length === 1 && apuracao.baseCentavos == null ? " (valor pago; o Fiscal não separou os juros)" : ""} — pré-lançamento para conferência` : "Juros e encargos da parcela paga do parcelamento de tributos — pré-lançamento para conferência" });
+      }
+      continue;
+    }
     if (apuracao.tributo === "DAS_SIMPLES_PAGO" || TRIBUTOS_DARF_PAGO.has(apuracao.tributo)) {
       const ehDas = apuracao.tributo === "DAS_SIMPLES_PAGO";
       const origemEnc = ehDas ? "fiscal_das_simples_encargos" : "fiscal_darf_encargos";
