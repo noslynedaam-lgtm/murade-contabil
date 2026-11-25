@@ -44,6 +44,7 @@ export const ROBOS_APRESENTACAO: RoboApresentacao[] = [
   { id: 'backup_banco', nome: 'Robô de Backup do Banco', intervaloMs: 10 * 60_000, quando: 'todo dia, a partir das 3 horas da manhã', soDono: true, faz: 'faz o backup completo do banco, cifrado e fora do Render. Fica desligado até o dono configurar o destino.' },
   { id: 'piloto', nome: 'Robô Conferidor do Piloto Visível', intervaloMs: 24 * 60 * 60_000, soDono: true, faz: 'confere se cada tela, campo e botão que a Agente usa para mostrar e preencher na tela ainda existe no código.' },
   { id: 'servico_feito', nome: 'Robô Conferidor de Serviço Feito', intervaloMs: 15 * 60_000, faz: 'evita retrabalho entre quem trabalha na mesma empresa: libera os "estou fazendo" esquecidos depois de 15 minutos e apaga registros com mais de 120 dias.' },
+  { id: 'presenca_dono', nome: 'Robô Conferidor do Online/Offline (dono do sistema)', intervaloMs: 30 * 60_000, faz: 'só para o dono do sistema: apaga os sinais de online/offline antigos e de usuários excluídos (guarda só usuário, escritório, tela e horário) e confere se o DP e o Fiscal respondem o deles. Escritórios clientes não veem isso.' },
   { id: 'meu_jeito', nome: 'Robô Conferidor do Meu Jeito', intervaloMs: 24 * 60 * 60_000, faz: 'confere se as regras que a Agente aprendeu de cada pessoa ainda existem no sistema (se não, pausa a regra e avisa na próxima abertura), se o nome pelo qual ela te chama está certo e igual em todo lugar, e limpa o que ficou velho. Nunca apaga o seu jeito.' },
   { id: 'apresentacao', nome: 'Robô Conferidor da Apresentação', intervaloMs: 24 * 60 * 60_000, soDono: true, faz: 'confere se esta apresentação ainda bate com o código e avisa o dono se algo novo ainda não tem bloco.' },
   { id: 'lancamentos_padrao', nome: 'Robô dos Lançamentos Padrão', intervaloMs: 60 * 60_000, faz: 'prepara todo mês os lançamentos padrão que você cadastrou, como aluguel e honorários, como pré-lançamento para você aprovar. Nunca prepara duas vezes o mesmo mês e nunca mexe em mês fechado.' },
@@ -81,6 +82,11 @@ export function falarIntervalo(ms: number | null): string {
 export type IntegracaoApresentacao = { id: string; titulo: string; falar: string; /** "METHOD /api/integracao/..." */ rotas: string[]; tela?: string; soDono?: boolean };
 /** Toda rota /api/integracao/* do server.ts precisa estar em UMA destas listas (o teste confere nos dois sentidos). */
 export const INTEGRACOES_APRESENTACAO: IntegracaoApresentacao[] = [
+  {
+    id: 'presenca-dono', titulo: 'Online/offline para o dono do sistema',
+    falar: 'Para o dono do sistema ver quem está online, cada sistema Murad guarda só o último sinal de cada usuário (usuário, escritório, tela e horário) e mostra aos outros dois por uma rota autenticada. Assim, em Usuários e licenças, a bolinha de cada escritório junta DP, Fiscal e Contábil. Escritórios clientes não veem isso.',
+    rotas: ['GET /api/integracao/presenca-dono'],
+  },
   {
     id: 'fiscal-notas', titulo: 'Do Fiscal: notas fiscais', tela: 'revisao-origens',
     falar: 'O Fiscal envia ao Contábil as notas fiscais e os XMLs autorizados de cada empresa, por uma fila autenticada que repete se falhar. O Contábil só guarda e usa para preparar rascunhos; quem consulta a SEFAZ é o Fiscal, o Contábil não.',

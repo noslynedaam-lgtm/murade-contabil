@@ -37,7 +37,9 @@ import { ArmazemDeEtapas, chaveDeEtapas, prepararPedido, limitarPedido, avisoDeT
 import { ArmazemAcoesPendentes, avancarAcao as avancarAcaoAgenteIA, confirmarAcao as confirmarAcaoAgenteIA, conversar as conversarAgenteIA, recusarAcao as recusarAcaoAgenteIA, type ChamarApi, type ContextoAgente, type ModeloIA } from "./src/server/agenteMotor";
 import { kitContabil } from "./src/server/agenteContabil";
 import { registrarRotasEscola } from "./src/server/escolaRotas";
-import { ArmazemPedidosMemoria, ArmazemPedidosPg, CentralDePedidos, tokenValido } from "./src/server/agentesEntreSistemas";
+import { ArmazemPedidosMemoria, ArmazemPedidosPg, CentralDePedidos, tokenValido, urlDoSistema } from "./src/server/agentesEntreSistemas";
+import { criarPresencaDono } from "./src/server/presencaDono";
+import { SQL_ESCRITORIOS_CONTABIL, SQL_ORFAOS_CONTABIL, SQL_SINAIS_CONTABIL, agruparEscritorios as agruparEscritoriosPresenca } from "./src/server/presencaDonoContabil";
 import { criarAtividadeEscritorio } from './src/server/atividadeEscritorio';
 import { criarServicoTarefas, registrarRotasTarefasEquipe } from "./src/server/tarefasEquipe";
 import { criarServicoMeuJeito, registrarRotasMeuJeito, type SessaoJeito } from "./src/server/meuJeito";
@@ -194,6 +196,23 @@ const reconciliacaoRascunhosStatus: {
   const sessaoAtividade = (req: express.Request) => (req as express.Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
   const atividadeEquipe = criarAtividadeEscritorio({ consultar: consultaBancoContabil, tabela: "contabil_atividade_equipe", sessao: sessaoAtividade, podeVer: (req) => sessaoAtividade(req)?.administrador === true });
   app.use("/api", atividadeEquipe.registrar);
+  // Online / offline para o dono do sistema (Usuários e licenças › escritórios): último sinal de cada usuário logado.
+  // Guarda só usuário, escritório, tela e horário (uma linha por usuário). Toda requisição com login conta como sinal
+  // (gravado quando a resposta termina, depois de exigirSessaoContabil); o batimento POST /api/auth/presenca traz a tela.
+  const presencaDono = criarPresencaDono({
+    sistema: "Contábil", consultar: (sql, params) => consultaBancoContabil(sql, params ?? []), tabela: "contabil_presenca_dono",
+    sqlSinais: SQL_SINAIS_CONTABIL, sqlOrfaos: SQL_ORFAOS_CONTABIL,
+    listarEscritorios: async () => agruparEscritoriosPresenca((await consultaBancoContabil(SQL_ESCRITORIOS_CONTABIL, [])).rows),
+    outros: [{ sistema: "DP", url: urlDoSistema("dp") }, { sistema: "Fiscal", url: urlDoSistema("fiscal") }],
+    token: () => process.env.MURADE_INTEGRATION_TOKEN,
+  });
+  app.use("/api", (req, res, next) => {
+    res.on("finish", () => {
+      const s = sessaoAtividade(req);
+      if (s && res.statusCode < 400) void presencaDono.registrarSinal({ userId: s.userId, tenantId: String(s.tenantId || s.escritorioDe || s.userId), login: s.login }, req.method === "POST" && req.path === "/auth/presenca" ? req.body?.tela : undefined);
+    });
+    next();
+  });
   // Anti-retrabalho (quem já fez / quem está fazendo). Fail-open: se o registro falhar, o serviço segue normalmente.
   const storeServicoCompleto = criarStoreServicoCompleto((sql, params) => consultaBancoContabil(sql, params));
   const storeEscritorio = criarStoreEscritorio((sql, params) => consultaBancoContabil(sql, params));
@@ -294,6 +313,21 @@ const reconciliacaoRascunhosStatus: {
   app.post("/api/auth/team", exigirOrigemNavegador, exigirSessaoContabil, adicionarEquipeContabil);
   app.delete("/api/auth/team/:login", exigirOrigemNavegador, exigirSessaoContabil, removerEquipeContabil);
   app.get("/api/auth/tenants", exigirSessaoContabil, listarEscritoriosContabil);
+  app.post("/api/auth/presenca", exigirOrigemNavegador, exigirSessaoContabil, (_req, res) => { res.setHeader("Cache-Control", "no-store"); res.json({ sucesso: true }); });
+  app.get("/api/auth/tenants/presenca", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    if (sessaoAtividade(req)?.donoSistema !== true) return res.status(403).json({ sucesso: false, motivo: "Somente o dono do sistema vê quem está online." });
+    try { return res.json({ sucesso: true, ...(await presencaDono.painel()) }); }
+    catch (erro) { console.error("Painel online/offline indisponível:", erro instanceof Error ? erro.message : erro); return res.status(503).json({ sucesso: false, motivo: "Não foi possível carregar quem está online." }); }
+  });
+  // Sinais do Contábil para o painel do dono no DP e no Fiscal. Só com o token de integração.
+  app.get("/api/integracao/presenca-dono", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const token = process.env.MURADE_INTEGRATION_TOKEN;
+    if (!token || !tokenValido(req.header("authorization"), token)) return res.status(token ? 401 : 503).json({ sucesso: false, motivo: "Credencial de integração inválida ou não configurada." });
+    try { return res.json({ sucesso: true, sistema: "Contábil", sinais: await presencaDono.sinaisLocais(30) }); }
+    catch { return res.status(503).json({ sucesso: false, motivo: "Presença indisponível." }); }
+  });
   app.post("/api/auth/tenants/invite", exigirOrigemNavegador, exigirSessaoContabil, convidarEscritorioContabil);
   app.post("/api/auth/tenants/:login/reenviar", exigirOrigemNavegador, exigirSessaoContabil, reenviarAcessoEscritorioContabil);
   app.post("/api/auth/tenants/:login/bloqueio", exigirOrigemNavegador, exigirSessaoContabil, bloquearEscritorioContabil);
@@ -1950,6 +1984,17 @@ const reconciliacaoRascunhosStatus: {
   setTimeout(() => void rodarMeuJeito(), 190_000).unref();
   setInterval(() => void rodarMeuJeito(), 24 * 60 * 60_000).unref();
   registrarRotinaManual("meu_jeito", rodarMeuJeito);
+  registrarRobo({ id: "presenca_dono", nome: "Robô Conferidor do Online/Offline (dono do sistema)", posto: "conferidor", missao: "A cada 30 minutos: confere a tabela do último sinal de cada usuário (só usuário, escritório, tela e horário), apaga o que tem mais de 90 dias e o de usuários excluídos, conta quem está online agora e confere se o DP e o Fiscal estão respondendo o online/offline deles para o painel do dono. Só lê e apaga sinais antigos; nunca mexe em usuário nem em escritório.", intervaloMs: 30 * 60_000 });
+  const rodarPresencaDono = () => bancoContabilConfigurado() ? executarRobo("presenca_dono", async () => {
+    const r = await presencaDono.conferir();
+    const outros = await presencaDono.sinaisDosOutros();
+    const falhas = outros.sistemas.filter((x) => !x.ok);
+    definirAlertaRobo("presenca_dono", falhas.length ? { nivel: "aviso", texto: `Online/offline sem resposta de: ${falhas.map((x) => `${x.sistema} (${x.motivo})`).join(", ")}. O painel do dono mostra só o que chegou.` } : null);
+    registrarResultadoRobo("presenca_dono", `${r.online} usuário(s) online agora no Contábil; ${r.ativos} ativo(s) nos últimos 15 min; ${r.apagados} sinal(is) com mais de 90 dias e ${r.orfaos} de usuário(s) excluído(s) apagado(s); ${outros.sinais.length} sinal(is) do DP e do Fiscal.`);
+  }).catch((e) => console.error("Falha no Robô Conferidor do Online/Offline:", e?.message || e)) : undefined;
+  setTimeout(() => void rodarPresencaDono(), 170_000).unref();
+  setInterval(() => void rodarPresencaDono(), 30 * 60_000).unref();
+  registrarRotinaManual("presenca_dono", rodarPresencaDono);
   // Apresentação falada do sistema: confere, só em leitura, se cada robô, rota de integração e tela ainda tem bloco e se nenhum bloco cita algo que não existe.
   registrarRobo({ id: "apresentacao", nome: "Robô Conferidor da Apresentação", posto: "conferidor", missao: "Conferir todo dia, só em leitura, se a apresentação falada do sistema (módulos, robôs, integrações e limites) ainda bate com o código. Se um robô, tela ou integração novo ainda não tem bloco, avisa o dono do sistema aqui. Nunca altera nada.", intervaloMs: 24 * 60 * 60_000 });
   const rodarApresentacao = () => executarRobo("apresentacao", async () => {

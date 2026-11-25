@@ -1,5 +1,7 @@
 import React, { useState } from "react";
 import { useFecharNoVoltar, useVoltarCelular } from "./hooks/useVoltarCelular";
+import { usePresencaSinal } from "./hooks/usePresencaSinal";
+import { rotuloDaTela } from "./data/jeitoPadraoContabil";
 import type { BemImobilizado } from "./utils/imobilizado";
 import { conferirFechamento } from "./utils/fechamentoContabil";
 import { GestaoContabilTab } from "./components/tabs/GestaoContabilTab";
@@ -184,6 +186,8 @@ function AppWorkspace() {
   const [toastMessage, setToastMessage] = useState<{ text: string; type: "success" | "info" } | null>(null);
 
   // Botão VOLTAR do celular/navegador: volta para a tela anterior em vez de fechar o app; antes fecha o que estiver aberto por cima.
+  // Online/offline para o dono do sistema: só o nome da tela atual (usuário, escritório e horário o servidor já sabe).
+  usePresencaSinal(rotuloDaTela(String(tabAtiva)));
   useVoltarCelular({ telaAtual: tabAtiva, telaInicial: "inicio", irParaTela: (tela) => setTabAtiva(tela as TabId), telasSemHistorico: ["ia-premium"] });
   useFecharNoVoltar(mobileSidebarOpen, () => setMobileSidebarOpen(false));
   // A Agente (piloto) abre a gaveta do menu no celular antes de "ir clicando" num item.
