@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
-import { escolherVozPtBr } from "../../utils/vozNatural";
+import { aplicarVozNatural, textoParaFala } from "../../utils/vozHumana";
+import { useMicrofoneChat } from "../../utils/useMicrofoneChat";
 import { Mic, Send, Bot, Sparkles, Volume2 } from "lucide-react";
 import { EmpresaDados, LancamentoContabil } from "../../types";
 
@@ -47,12 +48,10 @@ export const IAPremiumTab: React.FC<IAPremiumTabProps> = ({ empresa, lancamentos
     if (vozSelecionada.includes("Somente Texto")) return;
     if ("speechSynthesis" in window) {
       window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(texto.replace(/[#*•]/g, ""));
-      utterance.lang = "pt-BR";
-      utterance.rate = 1.0;
-      const vozPt = escolherVozPtBr(window.speechSynthesis.getVoices());
-      if (vozPt) utterance.voice = vozPt;
-      utterance.pitch = vozSelecionada.includes("Carla") ? 1.15 : 0.95;
+      const limpo = textoParaFala(texto);
+      if (!limpo) return;
+      // Mesma voz natural da Agente (a mais natural do aparelho ou a escolhida em "Voz da assistente"), tom 1,0.
+      const utterance = aplicarVozNatural(new SpeechSynthesisUtterance(limpo));
       utterance.onstart = () => setFalando(true);
       utterance.onend = () => setFalando(false);
       utterance.onerror = () => setFalando(false);
@@ -60,33 +59,20 @@ export const IAPremiumTab: React.FC<IAPremiumTabProps> = ({ empresa, lancamentos
     }
   };
 
-  const alternarMicrofone = () => {
-    if (!gravando) {
-      setGravando(true);
-      if ("webkitSpeechRecognition" in window || "SpeechRecognition" in window) {
-        try {
-          const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-          const recognition = new SpeechRecognition();
-          recognition.lang = "pt-BR";
-          recognition.interimResults = false;
-          recognition.onresult = (event: any) => {
-            const transcript = event.results[0][0].transcript;
-            setTextoEntrada(transcript);
-            setGravando(false);
-          };
-          recognition.onerror = () => setGravando(false);
-          recognition.start();
-        } catch {
-          // fallback
-        }
-      }
-    } else {
-      setGravando(false);
-    }
-  };
+  // Microfone: um clique liga, o texto aparece na caixa enquanto fala, o silêncio (Configurações de voz, padrão 2,5 s)
+  // desliga e envia; clicar de novo envia na hora. A voz para antes de ouvir (sem eco).
+  const [erroMicrofone, setErroMicrofone] = useState<string | null>(null);
+  const microfone = useMicrofoneChat({
+    aoMudarEstado: (o) => { setGravando(o); if (o) setErroMicrofone(null); },
+    aoParcial: (texto) => setTextoEntrada(texto),
+    aoEnviar: (texto) => { setTextoEntrada(texto); void enviarMensagem(texto); },
+    aoErro: (mensagem) => setErroMicrofone(mensagem),
+  });
+  const alternarMicrofone = () => microfone.alternar();
 
-  const enviarMensagem = async () => {
-    const texto = textoEntrada.trim();
+  const enviarMensagem = async (textoFalado?: unknown) => {
+    // Pelo microfone chega o texto falado; pelo botão Enviar, o que está na caixa.
+    const texto = (typeof textoFalado === "string" ? textoFalado : textoEntrada).trim();
     if (!texto || respondendo) return;
 
     const novaMsgUsuario: MensagemChat = {
@@ -250,6 +236,8 @@ export const IAPremiumTab: React.FC<IAPremiumTabProps> = ({ empresa, lancamentos
             </p>
           </div>
 
+          {gravando && <div className="px-4 pt-2 text-xs font-bold text-red-700 animate-pulse" role="status">🔴 Ouvindo… fale. Quando você parar, a pergunta é enviada.</div>}
+          {erroMicrofone && <div className="mx-4 mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-900" role="alert">{erroMicrofone}</div>}
           {/* 🎤 ÁREA DE ENTRADA */}
           <div className="p-4 sm:p-5 bg-white flex items-center gap-3">
             <textarea
@@ -273,7 +261,9 @@ export const IAPremiumTab: React.FC<IAPremiumTabProps> = ({ empresa, lancamentos
                   ? "bg-red-600 animate-pulse ring-4 ring-red-300"
                   : "bg-gradient-to-r from-[#0288D1] to-[#0277BD] hover:scale-105"
               }`}
-              title={gravando ? "Ouvindo... Clique para parar" : "Falar por microfone"}
+              title={gravando ? "Ouvindo… clique para enviar agora" : "Clique para falar (para sozinho quando você termina)"}
+              aria-pressed={gravando}
+              aria-label={gravando ? "Ouvindo, fale. Clique para enviar agora" : "Falar a pergunta"}
             >
               <Mic className="w-5 h-5" />
             </button>

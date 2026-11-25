@@ -13,6 +13,7 @@ import { tratarRespostaDoNome } from "../utils/nomeCliente";
 import { EVENTO_AGENTE_PAROU, agenteAgindo, continuarDeOndeParou, ehComandoContinuar, ehComandoParar, falarRespostasLigado, pararTudo, registrarParador, temParaRetomar, type ResultadoPararTudo } from "../utils/agenteParar";
 import { BotaoPararAgente } from "./BotaoPararAgente";
 import { OpcaoFalarRespostas } from "./OpcaoFalarRespostas";
+import { useMicrofoneChat } from "../utils/useMicrofoneChat";
 
 interface IAMuradModalProps {
   isOpen?: boolean;
@@ -68,7 +69,6 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
   const [falando, setFalando] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<any>(null);
   // Chamada por voz: basta falar "Contábil" e pedir. A janela só abre quando há algo para confirmar.
   const [chamadaPorVoz, setChamadaPorVoz] = useState<boolean>(() => {
     try { return localStorage.getItem("murade_chamada_voz") !== "0"; } catch { return false; }
@@ -145,46 +145,15 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
     });
   };
 
-  // Reconhecimento de voz por microfone
-  const toggleGravacao = () => {
-    if (gravandoVoz) {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
-      setGravandoVoz(false);
-      return;
-    }
-
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      alert("Seu navegador não possui suporte nativo à gravação de voz contínua. Você pode digitar sua pergunta abaixo!");
-      return;
-    }
-
-    try {
-      const recognition = new SpeechRecognition();
-      recognition.lang = "pt-BR";
-      recognition.interimResults = false;
-      recognition.maxAlternatives = 1;
-
-      recognition.onstart = () => setGravandoVoz(true);
-      recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        setInput(transcript);
-        setGravandoVoz(false);
-        enviarMensagem(transcript);
-      };
-      recognition.onerror = () => setGravandoVoz(false);
-      recognition.onend = () => setGravandoVoz(false);
-
-      recognitionRef.current = recognition;
-      recognition.start();
-    } catch (e) {
-      setGravandoVoz(false);
-    }
-  };
+  // Microfone: um clique liga (não precisa segurar), o texto aparece na caixa enquanto fala, o silêncio
+  // (Configurações de voz, padrão 2,5 s) desliga e envia; clicar de novo envia na hora. A voz da Agente para antes (sem eco).
+  const microfone = useMicrofoneChat({
+    aoMudarEstado: (ouvindo) => setGravandoVoz(ouvindo),
+    aoParcial: (texto) => setInput(texto),
+    aoEnviar: (texto) => { setInput(texto); enviarRef.current(texto); },
+    aoErro: (mensagem) => { window.clearTimeout(tempoAvisoRef.current); setAvisoVoz(mensagem); tempoAvisoRef.current = window.setTimeout(() => setAvisoVoz(""), 30000); },
+  });
+  const toggleGravacao = () => microfone.alternar();
 
   const enviarMensagem = async (textoEnviar?: string) => {
     const texto = (textoEnviar || input).trim();
@@ -724,18 +693,20 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
               onClick={toggleGravacao}
               className={`p-2.5 rounded-xl cursor-pointer transition flex items-center justify-center shrink-0 ${
                 gravandoVoz
-                  ? "bg-rose-600 text-white animate-pulse"
+                  ? "bg-red-600 text-white animate-pulse ring-2 ring-red-300"
                   : "bg-slate-100 hover:bg-slate-200 text-slate-700"
               }`}
-              title={gravandoVoz ? "Ouvindo... Clique para parar" : "Falar pelo Microfone"}
+              title={gravandoVoz ? "Ouvindo… clique para enviar agora" : "Clique para falar (para sozinho quando você termina)"}
+              aria-pressed={gravandoVoz}
+              aria-label={gravandoVoz ? "Ouvindo, fale. Clique para enviar agora" : "Falar a pergunta"}
             >
-              {gravandoVoz ? <MicOff className="w-5 h-5 text-white" /> : <Mic className="w-5 h-5 text-blue-600" />}
+              {gravandoVoz ? <><Mic className="w-5 h-5 text-white" /><span className="ml-1 text-xs font-bold whitespace-nowrap">Ouvindo… fale</span></> : <Mic className="w-5 h-5 text-blue-600" />}
             </button>
 
             <input
               type="text"
               className="flex-1 bg-slate-50 border border-slate-300 rounded-xl px-4 py-2.5 text-xs sm:text-sm text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600"
-              placeholder={gravandoVoz ? "Ouvindo sua voz..." : "Digite sua dúvida contábil ou fiscal..."}
+              placeholder={gravandoVoz ? "Ouvindo… fale" : "Digite sua dúvida contábil ou fiscal..."}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               disabled={loading}

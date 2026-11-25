@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { confirmarNaTela } from '../../utils/dialogoNaTela';
+import { OpcaoVozAssistente } from '../OpcaoVozAssistente';
 import { useExclusaoDuasEtapas } from '../ConfirmaExclusaoDuasEtapas';
 import { PROTECOES_FIXAS, rotuloDaTela } from '../../data/jeitoPadraoContabil';
 import { descreverReceita } from '../../server/meuJeito';
@@ -117,6 +118,11 @@ export function MeuJeitoTab() {
             </div>
           ))}
         </div>
+      </section>
+
+      {/* Voz da assistente: grátis, do próprio aparelho; automática = a mais natural. Guardada por usuário neste aparelho. */}
+      <section className="rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900">
+        <OpcaoVozAssistente />
       </section>
 
       <section className="rounded-xl border border-slate-200 bg-white p-3">
