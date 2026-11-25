@@ -3,6 +3,7 @@ import { AvisosPrazoGuarda } from "./AvisosPrazoGuarda";
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { UserPlus, X, LogOut, KeyRound, ShieldCheck } from "lucide-react";
 import { SegurancaConta } from "./SegurancaConta";
+import { travarRolagemDaCaixa } from "../hooks/useTelaFixa";
 import { definirUsuarioDaVoz } from "../utils/agenteParar";
 import { PainelEquipe } from "./PainelEquipe";
 import { EsqueciSenha } from "./EsqueciSenha";
@@ -13,7 +14,7 @@ import { limparEmpresasRemovidasDoNavegador, mesmosCnpjs, INTERVALO_CONFERIR_SES
 
 type Membership = { cnpj: string; role: "admin" | "operator" | "viewer" };
 type AuthData = { usuario: string; cnpjs: string[]; memberships: Membership[]; administrador: boolean; escritorio?: boolean; donoSistema?: boolean; doisFatores?: boolean; precisaAtivar2fa?: boolean };
-type AuthContextValue = AuthData & { sair: () => Promise<void>; atualizarAcesso: () => Promise<void> };
+type AuthContextValue = AuthData & { sair: () => Promise<void>; atualizarAcesso: () => Promise<void>; abrirUsuarios: () => void; abrirSeguranca: () => void };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -164,7 +165,7 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
     try { await fetch("/api/auth/logout", { method: "POST", credentials: "include" }); } finally { setAuth(null); setMostrarSeguranca(false); setPrecisaCodigo(false); setCodigo(""); }
   };
 
-  const value = useMemo(() => auth ? { ...auth, sair, atualizarAcesso } : null, [auth]);
+  const value = useMemo(() => auth ? { ...auth, sair, atualizarAcesso, abrirUsuarios: () => setPainelUsuarios(true), abrirSeguranca: () => setMostrarSeguranca(true) } : null, [auth]);
   const empresasAdministradas = auth?.memberships.filter((item) => item.role === "admin").map((item) => item.cnpj) || [];
   useEffect(() => { if (!cnpjUsuarios && empresasAdministradas.length) setCnpjUsuarios(empresasAdministradas[0]); }, [empresasAdministradas.join(",")]);
   useEffect(() => {
@@ -201,8 +202,8 @@ export const ContabilAccessGate: React.FC<{ children: React.ReactNode }> = ({ ch
   // Altura da tela visível (100dvh): a faixa da conta + o sistema cabem exatamente na tela do celular, sem rolar a página
   // inteira. Antes a página tinha 100vh + a faixa e, com a barra de endereço do celular, o topo com o botão do menu sumia.
   if (auth) return <AuthContext.Provider value={value!}>
-    <div className="altura-tela-visivel flex w-full flex-col overflow-hidden">
-    <div className="z-[100] flex min-h-7 shrink-0 flex-nowrap items-center justify-between gap-2 bg-slate-950 px-3 py-0.5 text-xs text-white md:min-h-10 md:flex-wrap md:px-4 md:py-1.5"><span className="min-w-0 truncate">Conta: <strong>{auth.usuario}</strong><span className="hidden md:inline"> · {auth.cnpjs.length} empresa(s) autorizada(s)</span></span><div className="flex shrink-0 gap-2">{auth.administrador && <button onClick={() => setPainelUsuarios(true)} className="rounded bg-white/15 px-2 py-0.5 hover:bg-white/25 md:px-3 md:py-1"><UserPlus className="mr-1 inline h-3.5 w-3.5" /> <span className="md:hidden">Usuários</span><span className="hidden md:inline">Usuários e licenças</span></button>}<button onClick={() => setMostrarSeguranca(true)} className="rounded bg-white/15 px-2 py-0.5 hover:bg-white/25 md:px-3 md:py-1" aria-label="Segurança da conta"><ShieldCheck className="mr-1 inline h-3.5 w-3.5" /> <span className="hidden md:inline">Segurança</span></button><button onClick={() => void sair()} className="rounded bg-white/15 px-2 py-0.5 hover:bg-white/25 md:px-3 md:py-1"><LogOut className="mr-1 inline h-3.5 w-3.5" /> Sair</button></div></div>
+    <div className="altura-tela-visivel flex w-full flex-col overflow-hidden" onScroll={travarRolagemDaCaixa}>
+    {/* A faixa preta "Conta" saiu (25/11/2026): conta, letra, usuários, segurança e Sair ficam no menu da conta da barra azul, igual ao DP. */}
     <div className="min-h-0 w-full flex-1">{children}</div>
     </div>
     {mostrarSeguranca && <SegurancaConta sistema="Murad Contábil" aoMudar={atualizarAcesso} aoFechar={() => setMostrarSeguranca(false)} />}

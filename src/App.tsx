@@ -11,6 +11,7 @@ import { montarWorkspaceInicialContabil } from "./utils/workspaceInicial";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import { EVENTO_ABRIR_ROBOS } from "./components/RobotSidebar";
+import { useTelaFixa } from "./hooks/useTelaFixa";
 import { FaixaEcd } from "./components/FaixaEcd";
 import { FaixaLucroReal } from "./components/FaixaLucroReal";
 import { FaixaUrgenteContabil } from "./components/FaixaUrgenteContabil";
@@ -76,6 +77,7 @@ export default function App() {
 }
 
 function AppWorkspace() {
+  useTelaFixa(); // celular: a página inteira nunca rola nem esconde a barra de cima
   const auth = useContabilAuth();
   const versoesWorkspaceRef = React.useRef(new Map<string, number | null>());
   const filaGravacaoWorkspaceRef = React.useRef<Promise<boolean>>(Promise.resolve(true));
@@ -937,8 +939,21 @@ function AppWorkspace() {
       </div>
 
       {/* BARRA LATERAL MOBILE (DRAWER COM OVERLAY) */}
+      {/* Celular/tablet: o menu abre pelo ☰ do topo e também por este botãozinho flutuante "Menu" (pedido do dono, 25/11/2026). */}
+      {!mobileSidebarOpen && (
+        <button
+          type="button"
+          id="btn-menu-flutuante"
+          aria-label="Abrir menu"
+          onClick={() => setMobileSidebarOpen(true)}
+          className="lg:hidden fixed left-3 z-40 flex items-center gap-1 rounded-full bg-[#082B66]/95 px-3 py-1.5 text-xs font-bold text-white shadow-lg ring-1 ring-white/40"
+          style={{ bottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}
+        >
+          <span aria-hidden="true">☰</span> Menu
+        </button>
+      )}
       {mobileSidebarOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden flex">
+        <div className="fixed inset-0 z-50 lg:hidden flex pt-[env(safe-area-inset-top)]">
           <div
             className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs"
             onClick={() => setMobileSidebarOpen(false)}
@@ -978,6 +993,9 @@ function AppWorkspace() {
           onEscolherEmpresa={escolherEmpresaPeloCnpj}
           itensBusca={itensBusca}
           onLogout={auth.sair}
+          onAbrirIA={() => assistenteRef.current?.abrir()}
+          onAbrirCalculadora={() => setTabAtiva("calculadora" as TabId)}
+          onAbrirMeuJeito={() => setTabAtiva("meu-jeito" as TabId)}
         />
 
         <AvisoServicoFeito />

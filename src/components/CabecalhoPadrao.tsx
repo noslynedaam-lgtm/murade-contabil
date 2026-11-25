@@ -17,6 +17,8 @@ interface Props {
   onSair: () => void;
   /** Conta e Sair já aparecem na faixa "Conta" do topo: aqui mostra só a empresa (sem repetir e-mail e Sair). */
   soEmpresa?: boolean;
+  /** A letra (A- A+) está no menu da conta: não repete aqui. */
+  semLetra?: boolean;
   onClicarEmpresa?: () => void;
   /** Lista de empresas do escritório: com ela e onEscolherEmpresa, o nome da empresa vira um seletor para trocar de empresa. */
   empresas?: { cnpj: string; nome: string }[];
@@ -34,7 +36,7 @@ function formatarData(iso: string): string {
   return `${d}/${m}/${a}`;
 }
 
-export const CabecalhoPadrao: React.FC<Props> = ({ usuario, soEmpresa, empresaNome, empresaCnpj, buscarLicenca, onSair, salvarLicenca, onClicarEmpresa, urlGerenciarLicenca, empresas, onEscolherEmpresa }) => {
+export const CabecalhoPadrao: React.FC<Props> = ({ usuario, soEmpresa, semLetra, empresaNome, empresaCnpj, buscarLicenca, onSair, salvarLicenca, onClicarEmpresa, urlGerenciarLicenca, empresas, onEscolherEmpresa }) => {
   const [licenca, setLicenca] = useState<LicencaEmpresa | null | undefined>(undefined);
   const [aberto, setAberto] = useState(false);
   const [plano, setPlano] = useState('P50');
@@ -83,19 +85,19 @@ export const CabecalhoPadrao: React.FC<Props> = ({ usuario, soEmpresa, empresaNo
   };
 
   return (
-    <div className="flex items-center gap-2 text-[11px] text-slate-100" ref={raiz}>
+    <div className="flex min-w-0 items-center gap-2 text-[11px] text-slate-100" ref={raiz}>
       {!soEmpresa && <span className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded bg-white/10 max-w-[150px]" title="Usuário">
         <UserCircle size={13} className="shrink-0" />
         <span className="truncate">{usuario || '—'}</span>
       </span>}
       {empresas && empresas.length > 0 && onEscolherEmpresa ? (
-        <label className="flex items-center gap-1 px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 max-w-[220px]" title="Trocar de empresa">
+        <label className="flex h-7 min-w-0 items-center gap-1 px-2 rounded-md bg-white/10 hover:bg-white/20 max-w-full lg:max-w-[220px]" title="Trocar de empresa">
           <Building2 size={13} className="shrink-0" />
           <select
             value={empresaCnpj || ''}
             onChange={(e) => { if (e.target.value) onEscolherEmpresa(e.target.value); }}
             aria-label="Trocar de empresa"
-            className="bg-transparent text-white text-[11px] font-semibold max-w-[170px] truncate outline-none cursor-pointer"
+            className="min-w-0 w-full bg-transparent text-white text-[11px] font-semibold lg:max-w-[170px] truncate outline-none cursor-pointer"
           >
             {!empresas.some((e) => e.cnpj === empresaCnpj) && <option className="text-slate-900" value={empresaCnpj || ''}>{empresaNome || 'Nenhuma empresa'}</option>}
             {empresas.map((e) => <option className="text-slate-900" key={e.cnpj} value={e.cnpj}>{e.nome}</option>)}
@@ -134,7 +136,7 @@ export const CabecalhoPadrao: React.FC<Props> = ({ usuario, soEmpresa, empresaNo
           </div>
         )}
       </div>
-      <BotoesTamanhoLetra />
+      {!semLetra && <BotoesTamanhoLetra />}
       {!soEmpresa && <button type="button" onClick={onSair} className="flex items-center gap-1 px-2 py-1 text-white/90 hover:text-white hover:bg-white/10 rounded transition cursor-pointer" title="Sair">
         <LogOut size={13} />
         <span>Sair</span>

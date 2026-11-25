@@ -90,3 +90,9 @@
   .contabil-print-disclaimer { margin-top: 8mm; font-size: 8pt; }
   @page { size: A4 landscape; margin: 12mm; }
 }
+
+/* Tela do sistema presa na altura visível do celular (25/11/2026): a página inteira nunca rola nem esconde o topo atrás da
+   barra de status do Android; a barra de cima desce o tamanho da barra de status quando o aparelho desenha por baixo dela. */
+html.tela-app-fixa, html.tela-app-fixa body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+@media print { html.tela-app-fixa, html.tela-app-fixa body { height: auto; overflow: visible; } }
+.topo-seguro { padding-top: env(safe-area-inset-top, 0px); }
