@@ -11,7 +11,7 @@ export function useTelaFixa(): void {
     html.classList.add('tela-app-fixa');
     try { if ('scrollRestoration' in history) history.scrollRestoration = 'manual'; } catch { /* navegador antigo */ }
     const voltarAoTopo = () => {
-      if (window.scrollY || html.scrollTop || document.body.scrollTop) { window.scrollTo(0, 0); html.scrollTop = 0; document.body.scrollTop = 0; }
+      if (window.scrollY || html.scrollTop || document.body.scrollTop || window.scrollX || html.scrollLeft || document.body.scrollLeft) { window.scrollTo(0, 0); html.scrollTop = 0; document.body.scrollTop = 0; html.scrollLeft = 0; document.body.scrollLeft = 0; }
     };
     voltarAoTopo();
     window.addEventListener('scroll', voltarAoTopo, { passive: true });
@@ -19,8 +19,9 @@ export function useTelaFixa(): void {
   }, []);
 }
 
-/** onScroll da caixa de fora (a que segura topo + lateral + meio): ela nunca rola, só as de dentro. */
+/** onScroll da caixa de fora (a que segura topo + lateral + meio): ela nunca rola (nem para baixo nem para o lado), só as de dentro. */
 export const travarRolagemDaCaixa = (e: React.UIEvent<HTMLElement>): void => {
   const el = e.currentTarget;
   if (el.scrollTop) el.scrollTop = 0;
+  if (el.scrollLeft) el.scrollLeft = 0; // nem para o lado (a tela "ia para o lado" no celular)
 };

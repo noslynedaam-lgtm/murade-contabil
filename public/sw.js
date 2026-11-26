@@ -1,7 +1,7 @@
 // Service worker do Murade: o sistema abre sem internet (guarda só a casca do aplicativo) e se atualiza sozinho.
 // Nunca guarda respostas /api com dados de clientes. Única exceção: a identificação da sessão (quem está logado),
 // para o sistema não pedir login de novo só porque a internet caiu; ela é apagada ao sair.
-const VERSAO = 'murade-casca-v5';
+const VERSAO = 'murade-casca-v6'; // v6 (26/11/2026): troca a casca guardada nos aplicativos instalados
 const SESSAO = ['/api/auth/session', '/api/auth/me'];
 const PUBLICAS = ['/api/auth/status']; // situação do serviço de login (sem dados de usuário)
 self.addEventListener('install', () => self.skipWaiting());
@@ -10,6 +10,11 @@ self.addEventListener('activate', (e) => e.waitUntil((async () => {
   await Promise.all(nomes.filter((n) => n.startsWith('murade-casca-') && n !== VERSAO).map((n) => caches.delete(n)));
   await self.clients.claim();
 })()));
+
+// Espera a promessa no máximo `ms` (sem cancelar a busca: ela continua e guarda a versão nova).
+function esperaAte(promessa, ms) {
+  return new Promise((ok, falha) => { const t = setTimeout(() => falha(new Error('demorou')), ms); promessa.then((v) => { clearTimeout(t); ok(v); }, (x) => { clearTimeout(t); falha(x); }); });
+}
 
 function comTempo(req, ms) {
   const c = new AbortController(); const t = setTimeout(() => c.abort(), ms);
@@ -77,11 +82,15 @@ self.addEventListener('fetch', (e) => {
     e.respondWith((async () => {
       const cache = await caches.open(VERSAO); const guardada = await cache.match('/');
       if (url.pathname === '/reparar.html') return fetch(req);
-      try {
-        const resp = guardada ? await comTempo(req, 4000) : await fetch(req);
+      // 26/11/2026: se a rede passar de 4 s, abre a guardada MAS continua buscando a nova e guarda para a próxima vez
+      // (antes a busca era cancelada e o aplicativo instalado podia ficar dias com a versão velha — sem o botão "Menu").
+      const daRede = fetch(req).then(async (resp) => {
         if (url.pathname === '/' && resp.ok && resp.headers.get('content-type')?.includes('text/html')) await cache.put('/', resp.clone());
         return resp;
-      } catch { return guardada || Response.error(); }
+      });
+      try {
+        return guardada ? await esperaAte(daRede, 4000) : await daRede;
+      } catch { e.waitUntil(daRede.catch(() => undefined)); return guardada || Response.error(); }
     })());
     return;
   }

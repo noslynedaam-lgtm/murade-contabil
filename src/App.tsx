@@ -951,8 +951,9 @@ function AppWorkspace() {
           id="btn-menu-flutuante"
           aria-label="Abrir menu"
           onClick={() => setMobileSidebarOpen(true)}
-          className="lg:hidden fixed left-3 z-40 flex items-center gap-1 rounded-full bg-[#082B66]/95 px-3 py-1.5 text-xs font-bold text-white shadow-lg ring-1 ring-white/40"
-          style={{ bottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}
+          className="lg:hidden fixed left-3 z-[60] flex items-center gap-1 rounded-full bg-[#082B66]/95 px-3 py-1.5 text-xs font-bold text-white shadow-lg ring-1 ring-white/40"
+          // Mesmo lugar do DP (26/11/2026): acima da barra de gestos/botões do Android e de qualquer aviso do canto de baixo.
+          style={{ bottom: "calc(4.25rem + env(safe-area-inset-bottom, 0px))" }}
         >
           <span aria-hidden="true">☰</span> Menu
         </button>
@@ -1016,7 +1017,7 @@ function AppWorkspace() {
         )}
 
         {/* CONTAINER DO CONTEÚDO CENTRAL COM ROLAGEM INDEPENDENTE (A BARRA LATERAL FICA FIXA) */}
-        <div className="flex-1 overflow-y-auto overscroll-contain content-scroll">
+        <div className="rolagem-principal flex-1 overflow-y-auto overscroll-contain content-scroll">
           <AlertaRobosParados />
           <FaixaEcd cnpj={empresa.cnpj} onAbrir={() => setTabAtiva("livros" as TabId)} />
           <FaixaLucroReal onAbrir={() => setTabAtiva("livros" as TabId)} />

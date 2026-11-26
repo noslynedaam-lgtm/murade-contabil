@@ -96,3 +96,14 @@
 html.tela-app-fixa, html.tela-app-fixa body { height: 100%; overflow: hidden; overscroll-behavior: none; }
 @media print { html.tela-app-fixa, html.tela-app-fixa body { height: auto; overflow: visible; } }
 .topo-seguro { padding-top: env(safe-area-inset-top, 0px); }
+
+/* Celular (26/11/2026): a página só rola para baixo. Nada pode empurrar a tela para o lado (ela "ia para o lado" e tremia);
+   só tabelas e faixas de abas rolam para o lado, por dentro delas. No computador nada muda. */
+@media (max-width: 767px) {
+  html, body, #root { overflow-x: hidden; max-width: 100%; }
+  .rolagem-principal { overflow-x: hidden; }
+  /* Campos e listas de escolha com texto comprido não alargam a tela: encolhem até a largura disponível. */
+  .rolagem-principal select, .rolagem-principal textarea, .rolagem-principal input:not([type="checkbox"]):not([type="radio"]) { max-width: 100%; }
+  .rolagem-principal fieldset, .rolagem-principal .grid > * { min-width: 0; }
+  .rolagem-principal .flex-wrap > * { min-width: 0; max-width: 100%; }
+}
