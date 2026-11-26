@@ -291,6 +291,23 @@ export const DESTINO_COLUNAS: Record<string, DestinoTabela> = {
   'wphd.historico_nire': { bloco: 'historico_nire', padrao: campo('Empresa › Mais dados › Histórico de NIRE'), colunas: { id: consulta('código interno'), empresa_id: consulta('código interno') } },
   'wphd.historico_retencao': { bloco: 'historico_retencao', padrao: consulta('código de retenção do IR do pró-labore dos sócios: é do Murad DP'), colunas: {} },
   'wphd.travacontabil': { bloco: 'trava_contabil', padrao: consulta('trava interna do programa antigo; no Murad quem fecha a competência é a equipe (Fechamento)'), colunas: {} },
+  'wfiscal.frninteg': {
+    bloco: 'integracao_fornecedores', padrao: consulta('controle interno da integração do programa antigo'), colunas: {
+      codfornecedor: campo('Revisar dados recebidos › Regras de integração › Fornecedor'), cdchamadaconta: campo('Revisar dados recebidos › Regras de integração › Conta (pelo código reduzido)'),
+      idplanodecontas: campo('escolhe o plano da empresa'), nmconta: campo('Revisar dados recebidos › Regras de integração › Descrição'),
+    },
+  },
+  'wfiscal.cadfism': {
+    bloco: 'integracao_codigos_fiscais', padrao: consulta('parâmetro fiscal do programa antigo (DIPI, apuração); o Murad usa a tabela oficial de CFOP'), colunas: {
+      idcodigo: campo('Revisar dados recebidos › Regras de integração › CFOP'), nmnome: campo('Revisar dados recebidos › Regras de integração › Descrição'), sttipo: campo('Regras de integração › entrada ou saída'),
+      cdcontavicontabil: campo('Regras de integração › Conta do valor contábil'), cdcontaviicm: campo('Regras de integração › Conta do ICMS (consulta)'), cdcontaviicmst: campo('Regras de integração › Conta do ICMS-ST (consulta)'), cdcontaviipi: campo('Regras de integração › Conta do IPI (consulta)'),
+    },
+  },
+  'wfiscal.cfgcodintegracao': {
+    bloco: 'integracao_configuracao', padrao: consulta('opção da integração do programa antigo'), colunas: {
+      idplanodecontas: campo('escolhe o plano da empresa'), dsclasssinteticocli: campo('Regras de integração › Grupo de clientes'), dsclasssinteticofor: campo('Regras de integração › Grupo de fornecedores'),
+    },
+  },
   'wcont.pcont': {
     bloco: 'plano_cadastro', padrao: consulta('configuração do plano no sistema anterior (níveis, máscara, contas de lucro/prejuízo); o Murad acha a conta de apuração pelo nome'), colunas: {
       idcontaaberturaimplantacao: campo('Plano de Contas › Contrapartida da abertura'), nmplanodecontas: campo('razão social só quando a empresa não tem cadastro'),

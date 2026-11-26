@@ -40,6 +40,11 @@ export const TABELAS_FIXAS_CONTABIL = [
   'wcont.textoassinatura',
   'wativo.emp_ativ',
   'wativo.empcfg',
+  // 26/11/2026: integração Fiscal → Contábil do sistema anterior (fornecedor → conta, código fiscal → contas, grupos de clientes e
+  // fornecedores do plano), que vira as regras do reconciliador das notas do Fiscal.
+  'wfiscal.frninteg',
+  'wfiscal.cadfism',
+  'wfiscal.cfgcodintegracao',
 ] as const;
 
 /** Tabelas por empresa: esquema + prefixo + código de 5 dígitos da empresa. */

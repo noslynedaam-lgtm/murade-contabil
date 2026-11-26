@@ -5,6 +5,8 @@
 //  - ver_registro_sistema_anterior: as linhas de um bloco guardado (ex.: lotes abertos, títulos, bens), em páginas.
 //  - pendencias_campos_migracao_sistema_anterior: campo a campo, o que estava preenchido no sistema anterior e chegou
 //    vazio ou diferente no Murade (cadastro, plano de contas, históricos, lançamentos, imobilizado).
+//  - regras_integracao_fiscal_sistema_anterior: o de-para das notas do Fiscal (fornecedor/CFOP → conta) que veio do sistema anterior,
+//    se bate com o backup e se as contas estão no plano.
 // Gravar a migração é sempre pela tela (a pessoa escolhe o arquivo, confere a prévia e confirma).
 import { erroApi, ok, q, type Ferramenta } from './agenteMotor';
 
@@ -46,6 +48,9 @@ export const NOMES_BLOCOS_SISTEMA_ANTERIOR: Record<string, string> = {
   trava_contabil: 'Data de trava do sistema anterior',
   textos_assinatura: 'Modelos de assinatura dos livros e do balanço',
   cartao_operadoras: 'Operadoras de cartão',
+  integracao_fornecedores: 'Integração das notas: fornecedor → conta (estão em Revisar dados recebidos › Regras de integração)',
+  integracao_codigos_fiscais: 'Integração das notas: código fiscal (CFOP) → contas',
+  integracao_configuracao: 'Integração das notas: grupos de clientes e fornecedores do plano',
 };
 
 export const INSTRUCAO_MIGRACAO_SISTEMA_ANTERIOR = `
@@ -76,6 +81,24 @@ export const FERRAMENTAS_MIGRACAO_SISTEMA_ANTERIOR: Ferramenta[] = [
         blocos: (r.corpo.blocos || []).map((b: any) => ({ bloco: b.bloco, nome: NOMES_BLOCOS_SISTEMA_ANTERIOR[b.bloco] || b.bloco, quantidade: b.quantidade })),
         avisos: (s.avisos || []).slice(0, 8),
         campoACampo: r.corpo.campos ? { resumo: r.corpo.campos.resumo, pendencias: r.corpo.campos.totalPendencias, primeiras: (r.corpo.campos.pendencias || []).slice(0, 5) } : null,
+      };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'regras_integracao_fiscal_sistema_anterior', description: 'De UMA empresa migrada do sistema anterior: as regras de integração das notas do Fiscal que vieram de lá (fornecedor CNPJ/CPF → conta; CFOP → conta do valor contábil; grupos de clientes e fornecedores), se batem com o backup e se cada conta ainda está, analítica, no plano. O reconciliador usa essas contas nos pré-lançamentos das notas. Use para "o fornecedor X vai para qual conta?", "as regras de integração vieram?". Só lê.', parameters: { type: 'OBJECT', properties: { cnpj: { type: 'STRING', description: 'CNPJ da empresa (14 caracteres).' }, busca: { type: 'STRING', description: 'Opcional: CNPJ/CPF do fornecedor ou CFOP para achar a regra.' } }, required: ['cnpj'] } },
+    async executar(ctx, args) {
+      const cnpj = cnpjDe(args.cnpj); if (!cnpj) return { erro: 'Informe um CNPJ válido.' };
+      const r = await ctx.chamarApi('GET', `/api/migracao-sistema-anterior/integracao-fiscal/${q(cnpj)}`);
+      if (!ok(r)) return erroApi(r);
+      const busca = String(args.busca ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const regras = (r.corpo.regras || []).filter((x: any) => !busca || String(x.chave).includes(busca));
+      const c = r.corpo.conferencia;
+      return {
+        cnpj, situacao: !r.corpo.total ? 'sem regras do sistema anterior' : c?.bate ? 'OK' : 'atenção', total: r.corpo.total, porTipo: r.corpo.resumo,
+        conferencia: c ? { bate: c.bate, resumo: c.resumo, diferencas: (c.diferencas || []).slice(0, 8) } : null,
+        regras: regras.slice(0, 20).map((x: any) => ({ tipo: x.tipo, chave: x.chave, conta: x.conta, contaNome: x.contaNome, situacaoDaConta: x.contaNoPlano, descricao: x.descricao })),
+        onde: 'Tela: menu "Revisar dados recebidos" › no fim, quadro "Regras de integração do sistema anterior".',
       };
     },
   },

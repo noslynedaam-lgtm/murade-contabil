@@ -46,8 +46,8 @@ function bancoFalso() {
     if (sql.startsWith('DELETE FROM contabil_atividade_equipe')) return apagar(t.atividade);
     if (sql.includes("to_regclass('contabil_sistema_anterior')")) return { rows: [{ t: 'contabil_sistema_anterior' }] };
     if (sql.startsWith('DELETE FROM contabil_sistema_anterior')) return apagar(t.sistemaAnterior);
-    if (/to_regclass\('contabil_(titulos|cartoes|extrato_movimentos|alertas_nota_sem_valor|conferencia_origens)'\)/.test(sql)) return { rows: [{ t: (t as any).extras ? 'sim' : null }] };
-    if (/^DELETE FROM contabil_(titulos|cartoes|extrato_movimentos|alertas_nota_sem_valor|conferencia_origens)/.test(sql)) return { rows: [], rowCount: 1 };
+    if (/to_regclass\('contabil_(titulos|cartoes|extrato_movimentos|alertas_nota_sem_valor|conferencia_origens|regras_integracao_fiscal)'\)/.test(sql)) return { rows: [{ t: (t as any).extras ? 'sim' : null }] };
+    if (/^DELETE FROM contabil_(titulos|cartoes|extrato_movimentos|alertas_nota_sem_valor|conferencia_origens|regras_integracao_fiscal)/.test(sql)) return { rows: [], rowCount: 1 };
     const lr = /to_regclass\('(contabil_lucro_real_\w+|contabil_lalur_\w+)'\)/.exec(sql); if (lr) return { rows: [{ t: (t as any).lucroReal ? lr[1] : null }] };
     const lrSel = /^SELECT \* FROM (contabil_lucro_real_\w+|contabil_lalur_\w+) WHERE cnpj=\$1/.exec(sql); if (lrSel) return { rows: ((t as any).lucroReal?.[lrSel[1]] || []).filter((x: any) => x.cnpj === cnpj) };
     const lrDel = /^DELETE FROM (contabil_lucro_real_\w+|contabil_lalur_\w+) WHERE cnpj=\$1/.exec(sql); if (lrDel) { const l = (t as any).lucroReal?.[lrDel[1]] || []; return apagar(l); }

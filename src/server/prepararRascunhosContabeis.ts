@@ -6,8 +6,9 @@ import { lerApuracoesFiscais, apuracoesStoreConfigurado, type ApuracaoFiscalArma
 import { lerResumosDP, dpStoreConfigurado } from "./dadosDpStore";
 import { lerResumosProLaboreDP } from "./dadosProLaboreStore";
 import { lerEventosDP, type EventoDPLido, type TipoEventoDP } from "./dadosDpEventosStore";
-import { lerWorkspaceInternoContabil, mesclarRascunhosAutomaticosContabil, tratarNotasSemValorContabil, type RascunhoAutomaticoContabil } from "./authContabil";
-import { contasDoRascunhoFiscal, contasDoRascunhoConferem, ehChaveNfce } from "../utils/contasRascunhoFiscal";
+import { consultaBancoContabil, lerWorkspaceInternoContabil, mesclarRascunhosAutomaticosContabil, tratarNotasSemValorContabil, type RascunhoAutomaticoContabil } from "./authContabil";
+import { contasDoRascunhoFiscal, contasDoRascunhoConferem, contasPelasRegras, ehChaveNfce, type RegrasIntegracaoContas } from "../utils/contasRascunhoFiscal";
+import { lerRegrasIntegracaoFiscal } from "./regrasIntegracaoFiscalStore";
 
 type Registro = Record<string, any>;
 type ResumoFolha = { competencia: string; calculadoEm?: string; atualizadoEm?: string; recebidoEm?: string; resumo?: Record<string, unknown> };
@@ -158,7 +159,7 @@ export function notasSemValorDoCnpj(cnpj: string, documentos: Registro[]): NotaS
   return saida;
 }
 
-export function diagnosticarNotaFiscal(cnpj: string, documento: Registro, contas: Registro[], mapeamentos: Registro[], agora: string, simplesNacional = false): DiagnosticoNota {
+export function diagnosticarNotaFiscal(cnpj: string, documento: Registro, contas: Registro[], mapeamentos: Registro[], agora: string, simplesNacional = false, regras: RegrasIntegracaoContas | null = null): DiagnosticoNota {
   const referenciaDocumento = documentoDaReferencia(documento || {});
   const periodo = dataCompetencia(documento?.dataEmissao || documento?.emissao);
   const valor = valorNumerico(documento?.valorTotal);
@@ -184,7 +185,8 @@ export function diagnosticarNotaFiscal(cnpj: string, documento: Registro, contas
 
   const tipoReferencia = documento.tipo === "Entrada" ? "Entrada" : "Saida";
   const referencia = `FISCAL:${cnpj}:${periodo.competencia}:${tipoReferencia}:${referenciaDocumento}`;
-  const par = contasDoRascunhoFiscal(referencia, mapping, contas);
+  // De-para do sistema anterior (fornecedor/CFOP → conta), quando a empresa tem: mesma regra de quem grava (contasDoRascunhoConferem).
+  const par = contasDoRascunhoFiscal(referencia, mapping, contas, contasPelasRegras(regras, tipoReferencia, documento, contas));
   if (!par) return fim(nfse ? "sem_conta_servicos" : "sem_mapeamento");
   const rotulo = rotuloDocumento(documento, referenciaDocumento);
   return { ...base, rascunho: {
@@ -204,10 +206,10 @@ export function diagnosticarNotaFiscal(cnpj: string, documento: Registro, contas
   } };
 }
 
-export function gerarRascunhosFiscal(cnpj: string, documentos: Registro[], contas: Registro[], mapeamentos: Registro[], agora: string, simplesNacional = false): RascunhoAutomaticoContabil[] {
+export function gerarRascunhosFiscal(cnpj: string, documentos: Registro[], contas: Registro[], mapeamentos: Registro[], agora: string, simplesNacional = false, regras: RegrasIntegracaoContas | null = null): RascunhoAutomaticoContabil[] {
   const candidatos: RascunhoAutomaticoContabil[] = [];
   for (const documento of documentos) {
-    const d = diagnosticarNotaFiscal(cnpj, documento, contas, mapeamentos, agora, simplesNacional);
+    const d = diagnosticarNotaFiscal(cnpj, documento, contas, mapeamentos, agora, simplesNacional, regras);
     if (d.rascunho) candidatos.push(d.rascunho);
   }
   return candidatos;
@@ -586,8 +588,10 @@ export async function gerarCandidatosEDocumentos(cnpj: string, workspaceOverride
     apuracoesStoreConfigurado() ? lerApuracoesFiscais(cnpj, "", "", 500).catch(() => []) : Promise.resolve([]),
   ]);
   const agora = new Date().toISOString();
+  // Regras de integração do sistema anterior (fornecedor/CFOP → conta); sem a tabela ou sem regra, nada muda.
+  const regras = await lerRegrasIntegracaoFiscal((sql, params) => consultaBancoContabil(sql, params ?? []), cnpj).catch(() => null);
   const candidatos = [
-    ...gerarRascunhosFiscal(cnpj, notasSemLancamentoEmDobro(documentos as Registro[], workspace), contas, mapeamentos, agora, regimeSimplesNacional((workspace.empresa as Registro | undefined)?.regime)),
+    ...gerarRascunhosFiscal(cnpj, notasSemLancamentoEmDobro(documentos as Registro[], workspace), contas, mapeamentos, agora, regimeSimplesNacional((workspace.empresa as Registro | undefined)?.regime), regras),
     ...gerarRascunhosFolha(cnpj, folhas, contas, mapeamentos, agora),
     ...gerarRascunhosProLabore(cnpj, proLabores, contas, mapeamentos, agora),
     ...gerarRascunhosEventosDP(cnpj, eventos, contas, mapeamentos, agora),
@@ -600,6 +604,7 @@ export function mesclarRascunhosNoWorkspace(
   cnpj: string,
   workspace: Record<string, unknown>,
   candidatos: RascunhoAutomaticoContabil[],
+  regras: RegrasIntegracaoContas | null = null,
 ): { workspace: Record<string, unknown>; criados: number; atualizados: number } {
   const normalizado = cnpj.toUpperCase().replace(/[^A-Z0-9]/g, "");
   const mapeamentos = Array.isArray(workspace.mapeamentosOrigem) ? workspace.mapeamentosOrigem as Registro[] : [];
@@ -614,7 +619,7 @@ export function mesclarRascunhosNoWorkspace(
     if (lancamentos.some((item) => item.documentoRef === referencia || item.id === referencia)) continue;
     const mappingKey = mapeamentosOrigem[candidato.origem as keyof typeof mapeamentosOrigem];
     const mapping = mapeamentos.find((item) => item.origem === mappingKey);
-    if (!contasDoRascunhoConferem(candidato, mapping, Array.isArray(workspace.contas) ? workspace.contas as Registro[] : [])) continue;
+    if (!contasDoRascunhoConferem(candidato, mapping, Array.isArray(workspace.contas) ? workspace.contas as Registro[] : [], regras)) continue;
     const indice = mesclados.findIndex((item) => item.referenciaOrigem === referencia);
     const existente = indice < 0 ? undefined : mesclados[indice];
     if (existente?.status === "contabilizado") continue;

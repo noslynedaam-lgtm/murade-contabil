@@ -39,6 +39,7 @@ import { FluxoPreviticoTab } from "./components/tabs/FluxoPreviticoTab";
 import { ModulosFinaisTab } from "./components/tabs/ModulosFinaisTab";
 import { MigracaoContabilTab } from "./components/tabs/MigracaoContabilTab";
 import { RevisaoOrigensTab } from "./components/tabs/RevisaoOrigensTab";
+import { RegrasIntegracaoSistemaAnterior } from "./components/RegrasIntegracaoSistemaAnterior";
 import { BackupsTab } from "./components/tabs/BackupsTab";
 import { AvisosBackupEscritorio } from "./components/backupEscritorio/AvisosBackupEscritorio";
 import { IAMuradModal } from "./components/IAMuradModal";
@@ -1279,6 +1280,7 @@ function AppWorkspace() {
 
               {tabAtiva === "vigencia-obrigacoes" && <VigenciaObrigacoesView onNavegar={(t) => setTabAtiva(t as TabId)} telas={{ pis_cofins: "revisao-origens", cprb: "revisao-origens" }} />}
               {tabAtiva === "revisao-origens" && <RevisaoOrigensTab cnpj={empresa.cnpj} regime={empresa.regime} workspaceCarregado={dadosEmpresaCarregadosCnpj === empresa.cnpj.toUpperCase().replace(/[^A-Z0-9]/g, "")} contas={contas} mapeamentos={mapeamentosOrigem} onSalvarMapeamentos={setMapeamentosOrigem} preLancamentos={preLancamentos} lancamentos={lancamentos} onSalvarPreLancamentos={setPreLancamentos} onContabilizar={handleContabilizarPreLancamentos} />}
+              {tabAtiva === "revisao-origens" && <RegrasIntegracaoSistemaAnterior key={`regras-sa-${empresa.cnpj}`} cnpj={empresa.cnpj} />}
 
               {tabAtiva === "agente" && (
                 <AgenteTab

@@ -9,7 +9,8 @@ import {
   descartarMigracaoContabil, gerarPreviaContabil, gravarMigracaoContabil, iniciarLimpezaMigracaoContabil, listarEmpresasDoBackupContabil,
   receberArquivoContabil, situacaoMigracaoContabilDoUsuario,
 } from './servico';
-import { completarEmpresaMigrada, analisarEmpresaMigrada, aplicarAchadoEmpresaMigrada, decidirGrupoEmpresaMigrada, desfazerGrupoEmpresaMigrada, lotesDaAnalise, type AcaoAchado, cnpjsMigrados, conferirCamposEmpresaMigrada, conferirEmpresaMigrada, empresaExcluidaAntes, ErroMigracao, gravarEmpresaMigrada, lerBlocoSistemaAnterior, lerRegistroSistemaAnterior } from './banco';
+import { listarRegrasIntegracaoFiscal } from '../regrasIntegracaoFiscalStore';
+import { conferirRegrasIntegracaoEmpresa, completarEmpresaMigrada, analisarEmpresaMigrada, aplicarAchadoEmpresaMigrada, decidirGrupoEmpresaMigrada, desfazerGrupoEmpresaMigrada, lotesDaAnalise, type AcaoAchado, cnpjsMigrados, conferirCamposEmpresaMigrada, conferirEmpresaMigrada, empresaExcluidaAntes, ErroMigracao, gravarEmpresaMigrada, lerBlocoSistemaAnterior, lerRegistroSistemaAnterior } from './banco';
 
 export interface DependenciasRotasMigracao {
   exigirSessao: express.RequestHandler;
@@ -195,6 +196,17 @@ export function registrarRotasMigracaoSistemaAnterior(app: express.Express, dep:
         analise: analise ? { resumo: analise.resumo, achados: analise.achados.slice(0, 300).map(({ valorVeio: _v, valorCerto: _c, ...a }) => ({ ...a, alvo: a.alvo ? { tipo: a.alvo.tipo, campo: a.alvo.campo, codigo: a.alvo.codigo, quantidade: a.alvo.ids?.length } : undefined })), lotes } : null });
     } catch (e) { console.error('Falha ao ler registro do sistema anterior:', (e as Error)?.message || e); res.status(503).json({ sucesso: false, motivo: 'Não foi possível ler o registro do sistema anterior agora.' }); }
   });
+  // Regras de integração Fiscal → Contábil vindas do sistema anterior (fornecedor/CFOP → conta), com a conferência. Só lê.
+  app.get(`${base}/integracao-fiscal/:cnpj`, dep.exigirSessao, async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const s = sessaoDe(req); const cnpj = normalizar(req.params.cnpj);
+    if (!s || !s.cnpjs.includes(cnpj)) { res.status(403).json({ sucesso: false, motivo: 'Empresa fora do seu acesso.' }); return; }
+    try {
+      const lista = await listarRegrasIntegracaoFiscal(dep.consultar as any, cnpj);
+      const conferencia = await conferirRegrasIntegracaoEmpresa(dep.consultar, cnpj);
+      res.json({ sucesso: true, cnpj, ...lista, regras: lista.regras.slice(0, 1000), total: lista.regras.length, conferencia });
+    } catch (e) { console.error('Falha ao ler as regras de integração:', (e as Error)?.message || e); res.status(503).json({ sucesso: false, motivo: 'Não foi possível ler as regras agora.' }); }
+  });
   const ACOES: AcaoAchado[] = ['corrigir', 'desfazer', 'aceitar', 'manter', 'lancar_ajuste', 'desfazer_ajuste', 'corrigir_todos'];
   app.post(`${base}/registro/:cnpj/achado`, dep.exigirOrigemNavegador, dep.exigirSessao, async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -289,8 +301,17 @@ export function rotinaConferidorMigracao(dep: Pick<DependenciasRotasMigracao, 'c
       ? ` Campo a campo: ${totalPendencias} pendência(s) em ${camposPendentes.length} empresa(s) — ${camposPendentes.slice(0, 3).join(' | ')}. Veja na empresa › Migração › "O que veio do sistema anterior".`
       : ' Campo a campo: todos os campos preenchidos no sistema anterior estão iguais no Murad.';
     if (completadas) texto += ` Completei sozinho ${camposCompletados} campo(s) vazio(s) em ${completadas} empresa(s) a partir do registro do sistema anterior (nada foi sobrescrito).`;
+    // Regras de integração Fiscal → Contábil (de-para) vindas do sistema anterior: batem com o backup e as contas estão no plano?
+    let comRegras = 0; let totalRegras = 0; const regrasComProblema: string[] = [];
+    for (const cnpj of cnpjs) {
+      const ri = await conferirRegrasIntegracaoEmpresa(dep.consultar, cnpj).catch((e) => { console.error(`Conferência das regras de integração falhou para ${cnpj}:`, (e as Error)?.message || e); return null; });
+      if (!ri) continue;
+      comRegras++; totalRegras += ri.regras;
+      if (!ri.bate) regrasComProblema.push(`${cnpj}: ${ri.resumo}`);
+    }
+    if (comRegras) texto += regrasComProblema.length ? ` Regras de integração Fiscal → Contábil: ${regrasComProblema.length} empresa(s) com diferença — ${regrasComProblema.slice(0, 2).join(' | ')}.` : ` Regras de integração Fiscal → Contábil: ${totalRegras} regra(s) em ${comRegras} empresa(s) batem com o backup.`;
     if (cnpjs.length && analises.length) texto += ` Análise do que veio errado do sistema anterior: ${totalConferir} item(ns) para o contador conferir${totalAjustes ? ` e ${totalAjustes} ajuste(s) prontos` : ''} — ${analises.slice(0, 3).join(' | ')}.`;
     dep.robos.registrarResultadoRobo(id, texto);
-    dep.robos.definirAlertaRobo(id, problemas.length || camposPendentes.length || totalAjustes ? { nivel: 'aviso', texto } : null);
+    dep.robos.definirAlertaRobo(id, problemas.length || camposPendentes.length || totalAjustes || regrasComProblema.length ? { nivel: 'aviso', texto } : null);
   }).catch((e) => console.error('Falha no Robô Conferidor da Migração do Sistema Anterior:', (e as Error)?.message || e)) : undefined;
 }

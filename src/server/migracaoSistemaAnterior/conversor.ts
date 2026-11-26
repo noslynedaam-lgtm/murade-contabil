@@ -14,6 +14,8 @@ import { COLUNAS_NUNCA_GUARDAR, tabelaDaEmpresa } from '../../utils/tabelasSiste
 import type { BemImobilizado } from '../../utils/imobilizado';
 import { bensDoBackup, cadastroDoBackup, cartoesDoBackup, historicoEsperado, modelosDoBackup, titulosDoBackup } from './camposSistemaAnterior';
 import type { EstabelecimentoCartao, Titulo } from '../titulosCartoesStore';
+import type { RegraIntegracaoLinha } from '../regrasIntegracaoFiscalStore';
+import { regrasIntegracaoDoBackup } from './integracaoFiscal';
 
 export type Linha = Record<string, any>;
 /** Lê uma tabela do arquivo (null = a tabela não está no arquivo). */
@@ -43,6 +45,8 @@ export interface DadosContabeisEmpresa {
   cartoes: EstabelecimentoCartao[];
   /** Modelos de lançamento (botão "Usar modelo" no lançamento manual). */
   modelos: import('../../types').LancamentoPadrao[];
+  /** Regras de integração Fiscal → Contábil do sistema anterior (fornecedor/CFOP → conta; grupos de clientes e fornecedores). */
+  regrasIntegracao?: RegraIntegracaoLinha[];
   /** Na remigração: o contador escolheu "Desfazer os ajustes e migrar de novo" (estorna os ajustes de migração antes). */
   desfazerAjustesMigracao?: boolean;
   idPlano: number | null;
@@ -440,6 +444,16 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
 
   const mapaContas: Record<string, string> = {};
   for (const [id, codigo] of codigoPorId) mapaContas[String(id)] = codigo;
+  // ---- integração Fiscal → Contábil do sistema anterior (de-para de fornecedor e CFOP para conta) ------------------------
+  const integ = regrasIntegracaoDoBackup({
+    idPlano, frninteg: await tabela('wfiscal.frninteg'), cadfism: await tabela('wfiscal.cadfism'), cfg: await tabela('wfiscal.cfgcodintegracao'),
+    contasDoPlano: doPlano, mapaContas, tipoConta: (codigo) => porCodigo.get(codigo)?.tipo,
+  });
+  guardar('integracao_fornecedores', integ.blocos.fornecedores); guardar('integracao_codigos_fiscais', integ.blocos.codigosFiscais); guardar('integracao_configuracao', integ.blocos.configuracao);
+  lidos.integracaoFornecedores = integ.lidos.fornecedores; lidos.integracaoCodigosFiscais = integ.lidos.codigosFiscais; lidos.integracaoCodigosFiscaisComConta = integ.lidos.codigosFiscaisComConta;
+  lidos.integracaoRegras = integ.regras.length;
+  avisos.push(...integ.avisos);
+  if (integ.regras.length) avisos.push(`${integ.regras.filter((r) => r.conta).length} regra(s) de integração do sistema anterior (fornecedor ou CFOP → conta) vieram para o reconciliador das notas do Fiscal.`);
   const imob = bensDoBackup(cdempresa, bens, mapaContas);
   avisos.push(...imob.avisos);
   if (imob.bens.length) avisos.push(`${imob.bens.length} bem(ns) do imobilizado vieram para o módulo Imobilizado (descrição, custo, vida útil pela taxa do sistema anterior, início da depreciação, fornecedor, nota e contas).`);
@@ -463,7 +477,7 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
 
   return {
     cdempresa, cnpj, razaoSocial: empresa.razaoSocial || txt(cadastro?.nmempresa) || (pcont ? txt(pcont.nmplanodecontas) : '') || `Empresa código ${cdempresa}`,
-    semCadastroNoBackup: !cadastro, empresa, substituiveis, mapaContas, bensImobilizado: imob.bens, titulos: titulosMigrados, cartoes, modelos: mod.modelos, idPlano, nomePlano: txt(pcont?.nmplanodecontas),
+    semCadastroNoBackup: !cadastro, empresa, substituiveis, mapaContas, bensImobilizado: imob.bens, titulos: titulosMigrados, cartoes, modelos: mod.modelos, regrasIntegracao: integ.regras, idPlano, nomePlano: txt(pcont?.nmplanodecontas),
     contas: contas.sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR', { numeric: true })),
     historicosPadrao, lancamentos, naoEntraram, esperado: [...esperadoMapa.values()].filter((e) => e.debitoCentavos || e.creditoCentavos),
     esperadoLancamentos: [...esperadoLancMapa.values()],

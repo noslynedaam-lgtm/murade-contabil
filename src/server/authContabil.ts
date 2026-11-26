@@ -3,6 +3,7 @@ import { sugerirMapeamentosPadrao, contasDasParaCompletar, ORIGENS_COM_MAPEAMENT
 import { ordenarContasPorSequenciaNumerica } from "../utils/planoContasUtils";
 import { montarWorkspaceInicialContabil, empresaInicialDoCadastro } from "../utils/workspaceInicial";
 import { contasDoRascunhoConferem } from "../utils/contasRascunhoFiscal";
+import { lerRegrasIntegracaoFiscal } from "./regrasIntegracaoFiscalStore";
 import { contasParaCompletarPlano, podeCompletarSozinho } from "../utils/completarPlanoPadrao";
 import { validarHistoricoPadrao, validarLancamentoPadrao } from "../utils/escrituracaoAvancada";
 import { validarRegraConciliacao } from "../utils/extratoBancario";
@@ -1037,6 +1038,8 @@ export async function contabilizarRascunhosAutomaticosContabil(
     const mapas = Array.isArray(payload.mapeamentosOrigem) ? payload.mapeamentosOrigem : [];
     const porReferenciaCandidato = new Map(candidatosAtuais.map((item) => [item.referenciaOrigem, item]));
     const agora = new Date().toISOString();
+    // De-para do sistema anterior (fornecedor/CFOP → conta): a mesma regra de quem gerou o rascunho.
+    const regrasIntegracao = await lerRegrasIntegracaoFiscal((sql, params) => client!.query(sql, params as any[]), cnpj);
     const aprovacoes: Array<{ referencia: string; valor: number; debito: string; credito: string; origem: string; data: string; competencia: string; historico: string }> = [];
 
     for (const referencia of referencias) {
@@ -1053,7 +1056,7 @@ export async function contabilizarRascunhosAutomaticosContabil(
         && rascunho.origem === candidato.origem && rascunho.contaDebitoCodigo === candidato.contaDebitoCodigo
         && rascunho.contaCreditoCodigo === candidato.contaCreditoCodigo && rascunho.valor === candidato.valor
         // Mesma regra de contas de quem gera e de quem grava (NFC-e no Caixa, NFS-e na receita de serviços): antes a aprovação recusava essas notas.
-        && contasDoRascunhoConferem(candidato, mapping, contas)
+        && contasDoRascunhoConferem(candidato, mapping, contas, regrasIntegracao)
         && analiticas.has(candidato.contaDebitoCodigo) && analiticas.has(candidato.contaCreditoCodigo)
         && Number.isFinite(candidato.valor) && candidato.valor > 0 && !lancamentos.some((item: any) => item.documentoRef === referencia || item.id === referencia);
       if (!confereAtual) throw Object.assign(new Error("Os dados de origem, o valor ou o mapeamento mudaram. Atualize e confira o rascunho antes de aprovar."), { status: 409 });
@@ -1631,6 +1634,8 @@ export async function mesclarRascunhosAutomaticosContabil(
     const existentes = Array.isArray(payload.preLancamentos) ? payload.preLancamentos as Array<Record<string, unknown>> : [];
     const atualizadosWorkspace = [...existentes];
     const fechados = new Set((await client.query("SELECT competencia FROM contabil_period_closures WHERE cnpj=$1", [normalizado])).rows.map((row) => String(row.competencia)));
+    // De-para do sistema anterior (fornecedor/CFOP → conta): a mesma regra de quem gerou o rascunho.
+    const regrasIntegracao = await lerRegrasIntegracaoFiscal((sql, params) => client.query(sql, params as any[]), normalizado);
 
     for (const candidato of candidatos) {
       const referencia = candidato.referenciaOrigem;
@@ -1640,7 +1645,7 @@ export async function mesclarRascunhosAutomaticosContabil(
       const campoOrigem = origemDaReferencia(referencia)?.id ?? "";
       const mapeamento = mapeamentos.find((item) => item.origem === campoOrigem);
       // Mesma regra de contas de quem gerou (NFC-e no Caixa, NFS-e na receita de serviços): antes só o par do mapeamento passava e a NFC-e sumia.
-      if (!contasDoRascunhoConferem(candidato, mapeamento, Array.isArray(payload.contas) ? payload.contas as Array<Record<string, unknown>> : [])) continue;
+      if (!contasDoRascunhoConferem(candidato, mapeamento, Array.isArray(payload.contas) ? payload.contas as Array<Record<string, unknown>> : [], regrasIntegracao)) continue;
 
       const indice = atualizadosWorkspace.findIndex((item) => item.referenciaOrigem === referencia);
       const existente = indice < 0 ? undefined : atualizadosWorkspace[indice];

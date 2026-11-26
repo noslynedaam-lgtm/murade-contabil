@@ -184,6 +184,17 @@ function bancoFalso() {
     if (s.startsWith('SELECT bloco, quantidade, migrado_em')) return { rows: t.registro.filter((r) => r.cnpj === p[0]).map((r) => ({ ...r, resumo: r.bloco === p[1] ? r.linhas : null })) };
     if (s.startsWith('SELECT bloco, linhas FROM contabil_sistema_anterior')) return { rows: t.registro.filter((r) => r.cnpj === p[0] && (p[1] as string[]).includes(r.bloco)) };
     if (s.startsWith('SELECT cnpj FROM contabil_sistema_anterior')) return { rows: [...new Set(t.registro.filter((r) => r.bloco === p[0]).map((r) => r.cnpj))].map((cnpj) => ({ cnpj })) };
+    // Regras de integração Fiscal → Contábil (tabela própria), em memória.
+    if (s.includes('contabil_regras_integracao_fiscal') || s.startsWith("SELECT payload->'contas'")) {
+      const R: any[] = ((t as any).regras ??= []);
+      if (s.startsWith('DELETE FROM contabil_regras_integracao_fiscal')) { (t as any).regras = R.filter((r) => r.cnpj !== p[0] || (s.includes("origem='sistema_anterior'") && r.origem !== 'sistema_anterior')); return { rows: [] }; }
+      if (s.startsWith('INSERT INTO contabil_regras_integracao_fiscal')) { for (const x of JSON.parse(String(p[1]))) if (!R.some((r) => r.cnpj === p[0] && r.tipo === x.t && r.chave === x.k)) R.push({ cnpj: p[0], tipo: x.t, chave: x.k, conta: x.c, descricao: x.d, origem: 'sistema_anterior', dados: x.x }); return { rows: [] }; }
+      if (s.startsWith('SELECT count(*)::int AS n FROM contabil_regras_integracao_fiscal')) return { rows: [{ n: R.filter((r) => r.cnpj === p[0] && r.origem === 'sistema_anterior').length }] };
+      if (s.startsWith('SELECT tipo, chave, conta, descricao, origem, dados FROM contabil_regras_integracao_fiscal')) return { rows: R.filter((r) => r.cnpj === p[0]) };
+      if (s.startsWith('SELECT tipo, chave, conta FROM contabil_regras_integracao_fiscal')) return { rows: R.filter((r) => r.cnpj === p[0] && r.conta) };
+      if (s.startsWith('SELECT DISTINCT cnpj FROM contabil_regras_integracao_fiscal')) return { rows: [...new Set(R.map((r) => r.cnpj))].map((cnpj) => ({ cnpj })) };
+      if (s.startsWith("SELECT payload->'contas'")) { const w = t.workspaces.get(String(p[0])); return { rows: w ? [{ contas: w.payload?.contas }] : [] }; }
+    }
     throw new Error(`SQL não previsto: ${s.slice(0, 90)}`);
   };
   const banco: BancoTransacional = { consultar, async transacao(fn) { return fn(consultar); } };

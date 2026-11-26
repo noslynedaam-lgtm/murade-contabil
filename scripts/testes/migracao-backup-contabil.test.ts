@@ -204,6 +204,17 @@ function bancoFalso(opcoes: { outroEscritorio?: boolean; workspace?: any } = {})
     if (s.startsWith('INSERT INTO contabil_auth_company_access')) { t.acesso.push({ user_id: p[0], cnpj: p[1] }); return { rows: [] }; }
     if (s.startsWith('DELETE FROM contabil_sistema_anterior')) { t.registro = t.registro.filter((r) => r.cnpj !== p[0]); return { rows: [] }; }
     if (s.startsWith('INSERT INTO contabil_sistema_anterior')) { t.registro.push({ cnpj: p[0], bloco: p[1], linhas: JSON.parse(String(p[2])), quantidade: p[3] }); return { rows: [] }; }
+    // Regras de integração Fiscal → Contábil (tabela própria), em memória.
+    if (s.includes('contabil_regras_integracao_fiscal') || s.startsWith("SELECT payload->'contas'")) {
+      const R: any[] = ((t as any).regras ??= []);
+      if (s.startsWith('DELETE FROM contabil_regras_integracao_fiscal')) { (t as any).regras = R.filter((r) => r.cnpj !== p[0] || (s.includes("origem='sistema_anterior'") && r.origem !== 'sistema_anterior')); return { rows: [] }; }
+      if (s.startsWith('INSERT INTO contabil_regras_integracao_fiscal')) { for (const x of JSON.parse(String(p[1]))) if (!R.some((r) => r.cnpj === p[0] && r.tipo === x.t && r.chave === x.k)) R.push({ cnpj: p[0], tipo: x.t, chave: x.k, conta: x.c, descricao: x.d, origem: 'sistema_anterior', dados: x.x }); return { rows: [] }; }
+      if (s.startsWith('SELECT count(*)::int AS n FROM contabil_regras_integracao_fiscal')) return { rows: [{ n: R.filter((r) => r.cnpj === p[0] && r.origem === 'sistema_anterior').length }] };
+      if (s.startsWith('SELECT tipo, chave, conta, descricao, origem, dados FROM contabil_regras_integracao_fiscal')) return { rows: R.filter((r) => r.cnpj === p[0]) };
+      if (s.startsWith('SELECT tipo, chave, conta FROM contabil_regras_integracao_fiscal')) return { rows: R.filter((r) => r.cnpj === p[0] && r.conta) };
+      if (s.startsWith('SELECT DISTINCT cnpj FROM contabil_regras_integracao_fiscal')) return { rows: [...new Set(R.map((r) => r.cnpj))].map((cnpj) => ({ cnpj })) };
+      if (s.startsWith("SELECT payload->'contas'")) { const w = t.workspaces.get(String(p[0])); return { rows: w ? [{ contas: w.payload?.contas }] : [] }; }
+    }
     throw new Error(`SQL não previsto: ${s.slice(0, 90)}`);
   };
   const banco: BancoTransacional = { consultar, async transacao(fn) { const copia = JSON.stringify({ w: [...t.workspaces], a: t.acesso, r: t.registro }); try { return await fn(consultar); } catch (e) { const c = JSON.parse(copia); t.workspaces = new Map(c.w); t.acesso = c.a; t.registro = c.r; throw e; } } };

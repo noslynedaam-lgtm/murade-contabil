@@ -11,6 +11,8 @@ import { mesclarMigracao } from './mesclagem';
 import { bensDoBackup, cadastroDoBackup, cartoesDoBackup, conferirCamposMigrados, modelosDoBackup, titulosDoBackup, txt, type ResultadoCampos } from './camposSistemaAnterior';
 import { analisarMigracao, aplicarAcaoAchado, resumoAnalise, type AchadoMigracao } from './analiseSistemaAnterior';
 import { converterClassificacao } from './conversor';
+import { gravarRegrasIntegracaoMigradas, listarRegrasIntegracaoFiscal } from '../regrasIntegracaoFiscalStore';
+import { compararRegras, regrasIntegracaoDoBackup } from './integracaoFiscal';
 
 export const TABELA_SISTEMA_ANTERIOR = 'contabil_sistema_anterior';
 export const BLOCO_RESUMO = '__migracao';
@@ -35,6 +37,9 @@ export interface ResumoMigracaoGuardado extends ReferenciaConferencia {
   naoEntraram: DadosContabeisEmpresa['naoEntraram']; avisos: string[]; conferenciaNaGravacao: string;
   /** idconta do sistema anterior → código no Murade (para o conferidor campo a campo). Migrações antigas não têm. */
   mapaContas?: Record<string, string>;
+  /** Plano da empresa no sistema anterior e quantas regras de integração Fiscal → Contábil vieram (migrações a partir de 26/11/2026). */
+  idPlano?: number | null;
+  regrasIntegracao?: number;
 }
 
 export async function prepararTabelaSistemaAnterior(consultar: ConsultaSql): Promise<void> { await consultar(SQL_TABELA); }
@@ -80,6 +85,7 @@ export async function gravarEmpresaMigrada(
       esperado: dados.esperado, esperadoLancamentos: dados.esperadoLancamentos, saldoFinalEsperado: dados.saldoFinalEsperado,
       lancamentosGravados: dados.lancamentos.length, semSaldosParaConferir: dados.semSaldosParaConferir, linhasQueNaoEntraram: dados.naoEntraram.length,
       naoEntraram: dados.naoEntraram, avisos: [...dados.avisos, ...m.avisos], conferenciaNaGravacao: conferencia.resumo, mapaContas: dados.mapaContas,
+      ...(dados.regrasIntegracao ? { idPlano: dados.idPlano, regrasIntegracao: dados.regrasIntegracao.length } : {}),
     };
     await q(`DELETE FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 AND bloco<>$2`, [cnpj, BLOCO_DECISOES]);
     let linhasGuardadas = 0;
@@ -90,6 +96,11 @@ export async function gravarEmpresaMigrada(
     }
     await q(`INSERT INTO ${TABELA_SISTEMA_ANTERIOR}(cnpj,bloco,linhas,quantidade,migrado_por) VALUES($1,$2,$3::jsonb,$4,$5)`, [cnpj, BLOCO_RESUMO, JSON.stringify(resumo), 1, quem.login]);
     if ((dados.titulos || []).length || (dados.cartoes || []).length) await gravarTitulosECartoesMigrados(q, cnpj, dados.titulos || [], dados.cartoes || []);
+    // Regras de integração Fiscal → Contábil (de-para): tabela própria; confere a quantidade gravada antes de confirmar.
+    if (dados.regrasIntegracao) {
+      const gravadas = await gravarRegrasIntegracaoMigradas(q, cnpj, dados.regrasIntegracao);
+      if (gravadas !== dados.regrasIntegracao.length) throw new ErroMigracao(`As regras de integração do sistema anterior não bateram (${dados.regrasIntegracao.length} lidas, ${gravadas} gravadas); nada foi gravado.`);
+    }
     return {
       cnpj, contasNovas: m.contasNovas, contasAtualizadas: m.contasAtualizadas, contasDoModeloRetiradas: m.contasDoModeloRetiradas, historicosNovos: m.historicosNovos,
       lancamentos: dados.lancamentos.length, lancamentosSubstituidos: m.lancamentosSubstituidos, lancamentosDaEquipe: m.lancamentosDaEquipe,
@@ -150,6 +161,37 @@ export async function conferirCamposEmpresaMigrada(consultar: ConsultaSql, cnpj:
   const titulos = temTitulos ? await listarTitulos(consultar, cnpj).catch(() => []) : undefined;
   const cartoes = temCartoes ? await listarCartoes(consultar, cnpj).catch(() => []) : undefined;
   return conferirCamposMigrados({ cdempresa: Number(resumo.cdempresa), blocos, mapaContas: mapa, payload, registroAntigo, titulos, cartoes });
+}
+
+export interface ConferenciaRegrasIntegracao { cnpj: string; bate: boolean; regras: number; comConta: number; contaComProblema: number; foraDoGrupo: number; diferencas: string[]; resumo: string }
+/** Conferência das regras de integração Fiscal → Contábil de uma empresa migrada: o registro guardado do sistema anterior, convertido de
+ * novo, tem de dar as mesmas regras gravadas; e cada conta usada tem de existir, analítica, no plano de hoje. Só lê. */
+export async function conferirRegrasIntegracaoEmpresa(consultar: ConsultaSql, cnpj: string): Promise<ConferenciaRegrasIntegracao | null> {
+  const { resumo } = await lerRegistroSistemaAnterior(consultar, cnpj);
+  if (!resumo || resumo.regrasIntegracao === undefined) return null;
+  const r = await consultar(`SELECT bloco, linhas FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 AND bloco = ANY($2::text[])`, [cnpj, ['plano_contas', 'integracao_fornecedores', 'integracao_codigos_fiscais', 'integracao_configuracao']]);
+  const b: Record<string, any[]> = {};
+  for (const x of r.rows) b[String(x.bloco)] = Array.isArray(x.linhas) ? x.linhas : [];
+  const idPlano = resumo.idPlano ?? null;
+  const ws = (await consultar('SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1', [cnpj])).rows[0]?.payload || {};
+  const tipos = new Map<string, string>((Array.isArray(ws.contas) ? ws.contas : []).map((c: any) => [String(c?.codigo), String(c?.tipo)]));
+  const esperado = regrasIntegracaoDoBackup({
+    idPlano, frninteg: b.integracao_fornecedores || [], cadfism: b.integracao_codigos_fiscais || [], cfg: b.integracao_configuracao || [],
+    contasDoPlano: (b.plano_contas || []).filter((c) => idPlano !== null && Number(c.idplanodecontas) === idPlano), mapaContas: resumo.mapaContas || {}, tipoConta: (c) => tipos.get(c),
+  }).regras;
+  const lista = await listarRegrasIntegracaoFiscal(consultar as any, cnpj);
+  const gravadas = lista.regras.filter((x) => x.origem === 'sistema_anterior');
+  const diferencas = compararRegras(esperado, gravadas);
+  if (esperado.length !== resumo.regrasIntegracao) diferencas.unshift(`na migração vieram ${resumo.regrasIntegracao} regra(s); o registro guardado dá ${esperado.length}`);
+  if (gravadas.length !== esperado.length) diferencas.push(`${gravadas.length} regra(s) gravada(s) para ${esperado.length} do sistema anterior`);
+  const problemas = gravadas.filter((x) => x.conta && !x.tipo.startsWith('grupo_') && x.contaNoPlano !== 'ok');
+  for (const x of problemas.slice(0, 20)) diferencas.push(`${x.tipo === 'fornecedor' ? 'fornecedor' : 'CFOP'} ${x.chave}: a conta ${x.conta} ${x.contaNoPlano === 'nao_existe' ? 'não existe mais no plano' : 'deixou de ser analítica'} (a nota usa a conta do mapeamento)`);
+  const comConta = gravadas.filter((x) => x.conta).length;
+  const foraDoGrupo = gravadas.filter((x) => x.foraDoGrupo).length;
+  const bate = diferencas.length === 0;
+  const aviso = foraDoGrupo ? ` ${foraDoGrupo} fornecedor(es) com conta fora do grupo de fornecedores do plano (como era no sistema anterior): confira.` : '';
+  return { cnpj, bate, regras: gravadas.length, comConta, contaComProblema: problemas.length, foraDoGrupo, diferencas,
+    resumo: (bate ? `${gravadas.length} regra(s) de integração do sistema anterior batem com o backup e as contas estão no plano.` : `Regras de integração: ${diferencas.slice(0, 3).join('; ')}`) + aviso };
 }
 
 async function carregarParaAnalise(consultar: ConsultaSql, cnpj: string, payloadAtual?: Record<string, any>) {
