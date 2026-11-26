@@ -153,8 +153,42 @@ export function listarEmpresasContabeis(empresas: Linha[], empcont: Linha[], tab
   return lista.sort((a, b) => Number(a.semCadastro) - Number(b.semCadastro) || a.nome.localeCompare(b.nome, 'pt-BR'));
 }
 
+const mesesEntre = (a: string, b: string) => (Number(b.slice(0, 4)) - Number(a.slice(0, 4))) * 12 + (Number(b.slice(5, 7)) - Number(a.slice(5, 7)));
+/**
+ * Sentido da marca "empresa ativa" (wphd.empresa.stativa) NESTE backup. No backup real conferido ela vinha AO CONTRÁRIO (o DP achou
+ * pela folha e o Fiscal pelas notas: empresas com movimento em 2026 marcadas "não"; paradas há anos marcadas "sim"). Aqui a prova é o
+ * movimento contábil: teve lançamento nos 12 meses antes do lançamento mais recente do backup = ativa. Se na maioria das empresas com
+ * marca e movimento a marca diz o contrário, ela é lida ao contrário em TODAS (a escrituração contábil costuma atrasar, então o
+ * movimento só decide o sentido, não a empresa). Empate ou sem prova: lida como está.
+ */
+export function sentidoDaMarcaAtiva(lista: Array<{ marca: boolean | null; ultimoMes: string }>): 'direto' | 'invertido' {
+  const meses = lista.map((e) => e.ultimoMes).filter((m) => /^\d{4}-\d{2}$/.test(m)).sort();
+  const referencia = meses[meses.length - 1];
+  if (!referencia) return 'direto';
+  let iguais = 0; let contrarias = 0;
+  for (const e of lista) {
+    if (e.marca == null || !/^\d{4}-\d{2}$/.test(e.ultimoMes)) continue;
+    if (e.marca === mesesEntre(e.ultimoMes, referencia) <= 12) iguais++; else contrarias++;
+  }
+  return contrarias > iguais ? 'invertido' : 'direto';
+}
+/** Lista com a marca já no sentido certo (o que aparece como "ativa/inativa" na tela). */
+export function aplicarSentidoAtiva(lista: EmpresaDoBackup[], sentido: 'direto' | 'invertido'): EmpresaDoBackup[] {
+  return lista.map((e) => ({ ...e, ativa: e.ativa == null ? null : sentido === 'invertido' ? !e.ativa : e.ativa }));
+}
+/** Último mês com lançamento de cada empresa (tabelas de lançamentos wcont.mv#####). */
+export async function ultimoMesComLancamento(ler: LerTabela, cds: number[]): Promise<Map<number, string>> {
+  const out = new Map<number, string>();
+  for (const cd of cds) {
+    let ult = '';
+    for (const m of (await ler(tabelaDaEmpresa('wcont', 'mv', cd))) || []) { const d = dataIso(m.dtlancamento).slice(0, 7); if (d > ult) ult = d; }
+    if (ult) out.set(cd, ult);
+  }
+  return out;
+}
+
 /** Monta tudo de uma empresa. `cnpjInformado` vale para empresa sem cadastro no backup (a pessoa digita o CNPJ). */
-export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opcoes: { cnpjInformado?: string } = {}): Promise<DadosContabeisEmpresa> {
+export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opcoes: { cnpjInformado?: string; sentidoMarcaAtiva?: 'direto' | 'invertido' } = {}): Promise<DadosContabeisEmpresa> {
   const avisos: string[] = [];
   const lidos: Record<string, number> = {};
   const blocos: Record<string, Linha[]> = {};
@@ -430,6 +464,10 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
 
   // ---- cadastro da empresa (wphd) e quem assina (responsável e contador) ------------------------------------------
   if (cadastro) guardar('cadastro_empresa', [cadastro]);
+  // Sentido da marca "empresa ativa" decidido para o backup inteiro (a conferência e a remigração leem daqui).
+  if (cadastro && opcoes.sentidoMarcaAtiva && cadastro.stativa != null && txt(cadastro.stativa) !== '') {
+    guardar('marca_ativa', [{ sentido: opcoes.sentidoMarcaAtiva, motivo: opcoes.sentidoMarcaAtiva === 'invertido' ? 'na maioria das empresas deste backup a marca "ativa" dizia o contrário do movimento contábil' : 'a marca "ativa" bateu com o movimento contábil' }]);
+  }
   const sociosEmpresa = daEmpresa(await tabela('wphd.socemp'), 'idempresa');
   const codigosSocios = new Set(sociosEmpresa.map((x) => Number(x.cdsocio)));
   const socios = (await tabela('wphd.socios')).filter((x) => codigosSocios.has(Number(x.cdsocio)));
@@ -460,7 +498,7 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
   const campos = cadastroDoBackup({
     empresa: cadastro, empcont, contador: blocos.contador?.[0], sociosEmpresa, socios, municipio, pcont, mapaContas,
     historicoCnae: blocos.cadastro_historico_cnae || [], historicoNire: blocos.historico_nire || [],
-    tipoConta: (codigo) => porCodigo.get(codigo)?.tipo,
+    tipoConta: (codigo) => porCodigo.get(codigo)?.tipo, sentidoMarcaAtiva: blocos.marca_ativa ? opcoes.sentidoMarcaAtiva : undefined,
   });
   const empresa: Partial<EmpresaDados> = { cnpj };
   for (const c of campos) (empresa as any)[c.campo] = c.valor;

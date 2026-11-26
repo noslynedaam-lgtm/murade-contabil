@@ -39,6 +39,7 @@ export const NOMES_BLOCOS_SISTEMA_ANTERIOR: Record<string, string> = {
   imobilizado_configuracao: 'Método de depreciação por ano',
   imobilizado_bens: 'Bens do imobilizado',
   cadastro_empresa: 'Cadastro da empresa (endereço, inscrições, NIRE, CNAE, natureza jurídica, capital)',
+  marca_ativa: 'Empresa ativa ou inativa: sentido da marca do sistema anterior, decidido pelo movimento contábil',
   socios_empresa: 'Sócios da empresa (participação, responsável, qualificação)',
   socios: 'Cadastro dos sócios',
   municipio: 'Município (código IBGE)',

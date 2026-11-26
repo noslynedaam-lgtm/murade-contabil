@@ -15,7 +15,7 @@ import type { Request } from 'express';
 import type { ContaPlano } from '../../types';
 import { FilaMigracao, textoDaFila } from './fila';
 import { indexarDump, carregarTabelaDump, type IndiceDump } from './leitorDump';
-import { listarEmpresasContabeis, montarDadosEmpresa, type DadosContabeisEmpresa, type EmpresaDoBackup, type Linha } from './conversor';
+import { aplicarSentidoAtiva, listarEmpresasContabeis, montarDadosEmpresa, sentidoDaMarcaAtiva, ultimoMesComLancamento, type DadosContabeisEmpresa, type EmpresaDoBackup, type Linha } from './conversor';
 import { mesclarMigracao } from './mesclagem';
 import { conferirMigracao } from './conferencia';
 
@@ -31,6 +31,8 @@ interface Sessao {
   /** Empresas que passaram na prévia: só o que a pessoa escolheu (CNPJ digitado, desfazer ajustes). Os dados são lidos de novo do
    * arquivo na gravação (mesmo arquivo = mesmo resultado): guardar os dados de todas pesava centenas de MB no servidor de 512 MB. */
   previas: Map<number, { cnpjInformado: string; desfazerAjustes: boolean }>; ocupado: boolean;
+  /** Sentido da marca "empresa ativa" neste arquivo (decidido na lista pelo movimento contábil). */
+  sentidoAtiva?: 'direto' | 'invertido';
 }
 /** Uma leitura pesada por vez no servidor inteiro (prévia e gravação), na ordem de chegada (servidor compartilhado, 512 MB). */
 export const filaMigracaoContabil = new FilaMigracao();
@@ -125,8 +127,10 @@ export async function listarEmpresasDoBackupContabil(token: string, userId: stri
     const empresas = await ler('wphd.empresa');
     if (!empresas) throw new Error('Não encontrei o cadastro de empresas neste arquivo. Confira se é o backup do sistema anterior.');
     const comDados = [...s.indice.tabelas.values()].filter((t) => t.fim > t.inicio).map((t) => t.nome);
-    s.empresas = listarEmpresasContabeis(empresas, (await ler('wcont.empcont')) || [], comDados);
-    if (!s.empresas.length) throw new Error('Este backup não tem parte contábil (plano de contas e lançamentos) de nenhuma empresa.');
+    const lista = listarEmpresasContabeis(empresas, (await ler('wcont.empcont')) || [], comDados);
+    if (!lista.length) throw new Error('Este backup não tem parte contábil (plano de contas e lançamentos) de nenhuma empresa.');
+    s.sentidoAtiva = await sentidoDaMarcaNoArquivo(ler, lista);
+    s.empresas = aplicarSentidoAtiva(lista, s.sentidoAtiva);
     return { empresas: s.empresas, tabelasLidas: s.indice.tabelas.size };
   });
 }
@@ -153,6 +157,19 @@ export interface PreviaEmpresa {
 }
 
 const normalizar = (v: unknown) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+/** Sentido da marca "empresa ativa" no arquivo (pelo movimento contábil de todas as empresas da lista). */
+async function sentidoDaMarcaNoArquivo(ler: (n: string) => Promise<Linha[] | null>, lista: EmpresaDoBackup[]): Promise<'direto' | 'invertido'> {
+  const ult = await ultimoMesComLancamento(ler, lista.filter((e) => e.temLancamentos).map((e) => e.cdempresa));
+  return sentidoDaMarcaAtiva(lista.map((e) => ({ marca: e.ativa, ultimoMes: ult.get(e.cdempresa) ?? '' })));
+}
+async function sentidoDaSessao(s: Sessao, ler: (n: string) => Promise<Linha[] | null>): Promise<'direto' | 'invertido'> {
+  if (!s.sentidoAtiva) {
+    const empresas = (await ler('wphd.empresa')) || [];
+    const comDados = [...(s.indice?.tabelas.values() ?? [])].filter((t) => t.fim > t.inicio).map((t) => t.nome);
+    s.sentidoAtiva = await sentidoDaMarcaNoArquivo(ler, listarEmpresasContabeis(empresas, (await ler('wcont.empcont')) || [], comDados));
+  }
+  return s.sentidoAtiva;
+}
 
 export async function gerarPreviaContabil(token: string, userId: string, cdempresas: unknown, cnpjsInformados: unknown, dep: DependenciasPrevia, desfazerAjustes: unknown = []): Promise<PreviaEmpresa[]> {
   const comDesfazer = new Set((Array.isArray(desfazerAjustes) ? desfazerAjustes : []).map(Number));
@@ -175,7 +192,7 @@ export async function gerarPreviaContabil(token: string, userId: string, cdempre
       const informado = normalizar(informados[String(cd)]);
       if (e.semCadastro && !informado) { saida.push({ ...base, ...vazio, cnpj: '', podeGravar: false, motivo: 'No sistema anterior esta empresa não tem mais cadastro (nem CNPJ). Digite o CNPJ dela para trazer.' }); continue; }
       if (e.semCadastro && cnpjsDoBackup.has(informado)) { saida.push({ ...base, ...vazio, cnpj: informado, podeGravar: false, motivo: 'Este CNPJ é de outra empresa do mesmo arquivo. Confira o CNPJ digitado.' }); continue; }
-      const dados = await montarDadosEmpresa(ler, cd, { cnpjInformado: informado });
+      const dados = await montarDadosEmpresa(ler, cd, { cnpjInformado: informado, sentidoMarcaAtiva: await sentidoDaSessao(s, ler) });
       if (comDesfazer.has(cd)) dados.desfazerAjustesMigracao = true;
       const cnpj = normalizar(dados.cnpj);
       dados.cnpj = cnpj;
@@ -230,7 +247,7 @@ export async function gravarMigracaoContabil(
       const escolha = s.previas.get(cd);
       if (!escolha) { r.push({ cdempresa: cd, cnpj: '', gravado: false, motivo: 'Confira a prévia desta empresa antes de gravar.', lancamentos: 0, contas: 0 }); continue; }
       // Lê de novo do arquivo a empresa conferida na prévia (mesmo arquivo, mesma regra: o mesmo resultado da prévia).
-      const dados = await montarDadosEmpresa(ler, cd, { cnpjInformado: escolha.cnpjInformado });
+      const dados = await montarDadosEmpresa(ler, cd, { cnpjInformado: escolha.cnpjInformado, sentidoMarcaAtiva: await sentidoDaSessao(s, ler) });
       if (escolha.desfazerAjustes) dados.desfazerAjustesMigracao = true;
       dados.cnpj = normalizar(dados.cnpj);
       try {

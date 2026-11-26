@@ -10,7 +10,7 @@
 //    pronto; só é lançado depois do "Sim" do contador, com "Desfazer" (estorno). Nunca mexe em valor sozinho.
 // Regra sem fonte oficial certa vira "verificar" (sem afirmar o que é o certo).
 import type { ResultadoConferencia } from './conferencia';
-import { cadastroDoBackup, dataIsoSA, txt, type Linha } from './camposSistemaAnterior';
+import { cadastroDoBackup, dataIsoSA, sentidoDoBloco, txt, type Linha } from './camposSistemaAnterior';
 import { ajusteLancado, estornarAjuste, lancarAjuste } from '../../utils/ajustesPropostos';
 
 export const PREFIXO_AJUSTE = 'AJUSTE-MIGRACAO:';
@@ -98,7 +98,7 @@ export function analisarMigracao(ent: EntradaAnalise): AchadoMigracao[] {
   const linhaDe: Record<string, Linha | undefined> = { 'wphd.empresa': b.cadastro_empresa?.[0], 'wcont.contador': b.contador?.[0], 'wcont.empcont': b.empresa_contabil?.[0] };
   const cadastro = cadastroDoBackup({
     empresa: b.cadastro_empresa?.[0], empcont: b.empresa_contabil?.[0], contador: b.contador?.[0], sociosEmpresa: b.socios_empresa || [], socios: b.socios || [], municipio: b.municipio?.[0],
-    pcont: b.plano_cadastro?.[0], mapaContas: ent.mapaContas, historicoCnae: b.cadastro_historico_cnae || [], historicoNire: b.historico_nire || [],
+    pcont: b.plano_cadastro?.[0], mapaContas: ent.mapaContas, historicoCnae: b.cadastro_historico_cnae || [], historicoNire: b.historico_nire || [], sentidoMarcaAtiva: sentidoDoBloco(b),
   });
   for (const c of cadastro) {
     const m = /^(w\w+\.\w+)\.(\w+)$/.exec(c.origem);

@@ -25,6 +25,8 @@ export function dataIsoSA(v: unknown): string {
 const dataBR = (v: unknown) => { const d = dataIsoSA(v); return d && d > '1900-01-01' ? d.split('-').reverse().join('/') : ''; };
 const centavosAbs = (v: unknown) => Math.round(Number((Math.abs(Number(v) || 0) * 100).toPrecision(15)));
 const sim = (v: unknown) => v === true || ['S', 's', 't', 'T', 'true', '1'].includes(txt(v));
+/** Sentido da marca "empresa ativa" guardado na migração (bloco marca_ativa); sem o bloco (migração antiga), lida como está. */
+export const sentidoDoBloco = (b: Record<string, Linha[] | undefined>): 'direto' | 'invertido' | undefined => (b.marca_ativa?.[0]?.sentido === 'invertido' ? 'invertido' : b.marca_ativa?.[0]?.sentido === 'direto' ? 'direto' : undefined);
 
 /** Fontes do cadastro de UMA empresa, já filtradas (linhas como vieram do arquivo). */
 export interface FontesCadastro {
@@ -41,6 +43,9 @@ export interface FontesCadastro {
   mapaContas: Record<string, string>;
   /** Tipo de cada conta do Murade (para só usar conta analítica como contrapartida de abertura). */
   tipoConta?: (codigo: string) => ContaPlano['tipo'] | undefined;
+  /** Sentido da marca "empresa ativa" (wphd.empresa.stativa) neste backup, decidido pelo movimento (bloco marca_ativa). No backup real
+   *  conferido ela vinha AO CONTRÁRIO (mesma descoberta do DP e do Fiscal). Sem a decisão: lida como está. */
+  sentidoMarcaAtiva?: 'direto' | 'invertido';
 }
 
 export interface CampoDoCadastro {
@@ -116,7 +121,10 @@ export function cadastroDoBackup(f: FontesCadastro): CampoDoCadastro[] {
     por('juntaComercialData', 'data do registro na Junta', dataBR(e.dtregjuntacomercial) ? 'wphd.empresa.dtregjuntacomercial' : 'wphd.empresa.dtexpedicaonire', dataBR(e.dtregjuntacomercial) || dataBR(e.dtexpedicaonire));
     por('responsavelNascimento', 'nascimento do responsável', 'wphd.empresa.dtnascimento', dataBR(e.dtnascimento));
     por('inicioServicoContabil', 'início do serviço contábil no escritório', dataBR(e.dtiniservcont) ? 'wphd.empresa.dtiniservcont' : 'wphd.empresa.escritorio_data_entrada', dataBR(e.dtiniservcont) || dataBR(e.escritorio_data_entrada));
-    if (e.stativa !== null && e.stativa !== undefined && txt(e.stativa) !== '') por('ativaNoEscritorio', 'cliente ativo no escritório', 'wphd.empresa.stativa', sim(e.stativa));
+    if (e.stativa !== null && e.stativa !== undefined && txt(e.stativa) !== '') {
+      const invertida = f.sentidoMarcaAtiva === 'invertido';
+      por('ativaNoEscritorio', 'cliente ativo no escritório', invertida ? 'wphd.empresa.stativa (lida ao contrário neste backup)' : 'wphd.empresa.stativa', invertida ? !sim(e.stativa) : sim(e.stativa));
+    }
     por('observacoes', 'observações', 'wphd.empresa.obs', txt(e.obs));
   }
   const hc = (f.historicoCnae || []).filter((x) => txt(x.cdcnae)).sort((a, b) => dataIsoSA(a.dtinicial).localeCompare(dataIsoSA(b.dtinicial)))
@@ -559,7 +567,7 @@ export function conferirCamposMigrados(ent: EntradaConferenciaCampos): Resultado
   const cadastro = cadastroDoBackup({
     empresa: b.cadastro_empresa?.[0], empcont, contador: b.contador?.[0], sociosEmpresa: b.socios_empresa || [], socios: b.socios || [], municipio: b.municipio?.[0], pcont,
     historicoCnae: b.cadastro_historico_cnae || [], historicoNire: b.historico_nire || [],
-    mapaContas: ent.mapaContas, tipoConta: (c) => porCodigo.get(c)?.tipo,
+    mapaContas: ent.mapaContas, tipoConta: (c) => porCodigo.get(c)?.tipo, sentidoMarcaAtiva: sentidoDoBloco(b),
   });
   for (const c of cadastro) {
     const atual = empresa[c.campo];

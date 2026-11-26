@@ -8,7 +8,7 @@ import type { DadosContabeisEmpresa } from './conversor';
 import { conferirMigracao, type ReferenciaConferencia, type ResultadoConferencia } from './conferencia';
 import { gravarTitulosECartoesMigrados, listarCartoes, listarTitulos } from '../titulosCartoesStore';
 import { mesclarMigracao } from './mesclagem';
-import { bensDoBackup, cadastroDoBackup, cartoesDoBackup, conferirCamposMigrados, modelosDoBackup, titulosDoBackup, txt, type ResultadoCampos } from './camposSistemaAnterior';
+import { bensDoBackup, cadastroDoBackup, cartoesDoBackup, conferirCamposMigrados, modelosDoBackup, sentidoDoBloco, titulosDoBackup, txt, type ResultadoCampos } from './camposSistemaAnterior';
 import { analisarMigracao, aplicarAcaoAchado, resumoAnalise, type AchadoMigracao } from './analiseSistemaAnterior';
 import { converterClassificacao } from './conversor';
 import { gravarRegrasIntegracaoMigradas, listarRegrasIntegracaoFiscal } from '../regrasIntegracaoFiscalStore';
@@ -140,7 +140,7 @@ export async function conferirEmpresaMigrada(consultar: ConsultaSql, cnpj: strin
 }
 
 /** Blocos usados pelo conferidor campo a campo. */
-export const BLOCOS_CONFERENCIA_CAMPOS: string[] = ['cadastro_empresa', 'empresa_contabil', 'contador', 'socios_empresa', 'socios', 'municipio', 'plano_cadastro', 'plano_contas', 'historicos_padrao', 'lotes', 'lancamentos_originais', 'imobilizado_bens', 'cadastro_historico_cnae', 'historico_nire', 'titulos', 'titulos_baixas', 'titulos_provisao', 'cartao_estabelecimentos', 'cartao_movimentos', 'cartao_operadoras', 'lancamentos_automaticos', 'lancamentos_automaticos_contas'];
+export const BLOCOS_CONFERENCIA_CAMPOS: string[] = ['cadastro_empresa', 'marca_ativa', 'empresa_contabil', 'contador', 'socios_empresa', 'socios', 'municipio', 'plano_cadastro', 'plano_contas', 'historicos_padrao', 'lotes', 'lancamentos_originais', 'imobilizado_bens', 'cadastro_historico_cnae', 'historico_nire', 'titulos', 'titulos_baixas', 'titulos_provisao', 'cartao_estabelecimentos', 'cartao_movimentos', 'cartao_operadoras', 'lancamentos_automaticos', 'lancamentos_automaticos_contas'];
 
 /** Conferência campo a campo de uma empresa já migrada: cada campo preenchido no backup x o que está no Murade hoje. Só lê. */
 export async function conferirCamposEmpresaMigrada(consultar: ConsultaSql, cnpj: string): Promise<ResultadoCampos | null> {
@@ -349,7 +349,7 @@ export function completarPayloadDoRegistro(payload: Record<string, any>, blocos:
     const campos = cadastroDoBackup({
       empresa: blocos.cadastro_empresa?.[0], empcont: blocos.empresa_contabil?.[0], contador: blocos.contador?.[0], sociosEmpresa: blocos.socios_empresa || [], socios: blocos.socios || [],
       municipio: blocos.municipio?.[0], pcont: blocos.plano_cadastro?.[0], mapaContas: mapa, tipoConta: (c) => porCodigo.get(c)?.tipo,
-      historicoCnae: blocos.cadastro_historico_cnae || [], historicoNire: blocos.historico_nire || [],
+      historicoCnae: blocos.cadastro_historico_cnae || [], historicoNire: blocos.historico_nire || [], sentidoMarcaAtiva: sentidoDoBloco(blocos),
     });
     for (const c of campos) if (c.campo !== 'cnpj' && semValor(p.empresa[c.campo])) { p.empresa[c.campo] = c.valor; preenchidos.push(`empresa.${String(c.campo)}`); }
   }
@@ -400,7 +400,7 @@ export function completarPayloadDoRegistro(payload: Record<string, any>, blocos:
   return { payload: p, preenchidos };
 }
 
-const BLOCOS_COMPLETAR = ['lancamentos_automaticos', 'lancamentos_automaticos_contas', 'titulos', 'titulos_baixas', 'titulos_provisao', 'cartao_estabelecimentos', 'cartao_movimentos', 'cartao_operadoras', 'cadastro_empresa', 'empresa_contabil', 'contador', 'socios_empresa', 'socios', 'municipio', 'plano_cadastro', 'plano_contas', 'historicos_padrao', 'lotes', 'lancamentos_originais', 'imobilizado_bens', 'cadastro_historico_cnae', 'historico_nire'];
+const BLOCOS_COMPLETAR = ['marca_ativa', 'lancamentos_automaticos', 'lancamentos_automaticos_contas', 'titulos', 'titulos_baixas', 'titulos_provisao', 'cartao_estabelecimentos', 'cartao_movimentos', 'cartao_operadoras', 'cadastro_empresa', 'empresa_contabil', 'contador', 'socios_empresa', 'socios', 'municipio', 'plano_cadastro', 'plano_contas', 'historicos_padrao', 'lotes', 'lancamentos_originais', 'imobilizado_bens', 'cadastro_historico_cnae', 'historico_nire'];
 
 /** Robô: completa os campos vazios de UMA empresa migrada a partir do registro guardado (transação; nunca sobrescreve). */
 export async function completarEmpresaMigrada(banco: BancoTransacional, cnpj: string, validar: (p: Record<string, unknown>) => boolean): Promise<string[]> {

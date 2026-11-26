@@ -399,7 +399,7 @@ const NOMES: Record<string, string> = {
   ecf_linhas_contas: "ECF — contas por linha", ecf_configuracao_contas: "ECF — configuração das contas", demonstracoes_configuracao: "Demonstrações — configuração",
   demonstracoes_modelos: "Demonstrações — modelos", demonstracoes_modelos_analise: "Demonstrações — grupos", contador: "Contador", empresa_contabil: "Configuração contábil da empresa",
   plano_cadastro: "Cadastro do plano", imobilizado_empresa: "Imobilizado — configuração", imobilizado_configuracao: "Imobilizado — método por ano", imobilizado_bens: "Imobilizado — bens",
-  cadastro_empresa: "Cadastro da empresa", socios_empresa: "Sócios da empresa", socios: "Cadastro dos sócios", municipio: "Município (IBGE)",
+  cadastro_empresa: "Cadastro da empresa", marca_ativa: "Empresa ativa (sentido da marca)", socios_empresa: "Sócios da empresa", socios: "Cadastro dos sócios", municipio: "Município (IBGE)",
   cadastro_historico_cnae: "Histórico de CNAE", historico_nire: "Histórico de NIRE", historico_retencao: "Retenção do IR dos sócios", trava_contabil: "Data de trava",
   textos_assinatura: "Modelos de assinatura", cartao_operadoras: "Cartão — operadoras",
 };
