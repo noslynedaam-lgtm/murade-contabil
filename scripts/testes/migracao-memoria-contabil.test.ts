@@ -1,7 +1,8 @@
 // Migração contábil pelo backup: menos memória sem mudar o resultado (26/11/2026). O servidor morreu na prévia de um escritório
 // grande. (1) Os lançamentos, saldos e lotes da empresa ficavam DUAS vezes na memória (a linha lida e a cópia guardada no registro):
 // agora a linha lida é a guardada (mesmas colunas, na mesma ordem, datas em texto ISO, sem as colunas que nunca se guardam).
-// (2) Empresa acima do limite de lançamentos recebe a mesma resposta, sem copiar antes todos os lançamentos.
+// (2) Empresa acima do teto do documento recebe a resposta sem copiar antes todos os lançamentos (até o teto, os exercícios antigos
+// vão para o histórico guardado — empresa-grande-historico.test.ts).
 // Dados INVENTADOS (nenhum dado de cliente).
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,6 +13,7 @@ import { indexarDump, carregarTabelaDump } from '../../src/server/migracaoSistem
 import { montarDadosEmpresa, type Linha } from '../../src/server/migracaoSistemaAnterior/conversor';
 import { mesclarMigracao } from '../../src/server/migracaoSistemaAnterior/mesclagem';
 import { planoContasModelo } from '../../src/data/planoContasModelo';
+import { workspaceValido } from '../../src/server/authContabil';
 
 function bloco(nome: string, tipos: Record<string, string>, linhas: Array<Record<string, string | null>>): string {
   const cols = Object.keys(tipos);
@@ -62,16 +64,21 @@ test('lançamentos, saldos e lotes guardados para o registro: iguais à cópia d
   } finally { fs.rmSync(path.dirname(arq), { recursive: true, force: true }); }
 });
 
-test('empresa acima de 20.000 lançamentos: a mesma resposta de antes (nada gravado), sem copiar os lançamentos', async () => {
+test('empresa acima de 20.000 lançamentos: não é mais recusada (até o teto do documento); acima do teto, a resposta explica sem copiar os lançamentos', async () => {
+  // 26/11/2026: os exercícios antigos de empresa grande vão para o histórico guardado (historicoMigracao.ts); o documento da empresa
+  // guarda até 40.000 lançamentos dos exercícios em aberto.
   const { arq, ler } = await empresaInventada(20001);
   try {
     const d = await montarDadosEmpresa(ler, 7);
     assert.equal(d.lancamentos.length, 20001);
     const m = mesclarMigracao(null, d, { modelo: planoContasModelo, cadastroCompartilhado: null, competenciaAtual: '2026-11', fechadas: new Set() });
-    assert.equal(m.payload, null);
-    assert.equal(m.bloqueio, 'Esta empresa ficaria com 20001 lançamentos e o Murad guarda até 20000 por empresa. Nada foi gravado; o caso foi registrado para o suporte ampliar o limite.');
-    // Com 20.000 cabe (o limite continua o mesmo).
-    const d2 = { ...d, lancamentos: d.lancamentos.slice(0, 20000) };
-    assert.doesNotMatch(String(mesclarMigracao(null, d2, { modelo: planoContasModelo, cadastroCompartilhado: null, competenciaAtual: '2026-11', fechadas: new Set() }).bloqueio || ''), /lançamentos e o Murad guarda/);
+    assert.ok(m.payload, String(m.bloqueio));
+    assert.equal(m.payload!.lancamentos.length, 20001);
+    assert.equal(workspaceValido(m.payload), true);
+    // Acima do teto do documento: recusado antes de copiar os lançamentos.
+    const d2 = { ...d, lancamentos: Array.from({ length: 40001 }, (_, i) => d.lancamentos[i % d.lancamentos.length]) };
+    const m2 = mesclarMigracao(null, d2, { modelo: planoContasModelo, cadastroCompartilhado: null, competenciaAtual: '2026-11', fechadas: new Set() });
+    assert.equal(m2.payload === null, true);
+    assert.match(String(m2.bloqueio), /40001 lançamentos e o documento da empresa guarda até 40000/);
   } finally { fs.rmSync(path.dirname(arq), { recursive: true, force: true }); }
 });

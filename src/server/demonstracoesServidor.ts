@@ -6,6 +6,7 @@
 //  - Rotas para a Agente: resumo das demonstrações, modelo das notas (não sobrescreve o que a contadora escreveu) e marcar entrega.
 // Nada aqui aprova, fecha, lança ou transmite.
 import type express from 'express';
+import { visaoDoExercicio } from './historicoLancamentosStore';
 import type { ContaPlano, EmpresaDados, LancamentoContabil } from '../types';
 import {
   calcularDfc, calcularDmpl, calcularIndices, dreResumida, ecfSeAplica, mapaCategorias, modeloNotasExplicativas, normaSugerida,
@@ -77,7 +78,7 @@ export async function rodarRoboDemonstracoes(consultar: Consultar, agora = new D
     for (const row of lote.rows) {
       const cnpj = String(row.cnpj); vistos.add(cnpj);
       try {
-        const a = conferirDemonstracoesWorkspace(cnpj, row.payload || {}, agora);
+        const a = conferirDemonstracoesWorkspace(cnpj, await visaoDoExercicio(consultar, cnpj, row.payload || {}, agora.getFullYear() - 1), agora);
         if (a) { achados.set(cnpj, a); empresas++; if (a.itens.length) comAchado++; } else achados.delete(cnpj);
       } catch (e: any) { console.error(`Robô das Demonstrações falhou para ${cnpj}:`, e?.message || e); }
     }
@@ -258,7 +259,9 @@ export function registrarRotasDemonstracoes(app: express.Express, mw: { exigirSe
     if (!COMP.test(competencia)) return res.status(400).json({ sucesso: false, motivo: 'Competência inválida (AAAA-MM).' });
     const payload = await d.lerWorkspace(cnpj);
     if (!payload) return res.status(404).json({ sucesso: false, motivo: 'Esta empresa ainda não tem dados contábeis salvos.' });
-    return res.json({ sucesso: true, ...resumoDemonstracoes(payload, competencia), achados: achados.get(cnpj)?.itens || [] });
+    // Ano guardado no histórico (empresa grande): as demonstrações saem dos lançamentos daquele ano + o saldo transportado.
+    const visao = await visaoDoExercicio(d.consultar, cnpj, payload, Number(competencia.slice(0, 4)));
+    return res.json({ sucesso: true, ...resumoDemonstracoes(visao, competencia), achados: achados.get(cnpj)?.itens || [] });
   });
 
   app.post('/api/demonstracoes/:cnpj/notas-modelo', mw.exigirOrigem, mw.exigirSessao, async (req, res) => {

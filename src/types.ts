@@ -211,6 +211,9 @@ export interface LancamentoContabil {
   /** Descrição do lote e número sequencial do lançamento (vindos do sistema anterior). */
   loteDescricao?: string;
   numeroSequencial?: number;
+  /** Saldo transportado dos exercícios guardados no histórico (fora do documento da empresa). Gravado só pelo servidor; entra no saldo
+   * de abertura dos exercícios em aberto e nunca no movimento de um período. */
+  transporteHistorico?: true;
 }
 
 /** Histórico padrão cadastrável por empresa. Aceita {mes} (MM/AAAA), {competencia} (AAAA-MM) e {ano}. */

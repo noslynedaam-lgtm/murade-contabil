@@ -10,6 +10,7 @@ import {
   receberArquivoContabil, situacaoMigracaoContabilDoUsuario,
 } from './servico';
 import { listarRegrasIntegracaoFiscal } from '../regrasIntegracaoFiscalStore';
+import { lerHistoricoDoEscritorio, resumoHistorico } from '../historicoLancamentosStore';
 import { conferirRegrasIntegracaoEmpresa, completarEmpresaMigrada, analisarEmpresaMigrada, aplicarAchadoEmpresaMigrada, decidirGrupoEmpresaMigrada, desfazerGrupoEmpresaMigrada, lotesDaAnalise, type AcaoAchado, cnpjsMigrados, conferirCamposEmpresaMigrada, conferirEmpresaMigrada, empresaExcluidaAntes, ErroMigracao, gravarEmpresaMigrada, lerBlocoSistemaAnterior, lerRegistroSistemaAnterior } from './banco';
 
 export interface DependenciasRotasMigracao {
@@ -99,7 +100,8 @@ export function registrarRotasMigracaoSistemaAnterior(app: express.Express, dep:
             const ws = await dep.consultar('SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1', [cnpj]);
             const comp = ws.rows.length ? null : (await dep.consultar('SELECT dados FROM contabil_empresas_compartilhadas WHERE cnpj=$1', [cnpj])).rows[0]?.dados ?? null;
             const f = await dep.consultar('SELECT competencia FROM contabil_period_closures WHERE cnpj=$1', [cnpj]);
-            return { payload: ws.rows[0]?.payload ?? null, compartilhado: comp, fechadas: new Set(f.rows.map((r) => String(r.competencia))) };
+            const historicoEscritorio = await lerHistoricoDoEscritorio(dep.consultar, cnpj);
+            return { payload: ws.rows[0]?.payload ?? null, compartilhado: comp, fechadas: new Set(f.rows.map((r) => String(r.competencia))), historicoEscritorio };
           },
           deOutroEscritorio: (cnpj) => deOutroEscritorio(cnpj, s),
           excluidaAntes: excluida,
@@ -173,6 +175,9 @@ export function registrarRotasMigracaoSistemaAnterior(app: express.Express, dep:
           const c = await conferirEmpresaMigrada(dep.consultar, cnpj);
           const r = reg.resumo as any;
           const ws = await dep.consultar("SELECT count(*)::int AS n FROM contabil_company_workspaces w, jsonb_array_elements(COALESCE(w.payload->'lancamentos','[]'::jsonb)) l WHERE w.cnpj=$1 AND l->>'origem'=$2", [cnpj, ORIGEM_SISTEMA_ANTERIOR]).catch(() => ({ rows: [] as any[] }));
+          // Empresa grande: os exercícios antigos estão no histórico guardado (também contam).
+          const noHistorico = (await resumoHistorico(dep.consultar, cnpj).catch(() => null))?.anos.reduce((n, a) => n + a.migracao, 0) ?? 0;
+          if (ws.rows[0] && noHistorico) ws.rows[0].n = Number(ws.rows[0].n || 0) + noHistorico;
           out.push({ cnpj, doEscritorio: true, migrada: true, bate: Boolean(c?.bate), resumo: String(c?.resumo || '').slice(0, 400),
             lancamentosLidos: Number(r.lancamentosGravados ?? 0), lancamentosNoContabil: ws.rows[0]?.n ?? null, migradoEm: r.migradoEm || null });
         }

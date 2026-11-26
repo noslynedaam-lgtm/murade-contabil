@@ -32,7 +32,12 @@ export const TABELAS_GUARDA = [
   'contabil_lucro_real_config', 'contabil_lalur_lancamentos', 'contabil_lalur_parte_b_contas', 'contabil_lucro_real_apuracoes', 'contabil_lucro_real_pagamentos',
   'murade_documentos_fiscais_origem', 'murade_documentos_fiscais_versoes', 'murade_apuracoes_fiscais_origem', 'murade_folhas_dp_origem', 'murade_eventos_dp_origem', 'murade_prolabore_dp_origem',
   'contabil_recibos_sped', // recibo da ECD/ECF anexado pela contadora (prova da entrega)
+  // Exercícios antigos guardados no histórico (empresa grande): vai a escrituração feita pelo escritório; o que veio da migração do
+  // sistema anterior sai sem cópia, como os lançamentos da migração no documento.
+  'contabil_lancamentos_historico',
 ] as const;
+/** Linhas de cada tabela de guarda que vão para o arquivo (as demais da empresa só saem). */
+const FILTRO_GUARDA: Partial<Record<(typeof TABELAS_GUARDA)[number], string>> = { contabil_lancamentos_historico: " AND origem='escritorio'" };
 /** Operacional sem guarda legal: sai da base sem cópia. */
 export const TABELAS_OPERACIONAIS = ['contabil_ai_agent_log'] as const;
 
@@ -40,7 +45,10 @@ export const TABELAS_OPERACIONAIS = ['contabil_ai_agent_log'] as const;
 export function semDadosDoSistemaAnterior(payload: any): any {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
   const copia = { ...payload };
-  if (Array.isArray(copia.lancamentos)) copia.lancamentos = copia.lancamentos.filter((l: any) => !(l && l.origem === 'Sistema anterior' && String(l.id || '').startsWith('sa-')));
+  // O saldo transportado do histórico guardado e a marca saem também (somam a migração); na recuperação, o Robô Conferidor do Histórico
+  // refaz o transporte a partir do que o escritório tinha guardado.
+  if (Array.isArray(copia.lancamentos)) copia.lancamentos = copia.lancamentos.filter((l: any) => !(l && l.origem === 'Sistema anterior' && String(l.id || '').startsWith('sa-')) && !(l && l.transporteHistorico === true));
+  delete copia.historicoArquivado;
   if (Array.isArray(copia.historicosPadrao)) copia.historicosPadrao = copia.historicosPadrao.filter((h: any) => !String(h?.id || '').startsWith('sa-hist-'));
   if (Array.isArray(copia.bensImobilizado)) copia.bensImobilizado = copia.bensImobilizado.filter((b: any) => !String(b?.id || '').startsWith('sa-bem-'));
   return copia;
@@ -72,11 +80,14 @@ export async function guardarNoArquivoMorto(q: Q, cnpj: string, quem: { por?: st
   const tabelas: Record<string, any[]> = {};
   for (const t of TABELAS_GUARDA) {
     if (!(await q(`SELECT to_regclass('${t}') AS t`, [])).rows[0]?.t) continue;
-    const linhas = (await q(`SELECT * FROM ${t} WHERE cnpj=$1`, [cnpj])).rows;
+    const linhas = (await q(`SELECT * FROM ${t} WHERE cnpj=$1${FILTRO_GUARDA[t] ?? ''}`, [cnpj])).rows;
     if (linhas.length) tabelas[t] = linhas;
   }
   const ws = await q('SELECT payload,version FROM contabil_company_workspaces WHERE cnpj=$1', [cnpj]);
   const comp = await q('SELECT dados FROM contabil_empresas_compartilhadas WHERE cnpj=$1', [cnpj]);
+  // Tabela de guarda com linhas que não vão para o arquivo (ex.: histórico da migração) também sai da base.
+  const soApagar: string[] = [];
+  for (const t of Object.keys(FILTRO_GUARDA)) if (!tabelas[t] && (await q(`SELECT to_regclass('${t}') AS t`, [])).rows[0]?.t) soApagar.push(t);
   const itens = Object.values(tabelas).reduce((a, l) => a + l.length, 0) + (ws.rows.length ? 1 : 0);
   let guardados = 0;
   if (itens > 0) {
@@ -91,9 +102,11 @@ export async function guardarNoArquivoMorto(q: Q, cnpj: string, quem: { por?: st
     for (const t of Object.keys(tabelas)) guardados += Number((await q(`DELETE FROM ${t} WHERE cnpj=$1`, [cnpj])).rowCount ?? 0);
     guardados += ws.rows.length;
   }
+  let semCopia = 0;
+  for (const t of soApagar) semCopia += Number((await q(`DELETE FROM ${t} WHERE cnpj=$1`, [cnpj])).rowCount ?? 0);
   let operacionais = 0;
   for (const t of TABELAS_OPERACIONAIS) if ((await q(`SELECT to_regclass('${t}') AS t`, [])).rows[0]?.t) operacionais += Number((await q(`DELETE FROM ${t} WHERE cnpj=$1`, [cnpj])).rowCount ?? 0);
-  return { guardados, operacionais };
+  return { guardados, operacionais: operacionais + semCopia };
 }
 
 /** Quantos guardados o escritório tem desta empresa (só para o admin decidir se mostra o botão). Não devolve conteúdo. */

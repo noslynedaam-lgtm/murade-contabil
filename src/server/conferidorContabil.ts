@@ -1,6 +1,7 @@
 // Robô Conferidor do Contábil: confere, por conta própria, as empresas do servidor e guarda os achados em memória
 // para a tela e para a Agente IA. Só lê e conta: nunca cria lançamento, nunca fecha competência.
 import type { ContaPlano, LancamentoContabil, PreLancamentoContabil } from '../types';
+import { visaoDoExercicio } from './historicoLancamentosStore';
 import { conferirFechamento } from '../utils/fechamentoContabil';
 import type { BemImobilizado } from '../utils/imobilizado';
 import { conferirEcdWorkspace, type AchadoEcd } from './conferidorEcd';
@@ -61,7 +62,8 @@ export async function rodarConferidorContabil(consultar: Consultar, agora = new 
     if (!lote.rows.length) break;
     for (const row of lote.rows) {
       const cnpj = String(row.cnpj); vistos.add(cnpj);
-      try { const e = conferirEcdWorkspace(cnpj, row.payload || {}, agora); if (e) achadosEcd.set(cnpj, e); else achadosEcd.delete(cnpj); } catch (erro: any) { console.error(`Conferidor da ECD falhou para ${cnpj}:`, erro?.message || erro); }
+      // Exercício da ECD guardado no histórico (empresa grande): confere com os lançamentos daquele ano e o saldo transportado.
+      try { const e = conferirEcdWorkspace(cnpj, await visaoDoExercicio(consultar, cnpj, row.payload || {}, agora.getFullYear() - 1), agora); if (e) achadosEcd.set(cnpj, e); else achadosEcd.delete(cnpj); } catch (erro: any) { console.error(`Conferidor da ECD falhou para ${cnpj}:`, erro?.message || erro); }
       if (fechadasSet.has(cnpj)) { achados.delete(cnpj); continue; }
       let a = conferirWorkspace(cnpj, row.payload || {}, competencia, agora);
       // Folha que o DP mandou e não virou partida (resumo que não fecha, ou conta sem mapeamento): aponta o motivo.

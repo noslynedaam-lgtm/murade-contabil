@@ -2,7 +2,7 @@
 // competência tem de bater com os saldos gravados no sistema anterior. Função pura, usada na prévia, logo depois de
 // gravar, pelo Robô Conferidor da Migração e pela Agente IA. Só lê.
 import type { ContaPlano } from '../../types';
-import { gerarRelatoriosContabeis, normalizarDataContabil, converterCentavos } from '../../utils/livrosContabeis';
+import { classificarLancamentoContabil } from '../../utils/livrosContabeis';
 import type { EsperadoConferencia } from './conversor';
 import { ORIGEM_SISTEMA_ANTERIOR, PREFIXO_ID_MIGRACAO } from './conversor';
 import { PREFIXO_AJUSTE } from './analiseSistemaAnterior';
@@ -56,21 +56,55 @@ function comparar(murade: Map<string, { d: number; c: number }>, esperado: Esper
   return saida.sort((a, b) => a.competencia.localeCompare(b.competencia) || a.codigo.localeCompare(b.codigo));
 }
 
-export function conferirMigracao(contas: ContaPlano[], lancamentos: any[], ref: ReferenciaConferencia): ResultadoConferencia {
-  const migrados = (Array.isArray(lancamentos) ? lancamentos : []).filter(ehLancamentoDoSistemaAnterior);
-  // Ajustes de migração que o contador confirmou (e os estornos deles) entram no balancete conferido.
-  const ajustes = (Array.isArray(lancamentos) ? lancamentos : []).filter((l) => String(l?.documentoRef || '').startsWith(PREFIXO_AJUSTE));
-  const rel = gerarRelatoriosContabeis(contas, [...migrados, ...ajustes], 'todos');
-  const murade = new Map<string, { d: number; c: number }>();
-  const saldo = new Map<string, number>();
-  for (const v of rel.validos) {
+/**
+ * Conferência acumulada lançamento a lançamento (o documento da empresa e, quando há, o histórico guardado mês a mês): a mesma
+ * conta de antes, sem precisar de todos os lançamentos na memória ao mesmo tempo.
+ */
+export class AcumuladorConferencia {
+  private readonly porCodigo: Map<string, ContaPlano>;
+  readonly murade = new Map<string, { d: number; c: number }>();
+  readonly saldo = new Map<string, number>();
+  migrados = 0;
+  ajustes = 0;
+  invalidos = 0;
+  constructor(contas: ContaPlano[]) { this.porCodigo = new Map((Array.isArray(contas) ? contas : []).map((c) => [c.codigo, c])); }
+  private contar(l: any): void {
+    const v = classificarLancamentoContabil(l, this.porCodigo);
+    if (v === 'ignorado') return;
+    if (v === 'invalido') { this.invalidos++; return; }
     const comp = v.dataISO.slice(0, 7);
     const kd = `${v.debito.codigo}|${comp}`; const kc = `${v.credito.codigo}|${comp}`;
-    murade.set(kd, { d: (murade.get(kd)?.d || 0) + v.valorCentavos, c: murade.get(kd)?.c || 0 });
-    murade.set(kc, { d: murade.get(kc)?.d || 0, c: (murade.get(kc)?.c || 0) + v.valorCentavos });
-    saldo.set(v.debito.codigo, (saldo.get(v.debito.codigo) || 0) + v.valorCentavos);
-    saldo.set(v.credito.codigo, (saldo.get(v.credito.codigo) || 0) - v.valorCentavos);
+    this.murade.set(kd, { d: (this.murade.get(kd)?.d || 0) + v.valorCentavos, c: this.murade.get(kd)?.c || 0 });
+    this.murade.set(kc, { d: this.murade.get(kc)?.d || 0, c: (this.murade.get(kc)?.c || 0) + v.valorCentavos });
+    this.saldo.set(v.debito.codigo, (this.saldo.get(v.debito.codigo) || 0) + v.valorCentavos);
+    this.saldo.set(v.credito.codigo, (this.saldo.get(v.credito.codigo) || 0) - v.valorCentavos);
   }
+  adicionar(l: any): void {
+    if (ehLancamentoDoSistemaAnterior(l)) { this.migrados++; this.contar(l); }
+    // Ajustes de migração que o contador confirmou (e os estornos deles) entram no balancete conferido.
+    if (String(l?.documentoRef || '').startsWith(PREFIXO_AJUSTE)) { this.ajustes++; this.contar(l); }
+  }
+  adicionarTodos(lancamentos: unknown): void { for (const l of Array.isArray(lancamentos) ? lancamentos : []) this.adicionar(l); }
+  /** Cópia das somas (o histórico é somado uma vez; o documento, a cada mudança). */
+  clonar(): AcumuladorConferencia {
+    const c = Object.create(AcumuladorConferencia.prototype) as AcumuladorConferencia;
+    Object.assign(c, { porCodigo: this.porCodigo, murade: new Map([...this.murade].map(([k, v]) => [k, { ...v }])), saldo: new Map(this.saldo), migrados: this.migrados, ajustes: this.ajustes, invalidos: this.invalidos });
+    return c;
+  }
+  resultado(ref: ReferenciaConferencia): ResultadoConferencia { return resultadoConferencia(this, ref); }
+}
+
+export function conferirMigracao(contas: ContaPlano[], lancamentos: any[], ref: ReferenciaConferencia): ResultadoConferencia {
+  const acc = new AcumuladorConferencia(contas);
+  acc.adicionarTodos(lancamentos);
+  return acc.resultado(ref);
+}
+
+function resultadoConferencia(acc: AcumuladorConferencia, ref: ReferenciaConferencia): ResultadoConferencia {
+  const { murade, saldo } = acc;
+  const migrados = { length: acc.migrados };
+  const ajustes = { length: acc.ajustes };
+  const rel = { invalidos: { length: acc.invalidos } };
   const semSaldos = Boolean(ref.semSaldosParaConferir);
   // Com ajuste de migração confirmado pelo contador, a conta/mês confere pelo efeito no saldo (débito − crédito).
   const peloSaldo = ajustes.length > 0;

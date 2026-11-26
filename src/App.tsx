@@ -75,6 +75,7 @@ import { IDS_DE_TELAS_CONTABIL } from "./data/mapaTelasContabil";
 import { VigenciaObrigacoesView } from "./components/VigenciaObrigacoesView";
 import { TelaEscolaMurade } from "./components/escola/TelaEscolaMurade";
 import { FaixaTesteGratis } from "./components/FaixaTesteGratis";
+import { SeletorExercicioHistorico, type ConsultaHistorico } from "./components/SeletorExercicioHistorico";
 
 export default function App() {
   return <ContabilAccessGate><AppWorkspace /></ContabilAccessGate>;
@@ -152,6 +153,11 @@ function AppWorkspace() {
     credencialTipo: undefined,
   })));
   const [lancamentos, setLancamentos] = useState<LancamentoContabil[]>([]);
+  // Empresa grande: até onde vai o histórico guardado (exercícios antigos fora do documento) e o exercício guardado aberto para consulta.
+  const [historicoAte, setHistoricoAte] = useState<string | null>(null);
+  const [consultaHistorico, setConsultaHistorico] = useState<ConsultaHistorico | null>(null);
+  // Relatórios (Balancete, Livros, Demonstrações): o exercício guardado escolhido, só para consulta; o resto do sistema usa o documento.
+  const lancamentosRelatorio = consultaHistorico ? consultaHistorico.lancamentos : lancamentos;
   // Recarrega a empresa do banco quando outra tela mudou o workspace no servidor (ex.: análise da migração).
   const [recargaWorkspace, setRecargaWorkspace] = useState(0);
   React.useEffect(() => {
@@ -224,6 +230,8 @@ function AppWorkspace() {
     // outra empresa está sendo carregada ou quando o cadastro ainda não tem CNPJ.
     setDadosEmpresaCarregadosCnpj("");
     setWorkspacePersistido(false);
+    setConsultaHistorico(null);
+    setHistoricoAte(null);
     if (!cnpj) {
       dadosVazios();
       return;
@@ -288,6 +296,7 @@ function AppWorkspace() {
         setMapeamentosOrigem(Array.isArray(dados.mapeamentosOrigem) ? dados.mapeamentosOrigem : []);
         setPreLancamentos(Array.isArray(dados.preLancamentos) ? dados.preLancamentos : []);
         setLancamentos(Array.isArray(dados.lancamentos) ? dados.lancamentos : []);
+        setHistoricoAte(typeof dados.historicoArquivado?.ateCompetencia === "string" ? dados.historicoArquivado.ateCompetencia : null);
         setLivros(Array.isArray(dados.livros) ? dados.livros : []);
         setLembretes(Array.isArray(dados.lembretes) ? dados.lembretes : []);
         setHistoricosPadrao(Array.isArray(dados.historicosPadrao) ? dados.historicosPadrao : []);
@@ -1176,26 +1185,39 @@ function AppWorkspace() {
                 />
               )}
 
+              {(tabAtiva === "balancete" || tabAtiva === "livros" || tabAtiva === "demonstracoes") && (historicoAte || lancamentos.length > 10000) && (
+                <SeletorExercicioHistorico
+                  cnpj={String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase()}
+                  ateCompetencia={historicoAte}
+                  consulta={consultaHistorico}
+                  onConsulta={setConsultaHistorico}
+                  podeAlterar={workspacePersistido}
+                  aviso={(t) => showToast(t, "info")}
+                />
+              )}
+
               {tabAtiva === "balancete" && (
                 <BalanceteTab
+                  key={`balancete-${consultaHistorico?.ano ?? "aberto"}`}
                   cnpj={empresa.cnpj}
-                  competencia={empresa.competencia}
-                  lancamentos={lancamentos}
+                  competencia={consultaHistorico ? `${consultaHistorico.ano}-12` : empresa.competencia}
+                  lancamentos={lancamentosRelatorio}
                   contas={contas}
                   workspaceCarregado={dadosEmpresaCarregadosCnpj === String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase()}
-                  workspacePersistido={workspacePersistido}
+                  workspacePersistido={workspacePersistido && !consultaHistorico}
                   competenciasFechadas={competenciasFechadas}
-                  onFecharMes={handleFecharMes}
-                  pendenciasFechamento={(comp) => conferirFechamento({ competencia: comp, contas, lancamentos, preLancamentos, bens: bensImobilizado, confirmacoes: confirmacoesFechamento[comp] ?? {} }).itens.filter((i) => i.bloqueia && !i.ok).map((i) => i.titulo)}
+                  onFecharMes={consultaHistorico ? () => showToast(`O exercício de ${consultaHistorico.ano} está guardado no histórico e já fica fechado.`, "info") : handleFecharMes}
+                  pendenciasFechamento={(comp) => conferirFechamento({ competencia: comp, contas, lancamentos: lancamentosRelatorio, preLancamentos, bens: bensImobilizado, confirmacoes: confirmacoesFechamento[comp] ?? {} }).itens.filter((i) => i.bloqueia && !i.ok).map((i) => i.titulo)}
                 />
               )}
 
               {tabAtiva === "livros" && (
                 <LivrosTab
-                  empresa={empresa}
+                  key={`livros-${consultaHistorico?.ano ?? "aberto"}`}
+                  empresa={consultaHistorico ? { ...empresa, competencia: `${consultaHistorico.ano}-12` } : empresa}
                   workspaceCarregado={Boolean(empresa.cnpj) && dadosEmpresaCarregadosCnpj === String(empresa.cnpj || "").toUpperCase().replace(/[^A-Z0-9]/g, "")}
-                  workspacePersistido={workspacePersistido}
-                  lancamentos={lancamentos}
+                  workspacePersistido={workspacePersistido && !consultaHistorico}
+                  lancamentos={lancamentosRelatorio}
                   contas={contas}
                   preLancamentos={preLancamentos}
                   livros={livros}
@@ -1207,11 +1229,12 @@ function AppWorkspace() {
 
               {tabAtiva === "demonstracoes" && (
                 <DemonstracoesTab
-                  empresa={empresa}
+                  key={`demonstracoes-${consultaHistorico?.ano ?? "aberto"}`}
+                  empresa={consultaHistorico ? { ...empresa, competencia: `${consultaHistorico.ano}-12` } : empresa}
                   contas={contas}
-                  lancamentos={lancamentos}
+                  lancamentos={lancamentosRelatorio}
                   workspaceCarregado={Boolean(empresa.cnpj) && dadosEmpresaCarregadosCnpj === String(empresa.cnpj || "").toUpperCase().replace(/[^A-Z0-9]/g, "")}
-                  workspacePersistido={workspacePersistido}
+                  workspacePersistido={workspacePersistido && !consultaHistorico}
                   onAtualizarEmpresa={(parcial) => setEmpresa((prev) => ({ ...prev, ...parcial }))}
                   onNavegar={(tela, cnpj) => { if (cnpj && String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase() !== cnpj) escolherEmpresaPeloCnpj(cnpj); setTabAtiva(tela as TabId); }}
                   onDadosAtualizados={(cnpj, d, versao) => {

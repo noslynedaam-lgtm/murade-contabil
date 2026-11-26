@@ -355,7 +355,8 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                   </span>
                   {manualPendente && <span className="ml-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">Aguardando aprovação</span>}
                   {l.loteId && <span className="ml-1 inline-block rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold text-sky-900" title="Lançamento com várias partidas: aprovar, rejeitar e estornar valem para todas juntas">Várias partidas ({tamanhoLote(l.loteId)})</span>}
-                  {l.tipoEspecial === "encerramento" && <span className="ml-1 inline-block rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-bold text-fuchsia-900">Encerramento do resultado</span>}
+                  {l.transporteHistorico && <span className="ml-1 inline-block rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold text-sky-900" title="Saldo dos exercícios guardados no histórico: entra no saldo de abertura, não no movimento. Os lançamentos desses anos ficam em Exercício consultado.">Saldo transportado do histórico</span>}
+                  {l.tipoEspecial === "encerramento" && !l.transporteHistorico && <span className="ml-1 inline-block rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-bold text-fuchsia-900">Encerramento do resultado</span>}
                   {l.recorrenteDe && <span className="ml-1 inline-block rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-bold text-teal-900">Lançamento padrão</span>}
                   {l.sistemaMigracao && <span className="ml-1 inline-block rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-900">Importado: {l.sistemaMigracao === "ALTERDATA" ? "sistema anterior" : l.sistemaMigracao}</span>}
                   {l.classificacaoDeclaradaArquivo && l.classificacaoDeclaradaArquivo !== "Manual" && <div className="mt-1 text-[10px] text-slate-500">Tipo informado no arquivo: {l.classificacaoDeclaradaArquivo} · não verificado</div>}
@@ -376,9 +377,9 @@ export const LancamentosTab: React.FC<LancamentosTabProps> = ({
                         onEstornarLancamento(l.id);
                       }
                     }}
-                    disabled={estornado || manualRejeitado}
+                    disabled={estornado || manualRejeitado || Boolean(l.transporteHistorico)}
                     className="text-slate-400 hover:text-amber-700 disabled:text-slate-300 disabled:cursor-not-allowed p-1 rounded-sm cursor-pointer transition"
-                    title={estornado ? "Lançamento já estornado ou é um estorno" : "Registrar estorno para aprovação, sem apagar o original"}
+                    title={l.transporteHistorico ? "Saldo transportado do histórico guardado: não se estorna (para mudar um exercício guardado, traga-o de volta)" : estornado ? "Lançamento já estornado ou é um estorno" : "Registrar estorno para aprovação, sem apagar o original"}
                     aria-label={estornado ? "Lançamento já estornado" : "Registrar estorno"}
                   >
                     <RotateCcw className="w-3.5 h-3.5" />

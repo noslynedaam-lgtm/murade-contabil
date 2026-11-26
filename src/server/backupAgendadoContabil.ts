@@ -11,7 +11,8 @@
 //  - a gravação do workspace usa a versão (version + 1) para não passar por cima de alguém salvando ao mesmo tempo, e o
 //    mesmo validador do sistema (workspaceValido);
 //  - nada é apagado; empresa que saiu do escritório não é recriada; fechamentos, auditorias e logins ficam como estão.
-import { consultaBancoContabil, prepararAuthContabil, workspaceValido } from './authContabil';
+import { prepararTabelaHistorico } from './historicoLancamentosStore';
+import { bancoTransacionalContabil, consultaBancoContabil, prepararAuthContabil, workspaceValido } from './authContabil';
 import {
   coletarDadosDoEscritorio, listarBackupsEscritorio, lerZipBackupEscritorio, obterCnpjsDoEscritorio, removerCamposCertificado,
 } from '../services/backupEscritorioContabilService';
@@ -38,6 +39,7 @@ export const restauracaoContabil: AdaptadorRestauracao = {
     { nome: 'empresas', titulo: 'Cadastro das empresas', modo: 'sobrescrever' },
     { nome: 'workspaces_contabeis', titulo: 'Escrituração (plano de contas, lançamentos, bens, livros)', modo: 'sobrescrever' },
   ],
+  // lancamentos_historico (exercícios guardados no histórico) volta junto com a escrituração de cada empresa, na mesma restauração.
   naoRestauradas: [
     { nome: 'fechamentos_periodo', titulo: 'Fechamentos de período', motivo: 'O fechamento nunca é desfeito pela restauração. Empresa com período fechado depois do backup não é restaurada.' },
     { nome: 'aprovacoes_lancamentos', titulo: 'Aprovações de lançamentos', motivo: 'É um registro de auditoria; fica como está.' },
@@ -104,13 +106,32 @@ export const restauracaoContabil: AdaptadorRestauracao = {
         if (bloqueadas.has(cnpj)) { travadas.push(`${cnpj} (${bloqueadas.get(cnpj)!.sort().join(', ')})`); continue; }
         const novo = reporCamposCertificado(l.payload, atual?.payload);
         if (!workspaceValido(novo)) { travadas.push(`${cnpj} (escrituração do backup não passou no validador)`); continue; }
+        // Histórico guardado (exercícios antigos fora do documento): volta junto com o documento, do mesmo backup.
+        const historicoDoBackup = (tabelas.lancamentos_historico || []).filter((h: any) => cnpjDe(h) === cnpj);
+        if (novo.historicoArquivado && !historicoDoBackup.length) { travadas.push(`${cnpj} (o backup não tem os exercícios guardados no histórico desta empresa)`); continue; }
         if (atual) item.alterar += 1; else item.recriar += 1;
         if (aplicar) {
-          if (atual) {
-            const r = await consultar('UPDATE contabil_company_workspaces SET payload = $2::jsonb, version = version + 1, updated_at = now() WHERE cnpj = $1 AND version = $3', [cnpj, JSON.stringify(novo), atual.version]);
-            if (!(r.rowCount ?? 0)) throw new Error(`A escrituração da empresa ${cnpj} foi salva por outra pessoa agora há pouco. Nada mais foi restaurado dela; veja a prévia de novo.`);
-          } else {
-            await consultar('INSERT INTO contabil_company_workspaces (cnpj, payload, version, updated_at) VALUES ($1, $2::jsonb, 1, now()) ON CONFLICT (cnpj) DO NOTHING', [cnpj, JSON.stringify(novo)]);
+          const gravar = async (q: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number | null }>) => {
+            if (atual) {
+              const r = await q('UPDATE contabil_company_workspaces SET payload = $2::jsonb, version = version + 1, updated_at = now() WHERE cnpj = $1 AND version = $3', [cnpj, JSON.stringify(novo), atual.version]);
+              if (!(r.rowCount ?? 0)) throw new Error(`A escrituração da empresa ${cnpj} foi salva por outra pessoa agora há pouco. Nada mais foi restaurado dela; veja a prévia de novo.`);
+            } else {
+              await q('INSERT INTO contabil_company_workspaces (cnpj, payload, version, updated_at) VALUES ($1, $2::jsonb, 1, now()) ON CONFLICT (cnpj) DO NOTHING', [cnpj, JSON.stringify(novo)]);
+            }
+          };
+          const temHistoricoHoje = Boolean((await consultar("SELECT to_regclass('contabil_lancamentos_historico') AS t")).rows[0]?.t);
+          if (!historicoDoBackup.length && !temHistoricoHoje) await gravar(consultar);
+          else {
+            // Histórico guardado: o documento e o histórico voltam juntos, numa transação (o do backup substitui o de hoje).
+            await prepararTabelaHistorico(consultar);
+            await bancoTransacionalContabil().transacao(async (q) => {
+              await gravar(q);
+              await q('DELETE FROM contabil_lancamentos_historico WHERE cnpj = $1', [cnpj]);
+              for (const h of historicoDoBackup) {
+                await q('INSERT INTO contabil_lancamentos_historico (cnpj, competencia, origem, parte, lancamentos, pre_lancamentos, quantidade, guardado_em, guardado_por) VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,COALESCE($8::timestamptz, now()),$9)',
+                  [cnpj, h.competencia, h.origem, h.parte, JSON.stringify(h.lancamentos || []), JSON.stringify(h.pre_lancamentos || []), h.quantidade, h.guardado_em ?? null, h.guardado_por ?? null]);
+              }
+            });
           }
         }
       }

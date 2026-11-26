@@ -16,6 +16,7 @@ import type { DadosContabeisEmpresa } from './conversor';
 import { ehLancamentoDoSistemaAnterior } from './conferencia';
 import { PREFIXO_AJUSTE } from './analiseSistemaAnterior';
 import { ajusteLancado, estornarAjuste } from '../../utils/ajustesPropostos';
+import { LIMITES_DOCUMENTO } from '../../utils/historicoContabil';
 
 /** Ajustes de migração já lançados (e não estornados) no workspace. */
 export function ajustesDeMigracaoLancados(payload: Record<string, any> | null): string[] {
@@ -38,9 +39,11 @@ export interface ResultadoMesclagem {
   ajustesMigracaoLancados?: number;
 }
 
-const LIMITE_LANCAMENTOS = 20000;
+// Teto do DOCUMENTO da empresa. Empresa maior não é mais recusada: os exercícios antigos vão para o histórico guardado
+// (historicoMigracao.ts) e o documento fica com os exercícios em aberto.
+const LIMITE_LANCAMENTOS = LIMITES_DOCUMENTO.lancamentos;
 const semValor = (v: unknown) => v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
-const LIMITE_BYTES = 3_900_000; // o workspace aceita até 4 MB
+const LIMITE_BYTES = LIMITES_DOCUMENTO.bytes;
 const LIMITE_HISTORICOS = 500;
 
 function contaLimpa(c: ContaPlano & Record<string, any>): ContaPlano {
@@ -101,7 +104,9 @@ function juntarBens(atuais: unknown, novos: DadosContabeisEmpresa['bensImobiliza
 export function mesclarMigracao(
   atual: Record<string, any> | null,
   dados: DadosContabeisEmpresa,
-  opcoes: { modelo: ContaPlano[]; cadastroCompartilhado?: Record<string, any> | null; competenciaAtual: string; fechadas?: Set<string> },
+  opcoes: { modelo: ContaPlano[]; cadastroCompartilhado?: Record<string, any> | null; competenciaAtual: string; fechadas?: Set<string>;
+    /** Quem junta com o histórico guardado confere o tamanho do documento depois de separar os exercícios antigos. */
+    semLimiteDeTamanho?: boolean },
 ): ResultadoMesclagem {
   const avisos: string[] = [];
   const r: ResultadoMesclagem = { payload: null, avisos, contasNovas: 0, contasAtualizadas: 0, contasDoModeloRetiradas: 0, historicosNovos: 0, lancamentosSubstituidos: 0, lancamentosDaEquipe: 0 };
@@ -220,17 +225,21 @@ export function mesclarMigracao(
   // ---- lançamentos do sistema anterior (com os nomes das contas como ficaram no plano final)
   const porCodigo = new Map(contas.map((c) => [String(c.codigo), c]));
   // Passou do limite: a mesma resposta, sem antes copiar todos os lançamentos (empresa enorme não pesa na memória do servidor).
-  if (daEquipe.length + dados.lancamentos.length > LIMITE_LANCAMENTOS) {
-    return { ...r, bloqueio: `Esta empresa ficaria com ${daEquipe.length + dados.lancamentos.length} lançamentos e o Murad guarda até ${LIMITE_LANCAMENTOS} por empresa. Nada foi gravado; o caso foi registrado para o suporte ampliar o limite.` };
+  const limitar = !opcoes.semLimiteDeTamanho;
+  if (limitar && daEquipe.length + dados.lancamentos.length > LIMITE_LANCAMENTOS) {
+    return { ...r, bloqueio: `Os exercícios em aberto desta empresa ficariam com ${daEquipe.length + dados.lancamentos.length} lançamentos e o documento da empresa guarda até ${LIMITE_LANCAMENTOS} (os exercícios antigos ficam no histórico guardado). Nada foi gravado.` };
   }
-  const novos = dados.lancamentos.map((l) => ({ ...l, contaDebitoNome: porCodigo.get(l.contaDebitoCodigo)?.descricao || l.contaDebitoNome, contaCreditoNome: porCodigo.get(l.contaCreditoCodigo)?.descricao || l.contaCreditoNome }));
+  // Só troca o nome da conta quando muda (sem copiar os lançamentos que já estão com o nome certo).
+  const novos = dados.lancamentos.map((l) => {
+    const nd = porCodigo.get(l.contaDebitoCodigo)?.descricao || l.contaDebitoNome; const nc = porCodigo.get(l.contaCreditoCodigo)?.descricao || l.contaCreditoNome;
+    return nd === l.contaDebitoNome && nc === l.contaCreditoNome ? l : { ...l, contaDebitoNome: nd, contaCreditoNome: nc };
+  });
   payload.lancamentos = [...daEquipe, ...novos];
-  if (payload.lancamentos.length > LIMITE_LANCAMENTOS) {
-    return { ...r, bloqueio: `Esta empresa ficaria com ${payload.lancamentos.length} lançamentos e o Murad guarda até ${LIMITE_LANCAMENTOS} por empresa. Nada foi gravado; o caso foi registrado para o suporte ampliar o limite.` };
-  }
-  const bytes = Buffer.byteLength(JSON.stringify(payload), 'utf8');
-  if (bytes > LIMITE_BYTES) {
-    return { ...r, bloqueio: `Os dados desta empresa ficariam com ${(bytes / 1e6).toFixed(1)} MB e o Murad guarda até 4 MB por empresa. Nada foi gravado; o caso foi registrado para o suporte ampliar o limite.` };
+  if (limitar) {
+    const bytes = Buffer.byteLength(JSON.stringify(payload), 'utf8');
+    if (bytes > LIMITE_BYTES) {
+      return { ...r, bloqueio: `Os exercícios em aberto desta empresa ficariam com ${(bytes / 1e6).toFixed(1)} MB e o documento da empresa guarda até ${LIMITE_BYTES / 1e6} MB (os exercícios antigos ficam no histórico guardado). Nada foi gravado.` };
+    }
   }
   r.payload = payload;
   r.ajustesMigracaoLancados = ajustes.length;

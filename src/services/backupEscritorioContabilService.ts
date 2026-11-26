@@ -210,6 +210,10 @@ export async function coletarDadosDoEscritorio(consultar: Consultar, tenantId: s
   // Plano de contas, lançamentos, pré-lançamentos, bens do imobilizado, livros e status/dados de ECD e ECF já
   // gerados vêm todos dentro do próprio workspace (payload jsonb) de cada empresa; aqui só se tira o cadastro
   // informativo do certificado A1 antes de empacotar.
+  // Exercícios antigos guardados no histórico (empresa grande): vão junto, para a restauração voltar o documento e o histórico juntos.
+  // A tabela só existe depois do primeiro histórico guardado.
+  const temHistorico = Boolean((await consultar("SELECT to_regclass('contabil_lancamentos_historico') AS t").catch(() => ({ rows: [] as any[] }))).rows[0]?.t);
+  const lancamentosHistorico = temHistorico ? await tabelaPorCnpj(consultar, 'SELECT cnpj, competencia, origem, parte, lancamentos, pre_lancamentos, quantidade, guardado_em, guardado_por FROM contabil_lancamentos_historico', 'cnpj', cnpjs) : [];
   const workspaces = workspacesBrutos.map((w: any) => ({
     cnpj: w.cnpj, payload: removerCamposCertificado(w.payload || {}), version: w.version, atualizadoEm: w.updated_at,
   }));
@@ -218,6 +222,7 @@ export async function coletarDadosDoEscritorio(consultar: Consultar, tenantId: s
   return {
     empresas: empresasSemCertificado,
     workspaces_contabeis: workspaces,
+    ...(lancamentosHistorico.length ? { lancamentos_historico: lancamentosHistorico } : {}),
     fechamentos_periodo: fechamentosPeriodo,
     aprovacoes_lancamentos: aprovacoesLancamentos,
     auditoria_lancamentos_manuais: auditoriaLancamentosManuais,

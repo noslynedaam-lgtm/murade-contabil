@@ -175,8 +175,9 @@ export async function indexarDump(arquivo: string): Promise<IndiceDump> {
   return { arquivo, tamanho, codificacao, tabelas };
 }
 
-/** Carrega todas as linhas de UMA tabela do índice, já convertidas para os tipos do driver pg. */
-export async function carregarTabelaDump(indice: IndiceDump, nome: string): Promise<LinhaDump[] | null> {
+/** Carrega todas as linhas de UMA tabela do índice, já convertidas para os tipos do driver pg. Com `manter`, cada linha é lida e só
+ * fica na memória se `manter(linha)` for verdadeiro (passadas leves pela tabela de lançamentos de empresa grande, ano a ano). */
+export async function carregarTabelaDump(indice: IndiceDump, nome: string, manter?: (linha: LinhaDump) => boolean): Promise<LinhaDump[] | null> {
   const t = indice.tabelas.get(nome.toLowerCase());
   if (!t) return null;
   if (t.fim <= t.inicio) return [];
@@ -191,7 +192,7 @@ export async function carregarTabelaDump(indice: IndiceDump, nome: string): Prom
     const campos = decodificador.decode(bytes.subarray(0, fim)).split('\t');
     const obj: LinhaDump = {};
     for (let i = 0; i < t.colunas.length; i++) obj[t.colunas[i]] = converterValor(campos[i] ?? '\\N', categorias[i] ?? 'texto');
-    linhas.push(obj);
+    if (!manter || manter(obj)) linhas.push(obj);
   };
   await new Promise<void>((resolve, reject) => {
     const fluxo = fs.createReadStream(indice.arquivo, { start: t.inicio, end: t.fim - 1, highWaterMark: 4 * 1024 * 1024 });

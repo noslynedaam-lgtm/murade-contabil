@@ -116,6 +116,31 @@ function competenciaBaseComum(contas: ContaPlano[]): string | null {
   return competencias.size === 1 ? [...competencias][0] : null;
 }
 
+/**
+ * Regra única de quais lançamentos entram nos relatórios: "ignorado" (pendente de aprovação ou rejeitado), "invalido"
+ * (data, valor, histórico ou contas) ou o lançamento validado. Usada pelos relatórios, pela conferência da migração e pelo
+ * transporte de saldos do histórico guardado — todos contam do mesmo jeito.
+ */
+export function classificarLancamentoContabil(original: LancamentoContabil, porCodigo: Map<string, ContaPlano>): LancamentoValidado | "ignorado" | "invalido" {
+  if (original.statusManual === "pendente_aprovacao" || original.statusManual === "rejeitado") return "ignorado";
+  const dataISO = normalizarDataContabil(original.data);
+  const valorCentavos = converterCentavos(original.valor);
+  const debito = porCodigo.get(original.contaDebitoCodigo);
+  const credito = porCodigo.get(original.contaCreditoCodigo);
+  const competenciaInconsistente = Boolean(original.competencia && dataISO && original.competencia !== dataISO.slice(0, 7));
+  if (!dataISO || valorCentavos === null || valorCentavos <= 0 || !String(original.historico || "").trim()
+    || !debito || !credito || debito.tipo !== "analitica" || credito.tipo !== "analitica"
+    || debito.codigo === credito.codigo || competenciaInconsistente) {
+    return "invalido";
+  }
+  return { original, dataISO, valorCentavos, debito, credito };
+}
+
+/** Saldo transportado do histórico guardado (exercícios antigos fora do documento da empresa): entra no saldo, nunca no movimento do período. */
+export function ehTransporteHistorico(l: Pick<LancamentoContabil, "transporteHistorico"> | null | undefined): boolean {
+  return l?.transporteHistorico === true;
+}
+
 export function gerarRelatoriosContabeis(
   contas: ContaPlano[],
   lancamentosDefinitivos: LancamentoContabil[],
@@ -126,19 +151,10 @@ export function gerarRelatoriosContabeis(
   const invalidos: LancamentoContabil[] = [];
 
   for (const original of lancamentosDefinitivos) {
-    if (original.statusManual === "pendente_aprovacao" || original.statusManual === "rejeitado") continue;
-    const dataISO = normalizarDataContabil(original.data);
-    const valorCentavos = converterCentavos(original.valor);
-    const debito = porCodigo.get(original.contaDebitoCodigo);
-    const credito = porCodigo.get(original.contaCreditoCodigo);
-    const competenciaInconsistente = Boolean(original.competencia && dataISO && original.competencia !== dataISO.slice(0, 7));
-    if (!dataISO || valorCentavos === null || valorCentavos <= 0 || !String(original.historico || "").trim()
-      || !debito || !credito || debito.tipo !== "analitica" || credito.tipo !== "analitica"
-      || debito.codigo === credito.codigo || competenciaInconsistente) {
-      invalidos.push(original);
-      continue;
-    }
-    validos.push({ original, dataISO, valorCentavos, debito, credito });
+    const c = classificarLancamentoContabil(original, porCodigo);
+    if (c === "ignorado") continue;
+    if (c === "invalido") { invalidos.push(original); continue; }
+    validos.push(c);
   }
 
   validos.sort(ordenarLancamentos);
@@ -154,7 +170,8 @@ export function gerarRelatoriosContabeis(
   });
   const baseComum = competenciaBaseComum(contas);
   const doPeriodo = validos.filter((item) => dataNoPeriodo(item.dataISO, periodo)
-    && (periodo !== "todos" || !baseComum || item.dataISO.slice(0, 7) >= baseComum));
+    && (periodo !== "todos" || !baseComum || item.dataISO.slice(0, 7) >= baseComum)
+    && !ehTransporteHistorico(item.original));
   const totalDebitosCentavos = doPeriodo.reduce((soma, item) => soma + item.valorCentavos, 0);
   const totalCreditosCentavos = totalDebitosCentavos;
 
@@ -162,7 +179,9 @@ export function gerarRelatoriosContabeis(
   for (const conta of contas.filter((item) => item.tipo === "analitica")) {
     let saldo = saldoInicialAplicavel(conta, periodo);
     for (const item of validos) {
-      if (periodo !== "todos" && item.dataISO.slice(0, 7) < periodo && movimentoDentroDaAbertura(conta, item, periodo)) saldo = aplicarLancamento(saldo, item, conta.codigo);
+      // Saldo anterior: o que é de antes do período; em "todos", o saldo transportado do histórico guardado (que nunca é movimento).
+      const anterior = periodo !== "todos" ? item.dataISO.slice(0, 7) < periodo : ehTransporteHistorico(item.original);
+      if (anterior && movimentoDentroDaAbertura(conta, item, periodo)) saldo = aplicarLancamento(saldo, item, conta.codigo);
     }
     const doRazao = doPeriodo.filter((item) =>
       (item.debito.codigo === conta.codigo || item.credito.codigo === conta.codigo)

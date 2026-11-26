@@ -169,6 +169,8 @@ function bancoFalso() {
   const consultar: ConsultaSql = async (sql, p = []) => {
     const s = sql.trim();
     if (/^CREATE TABLE/i.test(s) || s.includes('pg_advisory_xact_lock') || s.startsWith('INSERT INTO contabil_auth_company_access')) return { rows: [] };
+    // Histórico guardado (empresa grande): estas empresas cabem inteiras no documento, a tabela fica vazia.
+    if (s.includes('contabil_lancamentos_historico')) return { rows: [], rowCount: 0 };
     if (s.includes('to_regclass')) return { rows: [{ t: 'ok' }] };
     if (s.includes('FROM contabil_auth_company_access a JOIN contabil_auth_users u')) return { rows: [] };
     if (s.startsWith('SELECT payload,version FROM contabil_company_workspaces') || s.startsWith('SELECT payload FROM contabil_company_workspaces')) { const w = t.workspaces.get(String(p[0])); return { rows: w ? [w] : [] }; }

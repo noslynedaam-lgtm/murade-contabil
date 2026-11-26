@@ -12,6 +12,8 @@ type Previa = {
   lidos: Record<string, number>; contas: number; contasNovas: number; contasAtualizadas: number; contasDoModeloRetiradas: number; historicos: number; historicosNovos: number;
   lancamentos: number; lancamentosSubstituidos: number; lancamentosDaEquipe: number; naoEntraram: number; blocos: Array<{ bloco: string; quantidade: number }>;
   periodo: string; conferencia: string; bate: boolean; totalAvisos: number; avisos: string[]; ajustesMigracaoLancados?: number; desfazerAjustes?: boolean;
+  /** Empresa grande: até onde os exercícios ficam no histórico guardado. */
+  historicoAte?: string; lancamentosNoHistorico?: number;
 };
 type Resultado = { cdempresa: number; cnpj: string; gravado: boolean; motivo?: string; lancamentos: number; contas: number; conferencia?: string; bate?: boolean };
 
@@ -223,6 +225,7 @@ export const MigracaoBackupContabil: React.FC<{ aoTerminar?: () => void }> = ({ 
                   ) : (
                     <>
                       <div className="text-slate-700">{p.contas} contas ({p.contasNovas} novas{p.contasAtualizadas ? `, ${p.contasAtualizadas} ajustadas` : ""}{p.contasDoModeloRetiradas ? `, ${p.contasDoModeloRetiradas} do modelo sem uso trocadas pelo plano real` : ""}) • {p.historicos} históricos padrão ({p.historicosNovos} novos) • <b>{p.lancamentos}</b> lançamentos{p.periodo ? ` de ${p.periodo}` : ""}{p.lancamentosSubstituidos ? ` (substituem ${p.lancamentosSubstituidos} de uma migração anterior)` : ""}{p.lancamentosDaEquipe ? ` • ${p.lancamentosDaEquipe} lançamento(s) da equipe ficam como estão` : ""}</div>
+                      {p.historicoAte && <div className="text-sky-900">Empresa grande: os exercícios até {p.historicoAte.slice(0, 4)} ({p.lancamentosNoHistorico} lançamentos) vão para o histórico guardado do Contábil, com o saldo transportado para {Number(p.historicoAte.slice(0, 4)) + 1}. Nada fica para trás: os relatórios desses anos ficam em "Exercício consultado" (Balancete, Livros e Demonstrações).</div>}
                       {p.desfazerAjustes && (p.ajustesMigracaoLancados || 0) > 0 && <div className="text-amber-900">Os {p.ajustesMigracaoLancados} ajuste(s) de migração desta empresa vão ser estornados antes de gravar; depois a análise é refeita.</div>}
                       <div className={p.bate ? "text-emerald-800" : "text-red-700"}>Conferência: {p.conferencia}</div>
                       {p.naoEntraram > 0 && <div className="text-red-700">{p.naoEntraram} linha(s) do arquivo não viram lançamento (ficam guardadas com o motivo).</div>}

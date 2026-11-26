@@ -18,8 +18,18 @@ import type { RegraIntegracaoLinha } from '../regrasIntegracaoFiscalStore';
 import { regrasIntegracaoDoBackup } from './integracaoFiscal';
 
 export type Linha = Record<string, any>;
-/** Lê uma tabela do arquivo (null = a tabela não está no arquivo). */
-export type LerTabela = (nome: string) => Promise<Linha[] | null>;
+/** Lê uma tabela do arquivo (null = a tabela não está no arquivo). Com `manter`, só ficam as linhas aceitas (o leitor pode ignorar o filtro). */
+export type LerTabela = (nome: string, manter?: (linha: Linha) => boolean) => Promise<Linha[] | null>;
+
+/** Acima disto (linhas de lançamento da empresa no arquivo) os lançamentos são lidos e convertidos ano a ano, sem ficar todos na memória. */
+export const LINHAS_PARA_LER_EM_PARTES = 60000;
+
+/** Empresa grande: os lançamentos não vêm em `lancamentos`; cada ano é lido e convertido quando quem grava (ou confere) pede. */
+export interface PartesLancamentos {
+  /** Linhas do arquivo por ano da data do lançamento ('' = sem data), em ordem. */
+  linhasPorAno: Map<string, number>;
+  converterAno(ano: string): Promise<{ lancamentos: LancamentoContabil[]; naoEntraram: NaoEntrou[]; originais: Linha[] }>;
+}
 
 export const ORIGEM_SISTEMA_ANTERIOR = 'Sistema anterior' as const;
 export const PREFIXO_ID_MIGRACAO = 'sa-';
@@ -62,8 +72,11 @@ export interface DadosContabeisEmpresa {
   /** Saldo final por conta (devedor menos credor, em centavos), pelo último saldo acumulado do sistema anterior. */
   saldoFinalEsperado: Record<string, number>;
   semSaldosParaConferir: boolean;
-  /** Todos os registros originais da empresa, por bloco, para consulta (nada fica para trás). */
+  /** Todos os registros originais da empresa, por bloco, para consulta (nada fica para trás). Empresa grande: os lançamentos
+   * originais vão para o registro ano a ano (blocos lancamentos_originais_AAAA), na gravação. */
   blocos: Record<string, Linha[]>;
+  /** Empresa grande (lida em partes): `lancamentos` e `naoEntraram` ficam vazios aqui e saem ano a ano daqui. */
+  partes?: PartesLancamentos;
   lidos: Record<string, number>;
   avisos: string[];
 }
@@ -190,7 +203,9 @@ export async function ultimoMesComLancamento(ler: LerTabela, cds: number[]): Pro
   const out = new Map<number, string>();
   for (const cd of cds) {
     let ult = '';
-    for (const m of (await ler(tabelaDaEmpresa('wcont', 'mv', cd))) || []) { const d = dataIso(m.dtlancamento).slice(0, 7); if (d > ult) ult = d; }
+    // Passada leve (nenhuma linha fica na memória); o leitor que não filtra devolve as linhas e elas são vistas aqui.
+    const ver = (m: Linha) => { const d = dataIso(m.dtlancamento).slice(0, 7); if (d > ult) ult = d; return false; };
+    for (const m of (await ler(tabelaDaEmpresa('wcont', 'mv', cd), ver)) || []) ver(m);
     if (ult) out.set(cd, ult);
   }
   return out;
@@ -216,10 +231,27 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
   const cadastro = empresas.find((e) => Number(e.cdempresa) === cdempresa);
   const cnpj = somenteDigitos(cadastro?.nrcgc) || somenteDigitos(opcoes.cnpjInformado);
   const empcont = (await tabela('wcont.empcont')).find((e) => Number(e.idempresa) === cdempresa);
-  const mv = await tabela(tabelaDaEmpresa('wcont', 'mv', cdempresa));
+  const nomeMv = tabelaDaEmpresa('wcont', 'mv', cdempresa);
+  // Passada leve pelos lançamentos: quantas linhas, de que anos e quais contas (nenhuma linha fica na memória). Empresa grande
+  // (acima de LINHAS_PARA_LER_EM_PARTES) é convertida ano a ano; as demais, como sempre (a tabela inteira de uma vez).
+  let linhasMv = 0;
+  const linhasPorAno = new Map<string, number>();
+  const usoPorIdConta = new Map<number, number>();
+  const leve = (m: Linha) => {
+    linhasMv++;
+    const ano = dataIso(m.dtlancamento).slice(0, 4);
+    linhasPorAno.set(ano, (linhasPorAno.get(ano) || 0) + 1);
+    const id = Number(m.idconta); usoPorIdConta.set(id, (usoPorIdConta.get(id) || 0) + 1);
+    return false;
+  };
+  const primeira = await ler(nomeMv, leve);
+  const emPartes = linhasMv > LINHAS_PARA_LER_EM_PARTES && Array.isArray(primeira) && primeira.length === 0;
+  // Leitor que não filtra já devolveu a tabela inteira; o que filtra lê de novo (empresa pequena) ou fica só com a contagem (grande).
+  const mv: Linha[] = emPartes ? [] : (Array.isArray(primeira) && primeira.length ? primeira : (linhasMv ? (await tabela(nomeMv)) : []));
+  if (!emPartes) { usoPorIdConta.clear(); for (const m of mv) { const id = Number(m.idconta); usoPorIdConta.set(id, (usoPorIdConta.get(id) || 0) + 1); } }
   const sd = await tabela(tabelaDaEmpresa('wcont', 'sd', cdempresa));
   const lt = await tabela(tabelaDaEmpresa('wcont', 'lt', cdempresa));
-  lidos.lancamentosOrigem = mv.length; lidos.saldos = sd.length; lidos.lotes = lt.length;
+  lidos.lancamentosOrigem = emPartes ? linhasMv : mv.length; lidos.saldos = sd.length; lidos.lotes = lt.length;
 
   const todasContas = await tabela('wcont.contas');
   const contaPorId = new Map(todasContas.map((c) => [Number(c.idconta), c]));
@@ -227,7 +259,7 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
   let idPlano: number | null = empcont?.idplanodecontas != null ? Number(empcont.idplanodecontas) : null;
   if (idPlano == null) {
     const uso = new Map<number, number>();
-    for (const m of mv) { const c = contaPorId.get(Number(m.idconta)); if (c) uso.set(Number(c.idplanodecontas), (uso.get(Number(c.idplanodecontas)) || 0) + 1); }
+    for (const [idc, n] of usoPorIdConta) { const c = contaPorId.get(idc); if (c) uso.set(Number(c.idplanodecontas), (uso.get(Number(c.idplanodecontas)) || 0) + n); }
     idPlano = [...uso.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
   }
   const pcont = (await tabela('wcont.pcont')).find((p) => Number(p.idplanodecontas) === idPlano);
@@ -236,7 +268,7 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
 
   // ---- plano de contas -------------------------------------------------------------------------------------------
   const doPlano = idPlano == null ? [] : todasContas.filter((c) => Number(c.idplanodecontas) === idPlano).sort((a, b) => Number(a.idconta) - Number(b.idconta));
-  const idsUsados = new Set<number>([...mv.map((m) => Number(m.idconta)), ...sd.map((s) => Number(s.idconta))]);
+  const idsUsados = new Set<number>([...usoPorIdConta.keys(), ...sd.map((s) => Number(s.idconta))]);
   const estrangeiras = [...idsUsados].map((id) => contaPorId.get(id)).filter((c): c is Linha => Boolean(c) && Number(c!.idplanodecontas) !== idPlano);
   // Contas-mãe (por classificação, no plano de origem) das contas de outro plano que a empresa usou.
   const maesEstrangeiras: Linha[] = [];
@@ -311,23 +343,7 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
   // ---- lançamentos ---------------------------------------------------------------------------------------------------
   const lotePorId = new Map(lt.map((l) => [txt(l.idlote), l]));
   guardarSemCopia('lotes', lt);
-  guardarSemCopia('lancamentos_originais', mv);
-  const naoEntraram: NaoEntrou[] = [];
   type Perna = { linha: Linha; data: string; codigo: string; centavos: number };
-  const pernas: Perna[] = [];
-  for (const m of mv) {
-    const data = dataIso(m.dtlancamento);
-    const c = centavos(m.vllancamento);
-    const codigo = codigoPorId.get(Number(m.idconta));
-    const conta = codigo ? porCodigo.get(codigo) : undefined;
-    const registro = { idmovimento: txt(m.idmovimento), data, idconta: m.idconta == null ? null : Number(m.idconta), valorCentavos: c };
-    if (!data) { naoEntraram.push({ ...registro, motivo: 'sem data' }); continue; }
-    if (!c) { naoEntraram.push({ ...registro, motivo: 'valor zero' }); continue; }
-    if (!conta) { naoEntraram.push({ ...registro, motivo: 'a conta não existe em nenhum plano de contas do backup' }); continue; }
-    if (conta.tipo !== 'analitica') { naoEntraram.push({ ...registro, motivo: `a conta ${conta.codigo} é sintética` }); continue; }
-    pernas.push({ linha: m, data, codigo: conta.codigo, centavos: c });
-  }
-  const lancamentos: LancamentoContabil[] = [];
   const nomeConta = (codigo: string) => porCodigo.get(codigo)!.descricao;
   const historicoDe = (p: Perna, outra?: Perna) => historicoEsperado(p.linha, outra?.linha, histPorId);
   const referencia = (p: Perna) => {
@@ -335,61 +351,98 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
     const doc = txt(p.linha.dsdocumento);
     return [lote ? `Lote ${txt(lote.cdchamada) || txt(lote.idlote)}` : '', doc ? `Doc ${doc}` : ''].filter(Boolean).join(' · ') || undefined;
   };
-  const criar = (id: string, deb: Perna, cred: Perna, valor: number, loteId?: string) => {
-    const l: LancamentoContabil = {
-      id, data: deb.data, competencia: deb.data.slice(0, 7),
-      contaDebitoCodigo: deb.codigo, contaDebitoNome: nomeConta(deb.codigo),
-      contaCreditoCodigo: cred.codigo, contaCreditoNome: nomeConta(cred.codigo),
-      valor: valor / 100, historico: historicoDe(deb, cred), origem: ORIGEM_SISTEMA_ANTERIOR as LancamentoContabil['origem'],
-    };
-    const ref = referencia(deb) || referencia(cred);
-    if (ref) l.documentoRef = ref;
-    if (loteId) l.loteId = loteId;
-    if (deb.linha.stencerramento === true || cred.linha.stencerramento === true) l.tipoEspecial = 'encerramento';
-    const lote = lotePorId.get(txt(deb.linha.idlote));
-    if (lote && txt(lote.dslote)) l.loteDescricao = txt(lote.dslote).slice(0, 200);
-    const seq = Number(deb.linha.identificador_sequencial);
-    if (Number.isInteger(seq) && seq > 0) l.numeroSequencial = seq;
-    lancamentos.push(l);
-  };
-  const grupos = new Map<string, Perna[]>();
-  for (const p of pernas) {
-    const k = `${txt(p.linha.idlote)}|${txt(p.linha.idlotelancamento)}|${p.data}`;
-    if (!grupos.has(k)) grupos.set(k, []);
-    grupos.get(k)!.push(p);
-  }
-  const soltas = new Map<string, Perna[]>();
-  for (const g of grupos.values()) {
-    const d = g.filter((p) => p.centavos < 0); const c = g.filter((p) => p.centavos > 0);
-    if (g.length === 2 && d.length === 1 && c.length === 1 && -d[0].centavos === c[0].centavos && d[0].codigo !== c[0].codigo) {
-      criar(`${PREFIXO_ID_MIGRACAO}${cdempresa}-${txt(d[0].linha.idmovimento)}`, d[0], c[0], c[0].centavos);
-      continue;
+  /** Linhas do arquivo → partidas do Murade (as do mesmo lote, sequência e data viram uma partida; as soltas, várias partidas). Os grupos
+   * são sempre da mesma data, então converter um ano de cada vez dá exatamente as mesmas partidas. */
+  const converterMovimentos = (linhasMov: Linha[]): { lancamentos: LancamentoContabil[]; naoEntraram: NaoEntrou[] } => {
+    const naoEntraram: NaoEntrou[] = [];
+    const pernas: Perna[] = [];
+    for (const m of linhasMov) {
+      const data = dataIso(m.dtlancamento);
+      const c = centavos(m.vllancamento);
+      const codigo = codigoPorId.get(Number(m.idconta));
+      const conta = codigo ? porCodigo.get(codigo) : undefined;
+      const registro = { idmovimento: txt(m.idmovimento), data, idconta: m.idconta == null ? null : Number(m.idconta), valorCentavos: c };
+      if (!data) { naoEntraram.push({ ...registro, motivo: 'sem data' }); continue; }
+      if (!c) { naoEntraram.push({ ...registro, motivo: 'valor zero' }); continue; }
+      if (!conta) { naoEntraram.push({ ...registro, motivo: 'a conta não existe em nenhum plano de contas do backup' }); continue; }
+      if (conta.tipo !== 'analitica') { naoEntraram.push({ ...registro, motivo: `a conta ${conta.codigo} é sintética` }); continue; }
+      pernas.push({ linha: m, data, codigo: conta.codigo, centavos: c });
     }
-    for (const p of g) { const k = `${txt(p.linha.idlote)}|${p.data}`; if (!soltas.has(k)) soltas.set(k, []); soltas.get(k)!.push(p); }
-  }
-  // Partidas com várias contas (abertura, por exemplo): débitos x créditos do mesmo lote e data, como lançamento de várias partidas.
-  for (const [k, g] of soltas) {
-    const deb = g.filter((p) => p.centavos < 0).map((p) => ({ p, resto: -p.centavos }));
-    const cre = g.filter((p) => p.centavos > 0).map((p) => ({ p, resto: p.centavos }));
-    const loteId = `sa:${cdempresa}:${k}`.slice(0, 160);
-    let n = 0;
-    for (const d of deb) {
-      while (d.resto > 0) {
-        const c = cre.find((x) => x.resto > 0 && x.p.codigo !== d.p.codigo);
-        if (!c) break;
-        const v = Math.min(d.resto, c.resto);
-        criar(`${PREFIXO_ID_MIGRACAO}${cdempresa}-${txt(d.p.linha.idmovimento)}-${++n}`, d.p, c.p, v, loteId);
-        d.resto -= v; c.resto -= v;
+    const lancamentos: LancamentoContabil[] = [];
+    const criar = (id: string, deb: Perna, cred: Perna, valor: number, loteId?: string) => {
+      const l: LancamentoContabil = {
+        id, data: deb.data, competencia: deb.data.slice(0, 7),
+        contaDebitoCodigo: deb.codigo, contaDebitoNome: nomeConta(deb.codigo),
+        contaCreditoCodigo: cred.codigo, contaCreditoNome: nomeConta(cred.codigo),
+        valor: valor / 100, historico: historicoDe(deb, cred), origem: ORIGEM_SISTEMA_ANTERIOR as LancamentoContabil['origem'],
+      };
+      const ref = referencia(deb) || referencia(cred);
+      if (ref) l.documentoRef = ref;
+      if (loteId) l.loteId = loteId;
+      if (deb.linha.stencerramento === true || cred.linha.stencerramento === true) l.tipoEspecial = 'encerramento';
+      const lote = lotePorId.get(txt(deb.linha.idlote));
+      if (lote && txt(lote.dslote)) l.loteDescricao = txt(lote.dslote).slice(0, 200);
+      const seq = Number(deb.linha.identificador_sequencial);
+      if (Number.isInteger(seq) && seq > 0) l.numeroSequencial = seq;
+      lancamentos.push(l);
+    };
+    const grupos = new Map<string, Perna[]>();
+    for (const p of pernas) {
+      const k = `${txt(p.linha.idlote)}|${txt(p.linha.idlotelancamento)}|${p.data}`;
+      if (!grupos.has(k)) grupos.set(k, []);
+      grupos.get(k)!.push(p);
+    }
+    const soltas = new Map<string, Perna[]>();
+    for (const g of grupos.values()) {
+      const d = g.filter((p) => p.centavos < 0); const c = g.filter((p) => p.centavos > 0);
+      if (g.length === 2 && d.length === 1 && c.length === 1 && -d[0].centavos === c[0].centavos && d[0].codigo !== c[0].codigo) {
+        criar(`${PREFIXO_ID_MIGRACAO}${cdempresa}-${txt(d[0].linha.idmovimento)}`, d[0], c[0], c[0].centavos);
+        continue;
+      }
+      for (const p of g) { const k = `${txt(p.linha.idlote)}|${p.data}`; if (!soltas.has(k)) soltas.set(k, []); soltas.get(k)!.push(p); }
+    }
+    // Partidas com várias contas (abertura, por exemplo): débitos x créditos do mesmo lote e data, como lançamento de várias partidas.
+    for (const [k, g] of soltas) {
+      const deb = g.filter((p) => p.centavos < 0).map((p) => ({ p, resto: -p.centavos }));
+      const cre = g.filter((p) => p.centavos > 0).map((p) => ({ p, resto: p.centavos }));
+      const loteId = `sa:${cdempresa}:${k}`.slice(0, 160);
+      let n = 0;
+      for (const d of deb) {
+        while (d.resto > 0) {
+          const c = cre.find((x) => x.resto > 0 && x.p.codigo !== d.p.codigo);
+          if (!c) break;
+          const v = Math.min(d.resto, c.resto);
+          criar(`${PREFIXO_ID_MIGRACAO}${cdempresa}-${txt(d.p.linha.idmovimento)}-${++n}`, d.p, c.p, v, loteId);
+          d.resto -= v; c.resto -= v;
+        }
+      }
+      for (const x of [...deb, ...cre]) {
+        if (x.resto <= 0) continue;
+        const total = x.p.centavos;
+        naoEntraram.push({ idmovimento: txt(x.p.linha.idmovimento), data: x.p.data, idconta: Number(x.p.linha.idconta), valorCentavos: total < 0 ? -x.resto : x.resto,
+          motivo: 'no sistema anterior este lote não fecha débito com crédito nesta data (ou só tem a mesma conta dos dois lados)' });
       }
     }
-    for (const x of [...deb, ...cre]) {
-      if (x.resto <= 0) continue;
-      const total = x.p.centavos;
-      naoEntraram.push({ idmovimento: txt(x.p.linha.idmovimento), data: x.p.data, idconta: Number(x.p.linha.idconta), valorCentavos: total < 0 ? -x.resto : x.resto,
-        motivo: 'no sistema anterior este lote não fecha débito com crédito nesta data (ou só tem a mesma conta dos dois lados)' });
-    }
+    lancamentos.sort((a, b) => a.data.localeCompare(b.data) || a.id.localeCompare(b.id));
+    return { lancamentos, naoEntraram };
+  };
+  let lancamentos: LancamentoContabil[] = [];
+  let naoEntraram: NaoEntrou[] = [];
+  let partes: PartesLancamentos | undefined;
+  if (!emPartes) {
+    guardarSemCopia('lancamentos_originais', mv);
+    ({ lancamentos, naoEntraram } = converterMovimentos(mv));
+  } else {
+    partes = {
+      linhasPorAno: new Map([...linhasPorAno].sort((a, b) => a[0].localeCompare(b[0]))),
+      async converterAno(ano: string) {
+        const linhas = (await ler(nomeMv, (m) => dataIso(m.dtlancamento).slice(0, 4) === ano)) || [];
+        const r = converterMovimentos(linhas);
+        for (const l of linhas) limparLinhaNoLugar(l);
+        return { ...r, originais: linhas };
+      },
+    };
   }
-  lancamentos.sort((a, b) => a.data.localeCompare(b.data) || a.id.localeCompare(b.id));
 
   // ---- conferência esperada (saldos do sistema anterior) -------------------------------------------------------------
   // Os saldos são ACUMULADOS (vlcredito só cresce, vldebito só fica mais negativo). O movimento do mês de cada conta é a
@@ -436,14 +489,17 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
   for (const k of Object.keys(saldoFinalEsperado)) if (!saldoFinalEsperado[k]) delete saldoFinalEsperado[k];
   // Conferência pelos lançamentos originais: cada linha lida do arquivo, por conta e mês.
   const esperadoLancMapa = new Map<string, EsperadoConferencia>();
-  for (const m of mv) {
+  const somarLinhaOriginal = (m: Linha) => {
     const codigo = codigoPorId.get(Number(m.idconta)); const comp = dataIso(m.dtlancamento).slice(0, 7); const c = centavos(m.vllancamento);
-    if (!codigo || !comp || !c) continue;
+    if (!codigo || !comp || !c) return false;
     somar(esperadoLancMapa, codigo, comp, c < 0 ? -c : 0, c > 0 ? c : 0);
-  }
+    return false;
+  };
+  if (emPartes) await ler(nomeMv, somarLinhaOriginal); // passada leve
+  else for (const m of mv) somarLinhaOriginal(m);
   const temTotais = sd.length > 0;
   guardarSemCopia('saldos', sd);
-  if (!sd.length && mv.length) avisos.push('O sistema anterior não tem a tabela de saldos desta empresa: a conferência compara só os lançamentos lidos com os gravados.');
+  if (!sd.length && (emPartes ? linhasMv : mv.length)) avisos.push('O sistema anterior não tem a tabela de saldos desta empresa: a conferência compara só os lançamentos lidos com os gravados.');
 
   // ---- demais blocos com dado real (só consulta) -------------------------------------------------------------------
   const daEmpresa = (linhas: Linha[], col: string) => linhas.filter((l) => Number(l[col]) === cdempresa);
@@ -536,6 +592,6 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
     contas: contas.sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR', { numeric: true })),
     historicosPadrao, lancamentos, naoEntraram, esperado: [...esperadoMapa.values()].filter((e) => e.debitoCentavos || e.creditoCentavos),
     esperadoLancamentos: [...esperadoLancMapa.values()],
-    saldoFinalEsperado, semSaldosParaConferir: !temTotais, blocos, lidos, avisos,
+    saldoFinalEsperado, semSaldosParaConferir: !temTotais, blocos, lidos, avisos, ...(partes ? { partes } : {}),
   };
 }

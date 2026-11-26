@@ -90,6 +90,8 @@ import { registrarRotasEscrituracao, roboAjustesFechamento, roboConciliacao, rob
 import { criarRevisorContabil, registrarRotasRevisor, INTERVALO_ROBO_REVISOR_MS } from "./src/server/revisorContabil";
 import { conferirFolhasDP } from "./src/server/conferidorFolhaDP";
 import { registrarRotasMigracaoSistemaAnterior, rotinaConferidorMigracao } from "./src/server/migracaoSistemaAnterior/rotas";
+import { registrarRotasHistoricoContabil } from "./src/server/historicoLancamentosRotas";
+import { ID_ROBO_HISTORICO, rotinaRoboHistorico } from "./src/server/historicoLancamentos";
 import { workspaceValido } from "./src/server/authContabil";
 import { planoContasModelo } from "./src/data/planoContasModelo";
 
@@ -310,6 +312,13 @@ const reconciliacaoRascunhosStatus: {
   registrarRotinaManual("conferidor_migracao_sistema_anterior", rodarConferidorMigracao);
   setTimeout(() => void rodarConferidorMigracao(), 7 * 60_000).unref();
   setInterval(() => void rodarConferidorMigracao(), 6 * 60 * 60_000).unref();
+  // Histórico guardado (empresa grande: exercícios antigos fora do documento) + Robô Conferidor do Histórico Guardado.
+  registrarRotasHistoricoContabil(app, { exigirOrigemNavegador, exigirSessaoContabil, consultar: (sql, params) => consultaBancoContabil(sql, params), banco: bancoTransacionalContabil, validar: (p) => workspaceValido(p) });
+  registrarRobo({ id: "conferidor_historico_guardado", nome: "Robô Conferidor do Histórico Guardado", posto: "conferidor", missao: "Conferir, em cada empresa com exercícios antigos guardados no histórico (empresa grande), se o saldo transportado para os exercícios em aberto é exatamente a soma do histórico em todas as contas, se a marca do documento bate com o histórico e se nada do documento caiu no período guardado; refazer sozinho o saldo transportado quando o histórico está inteiro (é conta, não presunção); e guardar sozinho os exercícios de até dois anos atrás quando o documento da empresa passa de 85% do limite. Nunca apaga nada.", intervaloMs: 6 * 60 * 60_000 });
+  const rodarRoboHistorico = rotinaRoboHistorico({ banco: bancoTransacionalContabil, consultar: (sql, params) => consultaBancoContabil(sql, params), validar: (p) => workspaceValido(p), bancoConfigurado: bancoContabilConfigurado, robos: { executarRobo, registrarResultadoRobo, definirAlertaRobo } });
+  registrarRotinaManual(ID_ROBO_HISTORICO, rodarRoboHistorico);
+  setTimeout(() => void rodarRoboHistorico(), 9 * 60_000).unref();
+  setInterval(() => void rodarRoboHistorico(), 6 * 60 * 60_000).unref();
   app.post("/api/auth/invites", exigirOrigemNavegador, exigirSessaoContabil, criarConviteUsuarioContabil);
   app.post("/api/auth/access", exigirOrigemNavegador, exigirSessaoContabil, vincularUsuarioExistenteContabil);
   app.get("/api/auth/users", exigirSessaoContabil, listarUsuariosEmpresaContabil);

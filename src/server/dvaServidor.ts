@@ -2,6 +2,7 @@
 // empresa para a tela e para a Agente e a escolha da linha de UMA conta (cartão da Agente). Cálculo em src/utils/dva.ts (CPC 09 (R1) e
 // Lei 6.404/1976, art. 176, V, e art. 188, II). Nada aqui lança, aprova ou apaga; a escolha de linha só muda empresa.classificacaoDva.
 import type express from "express";
+import { visaoDoExercicio } from './historicoLancamentosStore';
 import type { ContaPlano, EmpresaDados, LancamentoContabil } from "../types";
 import { calcularDva, ehLinhaDva, FONTES_DVA, linhasDaDva, resumoDva, ROTULO_DVA, type Dva } from "../utils/dva";
 
@@ -42,7 +43,7 @@ export async function rodarConferidorDva(consultar: Consultar, o: { cnpjs?: stri
     for (const row of lote.rows) {
       const cnpj = String(row.cnpj).trim(); feito += 1; o.aoAndar?.(feito, Math.max(total, feito));
       try {
-        const a = conferirDvaWorkspace(cnpj, row.payload || {}, ano, agora);
+        const a = conferirDvaWorkspace(cnpj, await visaoDoExercicio(consultar, cnpj, row.payload || {}, ano), ano, agora);
         if (a) { achados.set(cnpj, a); conferidas += 1; if (!a.completa) naoFecham.push(a); } else achados.delete(cnpj);
       } catch (e: any) { console.error(`Conferidor da DVA falhou para ${cnpj}:`, e?.message || e); }
     }

@@ -16,8 +16,7 @@ import type { ContaPlano } from '../../types';
 import { FilaMigracao, textoDaFila } from './fila';
 import { indexarDump, carregarTabelaDump, type IndiceDump } from './leitorDump';
 import { aplicarSentidoAtiva, listarEmpresasContabeis, montarDadosEmpresa, sentidoDaMarcaAtiva, ultimoMesComLancamento, type DadosContabeisEmpresa, type EmpresaDoBackup, type Linha } from './conversor';
-import { mesclarMigracao } from './mesclagem';
-import { conferirMigracao } from './conferencia';
+import { juntarComHistorico } from './historicoMigracao';
 
 const PASTA = path.join(os.tmpdir(), 'murade-contabil-migracao-sistema-anterior');
 const LIMITE_BYTES = 400 * 1024 * 1024;
@@ -75,10 +74,12 @@ async function comOcupado<T>(s: Sessao, fn: () => Promise<T>): Promise<T> {
 }
 
 function leitor(s: Sessao) {
-  return async (nome: string) => {
+  return async (nome: string, manter?: (linha: Linha) => boolean) => {
     const n = nome.toLowerCase();
-    // Tabelas comuns ficam na memória durante a sessão; as de cada empresa são lidas de novo (memória baixa).
+    // Tabelas comuns ficam na memória durante a sessão; as de cada empresa são lidas de novo (memória baixa). Com filtro (lançamentos
+    // de empresa grande, ano a ano), só ficam as linhas pedidas.
     const porEmpresa = /\d{5}$/.test(n);
+    if (manter && porEmpresa) return carregarTabelaDump(s.indice!, n, manter);
     if (!porEmpresa && s.cache.has(n)) return s.cache.get(n)!;
     const linhas = await carregarTabelaDump(s.indice!, n);
     if (!porEmpresa) s.cache.set(n, linhas);
@@ -136,8 +137,8 @@ export async function listarEmpresasDoBackupContabil(token: string, userId: stri
 }
 
 export interface DependenciasPrevia {
-  /** Workspace atual, cadastro compartilhado e competências fechadas do CNPJ (só leitura). */
-  lerAtual(cnpj: string): Promise<{ payload: Record<string, any> | null; compartilhado: Record<string, any> | null; fechadas: Set<string> }>;
+  /** Workspace atual, cadastro compartilhado, competências fechadas e o que a equipe guardou no histórico (só leitura). */
+  lerAtual(cnpj: string): Promise<{ payload: Record<string, any> | null; compartilhado: Record<string, any> | null; fechadas: Set<string>; historicoEscritorio?: { lancamentos: any[]; preLancamentos: any[] } }>;
   /** O CNPJ pertence a outro escritório? */
   deOutroEscritorio(cnpj: string): Promise<boolean>;
   excluidaAntes(cnpj: string): Promise<boolean>;
@@ -154,6 +155,8 @@ export interface PreviaEmpresa {
   blocos: Array<{ bloco: string; quantidade: number }>; periodo: string; conferencia: string; bate: boolean; totalAvisos: number; avisos: string[];
   /** Remigração: ajustes de migração já lançados nesta empresa e se o contador escolheu desfazê-los. */
   ajustesMigracaoLancados?: number; desfazerAjustes?: boolean;
+  /** Empresa grande: até onde os exercícios ficam no histórico guardado (os relatórios desses anos são consultados ano a ano). */
+  historicoAte?: string; lancamentosNoHistorico?: number;
 }
 
 const normalizar = (v: unknown) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -196,18 +199,21 @@ export async function gerarPreviaContabil(token: string, userId: string, cdempre
       if (comDesfazer.has(cd)) dados.desfazerAjustesMigracao = true;
       const cnpj = normalizar(dados.cnpj);
       dados.cnpj = cnpj;
+      // Empresa grande (lida em partes): a quantidade e o período saem da junção, que lê ano a ano.
+      const linhasOriginais = dados.partes ? [...dados.partes.linhasPorAno.values()].reduce((a, b) => a + b, 0) : 0;
       const comum = {
         ...base, cnpj, lidos: dados.lidos, contas: dados.contas.length, historicos: dados.historicosPadrao.length, lancamentos: dados.lancamentos.length, naoEntraram: dados.naoEntraram.length,
-        blocos: Object.entries(dados.blocos).map(([bloco, l]) => ({ bloco, quantidade: l.length })),
+        blocos: [...Object.entries(dados.blocos).map(([bloco, l]) => ({ bloco, quantidade: l.length })), ...(dados.partes ? [{ bloco: 'lancamentos_originais', quantidade: linhasOriginais }] : [])],
         periodo: dados.lancamentos.length ? `${dados.lancamentos[0].data.split('-').reverse().join('/')} a ${dados.lancamentos[dados.lancamentos.length - 1].data.split('-').reverse().join('/')}` : '',
       };
       if (!dep.cnpjValido(cnpj)) { saida.push({ ...vazio, ...comum, podeGravar: false, motivo: 'CNPJ inválido no sistema anterior. Corrija o cadastro lá ou fale com o suporte.' }); continue; }
-      if (!dados.contas.length && !dados.lancamentos.length) { saida.push({ ...vazio, ...comum, podeGravar: false, motivo: 'Não há plano de contas nem lançamentos desta empresa no arquivo.' }); continue; }
+      if (!dados.contas.length && !dados.lancamentos.length && !linhasOriginais) { saida.push({ ...vazio, ...comum, podeGravar: false, motivo: 'Não há plano de contas nem lançamentos desta empresa no arquivo.' }); continue; }
       const outro = await dep.deOutroEscritorio(cnpj);
       const excluida = await dep.excluidaAntes(cnpj);
       const atual = await dep.lerAtual(cnpj);
-      const m = mesclarMigracao(atual.payload, dados, { modelo: dep.modelo, cadastroCompartilhado: atual.compartilhado, competenciaAtual: dep.competenciaAtual, fechadas: atual.fechadas });
-      const conf = m.payload ? conferirMigracao(m.payload.contas, m.payload.lancamentos, { esperado: dados.esperado, esperadoLancamentos: dados.esperadoLancamentos, saldoFinalEsperado: dados.saldoFinalEsperado, lancamentosGravados: dados.lancamentos.length, semSaldosParaConferir: dados.semSaldosParaConferir, linhasQueNaoEntraram: dados.naoEntraram.length }) : null;
+      const m = await juntarComHistorico(atual.payload, dados, { modelo: dep.modelo, cadastroCompartilhado: atual.compartilhado, competenciaAtual: dep.competenciaAtual, fechadas: atual.fechadas, historicoEscritorio: atual.historicoEscritorio });
+      const conf = m.conferencia;
+      if (m.payload || dados.partes) { comum.lancamentos = m.lancamentosGravados || comum.lancamentos; comum.naoEntraram = m.naoEntraram.length; if (m.periodo) comum.periodo = m.periodo; }
       let motivo: string | undefined;
       if (outro) motivo = 'Este CNPJ já está cadastrado em outro escritório. Cada empresa pertence a um único escritório.';
       else if (!m.payload) motivo = m.bloqueio;
@@ -219,6 +225,7 @@ export async function gerarPreviaContabil(token: string, userId: string, cdempre
         lancamentosSubstituidos: m.lancamentosSubstituidos, lancamentosDaEquipe: m.lancamentosDaEquipe,
         conferencia: conf?.resumo || '', bate: Boolean(conf?.bate), totalAvisos: avisos.length, avisos: avisos.slice(0, 15),
         ajustesMigracaoLancados: m.ajustesMigracaoLancados || 0, desfazerAjustes: Boolean(dados.desfazerAjustesMigracao),
+        ...(m.historico ? { historicoAte: m.historico.ateCompetencia, lancamentosNoHistorico: m.historico.lancamentos } : {}),
       });
       if (!motivo) s.previas.set(cd, { cnpjInformado: informado, desfazerAjustes: comDesfazer.has(cd) }); else s.previas.delete(cd);
       await new Promise<void>((ok) => setImmediate(ok)); // cede a vez ao servidor entre uma empresa e outra

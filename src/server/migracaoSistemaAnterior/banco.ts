@@ -5,9 +5,10 @@ import type { ContaPlano } from '../../types';
 import type { BancoTransacional, ConsultaSql } from '../exclusaoEmpresaCascata';
 import { urlDoSistema } from '../agentesEntreSistemas';
 import type { DadosContabeisEmpresa } from './conversor';
-import { conferirMigracao, type ReferenciaConferencia, type ResultadoConferencia } from './conferencia';
+import { AcumuladorConferencia, conferirMigracao, type ReferenciaConferencia, type ResultadoConferencia } from './conferencia';
+import { apagarHistorico, gravarMesHistorico, lerHistoricoDoEscritorio, percorrerHistorico, prepararTabelaHistorico, resumoHistorico } from '../historicoLancamentosStore';
+import { juntarComHistorico } from './historicoMigracao';
 import { gravarTitulosECartoesMigrados, listarCartoes, listarTitulos } from '../titulosCartoesStore';
-import { mesclarMigracao } from './mesclagem';
 import { bensDoBackup, cadastroDoBackup, cartoesDoBackup, conferirCamposMigrados, modelosDoBackup, sentidoDoBloco, titulosDoBackup, txt, type ResultadoCampos } from './camposSistemaAnterior';
 import { analisarMigracao, aplicarAcaoAchado, resumoAnalise, type AchadoMigracao } from './analiseSistemaAnterior';
 import { converterClassificacao } from './conversor';
@@ -40,6 +41,8 @@ export interface ResumoMigracaoGuardado extends ReferenciaConferencia {
   /** Plano da empresa no sistema anterior e quantas regras de integração Fiscal → Contábil vieram (migrações a partir de 26/11/2026). */
   idPlano?: number | null;
   regrasIntegracao?: number;
+  /** Empresa grande: até onde os exercícios ficaram no histórico guardado e quantos lançamentos do arquivo foram para lá. */
+  historicoGuardado?: { ateCompetencia: string; lancamentos: number; doSistemaAnterior: number };
 }
 
 export async function prepararTabelaSistemaAnterior(consultar: ConsultaSql): Promise<void> { await consultar(SQL_TABELA); }
@@ -64,7 +67,22 @@ export async function gravarEmpresaMigrada(
     const ws = await q('SELECT payload,version FROM contabil_company_workspaces WHERE cnpj=$1 FOR UPDATE', [cnpj]);
     const fechadas = new Set((await q('SELECT competencia FROM contabil_period_closures WHERE cnpj=$1', [cnpj])).rows.map((r) => String(r.competencia)));
     const comp = ws.rows.length ? null : (await q('SELECT dados FROM contabil_empresas_compartilhadas WHERE cnpj=$1', [cnpj])).rows[0]?.dados ?? null;
-    const m = mesclarMigracao(ws.rows[0]?.payload ?? null, dados, { modelo: opcoes.modelo, cadastroCompartilhado: comp, competenciaAtual: opcoes.competenciaAtual, fechadas });
+    // Histórico guardado: o que a equipe guardou volta para a junção; tudo é regravado conforme a junção nova (na mesma transação).
+    await prepararTabelaHistorico(q);
+    const historicoEscritorio = await lerHistoricoDoEscritorio(q, cnpj);
+    const migradosAntes = (await resumoHistorico(q, cnpj)).anos.reduce((n, a) => n + a.migracao, 0);
+    await apagarHistorico(q, cnpj);
+    await q(`DELETE FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 AND bloco<>$2`, [cnpj, BLOCO_DECISOES]);
+    let linhasOriginaisEmPartes = 0; let blocosEmPartes = 0;
+    const m = await juntarComHistorico(ws.rows[0]?.payload ?? null, dados, { modelo: opcoes.modelo, cadastroCompartilhado: comp, competenciaAtual: opcoes.competenciaAtual, fechadas, historicoEscritorio, agora: opcoes.agora }, {
+      gravarMes: async (mes) => { await gravarMesHistorico(q, cnpj, mes, quem.login); },
+      // Empresa lida em partes: as linhas originais de cada ano vão para o registro do sistema anterior (nada fica para trás).
+      gravarOriginais: async (ano, linhas) => {
+        if (!linhas.length) return;
+        await q(`INSERT INTO ${TABELA_SISTEMA_ANTERIOR}(cnpj,bloco,linhas,quantidade,migrado_por) VALUES($1,$2,$3::jsonb,$4,$5)`, [cnpj, `lancamentos_originais_${ano || 'sem_data'}`, JSON.stringify(linhas), linhas.length, quem.login]);
+        linhasOriginaisEmPartes += linhas.length; blocosEmPartes++;
+      },
+    });
     if (!m.payload) throw new ErroMigracao(m.bloqueio || 'Não foi possível juntar os dados com o que já existe no Murad.');
     if (!opcoes.validar(m.payload)) throw new ErroMigracao('Os dados juntados não passaram na validação do Contábil; nada foi gravado.');
     let versao: number;
@@ -76,19 +94,17 @@ export async function gravarEmpresaMigrada(
       versao = Number(r.rows[0].version);
     }
     await q("INSERT INTO contabil_auth_company_access(user_id,cnpj,role) VALUES($1,$2,'admin') ON CONFLICT(user_id,cnpj) DO NOTHING", [quem.escritorioId, cnpj]);
-    const conferencia = conferirMigracao(m.payload.contas, m.payload.lancamentos, {
-      esperado: dados.esperado, esperadoLancamentos: dados.esperadoLancamentos, saldoFinalEsperado: dados.saldoFinalEsperado,
-      lancamentosGravados: dados.lancamentos.length, semSaldosParaConferir: dados.semSaldosParaConferir, linhasQueNaoEntraram: dados.naoEntraram.length,
-    });
+    // Conferência do documento + histórico (a junção somou lançamento a lançamento).
+    const conferencia = m.conferencia!;
     const resumo: ResumoMigracaoGuardado = {
       cdempresa: dados.cdempresa, nomePlano: dados.nomePlano, migradoEm: (opcoes.agora || new Date()).toISOString(), migradoPor: quem.login, lidos: dados.lidos,
       esperado: dados.esperado, esperadoLancamentos: dados.esperadoLancamentos, saldoFinalEsperado: dados.saldoFinalEsperado,
-      lancamentosGravados: dados.lancamentos.length, semSaldosParaConferir: dados.semSaldosParaConferir, linhasQueNaoEntraram: dados.naoEntraram.length,
-      naoEntraram: dados.naoEntraram, avisos: [...dados.avisos, ...m.avisos], conferenciaNaGravacao: conferencia.resumo, mapaContas: dados.mapaContas,
+      lancamentosGravados: m.lancamentosGravados, semSaldosParaConferir: dados.semSaldosParaConferir, linhasQueNaoEntraram: m.naoEntraram.length,
+      naoEntraram: m.naoEntraram, avisos: [...dados.avisos, ...m.avisos], conferenciaNaGravacao: conferencia.resumo, mapaContas: dados.mapaContas,
       ...(dados.regrasIntegracao ? { idPlano: dados.idPlano, regrasIntegracao: dados.regrasIntegracao.length } : {}),
+      ...(m.historico ? { historicoGuardado: { ateCompetencia: m.historico.ateCompetencia, lancamentos: m.historico.lancamentos, doSistemaAnterior: m.historico.doSistemaAnterior } } : {}),
     };
-    await q(`DELETE FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 AND bloco<>$2`, [cnpj, BLOCO_DECISOES]);
-    let linhasGuardadas = 0;
+    let linhasGuardadas = linhasOriginaisEmPartes;
     const blocos = Object.entries(dados.blocos);
     for (const [bloco, linhas] of blocos) {
       await q(`INSERT INTO ${TABELA_SISTEMA_ANTERIOR}(cnpj,bloco,linhas,quantidade,migrado_por) VALUES($1,$2,$3::jsonb,$4,$5)`, [cnpj, bloco, JSON.stringify(linhas), linhas.length, quem.login]);
@@ -103,8 +119,8 @@ export async function gravarEmpresaMigrada(
     }
     return {
       cnpj, contasNovas: m.contasNovas, contasAtualizadas: m.contasAtualizadas, contasDoModeloRetiradas: m.contasDoModeloRetiradas, historicosNovos: m.historicosNovos,
-      lancamentos: dados.lancamentos.length, lancamentosSubstituidos: m.lancamentosSubstituidos, lancamentosDaEquipe: m.lancamentosDaEquipe,
-      blocos: blocos.length, linhasGuardadas, versao, avisos: resumo.avisos, conferencia,
+      lancamentos: m.lancamentosGravados, lancamentosSubstituidos: m.lancamentosSubstituidos + migradosAntes, lancamentosDaEquipe: m.lancamentosDaEquipe,
+      blocos: blocos.length + blocosEmPartes, linhasGuardadas, versao, avisos: resumo.avisos, conferencia,
     };
   });
 }
@@ -136,7 +152,15 @@ export async function conferirEmpresaMigrada(consultar: ConsultaSql, cnpj: strin
   if (!resumo) return null;
   const ws = await consultar('SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1', [cnpj]);
   const payload = ws.rows[0]?.payload || { contas: [], lancamentos: [] };
-  return conferirMigracao(Array.isArray(payload.contas) ? payload.contas : [], Array.isArray(payload.lancamentos) ? payload.lancamentos : [], resumo);
+  return conferirComHistorico(consultar, cnpj, payload, resumo);
+}
+
+/** Conferência da migração somando o documento e o histórico guardado (mês a mês, sem carregar tudo de uma vez). */
+export async function conferirComHistorico(consultar: ConsultaSql, cnpj: string, payload: Record<string, any>, ref: ReferenciaConferencia): Promise<ResultadoConferencia> {
+  const acc = new AcumuladorConferencia(Array.isArray(payload.contas) ? payload.contas : []);
+  if (payload.historicoArquivado) await percorrerHistorico(consultar, cnpj, (_c, l) => { for (const x of l) acc.adicionar(x); });
+  acc.adicionarTodos(payload.lancamentos);
+  return acc.resultado(ref);
 }
 
 /** Blocos usados pelo conferidor campo a campo. */
@@ -204,11 +228,21 @@ async function carregarParaAnalise(consultar: ConsultaSql, cnpj: string, payload
   const payload = payloadAtual || (await consultar('SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1', [cnpj])).rows[0]?.payload || {};
   let mapa = resumo.mapaContas;
   if (!mapa) { mapa = {}; for (const c of blocos.plano_contas || []) { const cod = converterClassificacao(c.cdclassinterna); if (cod) mapa[String(Number(c.idconta))] = cod; } }
-  return { resumo, blocos, decisoes, payload, mapa };
+  // Histórico guardado (empresa grande): somado uma vez; as ações da análise só mudam o documento.
+  const doHistorico = new AcumuladorConferencia(Array.isArray(payload.contas) ? payload.contas : []);
+  if (payload.historicoArquivado) await percorrerHistorico(consultar, cnpj, (_c, l) => { for (const x of l) doHistorico.adicionar(x); });
+  return { resumo, blocos, decisoes, payload, mapa, doHistorico };
+}
+
+/** Conferência do documento de agora + o histórico guardado (já somado). */
+function conferirAgora(c: { payload: Record<string, any>; resumo: ReferenciaConferencia; doHistorico: AcumuladorConferencia }, payload = c.payload): ResultadoConferencia {
+  const acc = c.doHistorico.clonar();
+  acc.adicionarTodos(payload.lancamentos);
+  return acc.resultado(c.resumo);
 }
 
 function analisar(c: NonNullable<Awaited<ReturnType<typeof carregarParaAnalise>>>): AchadoMigracao[] {
-  const conferencia = conferirMigracao(Array.isArray(c.payload.contas) ? c.payload.contas : [], Array.isArray(c.payload.lancamentos) ? c.payload.lancamentos : [], c.resumo);
+  const conferencia = conferirAgora(c);
   return analisarMigracao({ cdempresa: Number(c.resumo.cdempresa), blocos: c.blocos, mapaContas: c.mapa, payload: c.payload, naoEntraram: c.resumo.naoEntraram || [], conferencia, decisoes: c.decisoes });
 }
 
@@ -253,7 +287,7 @@ export async function aplicarAchadoEmpresaMigrada(banco: BancoTransacional, cnpj
       await q('UPDATE contabil_company_workspaces SET payload=$2::jsonb,version=version+1,updated_at=now() WHERE cnpj=$1', [cnpj, JSON.stringify(payload)]);
     }
     const depois = analisar({ ...c, payload });
-    const conferencia = conferirMigracao(Array.isArray(payload.contas) ? payload.contas : [], Array.isArray(payload.lancamentos) ? payload.lancamentos : [], c.resumo);
+    const conferencia = conferirAgora(c, payload);
     if (!mensagem) mensagem = acao === 'lancar_ajuste' ? `Ajuste lançado. Conferência de novo: ${conferencia.bate ? 'agora bate exatamente.' : conferencia.resumo}`
       : acao === 'desfazer_ajuste' ? 'Ajuste estornado (o lançamento continua no Diário, com o estorno).' : acao === 'desfazer' ? 'Desfeito: voltou como veio do sistema anterior.'
         : acao === 'corrigir_todos' ? `${alvos.length} correção(ões) aplicada(s).` : acao === 'aceitar' ? 'Sugestão aceita e aplicada.' : 'Corrigido.';

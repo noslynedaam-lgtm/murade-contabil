@@ -2,6 +2,7 @@ import { IDS_ORIGEM, ROTULOS_ORIGEM, ROTULO_PARA_ID, origemDaReferencia } from "
 import { sugerirMapeamentosPadrao, contasDasParaCompletar, ORIGENS_COM_MAPEAMENTO_PADRAO } from "../utils/sugestoesContas";
 import { ordenarContasPorSequenciaNumerica } from "../utils/planoContasUtils";
 import { montarWorkspaceInicialContabil, empresaInicialDoCadastro } from "../utils/workspaceInicial";
+import { baseAberturaConta, LIMITES_DOCUMENTO, PREFIXO_TRANSPORTE, ultimoDiaDaCompetencia } from "../utils/historicoContabil";
 import { contasDoRascunhoConferem } from "../utils/contasRascunhoFiscal";
 import { lerRegrasIntegracaoFiscal } from "./regrasIntegracaoFiscalStore";
 import { contasParaCompletarPlano, podeCompletarSozinho } from "../utils/completarPlanoPadrao";
@@ -781,7 +782,38 @@ export async function bloquearEscritorioContabil(req: Request, res: Response): P
   } catch { res.status(503).json({ sucesso: false, motivo: 'Não foi possível alterar o bloqueio.' }); }
 }
 
-const CAMPOS_WORKSPACE = new Set(["empresa", "contas", "centrosCusto", "mapeamentosOrigem", "preLancamentos", "lancamentos", "livros", "lembretes", "bensImobilizado", "historicosPadrao", "lancamentosPadrao", "regrasConciliacao"]);
+const CAMPOS_WORKSPACE = new Set(["empresa", "contas", "centrosCusto", "mapeamentosOrigem", "preLancamentos", "lancamentos", "livros", "lembretes", "bensImobilizado", "historicosPadrao", "lancamentosPadrao", "regrasConciliacao", "historicoArquivado"]);
+
+/**
+ * Histórico guardado (exercícios antigos numa tabela própria): o marcador e o saldo transportado são gravados só pelo servidor.
+ * Com marcador, nada do documento pode ser de competência até o corte, a não ser o transporte (datado no último dia do corte).
+ */
+export function historicoDoWorkspaceValido(payload: Record<string, unknown>): boolean {
+  const lancamentos = Array.isArray(payload.lancamentos) ? payload.lancamentos as Array<Record<string, unknown>> : [];
+  const transportes = lancamentos.filter((l) => l && l.transporteHistorico !== undefined);
+  const h = payload.historicoArquivado as Record<string, unknown> | undefined;
+  if (h === undefined) return transportes.length === 0;
+  if (!h || typeof h !== "object" || Array.isArray(h)) return false;
+  const chaves = ["ateCompetencia", "desdeCompetencia", "quantidade", "debitosCentavos", "transportes", "atualizadoEm", "motivo"];
+  if (Object.keys(h).some((k) => !chaves.includes(k))) return false;
+  const ate = String(h.ateCompetencia || "");
+  if (!/^\d{4}-12$/.test(ate) || typeof h.desdeCompetencia !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(h.desdeCompetencia) || h.desdeCompetencia > ate) return false;
+  if (!Number.isSafeInteger(h.quantidade) || (h.quantidade as number) < 0 || !Number.isSafeInteger(h.debitosCentavos) || (h.debitosCentavos as number) < 0) return false;
+  if (!Number.isSafeInteger(h.transportes) || h.transportes !== transportes.length) return false;
+  if (typeof h.atualizadoEm !== "string" || !Number.isFinite(Date.parse(h.atualizadoEm)) || !["migracao", "exercicio"].includes(String(h.motivo))) return false;
+  const dia = ultimoDiaDaCompetencia(ate);
+  for (const l of lancamentos) {
+    if (!l || typeof l !== "object") continue;
+    if (l.transporteHistorico !== undefined) {
+      if (l.transporteHistorico !== true || !String(l.id || "").startsWith(PREFIXO_TRANSPORTE) || l.data !== dia || l.competencia !== ate || l.origem !== "Cadastro" || l.statusManual !== undefined || l.estornoDe !== undefined) return false;
+      continue;
+    }
+    const comp = competenciaLancamento(l);
+    if (comp && comp <= ate) return false;
+  }
+  for (const p of Array.isArray(payload.preLancamentos) ? payload.preLancamentos as Array<Record<string, unknown>> : []) if (String(p?.competencia || "") <= ate) return false;
+  return true;
+}
 const ORIGENS_MAPEAVEIS = IDS_ORIGEM;
 const ORIGENS_PRELANCAMENTO = ROTULOS_ORIGEM;
 const CHAVES_CERTIFICADO_INFORMATIVAS = new Set([
@@ -819,12 +851,15 @@ export function camposEscrituracaoValidos(payload: Record<string, unknown>): boo
   return true;
 }
 
-export function workspaceValido(value: unknown): value is Record<string, unknown> {
+export function workspaceValido(value: unknown, opcoes: { historicoConferidoDepois?: boolean } = {}): value is Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const payload = value as Record<string, unknown>;
   if (Object.keys(payload).some((key) => !CAMPOS_WORKSPACE.has(key))) return false;
   const arrays = ["contas", "centrosCusto", "lancamentos", "livros", "lembretes"];
-  if (arrays.some((key) => !Array.isArray(payload[key]) || (payload[key] as unknown[]).length > 20000)) return false;
+  // Lançamentos: o teto do documento (exercícios em aberto); os antigos ficam no histórico guardado.
+  if (arrays.some((key) => !Array.isArray(payload[key]) || (payload[key] as unknown[]).length > (key === "lancamentos" ? LIMITES_DOCUMENTO.lancamentos : 20000))) return false;
+  // O navegador não manda o marcador do histórico (é do servidor): o salvar confere depois de juntar o marcador gravado.
+  if (!opcoes.historicoConferidoDepois && !historicoDoWorkspaceValido(payload)) return false;
   if (payload.bensImobilizado !== undefined) {
     if (!Array.isArray(payload.bensImobilizado) || payload.bensImobilizado.length > 5000) return false;
     const camposBem = ["id", "descricao", "filial", "custoCentavos", "residualCentavos", "vidaUtilMeses", "inicioDepreciacao", "depreciavel", "baixa", "transferencias", "ajustesQuota", "codigo", "fornecedor", "notaFiscal", "numeroSerie", "dataCompra", "contaBemCodigo", "contaDepreciacaoCodigo"];
@@ -904,7 +939,7 @@ export function workspaceValido(value: unknown): value is Record<string, unknown
   }
   if (payload.empresa !== undefined && (!payload.empresa || typeof payload.empresa !== "object" || Array.isArray(payload.empresa))) return false;
   const serialized = JSON.stringify(payload);
-  if (Buffer.byteLength(serialized, "utf8") > 4_000_000) return false;
+  if (Buffer.byteLength(serialized, "utf8") > LIMITES_DOCUMENTO.bytes) return false;
   const inspect = (item: unknown, depth = 0): boolean => {
     if (depth > 20) return false;
     if (Array.isArray(item)) return item.every((child) => inspect(child, depth + 1));
@@ -1362,6 +1397,8 @@ export async function fecharCompetenciaContabil(req: Request, res: Response): Pr
     const jaFechado = await client.query("SELECT 1 FROM contabil_period_closures WHERE cnpj=$1 AND competencia=$2", [cnpj, competencia]);
     if (jaFechado.rowCount) { await client.query("ROLLBACK"); res.status(409).json({ sucesso: false, motivo: "Esta competência já está fechada." }); return; }
     const payload = atual.rows[0].payload as Record<string, any>;
+    const corteHistorico = String(payload.historicoArquivado?.ateCompetencia || "");
+    if (corteHistorico && competencia <= corteHistorico) { await client.query("ROLLBACK"); res.status(409).json({ sucesso: false, motivo: `A competência ${competencia} está no histórico guardado (exercícios até ${corteHistorico.slice(0, 4)}), que já fica fechado.` }); return; }
     const contas = Array.isArray(payload.contas) ? payload.contas : [];
     const lancamentos = Array.isArray(payload.lancamentos) ? payload.lancamentos : [];
     const preLancamentos = Array.isArray(payload.preLancamentos) ? payload.preLancamentos : [];
@@ -1641,6 +1678,9 @@ export async function mesclarRascunhosAutomaticosContabil(
       const referencia = candidato.referenciaOrigem;
       if (!referencia.startsWith(`DP:${normalizado}:`) && !referencia.startsWith(`FISCAL:${normalizado}:`)) continue;
       if (fechados.has(candidato.competencia)) continue;
+      // Exercício guardado no histórico: está encerrado, o robô não prepara rascunho nele.
+      const corteHistorico = String((payload.historicoArquivado as Record<string, unknown> | undefined)?.ateCompetencia || "");
+      if (corteHistorico && candidato.competencia <= corteHistorico) continue;
       if (lancamentos.some((item) => item.documentoRef === referencia || item.id === referencia)) continue;
       const campoOrigem = origemDaReferencia(referencia)?.id ?? "";
       const mapeamento = mapeamentos.find((item) => item.origem === campoOrigem);
@@ -1899,12 +1939,46 @@ export async function listarWorkspacesContabil(req: Request, res: Response): Pro
   }
 }
 
+/**
+ * No salvar do navegador: junta o marcador do histórico gravado (o navegador não manda), confere que o saldo transportado não mudou e
+ * que nada novo caiu num exercício guardado. Rascunho automático de exercício guardado (preparado no salvar dos mapeamentos) sai.
+ * Devolve o motivo da recusa ou null.
+ */
+export function conferirHistoricoNoSalvar(atual: Record<string, unknown>, ...novos: Array<Record<string, unknown> | undefined>): string | null {
+  const marcador = atual.historicoArquivado as Record<string, unknown> | undefined;
+  const transportes = (p: Record<string, unknown>) => (Array.isArray(p.lancamentos) ? p.lancamentos as Array<Record<string, unknown>> : []).filter((l) => l && l.transporteHistorico !== undefined);
+  const esperado = jsonCanonico(transportes(atual));
+  for (const novo of novos) {
+    if (!novo || typeof novo !== "object") continue;
+    if (marcador) novo.historicoArquivado = marcador; else delete novo.historicoArquivado;
+    if (jsonCanonico(transportes(novo)) !== esperado) return "O saldo transportado do histórico guardado é gravado só pelo sistema e não pode ser alterado. Atualize a empresa e tente de novo.";
+    if (!marcador) continue;
+    const idsTransporte = new Set(transportes(novo).map((l) => String(l.id)));
+    if ((Array.isArray(novo.lancamentos) ? novo.lancamentos as Array<Record<string, unknown>> : []).some((l) => l && l.estornoDe !== undefined && idsTransporte.has(String(l.estornoDe)))) return "O saldo transportado do histórico guardado não se estorna. Para mudar um exercício guardado, traga-o de volta (Exercício consultado › Trazer de volta).";
+    const ate = String(marcador.ateCompetencia);
+    if (Array.isArray(novo.preLancamentos)) novo.preLancamentos = (novo.preLancamentos as Array<Record<string, unknown>>).filter((p) => !(String(p?.competencia || "") <= ate && p?.geradoAutomaticamente === true && p?.status === "pendente_conferencia"));
+    if (!historicoDoWorkspaceValido(novo)) return `Os exercícios até ${ate.slice(0, 4)} estão guardados no histórico e ficam fechados: não dá para lançar nem preparar rascunho com data até 31/12/${ate.slice(0, 4)}. Use uma data dos exercícios em aberto.`;
+    // O saldo transportado vale para as contas como estão: conta com saldo transportado continua analítica, e o saldo inicial
+    // (competência de abertura) não pode passar a cair dentro do histórico guardado.
+    const contasNovas = new Map((Array.isArray(novo.contas) ? novo.contas as Array<Record<string, any>> : []).map((c) => [String(c?.codigo || ""), c]));
+    for (const t of transportes(novo)) for (const k of [String(t.contaDebitoCodigo), String(t.contaCreditoCodigo)]) {
+      if (contasNovas.get(k)?.tipo !== "analitica") return `A conta ${k} tem saldo transportado do histórico guardado: ela não pode ser excluída nem virar sintética.`;
+    }
+    const contasAtuais = new Map((Array.isArray(atual.contas) ? atual.contas as Array<Record<string, any>> : []).map((c) => [String(c?.codigo || ""), c]));
+    for (const k of new Set([...contasAtuais.keys(), ...contasNovas.keys()])) {
+      const a = baseAberturaConta(contasAtuais.get(k)); const b = baseAberturaConta(contasNovas.get(k));
+      if (a !== b && ((a && a <= ate) || (b && b <= ate))) return `O saldo inicial da conta ${k} ficaria numa competência dos exercícios guardados no histórico (até ${ate.slice(0, 4)}). Informe o saldo inicial num exercício em aberto.`;
+    }
+  }
+  return null;
+}
+
 export async function salvarWorkspaceContabil(req: Request, res: Response, opcoes: { dadosPropostosPeloCliente?: unknown; permitirRascunhosServidor?: boolean } = {}): Promise<void> {
   const sessao = (req as Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
   const cnpj = normalizarCnpjAcesso(req.params.cnpj);
   if (!sessao || !sessao.cnpjs.includes(cnpj)) { res.status(403).json({ sucesso: false, motivo: "Empresa fora do seu acesso." }); return; }
   if (!sessao.administrador && sessao.memberships.find((item) => item.cnpj === cnpj)?.role === 'viewer') { res.status(403).json({ sucesso: false, motivo: "Seu acesso a esta empresa é somente leitura." }); return; }
-  if (!workspaceValido(req.body?.dados)) { res.status(422).json({ sucesso: false, motivo: "Workspace inválido, acima do limite ou contendo campos não permitidos." }); return; }
+  if (!workspaceValido(req.body?.dados, { historicoConferidoDepois: true })) { res.status(422).json({ sucesso: false, motivo: "Workspace inválido, acima do limite ou contendo campos não permitidos." }); return; }
   const cnpjDados = normalizarCnpjAcesso((req.body.dados as any).empresa?.cnpj);
   if (cnpjDados && cnpjDados !== cnpj) { res.status(422).json({ sucesso: false, motivo: "Os dados da empresa não correspondem ao CNPJ autorizado." }); return; }
   if (Array.isArray((req.body.dados as any).preLancamentos) && (req.body.dados as any).preLancamentos.some((item: any) => {
@@ -1927,6 +2001,11 @@ export async function salvarWorkspaceContabil(req: Request, res: Response, opcoe
     const payloadAtual = atual.rowCount ? atual.rows[0].payload as Record<string, unknown> : {};
     const versaoAtual = atual.rowCount ? Number(atual.rows[0].version) : null;
     if (versaoAtual !== versaoAnterior) { await client.query("ROLLBACK"); res.status(409).json({ sucesso: false, conflito: true, motivo: "Os dados desta empresa mudaram em outra sessão. Atualize a empresa antes de salvar." }); return; }
+    // Histórico guardado: o marcador e o saldo transportado continuam os do servidor; nada novo entra num exercício guardado.
+    {
+      const r = conferirHistoricoNoSalvar(payloadAtual, req.body.dados as Record<string, unknown>, opcoes.dadosPropostosPeloCliente as Record<string, unknown> | undefined);
+      if (r) { await client.query("ROLLBACK"); res.status(409).json({ sucesso: false, motivo: r }); return; }
+    }
     const propostaCliente = opcoes.dadosPropostosPeloCliente ?? req.body.dados;
     const fechamentos = await client.query("SELECT competencia FROM contabil_period_closures WHERE cnpj=$1", [cnpj]);
     const fechadoAtual = fechamentos.rows.map((row) => String(row.competencia));
