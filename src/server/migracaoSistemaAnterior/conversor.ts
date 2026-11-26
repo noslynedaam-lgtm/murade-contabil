@@ -95,6 +95,15 @@ const paiDe = (codigo: string) => (codigo.includes('.') ? codigo.slice(0, codigo
 const normalizarNome = (v: string) => v.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /** Cópia de uma linha sem colunas de credencial e com datas em texto. */
+/** O mesmo que limparLinha, mas na própria linha (sem cópia): para as tabelas grandes da empresa (lançamentos, saldos, lotes),
+ * que antes ficavam duas vezes na memória (a lida e a cópia guardada). Mesmas colunas, na mesma ordem, e as datas em texto ISO. */
+function limparLinhaNoLugar(l: Linha): Linha {
+  for (const [k, v] of Object.entries(l)) {
+    if (COLUNAS_NUNCA_GUARDAR.has(k.toLowerCase()) || k.toLowerCase() === 'imglogotipoempresa') delete l[k];
+    else if (v instanceof Date) l[k] = v.toISOString();
+  }
+  return l;
+}
 function limparLinha(l: Linha): Linha {
   const saida: Linha = {};
   for (const [k, v] of Object.entries(l)) {
@@ -193,6 +202,14 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
   const lidos: Record<string, number> = {};
   const blocos: Record<string, Linha[]> = {};
   const guardar = (bloco: string, linhas: Linha[]) => { if (linhas.length) blocos[bloco] = [...(blocos[bloco] || []), ...linhas.map(limparLinha)]; };
+  /** Tabelas grandes da empresa: guardadas sem cópia (a linha lida já vira a guardada). Depois disto só se usam colunas que não mudam
+   * (códigos, valores, textos) e a data do lançamento pelo dataIso, que dá o mesmo dia com a data ou com o texto ISO. */
+  const guardarSemCopia = (bloco: string, linhas: Linha[]) => {
+    if (!linhas.length) return;
+    if (blocos[bloco]) { guardar(bloco, linhas); return; }
+    for (const l of linhas) limparLinhaNoLugar(l);
+    blocos[bloco] = linhas;
+  };
   const tabela = async (nome: string) => (await ler(nome)) || [];
 
   const empresas = await tabela('wphd.empresa');
@@ -293,8 +310,8 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
 
   // ---- lançamentos ---------------------------------------------------------------------------------------------------
   const lotePorId = new Map(lt.map((l) => [txt(l.idlote), l]));
-  guardar('lotes', lt);
-  guardar('lancamentos_originais', mv);
+  guardarSemCopia('lotes', lt);
+  guardarSemCopia('lancamentos_originais', mv);
   const naoEntraram: NaoEntrou[] = [];
   type Perna = { linha: Linha; data: string; codigo: string; centavos: number };
   const pernas: Perna[] = [];
@@ -425,7 +442,7 @@ export async function montarDadosEmpresa(ler: LerTabela, cdempresa: number, opco
     somar(esperadoLancMapa, codigo, comp, c < 0 ? -c : 0, c > 0 ? c : 0);
   }
   const temTotais = sd.length > 0;
-  guardar('saldos', sd);
+  guardarSemCopia('saldos', sd);
   if (!sd.length && mv.length) avisos.push('O sistema anterior não tem a tabela de saldos desta empresa: a conferência compara só os lançamentos lidos com os gravados.');
 
   // ---- demais blocos com dado real (só consulta) -------------------------------------------------------------------

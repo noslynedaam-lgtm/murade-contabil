@@ -219,6 +219,10 @@ export function mesclarMigracao(
 
   // ---- lançamentos do sistema anterior (com os nomes das contas como ficaram no plano final)
   const porCodigo = new Map(contas.map((c) => [String(c.codigo), c]));
+  // Passou do limite: a mesma resposta, sem antes copiar todos os lançamentos (empresa enorme não pesa na memória do servidor).
+  if (daEquipe.length + dados.lancamentos.length > LIMITE_LANCAMENTOS) {
+    return { ...r, bloqueio: `Esta empresa ficaria com ${daEquipe.length + dados.lancamentos.length} lançamentos e o Murad guarda até ${LIMITE_LANCAMENTOS} por empresa. Nada foi gravado; o caso foi registrado para o suporte ampliar o limite.` };
+  }
   const novos = dados.lancamentos.map((l) => ({ ...l, contaDebitoNome: porCodigo.get(l.contaDebitoCodigo)?.descricao || l.contaDebitoNome, contaCreditoNome: porCodigo.get(l.contaCreditoCodigo)?.descricao || l.contaCreditoNome }));
   payload.lancamentos = [...daEquipe, ...novos];
   if (payload.lancamentos.length > LIMITE_LANCAMENTOS) {
