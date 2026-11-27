@@ -2,7 +2,12 @@ import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } f
 import { useFecharNoVoltar } from "../hooks/useVoltarCelular";
 import { ATRASO_ETAPA2_MS, ROTULO_CANCELAR, ROTULO_CONTINUAR, ROTULO_FINAL_PADRAO, ROTULO_VOLTAR_ETAPA2, TITULO_ETAPA2, TITULO_ETAPA2_REFAZIVEL } from "../utils/exclusaoDuasEtapas";
 import { escolherVozPtBr } from "../utils/vozNatural";
-import { resumoParaFala } from "../data/agenteAgil";
+import { chamouMurad, dicaDeChamada, janelaEmUso, resumoParaFala, semPalavraDeChamada } from "../data/agenteAgil";
+
+// Última interação nesta janela (clique, toque, tecla): decide quem responde ao "Murad" quando nenhuma janela tem foco.
+let ultimaInteracaoJanela = Date.now();
+if (typeof window !== "undefined") ["pointerdown", "keydown", "touchstart"].forEach((e) => window.addEventListener(e, () => { ultimaInteracaoJanela = Date.now(); }, { capture: true, passive: true }));
+const TEM_ESCUTA_CONTINUA = typeof window !== "undefined" && Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) && !/iPhone|iPad|iPod/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
 import { falarHumana, pararHumana, humanaFalando, ajustarVoz, bipRapido, prepararVoz, respostaRapida } from "../utils/vozHumana";
 import { Mic, MicOff, Volume2, VolumeX, Send, Bot, Sparkles, X, RotateCcw } from "lucide-react";
 import { AcaoAgenteCartao, ChatMessage, EmpresaDados, LancamentoContabil } from "../types";
@@ -42,7 +47,7 @@ const textoSemMarcas = (t: string): string => String(t || '')
   .trim();
 const limparTextoVoz = (t: string) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 // Nomes com que a pessoa chama a Agente antes do comando ("Contábil, para").
-const NOMES_CHAMADA = ["contabil", "contabilidade", "contabi"];
+const NOMES_CHAMADA = ["murad", "murade", "muradi", "mourad", "murat", "contabil", "contabilidade", "contabi"];
 
 export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
   isOpen: isOpenProp,
@@ -389,8 +394,18 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
     // Não compete com o botão de microfone da janela.
     if (!chamadaPorVoz || !SR || gravandoVoz) return;
     const limpar = limparTextoVoz;
-    const chamada = /\b(contabil|contabilidade|contabi)\b/;
+    // Palavra de chamada: "Murad" (e variações). Sem ela, a escuta contínua não dispara nada.
+    const chamada = { test: (t: string) => chamouMurad(t) };
     let ativo = true;
+    // Só a janela em uso escuta: ao perder o foco (ou ficar escondida) solta o microfone; ao voltar, retoma.
+    const emUso = () => janelaEmUso({ temFoco: document.hasFocus(), visivel: document.visibilityState === "visible", ultimaInteracaoMs: ultimaInteracaoJanela, agoraMs: Date.now() });
+    let pausadoPorFoco = false;
+    const aoMudarFoco = () => {
+      if (!ativo) return;
+      if (emUso()) { if (pausadoPorFoco) { pausadoPorFoco = false; iniciar(); } }
+      else { pausadoPorFoco = true; try { chamadaRef.current?.stop(); } catch { /* ignora */ } }
+    };
+    window.addEventListener("focus", aoMudarFoco); window.addEventListener("blur", aoMudarFoco); document.addEventListener("visibilitychange", aoMudarFoco);
     let tempoComando: number | undefined;
     let tempoEnvio: number | undefined;
     let bufferFala = "";
@@ -398,6 +413,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
     const tempoPreparo = window.setTimeout(() => { void prepararVoz(); }, 2500);
     const iniciar = () => {
       if (!ativo) return;
+      if (!emUso()) { pausadoPorFoco = true; return; }
       const rec = new SR();
       rec.lang = "pt-BR";
       rec.continuous = true;
@@ -443,7 +459,8 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
             window.clearTimeout(tempoEnvio);
             tempoEnvio = window.setTimeout(() => { const pergunta = bufferFala; bufferFala = ""; janelaConversaRef.current = 0; if (pergunta) enviarRef.current(pergunta); }, PAUSA_PARA_RESPONDER_MS);
           } else if (chamada.test(texto)) {
-            const resto = bruto.replace(/^[\s,.!?]*(contábil|contabil|contabilidade)[\s,.!?:-]*/i, "").trim();
+            if (!emUso()) continue; // outra janela é a que está em uso
+            const resto = semPalavraDeChamada(bruto);
             if (resto.split(" ").length >= 3) enviarRef.current(resto);
             else {
               bipRapido(); falarRef.current("Pois não?");
@@ -454,12 +471,12 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
         }
       };
       rec.onerror = (e: any) => { if (e?.error === "not-allowed" || e?.error === "service-not-allowed") { ativo = false; setChamadaPorVoz(false); } };
-      rec.onend = () => { if (ativo) window.setTimeout(iniciar, 150); };
+      rec.onend = () => { if (ativo && !pausadoPorFoco) window.setTimeout(iniciar, 150); };
       chamadaRef.current = rec;
       try { rec.start(); } catch { /* já iniciado */ }
     };
     iniciar();
-    return () => { ativo = false; window.clearTimeout(tempoPreparo); window.clearTimeout(tempoComando); window.clearTimeout(tempoEnvio); try { chamadaRef.current?.stop(); } catch { /* ignora */ } };
+    return () => { ativo = false; window.removeEventListener("focus", aoMudarFoco); window.removeEventListener("blur", aoMudarFoco); document.removeEventListener("visibilitychange", aoMudarFoco); window.clearTimeout(tempoPreparo); window.clearTimeout(tempoComando); window.clearTimeout(tempoEnvio); try { chamadaRef.current?.stop(); } catch { /* ignora */ } };
   }, [chamadaPorVoz, gravandoVoz]);
 
   if (!isOpen) {
@@ -487,7 +504,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
             onClick={() => { if (chamadaPorVoz) pararRef.current(); setChamadaPorVoz((v) => !v); }}
             aria-pressed={chamadaPorVoz}
             className={`flex h-9 min-w-[3.6rem] items-center justify-center gap-1 rounded-full border-2 px-2 text-xs font-bold shadow-lg transition active:scale-95 ${chamadaPorVoz ? "border-emerald-400 bg-[#0a2342] text-white" : "border-rose-300 bg-white/95 text-rose-700"}`}
-            title={chamadaPorVoz ? "Escutando. Toque para DESLIGAR a voz." : "Voz desligada. Toque para LIGAR."}
+            title={chamadaPorVoz ? `Escutando. ${dicaDeChamada(TEM_ESCUTA_CONTINUA)}. Toque para DESLIGAR a voz.` : `Voz desligada. Toque para LIGAR. ${dicaDeChamada(TEM_ESCUTA_CONTINUA)}.`}
             aria-label={chamadaPorVoz ? "Desligar a voz da assistente" : "Ligar a voz da assistente"}
           >
             {chamadaPorVoz ? "👂 ligada" : "🔇 desligada"}
@@ -551,7 +568,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
               onClick={() => setChamadaPorVoz((v) => !v)}
               aria-pressed={chamadaPorVoz}
               className={`p-2 rounded-lg text-xs font-semibold cursor-pointer transition ${chamadaPorVoz ? "bg-emerald-500/30 text-white" : "bg-white/10 text-white/60"}`}
-              title={chamadaPorVoz ? 'Chamada por voz LIGADA: diga "Contábil". Toque para desligar.' : 'Ligar chamada por voz: diga "Contábil" para chamar.'}
+              title={chamadaPorVoz ? `Chamada por voz LIGADA: ${dicaDeChamada(TEM_ESCUTA_CONTINUA)}. Toque para desligar.` : `Ligar chamada por voz: ${dicaDeChamada(TEM_ESCUTA_CONTINUA)}.`}
             >
               {chamadaPorVoz ? "👂 ligada" : "👂 desligada"}
             </button>

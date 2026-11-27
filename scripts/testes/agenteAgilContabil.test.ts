@@ -159,3 +159,26 @@ test('honestidade no Contábil: o que ainda não tem (ou tem em parte) responde 
   assert.match(respostaLevarContabil('tem reavaliação do patrimônio?')!.resposta, /^Tem em parte/);
   assert.match(respostaLevarContabil('tem balancete?')!.resposta, /^Tem sim: fica em Balancete/);
 });
+
+// ------------------------------------------------------------------ Fase 2: "Murad, confere a empresa"
+import { CONFERIDORES_CADASTRO, conferirCadastro, resumoDaConferenciaCadastro } from '../../src/data/conferenciaCadastroBasico';
+import { FERRAMENTAS_CONFERE } from '../../src/server/agenteConfere';
+
+test('confere o cadastro: sem erro diz "Está tudo certo"; com erro aponta (sem chutar valor) e só lê', async () => {
+  const boa = { cnpj: '11222333000181', razaoSocial: 'EMPRESA TESTE LTDA', cnae: '4120-4/00', cep: '74000-000', uf: 'GO' };
+  assert.deepEqual(conferirCadastro(boa), []);
+  assert.equal(resumoDaConferenciaCadastro('EMPRESA TESTE', []), 'Está tudo certo no cadastro da EMPRESA TESTE.');
+  const ruim = conferirCadastro({ cnpj: '11222333000199', razaoSocial: '', cnae: '41', cep: '7400', uf: 'XX' });
+  assert.deepEqual(ruim.map((a) => a.conferidor).sort(), ['cep_formato', 'cnae_formato', 'cnpj_digito', 'razao_social', 'uf_formato']);
+  assert.ok(ruim.every((a) => a.correcao === 'orientacao'));
+  assert.match(resumoDaConferenciaCadastro('X', ruim), /^Achei 5 erros no cadastro da X: o CNPJ não confere/);
+  // Campo que o cadastro não tem não vira erro.
+  assert.deepEqual(conferirCadastro({ cnpj: '11222333000181' }), []);
+  assert.ok(CONFERIDORES_CADASTRO.every((c) => c.oQueConfere && c.campo));
+  const chamadas: string[] = [];
+  const ctx: any = { chamarApi: async (m: string, c: string) => { chamadas.push(`${m} ${c}`); return { status: 200, corpo: { empresas: [{ ...boa, cnpj: '11222333000199' }] } }; } };
+  const r: any = await (FERRAMENTAS_CONFERE[0] as any).executar(ctx, { cnpj: '11222333000199' });
+  assert.equal(r.tudoCerto, false);
+  assert.deepEqual(chamadas, ['GET /api/workspaces']);
+  assert.ok(FERRAMENTAS_CONFERE.every((f) => f.tipo === 'leitura'));
+});
