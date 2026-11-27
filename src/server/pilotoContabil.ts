@@ -8,7 +8,8 @@
 import { erroApi, ok, q, type ContextoAgente, type Ferramenta } from './agenteMotor';
 import { CAMPOS_CONTABIL, IDS_DE_TELAS_CONTABIL, SECOES_CONTABIL, TELAS_CONTABIL, alvoDoCampo, campoDoMapa, type SecaoMapa, type TelaMapa } from '../data/mapaTelasContabil';
 import { MARCA_SO_MOSTRAR, validarPlanoPiloto, type PassoPiloto, type PlanoPiloto } from '../utils/pilotoVisivel';
-import { OFERTA_LEVAR, acharPorApelidos, assuntoDoPedidoDeLugar, ehPedidoDeLevar, ehPerguntaDeLocal, ehPerguntaSeTem, ehSimParaLevar, ofereceuLevar, respostaTemSim, semAcentoAgil } from '../data/agenteAgil';
+import { FUNCOES_QUE_FALTAM } from '../data/funcoesQueFaltam';
+import { OFERTA_LEVAR, respostaDoQueFalta, acharPorApelidos, assuntoDoPedidoDeLugar, ehPedidoDeLevar, ehPerguntaDeLocal, ehPerguntaSeTem, ehSimParaLevar, ofereceuLevar, respostaTemSim, semAcentoAgil } from '../data/agenteAgil';
 import { calcularProximoCodigoSequencial } from '../utils/planoContasUtils';
 
 const limpaCnpj = (v: unknown): string | null => { const d = String(v ?? '').replace(/[^0-9A-Za-z]/g, '').toUpperCase(); return /^[A-Z0-9]{12}\d{2}$/.test(d) ? d : null; };
@@ -314,7 +315,7 @@ export function planoParaLevarContabil(d: DestinoContabil): PlanoPiloto | null {
   const v = validarPlanoPiloto({ titulo: `Levando até ${d.tela.rotulo}`, passos });
   return v.ok ? v.plano : null;
 }
-export interface RespostaLevarContabil { resposta: string; piloto: PlanoPiloto; levarAgora: boolean }
+export interface RespostaLevarContabil { resposta: string; piloto: PlanoPiloto | null; levarAgora: boolean }
 const RE_NAO_E_LUGAR_C = /\b(quanto|quantos|quantas|quando|valor|aliquota|lei|artigo|porque|por que|status|situacao|vence|venceu|prazo|regra de|percentual)\b/;
 export function respostaLevarContabil(mensagem: string, historico: Array<{ papel: string; texto: string }> = []): RespostaLevarContabil | null {
   const t = semAcentoAgil(mensagem);
@@ -333,7 +334,12 @@ export function respostaLevarContabil(mensagem: string, historico: Array<{ papel
     return d ? levar(d, true) : null;
   }
   if (RE_NAO_E_LUGAR_C.test(t)) return null;
-  if (ehPerguntaSeTem(mensagem)) { const d = destinoDoPedido(mensagem); return d ? levar(d, false, true) : null; }
+  if (ehPerguntaSeTem(mensagem)) {
+    // Primeiro o que ainda NÃO tem (ou tem em parte): nunca dizer "tem sim" para isso.
+    const falta = respostaDoQueFalta(mensagem, FUNCOES_QUE_FALTAM);
+    if (falta) return { resposta: falta, piloto: null, levarAgora: false };
+    const d = destinoDoPedido(mensagem); return d ? levar(d, false, true) : null;
+  }
   if (ehPedidoDeLevar(mensagem)) { const d = destinoDoPedido(mensagem); return d ? levar(d, true) : null; }
   if (ehPerguntaDeLocal(mensagem)) { const d = destinoDoPedido(mensagem); return d ? levar(d, false) : null; }
   return null;

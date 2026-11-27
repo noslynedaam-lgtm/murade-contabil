@@ -1422,7 +1422,7 @@ const reconciliacaoRascunhosStatus: {
     const levarAgora = respostaLevarContabil(message, historico);
     if (levarAgora) {
       console.log(`[Agente tempo] sistema=contabil perfil=simples atalho=${levarAgora.levarAgora ? "levar" : "onde_fica"} total=${Date.now() - inicioPedido}ms modelo=0ms`);
-      return res.json({ sucesso: true, resposta: levarAgora.resposta, acoes: [], whatsapp: [], ...(levarAgora.levarAgora ? { piloto: levarAgora.piloto } : { oferta: { rotulo: "Me leva lá", piloto: levarAgora.piloto } }) });
+      return res.json({ sucesso: true, resposta: levarAgora.resposta, acoes: [], whatsapp: [], ...(levarAgora.piloto ? (levarAgora.levarAgora ? { piloto: levarAgora.piloto } : { oferta: { rotulo: "Me leva lá", piloto: levarAgora.piloto } }) : {}) });
     }
     // Nunca recusa por tamanho: até 500.000 caracteres; acima disso lê o começo e avisa. Texto longo vai por etapas.
     if (!getAI()) return res.status(503).json({ error: "Agente indisponível: configure GEMINI_API_KEY no servidor." });

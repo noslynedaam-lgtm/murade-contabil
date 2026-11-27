@@ -458,3 +458,20 @@ export function acharPorApelidos<T>(assunto: string, itens: Array<{ item: T; nom
   }
   return melhor && !empate ? melhor.item : null;
 }
+
+// ------------------------------------------------------------------------------------------------ o que ainda não tem (honestidade)
+/** Função que o sistema ainda NÃO tem ou tem só em parte (levantamento conferido no código). Está na lista de melhorias. */
+export interface FuncaoQueFalta { id: string; tipo: 'nao_tem' | 'parcial'; nomes: string[]; /** Frase curta: o que é (e, no parcial, o que já faz e o que falta). */ texto: string }
+export const LISTA_DE_MELHORIAS = 'Já está na lista de melhorias.';
+/** "Tem autônomo/RPA?": se a função está no catálogo do que falta, responde a verdade (não tem / tem em parte). */
+export function respostaDoQueFalta(mensagem: string, catalogo: FuncaoQueFalta[]): string | null {
+  // Aqui o nome da função é que tem de estar INTEIRO na pergunta ("férias em dobro" só quando a pessoa disse "em dobro"; "férias" sozinho não).
+  const palavras = assuntoDoPedidoDeLugar(mensagem).split(' ').filter(Boolean);
+  let f: FuncaoQueFalta | null = null; let maior = 0;
+  for (const x of catalogo) for (const nome of x.nomes) {
+    const n = semAcentoAgil(nome).split(' ').filter((w) => w && !VAZIAS.has(w));
+    if (n.length && n.every((w) => palavras.some((p) => casa(p, w))) && n.length > maior) { f = x; maior = n.length; }
+  }
+  if (!f) return null;
+  return f.tipo === 'nao_tem' ? `Ainda não tem ${f.texto} ${LISTA_DE_MELHORIAS}` : `Tem em parte: ${f.texto} ${LISTA_DE_MELHORIAS}`;
+}

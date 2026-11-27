@@ -152,3 +152,10 @@ test('kit real do Contábil: pergunta simples vai com bem menos ferramentas e pe
   assert.equal(vistos[0].perfil, 'simples');
   assert.equal(vistos[1].n, kitContabil.ferramentas.length);
 });
+
+test('honestidade no Contábil: o que ainda não tem (ou tem em parte) responde a verdade, nunca "tem sim"', () => {
+  assert.match(respostaLevarContabil('o sistema tem LCDPR?')!.resposta, /^Ainda não tem o LCDPR.*Já está na lista de melhorias\.$/);
+  assert.match(respostaLevarContabil('tem carnê-leão?')!.resposta, /^Ainda não tem/);
+  assert.match(respostaLevarContabil('tem reavaliação do patrimônio?')!.resposta, /^Tem em parte/);
+  assert.match(respostaLevarContabil('tem balancete?')!.resposta, /^Tem sim: fica em Balancete/);
+});
