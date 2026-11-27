@@ -9,7 +9,7 @@ test('topo igual ao DP: uma linha no computador, conta no menu, sem a faixa pret
   const h = ler('src/components/Header.tsx');
   assert.match(h, /topo-seguro bg-\[#082B66\]/);
   assert.match(h, /flex-wrap lg:flex-nowrap/);
-  for (const t of ['aria-label="Assistente IA"', '<BotaoRobosCabecalho />', 'aria-label="Calculadora"', 'Puxar do Fiscal', 'semLetra']) assert.ok(h.includes(t), t);
+  for (const t of ['aria-label="Murad"', '<BotaoRobosCabecalho />', 'aria-label="Calculadora"', 'Puxar do Fiscal', 'semLetra']) assert.ok(h.includes(t), t);
   assert.equal((h.match(/<MenuContaContabil onAbrirMeuJeito=\{onAbrirMeuJeito\} \/>/g) || []).length, 2);
   const m = ler('src/components/MenuContaContabil.tsx');
   for (const t of ['Tamanho da letra', 'Usuários e licenças', 'Meu jeito', 'Segurança', 'Sair']) assert.ok(m.includes(t), t);
@@ -26,4 +26,11 @@ test('celular: topo visível, página sem rolagem, botão Menu flutuante e títu
   const app = ler('src/App.tsx');
   assert.match(app, /useTelaFixa\(\);/); assert.match(app, /id="btn-menu-flutuante"/);
   assert.match(app, /onAbrirIA=\{\(\) => assistenteRef\.current\?\.abrir\(\)\}/);
+});
+
+test('botão flutuante mostra "Murad" (pílula pequena) e o topo diz "Murad", não "Assistente IA" (27/11/2026)', () => {
+  const w = ler('src/components/IAMuradModal.tsx');
+  assert.match(w, /<span>Murad<\/span>/); assert.match(w, /aria-label="Abrir a conversa com a Murad"/);
+  const h = ler('src/components/Header.tsx');
+  assert.ok(!/>Assistente IA</.test(h)); assert.match(h, /<span>Murad<\/span>/);
 });

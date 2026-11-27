@@ -490,11 +490,12 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
           <button
             type="button"
             onClick={() => onOpen?.()}
-            className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-slate-300 bg-white/90 text-base text-slate-700 shadow-lg transition active:scale-95"
-            title="Abrir a conversa escrita"
-            aria-label="Abrir a conversa com a assistente"
+            className="flex h-9 items-center justify-center gap-1 rounded-full border-2 border-slate-300 bg-white/90 px-2.5 text-xs font-bold text-[#082B66] shadow-lg transition active:scale-95"
+            title="Abrir a conversa com a Murad"
+            aria-label="Abrir a conversa com a Murad"
           >
-            💬
+            <span aria-hidden="true" className="text-sm leading-none">💬</span>
+            <span>Murad</span>
           </button>
           <button
             type="button"

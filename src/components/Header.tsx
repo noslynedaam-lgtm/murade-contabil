@@ -47,7 +47,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [buscaCelularAberta, setBuscaCelularAberta] = useState(false);
   const botaoTopo = "flex h-7 shrink-0 items-center gap-1.5 rounded-[5px] px-2 text-[11px] font-bold text-white transition cursor-pointer shadow-xs border";
   // Barra de cima igual à do DP (aprovada pelo dono, 25/11/2026): uma linha só no computador — marca, empresa, pesquisa,
-  // Assistente IA, Robôs, Calculadora, Puxar do Fiscal e o menu da conta (e-mail, letra, usuários, segurança, Sair) — e duas
+  // Murad, Robôs, Calculadora, Puxar do Fiscal e o menu da conta (e-mail, letra, usuários, segurança, Sair) — e duas
   // linhas no celular. A faixa preta "Conta" de cima saiu: tudo dela está no menu da conta.
   return (
     <header className="topo-seguro bg-[#082B66] border-b border-[#0A357D] sticky top-0 z-30 text-white shadow-md shrink-0">
@@ -112,9 +112,9 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
           {onAbrirIA && (
-            <button type="button" onClick={onAbrirIA} className={`${botaoTopo} bg-indigo-700 hover:bg-indigo-600 border-indigo-500/50`} title="Pergunte à assistente Murad, com pesquisa e fontes" aria-label="Assistente IA">
+            <button type="button" onClick={onAbrirIA} className={`${botaoTopo} bg-indigo-700 hover:bg-indigo-600 border-indigo-500/50`} title="Pergunte à Murad, com pesquisa e fontes" aria-label="Murad">
               <Bot className="w-3.5 h-3.5 text-cyan-200" />
-              <span className="hidden 2xl:inline">Assistente IA</span>
+              <span>Murad</span>
             </button>
           )}
           <BotaoRobosCabecalho />
