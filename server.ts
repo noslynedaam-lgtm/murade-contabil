@@ -1,4 +1,5 @@
-import { MAX_TURNOS_HISTORICO, aceitaTemperatura, configDoPerfil, type PerfilPedido } from "./src/data/agenteAgil";
+import { MAX_TURNOS_HISTORICO, aceitaTemperatura, configDoPerfil, fraseDaReconferencia, type PerfilPedido } from "./src/data/agenteAgil";
+import { FERRAMENTAS_CONFERE } from "./src/server/agenteConfere";
 import { respostaLevarContabil } from "./src/server/pilotoContabil";
 import { enviarExtratoParaBaixa } from "./src/server/baixaGuiasFiscal";
 import { registrarRotasCentralLucroReal } from "./src/server/centralLucroRealRotas";
@@ -1449,6 +1450,17 @@ const reconciliacaoRascunhosStatus: {
     if (!ctx) return res.status(401).json({ sucesso: false, mensagem: "Entre novamente para continuar." });
     const resultado = await avancarAcaoAgenteIA(ctx, String(req.body?.id || ""));
     return res.status(resultado.sucesso ? 200 : 422).json(resultado);
+  });
+  // Depois do "faz certo": a tela pede para conferir de novo (só lê) e a Murad diz "Pronto, agora está certo." ou o que ainda falta.
+  app.post("/api/ai/agente/reconferir", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const ctx = contextoAgenteIA(req);
+    if (!ctx) return res.status(401).json({ sucesso: false });
+    try {
+      const r: any = await (FERRAMENTAS_CONFERE[0] as any).executar(ctx, { cnpj: String(req.body?.cnpj || "") });
+      if (r?.erro) return res.json({ sucesso: false, frase: null });
+      return res.json({ sucesso: true, frase: fraseDaReconferencia((r.achados || []).map((a: any) => String(a?.erro || a))) });
+    } catch { return res.json({ sucesso: false, frase: null }); }
   });
   app.post("/api/ai/agente/confirmar", exigirSessaoContabil, async (req, res) => {
     res.setHeader("Cache-Control", "no-store");

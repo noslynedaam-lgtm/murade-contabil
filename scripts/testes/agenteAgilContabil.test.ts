@@ -182,3 +182,43 @@ test('confere o cadastro: sem erro diz "Está tudo certo"; com erro aponta (sem 
   assert.deepEqual(chamadas, ['GET /api/workspaces']);
   assert.ok(FERRAMENTAS_CONFERE.every((f) => f.tipo === 'leitura'));
 });
+
+// ------------------------------------------------------------------ Fase 2: faz certo (Contábil), piloto ligeiro e retomada
+import { planoDeCorrecaoContabil } from '../../src/server/pilotoContabil';
+import { MS_POR_CARACTERE } from '../../src/utils/pilotoVisivel';
+import { ehPlanoDeCorrecao, pilotoPodeRetomar, ritmoInicialDoPiloto } from '../../src/data/agenteAgil';
+
+test('faz certo no Contábil: CEP no formato dos Correios e razão social sem espaços; o piloto preenche e PARA no Salvar Empresa com OK', async () => {
+  const emp = { cnpj: '11222333000181', razaoSocial: 'EMPRESA  TESTE LTDA ', cep: '74000000' };
+  const achados = conferirCadastro(emp);
+  assert.deepEqual(achados.map((a) => [a.conferidor, a.correcao, a.valorCerto]).sort(), [['cep_formato', 'com_ok', '74000-000'], ['razao_espacos', 'com_ok', 'EMPRESA TESTE LTDA']]);
+  const plano = planoDeCorrecaoContabil({ cnpj: emp.cnpj, nome: 'EMPRESA TESTE' }, achados)!;
+  assert.ok(plano && ehPlanoDeCorrecao(plano.titulo));
+  assert.equal(plano.passos[0].alvo, '[data-campo=empresa-ativa]');
+  assert.equal(plano.passos[1].alvo, '#btn-menu-empresa');
+  assert.ok(plano.passos.some((p) => p.alvo === '[data-campo=empresa-cep]' && p.valor === '74000-000'));
+  assert.equal(plano.passos.at(-1)!.tipo, 'parar_no_botao');
+  assert.equal(plano.passos.at(-1)!.alvo, '[data-campo=empresa-salvar]');
+  // No executor: o Salvar só depois do OK do cartão.
+  const amb = new FalsoQueAperta({
+    '[data-campo=empresa-ativa]': { alvo: '[data-campo=empresa-ativa]', modo: 'instantaneo' }, '#btn-menu-empresa': { alvo: '#btn-menu-empresa', abre: true },
+    '[data-campo=empresa-razao-social]': { alvo: '[data-campo=empresa-razao-social]' }, '[data-campo=empresa-cep]': { alvo: '[data-campo=empresa-cep]' },
+    '[data-campo=empresa-salvar]': { alvo: '[data-campo=empresa-salvar]', final: 'salvar' },
+  });
+  amb.textos = { '[data-campo=empresa-salvar]': 'Salvar Empresa' };
+  const exec = new PilotoExecutor(plano, amb, { ritmo: 'rapido' });
+  void exec.iniciar();
+  for (let i = 0; i < 400 && exec.getEstado() !== 'aguardando_confirmacao'; i += 1) await ocioso(2);
+  assert.equal(exec.getEstado(), 'aguardando_confirmacao');
+  assert.ok(!amb.apertados.includes('[data-campo=empresa-salvar]'), 'não salvou antes do OK');
+  assert.equal(amb.cliquesFinais, 0);
+  exec.cancelar();
+  assert.equal(planoDeCorrecaoContabil({ cnpj: emp.cnpj, nome: 'X' }, conferirCadastro({ cnpj: emp.cnpj, cep: '7400' })), null, 'CEP sem 8 dígitos: só aponta');
+});
+
+test('piloto do Contábil ligeiro, "reduzir animação" no rápido e retomada sozinha só sem digitação e sem OK aberto', () => {
+  assert.ok(MS_POR_CARACTERE.normal >= 25 && MS_POR_CARACTERE.normal <= 40);
+  assert.equal(ritmoInicialDoPiloto(true, 'normal', 'rapido'), 'rapido');
+  assert.equal(pilotoPodeRetomar({ pausadoPorInterferencia: true, msDesdeUltimaInteracao: 5000, digitouEmCampo: false, aguardandoOk: false }), true);
+  assert.equal(pilotoPodeRetomar({ pausadoPorInterferencia: true, msDesdeUltimaInteracao: 5000, digitouEmCampo: true, aguardandoOk: false }), false);
+});

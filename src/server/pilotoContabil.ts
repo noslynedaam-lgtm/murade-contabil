@@ -9,7 +9,7 @@ import { erroApi, ok, q, type ContextoAgente, type Ferramenta } from './agenteMo
 import { CAMPOS_CONTABIL, IDS_DE_TELAS_CONTABIL, SECOES_CONTABIL, TELAS_CONTABIL, alvoDoCampo, campoDoMapa, type SecaoMapa, type TelaMapa } from '../data/mapaTelasContabil';
 import { MARCA_SO_MOSTRAR, validarPlanoPiloto, type PassoPiloto, type PlanoPiloto } from '../utils/pilotoVisivel';
 import { FUNCOES_QUE_FALTAM } from '../data/funcoesQueFaltam';
-import { OFERTA_LEVAR, respostaDoQueFalta, acharPorApelidos, assuntoDoPedidoDeLugar, ehPedidoDeLevar, ehPerguntaDeLocal, ehPerguntaSeTem, ehSimParaLevar, ofereceuLevar, respostaTemSim, semAcentoAgil } from '../data/agenteAgil';
+import { TITULO_CORRECAO, OFERTA_LEVAR, respostaDoQueFalta, acharPorApelidos, assuntoDoPedidoDeLugar, ehPedidoDeLevar, ehPerguntaDeLocal, ehPerguntaSeTem, ehSimParaLevar, ofereceuLevar, respostaTemSim, semAcentoAgil } from '../data/agenteAgil';
 import { calcularProximoCodigoSequencial } from '../utils/planoContasUtils';
 
 const limpaCnpj = (v: unknown): string | null => { const d = String(v ?? '').replace(/[^0-9A-Za-z]/g, '').toUpperCase(); return /^[A-Z0-9]{12}\d{2}$/.test(d) ? d : null; };
@@ -343,4 +343,19 @@ export function respostaLevarContabil(mensagem: string, historico: Array<{ papel
   if (ehPedidoDeLevar(mensagem)) { const d = destinoDoPedido(mensagem); return d ? levar(d, true) : null; }
   if (ehPerguntaDeLocal(mensagem)) { const d = destinoDoPedido(mensagem); return d ? levar(d, false) : null; }
   return null;
+}
+
+// ---------------------------------------------------------------------------------------------
+// "Faz certo" do cadastro da empresa: só o que tem valor certo garantido (CEP no formato dos Correios, espaços sobrando na razão
+// social). O piloto escolhe a empresa, abre Cadastro de Empresa, preenche à vista e PARA no Salvar Empresa com o cartão de OK.
+// ---------------------------------------------------------------------------------------------
+const CAMPO_DA_TELA_EMPRESA: Record<string, string> = { cep: 'empresa-cep', razaoSocial: 'empresa-razao-social' };
+export function planoDeCorrecaoContabil(e: { cnpj: string; nome: string }, achados: Array<{ campo: string; rotulo: string; correcao: string; valorCerto?: string; fonte?: string }>): PlanoPiloto | null {
+  const corrigir = achados.filter((a) => a.correcao === 'com_ok' && a.valorCerto !== undefined && CAMPO_DA_TELA_EMPRESA[a.campo]);
+  if (!corrigir.length) return null;
+  const passos: PassoPiloto[] = [passoEmpresa(e), passoTela('empresa', 'Cadastro de Empresa')];
+  for (const a of corrigir) passos.push({ tipo: 'preencher', alvo: alvoDoCampo(CAMPO_DA_TELA_EMPRESA[a.campo]), valor: a.valorCerto!, legenda: `${a.rotulo}: ${a.valorCerto} (${a.fonte})`.slice(0, 160) });
+  passos.push({ tipo: 'parar_no_botao', alvo: alvoDoCampo('empresa-salvar'), legenda: 'Confira e clique em Salvar Empresa. Eu não salvo por você.' });
+  const v = validarPlanoPiloto({ titulo: `${TITULO_CORRECAO} ${(e.nome || fmtCnpj(e.cnpj)).slice(0, 60)}`, passos });
+  return v.ok ? v.plano : null;
 }

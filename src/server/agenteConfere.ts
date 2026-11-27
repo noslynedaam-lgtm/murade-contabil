@@ -2,6 +2,8 @@
 // frases. Só lê. Os erros daqui são de orientação (sem fonte do valor certo, a Murad não preenche): ela aponta e leva até a tela.
 import { cnpjDe, erroApi, ok, type ContextoAgente, type Ferramenta } from './agenteMotor';
 import { conferirCadastro, resumoDaConferenciaCadastro } from '../data/conferenciaCadastroBasico';
+import { planoDeCorrecaoContabil } from './pilotoContabil';
+import { fraseDaReconferencia } from '../data/agenteAgil';
 
 async function empresa(ctx: ContextoAgente, cnpjArg: unknown, nomeArg: unknown): Promise<{ erro: string } | { empresa: any }> {
   const r = await ctx.chamarApi('GET', '/api/workspaces');
@@ -15,7 +17,7 @@ async function empresa(ctx: ContextoAgente, cnpjArg: unknown, nomeArg: unknown):
   return achadas.length === 1 ? { empresa: achadas[0] } : { erro: achadas.length ? `Há ${achadas.length} empresas com esse nome; diga qual (ou o CNPJ).` : 'Não achei essa empresa entre as suas.' };
 }
 
-export const FERRAMENTAS_CONFERE: Ferramenta[] = [{
+const FERRAMENTA_CONFERIR: Ferramenta = {
   tipo: 'leitura',
   declaracao: {
     name: 'conferir_cadastro_empresa',
@@ -27,8 +29,27 @@ export const FERRAMENTAS_CONFERE: Ferramenta[] = [{
     if ('erro' in r) return r;
     const nome = String(r.empresa?.razaoSocial || r.empresa?.nomeFantasia || 'empresa').slice(0, 80);
     const achados = conferirCadastro(r.empresa);
-    return { empresa: nome, tudoCerto: !achados.length, achados: achados.map((a) => ({ campo: a.rotulo, erro: a.texto })), resumo: resumoDaConferenciaCadastro(nome, achados), instrucao: 'Diga a frase `resumo` e nada mais.' };
+    return { empresa: nome, tudoCerto: !achados.length, achados: achados.map((a) => ({ campo: a.rotulo, erro: a.texto, valorCerto: a.valorCerto ?? null })), resumo: resumoDaConferenciaCadastro(nome, achados), instrucao: 'Diga a frase `resumo` e nada mais. Com "sim/corrige" use corrigir_cadastro_empresa.' };
   },
-}];
+};
+const FERRAMENTA_CORRIGIR: Ferramenta = {
+  tipo: 'leitura',
+  declaracao: {
+    name: 'corrigir_cadastro_empresa',
+    description: 'Depois de conferir_cadastro_empresa, com "sim", "corrige", "faz certo": o piloto escolhe a empresa, abre o Cadastro de Empresa, preenche à vista só o que tem valor certo garantido (CEP no formato 00000-000, razão social sem espaços sobrando) e PARA no Salvar Empresa com o cartão de OK. O resto ele só aponta. Nunca grava sem o OK.',
+    parameters: { type: 'OBJECT', properties: { cnpj: { type: 'STRING', description: 'CNPJ da empresa.' }, nome: { type: 'STRING', description: 'Nome da empresa.' } } },
+  },
+  async executar(ctx, args) {
+    const r = await empresa(ctx, args.cnpj, args.nome);
+    if ('erro' in r) return r;
+    const nome = String(r.empresa?.razaoSocial || r.empresa?.nomeFantasia || 'empresa').slice(0, 80);
+    const achados = conferirCadastro(r.empresa);
+    const piloto = planoDeCorrecaoContabil({ cnpj: String(cnpjDe(r.empresa?.cnpj) || ''), nome }, achados);
+    const soApontar = achados.filter((a) => a.correcao !== 'com_ok').map((a) => a.texto);
+    if (!piloto) return { resumo: soApontar.length ? `Esses eu só aponto (não tenho a fonte do valor certo): ${soApontar.slice(0, 2).join('; ')}.` : fraseDaReconferencia([]), instrucao: 'Diga a frase `resumo`.' };
+    return { piloto, resumo: 'Vou abrir o cadastro e preencher; você confere e dá o OK no Salvar.', instrucao: 'Diga a frase `resumo`. Nada foi gravado.' };
+  },
+};
+export const FERRAMENTAS_CONFERE: Ferramenta[] = [FERRAMENTA_CONFERIR, FERRAMENTA_CORRIGIR];
 export const INSTRUCAO_CONFERE = `
-CONFERIR ("Murad, confere a empresa X", "isso está errado"): use conferir_cadastro_empresa e responda com a frase pronta. Erro sem fonte do valor certo você só aponta e leva até a tela; nunca invente valor.`;
+CONFERIR ("Murad, confere a empresa X", "isso está errado"): use conferir_cadastro_empresa e responda com a frase pronta. Com "sim/corrige/faz certo" use corrigir_cadastro_empresa: o piloto preenche à vista e para no Salvar com o cartão de OK. Erro sem fonte do valor certo você só aponta e leva até a tela; nunca invente valor.`;

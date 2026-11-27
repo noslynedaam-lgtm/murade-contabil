@@ -40,9 +40,10 @@ export type RespostaPiloto = PlanoPiloto | { comando: ComandoPiloto };
 export type EstadoPiloto = 'rodando' | 'pausado' | 'segundo_plano' | 'aguardando_confirmacao' | 'concluido' | 'cancelado' | 'erro';
 export type Ritmo = 'devagar' | 'normal' | 'rapido';
 
-export const MS_POR_CARACTERE: Record<Ritmo, number> = { devagar: 90, normal: 50, rapido: 18 };
-export const MS_ENTRE_CAMPOS: Record<Ritmo, number> = { devagar: 1100, normal: 650, rapido: 200 };
-export const MS_APOS_DESTAQUE: Record<Ritmo, number> = { devagar: 1800, normal: 1100, rapido: 350 };
+// Pedido do dono (27/11/2026): ligeiro — 25 a 40 ms por letra e cada passo em até ~600 ms.
+export const MS_POR_CARACTERE: Record<Ritmo, number> = { devagar: 90, normal: 35, rapido: 18 };
+export const MS_ENTRE_CAMPOS: Record<Ritmo, number> = { devagar: 1100, normal: 400, rapido: 200 };
+export const MS_APOS_DESTAQUE: Record<Ritmo, number> = { devagar: 1800, normal: 600, rapido: 350 };
 
 export const MSG_INTERFERENCIA = 'Você interferiu, vou pausar. Quando quiser que eu continue, é só me avisar.';
 export const MSG_CONTINUANDO = 'Certo, continuando de onde parei.';

@@ -1,12 +1,9 @@
+import { estaJanelaEmUso } from "../utils/janelaAtiva";
 import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import { useFecharNoVoltar } from "../hooks/useVoltarCelular";
 import { ATRASO_ETAPA2_MS, ROTULO_CANCELAR, ROTULO_CONTINUAR, ROTULO_FINAL_PADRAO, ROTULO_VOLTAR_ETAPA2, TITULO_ETAPA2, TITULO_ETAPA2_REFAZIVEL } from "../utils/exclusaoDuasEtapas";
 import { escolherVozPtBr } from "../utils/vozNatural";
-import { chamouMurad, dicaDeChamada, janelaEmUso, resumoParaFala, semPalavraDeChamada } from "../data/agenteAgil";
-
-// Última interação nesta janela (clique, toque, tecla): decide quem responde ao "Murad" quando nenhuma janela tem foco.
-let ultimaInteracaoJanela = Date.now();
-if (typeof window !== "undefined") ["pointerdown", "keydown", "touchstart"].forEach((e) => window.addEventListener(e, () => { ultimaInteracaoJanela = Date.now(); }, { capture: true, passive: true }));
+import { chamouMurad, dicaDeChamada, resumoParaFala, semPalavraDeChamada } from "../data/agenteAgil";
 const TEM_ESCUTA_CONTINUA = typeof window !== "undefined" && Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) && !/iPhone|iPad|iPod/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
 import { falarHumana, pararHumana, humanaFalando, ajustarVoz, bipRapido, prepararVoz, respostaRapida } from "../utils/vozHumana";
 import { Mic, MicOff, Volume2, VolumeX, Send, Bot, Sparkles, X, RotateCcw } from "lucide-react";
@@ -398,7 +395,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
     const chamada = { test: (t: string) => chamouMurad(t) };
     let ativo = true;
     // Só a janela em uso escuta: ao perder o foco (ou ficar escondida) solta o microfone; ao voltar, retoma.
-    const emUso = () => janelaEmUso({ temFoco: document.hasFocus(), visivel: document.visibilityState === "visible", ultimaInteracaoMs: ultimaInteracaoJanela, agoraMs: Date.now() });
+    const emUso = () => estaJanelaEmUso();
     let pausadoPorFoco = false;
     const aoMudarFoco = () => {
       if (!ativo) return;

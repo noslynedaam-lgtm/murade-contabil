@@ -73,7 +73,7 @@ test('sem como apertar (ambiente sem clique animado): executa a sequência, digi
   const num = amb.log.filter((l) => l.startsWith('valor:[data-campo=lancamento-valor]=')).map((l) => l.split(']=')[1]);
   assert.ok(!num.includes('1500.'), num.join('|'));
   assert.equal(num[num.length - 1], '1500.50');
-  assert.ok(amb.esperas.includes(MS_POR_CARACTERE.normal) && MS_POR_CARACTERE.normal >= 40 && MS_POR_CARACTERE.normal <= 60);
+  assert.ok(amb.esperas.includes(MS_POR_CARACTERE.normal) && MS_POR_CARACTERE.normal >= 25 && MS_POR_CARACTERE.normal <= 40); // ligeiro (pedido do dono, 27/11/2026)
   assert.equal(amb.cliquesFinais, 0, 'parar_no_botao nunca clica');
   assert.ok(!amb.log.some((l) => l === 'clicar:[data-campo=lancamento-gravar]'));
   assert.ok(amb.log.includes('destacar:[data-campo=lancamento-gravar]:final'));

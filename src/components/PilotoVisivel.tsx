@@ -1,6 +1,8 @@
 // Piloto Visível: recebe o roteiro da Agente IA (evento 'murade:piloto'), FAZ na tela mostrando (abre pelo menu, aperta os
 // botões com a seta animada, preenche) e mostra controles compactos (sem faixa fixa: um cartão pequeno no canto).
 // O que grava/envia passa pelo cartão "Confira e dê o OK". Toda a lógica está em src/utils/pilotoVisivel.ts.
+import { reconferirAposCorrigir } from '../utils/reconferirAposCorrigir';
+import { pilotoPodeRetomar, ritmoInicialDoPiloto } from '../data/agenteAgil';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   PilotoExecutor, aplicarIntencaoAoPiloto, criarAmbienteDom, pilotoAtivo, registrarPilotoAtivo, validarPlanoPiloto,
@@ -57,13 +59,16 @@ export const PilotoVisivel: React.FC<Props> = (props) => {
         empresaPronta: () => ref.current.empresaPronta,
       });
       const exec = new PilotoExecutor(v.plano, amb, {
-        ritmo: lerRitmo(),
+        // "Reduzir animação" do aparelho: começa no ritmo rápido, sem animação longa.
+        ritmo: ritmoInicialDoPiloto<Ritmo>(typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches, lerRitmo(), 'rapido'),
         aoMudar: (i) => { setSnap(i); setOculto(false); },
         aoFalar: (t) => ref.current.aoFalar(t),
         aoFim: (res) => {
           // Registro no log de ações da Agente: só título, contagens e estado. Nunca valores digitados.
           void fetch('/api/ai/agente/piloto/registro', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ titulo: res.titulo, estado: res.estado, passosFeitos: res.passosFeitos, total: res.total, interferencias: res.interferencias, recusados: res.recusados, usouSegundoPlano: res.usouSegundoPlano }) }).catch(() => undefined);
           esconderCursor();
+          // "Faz certo": terminou (OK dado e salvo) → confere de novo e a Murad diz "Pronto, agora está certo.".
+          if (res.estado === 'concluido') void reconferirAposCorrigir(v.plano, (t) => ref.current.aoFalar(t));
           // Terminou certinho: some em 3,5 s. Se faltou algo (avisos) ou deu erro, o texto fica até a pessoa fechar.
           if (res.estado === 'concluido' && !exec.instantaneo().avisos.length) window.setTimeout(() => { if (execRef.current === exec) setOculto(true); }, 3500);
         },
@@ -93,11 +98,24 @@ export const PilotoVisivel: React.FC<Props> = (props) => {
   // Interferência: só sabemos QUE houve toque ou tecla (isTrusted = pessoa de verdade). Nunca lemos a tecla nem o campo.
   useEffect(() => {
     const dentro = (t: EventTarget | null) => !!(t as Element | null)?.closest?.('[data-piloto-ignorar]');
-    const toque = (e: Event) => { if (e.isTrusted && !dentro(e.target)) execRef.current?.interferir('toque'); };
-    const tecla = (e: Event) => { if (e.isTrusted && !dentro(e.target)) execRef.current?.interferir('teclado'); };
+    let ultimaInteracao = 0; let digitou = false; let pausadoPorInterferencia = false;
+    const mexeu = () => { ultimaInteracao = Date.now(); const x = execRef.current; if (x && x.getEstado() === 'pausado') pausadoPorInterferencia = true; };
+    const toque = (e: Event) => { if (e.isTrusted && !dentro(e.target)) { execRef.current?.interferir('toque'); mexeu(); } };
+    const tecla = (e: Event) => {
+      if (!e.isTrusted || dentro(e.target)) return;
+      // Digitou num campo: pode ter dado não salvo; o piloto não sai dessa tela sozinho (espera o "Continuar"). O que foi digitado nunca é lido.
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test(((e.target as HTMLElement | null)?.tagName) || '')) digitou = true;
+      execRef.current?.interferir('teclado'); mexeu();
+    };
     window.addEventListener('pointerdown', toque, true);
     window.addEventListener('keydown', tecla, true);
-    return () => { window.removeEventListener('pointerdown', toque, true); window.removeEventListener('keydown', tecla, true); };
+    // Pausado porque a pessoa mexeu: volta sozinho com ~5 s parada.
+    const relogio = window.setInterval(() => {
+      const x = execRef.current;
+      if (!x || x.getEstado() !== 'pausado') { digitou = false; pausadoPorInterferencia = false; return; }
+      if (pilotoPodeRetomar({ pausadoPorInterferencia, msDesdeUltimaInteracao: Date.now() - ultimaInteracao, digitouEmCampo: digitou, aguardandoOk: x.instantaneo().pedeOk })) { pausadoPorInterferencia = false; x.retomar(); }
+    }, 1000);
+    return () => { window.clearInterval(relogio); window.removeEventListener('pointerdown', toque, true); window.removeEventListener('keydown', tecla, true); };
   }, []);
 
   const exec = execRef.current;

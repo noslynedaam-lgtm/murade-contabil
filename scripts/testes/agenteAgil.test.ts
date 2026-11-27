@@ -8,7 +8,7 @@ import {
   PedidoAgil, REGRA_PERMISSAO, aceitaTemperatura, chamouMurad, configDoPerfil, dicaDeChamada, ehOrdemDeTirar, ehOrdemExplicita, ehPedidoDeLevar,
   ehPerguntaDeLocal, ehSimParaLevar, escolherFerramentas, fraseDeApresentacao, janelaEmUso, linhaDeTempo, ofereceuLevar, pedacosParaVoz, pedidoDaPessoa,
   perfilDoPedido, podePrepararAcao, podarInstrucao, resumoParaFala, semPalavraDeChamada, soPerguntouComoFazer,
-  assuntoDaPerguntaSeTem, ehPerguntaSeTem, respostaTemSim,
+  assuntoDaPerguntaSeTem, ehPerguntaSeTem, respostaTemSim, COOKIE_JANELA, valorCookieJanela, souAJanelaMaisRecente, dominioPai,
 } from '../../src/data/agenteAgil';
 import { fraseDeSaudacao } from '../../src/server/agenteSaudacao';
 
@@ -156,13 +156,21 @@ test('palavra de chamada: "Murad" e variações (Murade, Muradi, Mourad, Murat);
   assert.equal(semPalavraDeChamada('Murat: abre férias'), 'abre férias');
 });
 
-test('janela em uso: só a que tem foco responde; escondida nunca; sem foco nenhuma, a da última interação recente', () => {
-  const agora = 1_000_000;
-  assert.equal(janelaEmUso({ temFoco: true, visivel: true, ultimaInteracaoMs: 0, agoraMs: agora }), true);
-  assert.equal(janelaEmUso({ temFoco: false, visivel: false, ultimaInteracaoMs: agora, agoraMs: agora }), false);
-  assert.equal(janelaEmUso({ temFoco: true, visivel: false, ultimaInteracaoMs: agora, agoraMs: agora }), false);
-  assert.equal(janelaEmUso({ temFoco: false, visivel: true, ultimaInteracaoMs: agora - 30_000, agoraMs: agora }), true);
-  assert.equal(janelaEmUso({ temFoco: false, visivel: true, ultimaInteracaoMs: agora - 10 * 60_000, agoraMs: agora }), false);
+test('janela em uso: só a que tem foco responde; escondida nunca; sem foco nenhuma, só a da interação MAIS recente (nunca duas)', () => {
+  assert.equal(janelaEmUso({ temFoco: true, visivel: true, souAMaisRecente: null }), true);
+  assert.equal(janelaEmUso({ temFoco: true, visivel: false, souAMaisRecente: true }), false);
+  assert.equal(janelaEmUso({ temFoco: false, visivel: true, souAMaisRecente: true }), true);
+  assert.equal(janelaEmUso({ temFoco: false, visivel: true, souAMaisRecente: false }), false);
+  assert.equal(janelaEmUso({ temFoco: false, visivel: true, souAMaisRecente: null }), false, 'sem lugar comum: sem foco não responde');
+  // Duas janelas sem foco e um só cookie comum: exatamente uma responde.
+  const cookie = `x=1; ${COOKIE_JANELA}=${valorCookieJanela('fiscal-abc', 1000)}`;
+  const respondem = ['dp-123', 'fiscal-abc', 'contabil-9'].filter((id) => janelaEmUso({ temFoco: false, visivel: true, souAMaisRecente: souAJanelaMaisRecente(cookie, id) }));
+  assert.deepEqual(respondem, ['fiscal-abc']);
+  assert.equal(souAJanelaMaisRecente('x=1', 'dp'), null);
+  assert.equal(dominioPai('dp.murad.com.br'), 'murad.com.br');
+  assert.equal(dominioPai('fiscal.murad.app'), 'murad.app');
+  assert.equal(dominioPai('murade-dp.onrender.com'), null, 'onrender.com é sufixo público: cada sistema é um site separado');
+  assert.equal(dominioPai('localhost'), null);
   assert.match(dicaDeChamada(true), /Diga "Murad"/);
   assert.match(dicaDeChamada(false), /Toque no microfone/);
 });
@@ -191,4 +199,23 @@ test('dica de ajuda por inatividade: só na primeira semana, parado 20 s, 1 vez 
   assert.equal(deveOferecerAjuda({ ...base, ofertas: { folha: '2026-11-26' } }, 'folha', agora, 0, '2026-11-27'), true);
   assert.equal(deveOferecerAjuda({ ...base, desligada: true }, 'folha', agora, 0, '2026-11-27'), false);
   assert.equal(deveOferecerAjuda({ ...base, primeiroUsoMs: 0 }, 'folha', agora, 0, '2026-11-27'), false, 'depois da primeira semana');
+});
+
+test('depois de corrigir, confere de novo sozinha e diz "Pronto, agora está certo." (espera o salvamento; tenta de novo se ainda faltar)', async () => {
+  const { reconferirAposCorrigir, cnpjDoPlano } = await import('../../src/utils/reconferirAposCorrigir');
+  const { TITULO_CORRECAO, fraseDaReconferencia } = await import('../../src/data/agenteAgil');
+  assert.equal(cnpjDoPlano([{ alvo: 'empresa:11222333000181' }]), '11222333000181');
+  assert.equal(cnpjDoPlano([{ alvo: '[data-campo="empresa-editar-11222333000181"]' }]), '11222333000181');
+  assert.equal(cnpjDoPlano([{ alvo: '[data-campo=empresa-ativa]', valor: '11222333000181' }]), '11222333000181');
+  const plano = { titulo: `${TITULO_CORRECAO} TESTE`, passos: [{ alvo: 'empresa:11222333000181' }] };
+  const falou: string[] = []; const esperas: number[] = [];
+  const respostas = [fraseDaReconferencia(['o RAT está 1%']), fraseDaReconferencia([])];
+  let i = 0;
+  const buscar = async (url: string, init: any) => { assert.equal(url, '/api/ai/agente/reconferir'); assert.equal(JSON.parse(init.body).cnpj, '11222333000181'); const frase = respostas[Math.min(i++, 1)]; return { ok: true, json: async () => ({ frase }) }; };
+  const f = await reconferirAposCorrigir(plano, (t) => falou.push(t), { buscar, esperar: async (ms) => { esperas.push(ms); } });
+  assert.equal(f, 'Pronto, agora está certo.');
+  assert.deepEqual(falou, ['Pronto, agora está certo.']);
+  assert.deepEqual(esperas, [2500, 3000]);
+  // Plano que não é de correção: não confere nada.
+  assert.equal(await reconferirAposCorrigir({ titulo: 'Levando até Férias', passos: [] }, () => assert.fail('não devia falar'), { buscar, esperar: async () => undefined }), null);
 });

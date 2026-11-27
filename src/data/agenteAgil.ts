@@ -409,16 +409,36 @@ export function semPalavraDeChamada(bruto: string): string {
   return String(bruto || '').replace(/^[\s,.!?]*(ei |oi |ô |o )?(m[oóu]u?rr?[aá](d|de|di|dy|t|te|ti|ch|j)|mu rad|mo rad|mu rade)[\s,.!?:;-]*/i, '').trim();
 }
 /**
- * Só a janela EM USO escuta e responde: a que tem foco e está visível. Sem nenhuma com foco (a pessoa está em outro programa),
- * responde a que está visível e teve interação há pouco (2 minutos). Janela escondida (outra aba, minimizada) nunca responde.
- * Os três sistemas são de domínios diferentes, então cada janela decide sozinha por esta regra.
+ * Só a janela EM USO escuta e responde (nunca duas): a que tem foco e está visível. Sem nenhuma com foco (a pessoa está em outro
+ * programa), responde só a janela da interação MAIS recente entre os sistemas — o que exige um lugar comum às janelas: o cookie
+ * do domínio pai (ex.: .murad.com.br, quando os sistemas estão em subdomínios dele). Sem esse cookie (domínios diferentes, como
+ * *.onrender.com), janela sem foco não responde: assim nunca respondem duas.
  */
-export const JANELA_INTERACAO_RECENTE_MS = 2 * 60_000;
-export function janelaEmUso(e: { temFoco: boolean; visivel: boolean; ultimaInteracaoMs: number; agoraMs: number }): boolean {
+export function janelaEmUso(e: { temFoco: boolean; visivel: boolean; souAMaisRecente: boolean | null }): boolean {
   if (!e.visivel) return false;
   if (e.temFoco) return true;
-  return e.ultimaInteracaoMs > 0 && e.agoraMs - e.ultimaInteracaoMs <= JANELA_INTERACAO_RECENTE_MS;
+  return e.souAMaisRecente === true;
 }
+/** Domínios em que cada sistema é um "site" separado (lista pública de sufixos): o cookie do domínio pai não vale. */
+const SUFIXOS_PUBLICOS = ['onrender.com', 'vercel.app', 'netlify.app', 'herokuapp.com', 'github.io', 'pages.dev', 'web.app', 'firebaseapp.com', 'localhost'];
+/** Domínio pai comum aos sistemas (ex.: "dp.murad.com.br" → "murad.com.br"); null quando não há um que sirva. */
+export function dominioPai(host: string): string | null {
+  const h = String(host || '').toLowerCase().replace(/:\d+$/, '');
+  if (!h || /^\d+\.\d+\.\d+\.\d+$/.test(h) || SUFIXOS_PUBLICOS.some((s) => h === s || h.endsWith(`.${s}`))) return null;
+  const partes = h.split('.');
+  const nivel = /\.(com|net|org|gov|edu|adv|eng|ind|art)\.br$/.test(h) ? 3 : 2;
+  return partes.length > nivel ? partes.slice(-nivel).join('.') : null;
+}
+export const COOKIE_JANELA = 'murad_janela_ativa';
+/** Valor do cookie: id da janela e a hora da interação. */
+export const valorCookieJanela = (id: string, agoraMs: number): string => `${id}.${agoraMs}`;
+/** Esta janela é a da interação mais recente? null = não há cookie comum (não dá para saber). */
+export function souAJanelaMaisRecente(cookies: string, id: string): boolean | null {
+  const m = new RegExp(`(?:^|;\\s*)${COOKIE_JANELA}=([^;]+)`).exec(String(cookies || ''));
+  if (!m) return null;
+  return decodeURIComponent(m[1]).split('.')[0] === id;
+}
+
 /** Dica junto do microfone: onde há escuta contínua, "Diga 'Murad'"; no iPhone/Safari (sem escuta contínua), "toque no microfone". */
 export function dicaDeChamada(temEscutaContinua: boolean): string {
   return temEscutaContinua ? `Diga "${NOME_DA_AGENTE}" para falar comigo` : 'Toque no microfone e fale';
@@ -488,3 +508,18 @@ export function deveOferecerAjuda(e: EstadoAjuda, tela: string, agoraMs: number,
   if (agoraMs - ultimaInteracaoMs < AJUDA_PARADO_MS) return false;
   return e.ofertas[tela] !== hoje;
 }
+
+// ------------------------------------------------------------------------------------------------ piloto: retomar sozinho e reconferir
+/** Pausou porque a pessoa mexeu: volta sozinho quando ela fica parada este tempo (se ela não estava digitando num campo). */
+export const PILOTO_RETOMAR_SOZINHO_MS = 5000;
+/** Regra comum (Fiscal e Contábil; o DP tem a mesma em src/utils/pilotoVisivel.ts): pausa por interferência + 5 s parada + sem digitação num campo + sem cartão de OK aberto. */
+export function pilotoPodeRetomar(e: { pausadoPorInterferencia: boolean; msDesdeUltimaInteracao: number; digitouEmCampo: boolean; aguardandoOk: boolean }): boolean {
+  return e.pausadoPorInterferencia && !e.aguardandoOk && !e.digitouEmCampo && e.msDesdeUltimaInteracao >= PILOTO_RETOMAR_SOZINHO_MS;
+}
+/** Ritmo inicial: quem pediu ao aparelho para reduzir animações recebe o rápido; senão vale a escolha salva da pessoa. */
+export const ritmoInicialDoPiloto = <R extends string>(reduzirAnimacao: boolean, salvo: R, rapido: R): R => (reduzirAnimacao ? rapido : salvo);
+/** Título dos planos de correção do "faz certo": a tela reconhece e, quando o piloto termina, pede a conferência de novo. */
+export const TITULO_CORRECAO = 'Corrigir o cadastro da';
+export const ehPlanoDeCorrecao = (titulo: unknown): boolean => String(titulo || '').startsWith(TITULO_CORRECAO);
+/** Depois de corrigir, a Murad confere de novo: "Pronto, agora está certo." ou o que ainda falta. */
+export const fraseDaReconferencia = (pendentes: string[]): string => (pendentes.length ? `Ainda falta: ${pendentes[0]}.${pendentes.length > 1 ? ` E mais ${pendentes.length - 1}.` : ''}` : 'Pronto, agora está certo.');

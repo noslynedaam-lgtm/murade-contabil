@@ -1,9 +1,9 @@
 // "Murad, confere a empresa X" (igual no Fiscal e no Contábil). Catálogo de conferidores do cadastro da empresa: o que confere,
-// o campo, e se a correção é com OK ou só orientação. Aqui todos são ORIENTAÇÃO (aponta e diz onde conferir): sem fonte oficial
-// do valor certo, a Murad nunca preenche por conta própria. Só confere campo que o cadastro TEM (campo ausente não vira erro).
+// o campo, e se a correção é com OK ou só orientação. Correção com OK só quando o valor certo sai do próprio dado (CEP no formato
+// dos Correios, espaços sobrando); sem fonte do valor certo, a Murad só aponta e nunca preenche por conta própria. Só confere campo que o cadastro TEM (campo ausente não vira erro).
 // O DP tem, além destes, o RAT x CNAE com correção pelo piloto e o OK da pessoa no Salvar.
 
-export interface AchadoCadastro { conferidor: string; campo: string; rotulo: string; texto: string; correcao: 'com_ok' | 'orientacao' }
+export interface AchadoCadastro { conferidor: string; campo: string; rotulo: string; texto: string; correcao: 'com_ok' | 'orientacao'; /** Só quando a correção é certa (com_ok). */ valorCerto?: string; fonte?: string }
 export interface ConferidorCadastro { id: string; oQueConfere: string; campo: string; correcao: 'com_ok' | 'orientacao'; conferir(e: Record<string, any>): AchadoCadastro | null }
 
 /** Dígitos verificadores do CNPJ (numérico e alfanumérico da IN RFB 2.229/2024: cada caractere vale o código ASCII menos 48). */
@@ -24,8 +24,22 @@ export const CONFERIDORES_CADASTRO: ConferidorCadastro[] = [
     conferir: (e) => (!tem(e, 'razaoSocial') || String(e.razaoSocial || '').trim().length >= 2 ? null : achado('razao_social', 'razaoSocial', 'Razão social', 'a razão social está vazia; copie do cartão CNPJ')) },
   { id: 'cnae_formato', oQueConfere: 'CNAE principal com os 7 dígitos da subclasse', campo: 'cnae', correcao: 'orientacao',
     conferir: (e) => (!tem(e, 'cnae') || String(e.cnae ?? '').replace(/\D/g, '').length === 7 ? null : achado('cnae_formato', 'cnae', 'CNAE principal', 'o CNAE principal está vazio ou incompleto (são 7 dígitos, ex.: 4120-4/00); confira no cartão CNPJ')) },
-  { id: 'cep_formato', oQueConfere: 'CEP com 8 dígitos', campo: 'cep', correcao: 'orientacao',
-    conferir: (e) => { const bruto = String(e.cep ?? '').trim(); return !bruto || bruto.replace(/\D/g, '').length === 8 ? null : achado('cep_formato', 'cep', 'CEP', 'o CEP não tem 8 dígitos; confira nos Correios ou no cartão CNPJ'); } },
+  { id: 'cep_formato', oQueConfere: 'CEP com 8 dígitos, no formato 00000-000', campo: 'cep', correcao: 'com_ok',
+    conferir: (e) => {
+      const bruto = String(e.cep ?? '').trim();
+      if (!bruto) return null;
+      const d = bruto.replace(/\D/g, '');
+      if (d.length !== 8) return achado('cep_formato', 'cep', 'CEP', 'o CEP não tem 8 dígitos; confira nos Correios ou no cartão CNPJ');
+      const certo = `${d.slice(0, 5)}-${d.slice(5)}`;
+      // Os mesmos 8 dígitos, só no formato dos Correios: correção certa (não muda o número), com o OK da pessoa.
+      return bruto === certo ? null : { conferidor: 'cep_formato', campo: 'cep', rotulo: 'CEP', correcao: 'com_ok', valorCerto: certo, fonte: 'formato dos Correios (00000-000)', texto: `o CEP está como "${bruto}"; no formato certo é ${certo}` };
+    } },
+  { id: 'razao_espacos', oQueConfere: 'Razão social sem espaços sobrando', campo: 'razaoSocial', correcao: 'com_ok',
+    conferir: (e) => {
+      if (!tem(e, 'razaoSocial')) return null;
+      const r = String(e.razaoSocial || ''); const certo = r.replace(/\s+/g, ' ').trim();
+      return !certo || certo === r ? null : { conferidor: 'razao_espacos', campo: 'razaoSocial', rotulo: 'Razão social', correcao: 'com_ok', valorCerto: certo, fonte: 'o próprio texto, sem os espaços sobrando', texto: 'a razão social tem espaços sobrando' };
+    } },
   { id: 'uf_formato', oQueConfere: 'UF com a sigla do estado', campo: 'uf', correcao: 'orientacao',
     conferir: (e) => { const uf = String(e.uf ?? '').trim().toUpperCase(); return !uf || /^(AC|AL|AP|AM|BA|CE|DF|ES|GO|MA|MT|MS|MG|PA|PB|PR|PE|PI|RJ|RN|RS|RO|RR|SC|SP|SE|TO)$/.test(uf) ? null : achado('uf_formato', 'uf', 'UF', 'a UF não é uma sigla de estado válida'); } },
 ];
@@ -36,5 +50,5 @@ export const conferirCadastro = (e: Record<string, any>): AchadoCadastro[] =>
 export function resumoDaConferenciaCadastro(nome: string, achados: AchadoCadastro[]): string {
   if (!achados.length) return `Está tudo certo no cadastro da ${nome}.`;
   const n = achados.length;
-  return `Achei ${n} ${n === 1 ? 'erro' : 'erros'} no cadastro da ${nome}: ${achados[0].texto}.${n > 1 ? ` E mais ${n - 1} na tela.` : ''} Quer que eu te leve até o cadastro?`;
+  return `Achei ${n} ${n === 1 ? 'erro' : 'erros'} no cadastro da ${nome}: ${achados[0].texto}.${n > 1 ? ` E mais ${n - 1} na tela.` : ''} ${achados.some((a) => a.correcao === 'com_ok') ? 'Quer que eu corrija?' : 'Quer que eu te leve até o cadastro?'}`;
 }
