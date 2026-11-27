@@ -17,6 +17,8 @@ type AuthData = { usuario: string; cnpjs: string[]; memberships: Membership[]; a
 type AuthContextValue = AuthData & { sair: () => Promise<void>; atualizarAcesso: () => Promise<void>; abrirUsuarios: () => void; abrirSeguranca: () => void };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+/** Só para os testes de tela (montar uma tela que usa useContabilAuth sem o login). Não usar no sistema. */
+export const ContextoAuthContabilParaTeste = AuthContext;
 
 export function useContabilAuth(): AuthContextValue {
   const value = useContext(AuthContext);

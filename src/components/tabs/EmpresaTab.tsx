@@ -208,6 +208,19 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     setTimeout(() => setToastMsg(null), 5000);
   };
 
+  // Regra do dono (27/11/2026): o que aparece embaixo é sempre da empresa selecionada no topo, e nunca se misturam
+  // dados de duas empresas. Pôr OUTRA empresa no topo é TROCAR (nada da anterior fica junto); só a mesma empresa
+  // (mesmo CNPJ) tem os dados atualizados no lugar. Antes, salvar/puxar/excluir mesclava os dados da nova empresa por
+  // cima da que estava ativa (ficavam campos contábeis da anterior junto com o CNPJ da nova).
+  const ativarNoTopo = (emp: EmpresaDados) => {
+    const outraEmpresa = chaveCnpjEmpresa(emp.cnpj) !== chaveCnpjEmpresa(empresa?.cnpj);
+    if (outraEmpresa && onTrocarEmpresaAtiva) onTrocarEmpresaAtiva(emp);
+    else onUpdateEmpresa(emp);
+  };
+  // CNPJ que está no formulário agora (para descartar resposta de consulta que chegou depois de trocar de empresa).
+  const cnpjDoFormularioRef = useRef("");
+  cnpjDoFormularioRef.current = cnpj;
+
   // Puxar empresa registrada no Murade Fiscal
   const handlePuxarEmpresaDoMuradFiscal = async () => {
     setLoadingCnpj(true);
@@ -219,8 +232,8 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
         setEmpresaDetectadaModal(res.empresa);
         setModalFiscalAberto(true);
 
-        // Atualiza a empresa ativa
-        onUpdateEmpresa(res.empresa);
+        // Atualiza a empresa ativa (outra empresa: troca, sem misturar com a anterior)
+        ativarNoTopo(res.empresa);
         localStorage.setItem("murad_empresa_salva", JSON.stringify(res.empresa));
 
         // Insere na lista se não estiver
@@ -292,7 +305,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
       setEmpresasCadastradas(atualizadas);
       persistirEmpresas(atualizadas);
       if (importadas[0]) {
-        onUpdateEmpresa(importadas[0]);
+        ativarNoTopo(importadas[0]);
         localStorage.setItem('murad_empresa_salva', JSON.stringify(importadas[0]));
       }
       showToast(`${importadas.length} empresa(s) importada(s) do pacote Murad. Revise os campos fiscais antes de usar.`);
@@ -343,7 +356,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
   };
 
   // Carregar dados de uma empresa existente para edição
-  const handleEditarEmpresa = (emp: EmpresaDados) => {
+  const preencherFormularioCom = (emp: EmpresaDados) => {
     setModoEdicaoId(emp.id || emp.cnpj || "emp-ativa");
     { const o = (emp as any).camposDoBackupFiscal; setCamposDoBackup(o && typeof o === "object" ? Object.keys(o).filter((k) => String((emp as any)[k] ?? "").trim() !== "") : []); }
     setCnpj(emp.cnpj || "");
@@ -384,7 +397,12 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     setFormCertValidade("");
     setFormCertTipo("Não validado");
     setFormCertEmissor("");
+  };
 
+  const handleEditarEmpresa = (emp: EmpresaDados) => {
+    // Editar outra empresa: ela passa a ser a selecionada no topo (topo e formulário sempre da mesma empresa).
+    if (chaveCnpjEmpresa(emp.cnpj) !== chaveCnpjEmpresa(empresa?.cnpj)) ativarNoTopo(emp);
+    preencherFormularioCom(emp);
     setFormularioAberto(true);
 
     // Scroll suave até o formulário
@@ -434,7 +452,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     if ((empresa.id || empresa.cnpj) === empIdOuCnpj || empresa.cnpj === empIdOuCnpj) {
       if (novaLista.length > 0) {
         const proxima = novaLista[0];
-        onUpdateEmpresa(proxima);
+        ativarNoTopo(proxima);
         localStorage.setItem("murad_empresa_salva", JSON.stringify(proxima));
         showToast(`🗑️ Empresa excluída. A empresa '${proxima.razaoSocial}' agora está ativa.`);
       } else {
@@ -453,7 +471,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
           situacaoCadastral: "",
           certificadoAtivo: false,
         };
-        onUpdateEmpresa(limpa);
+        ativarNoTopo(limpa);
         localStorage.removeItem("murad_empresa_salva");
         showToast("🗑️ Empresa excluída. Nenhuma empresa cadastrada no momento.");
       }
@@ -581,6 +599,8 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
         }
       }
 
+      // O formulário mudou de empresa enquanto a Receita respondia: não preenche nada com a resposta antiga.
+      if (cnpjDoFormularioRef.current.toUpperCase().replace(/[^A-Z0-9]/g, "") !== rawCnpj) return;
       if (dados && dados.razaoSocial) {
         setCnpj(dados.cnpj || cnpj);
         setRazaoSocial(dados.razaoSocial);
@@ -656,6 +676,16 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     if (!/^[A-Z0-9]{12}\d{2}$/.test(cnpjLimpo.replace(/[^0-9A-Z]/g, ""))) {
       showToast("⚠️ Informe um CNPJ com 14 caracteres para manter o cadastro separado por empresa.");
       return;
+    }
+    // TRAVA: alterando uma empresa, o CNPJ do formulário tem que ser o dela E o da empresa selecionada no topo.
+    if (modoEdicaoId) {
+      const registro = empresasCadastradas.find((e) => e.id === modoEdicaoId || e.cnpj === modoEdicaoId);
+      const chaveForm = chaveCnpjEmpresa(cnpjLimpo);
+      const chaveTopo = chaveCnpjEmpresa(empresa?.cnpj);
+      if (chaveForm !== chaveTopo || (registro && chaveCnpjEmpresa(registro.cnpj) !== chaveForm)) {
+        showToast(`⛔ O CNPJ do formulário (${cnpjLimpo || "vazio"}) é diferente do CNPJ da empresa selecionada no topo (${empresa?.razaoSocial || empresa?.cnpj || "nenhuma"}). Nada foi salvo, para não gravar os dados de uma empresa em outra. Escolha a empresa certa no topo e confira o formulário.`);
+        return;
+      }
     }
     if (!modoEdicaoId) {
       const chave = chaveCnpjEmpresa(cnpjLimpo);
@@ -739,8 +769,9 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     setEmpresasCadastradas(listaAtualizada);
     persistirEmpresas(listaAtualizada);
 
-    // Define como empresa ativa do sistema e propaga para todos os módulos (Murad DP, Fiscal, Fisco IA)
-    onUpdateEmpresa(dadosParaSalvar);
+    // Define como empresa ativa do sistema e propaga para todos os módulos (Murad DP, Fiscal, Fisco IA).
+    // Mesma empresa do topo: atualiza no lugar. Empresa nova (outro CNPJ): troca, sem misturar com a anterior.
+    ativarNoTopo(indexExistente >= 0 ? listaAtualizada[indexExistente] : dadosParaSalvar);
     try {
       localStorage.setItem("murad_empresa_salva", JSON.stringify(dadosParaSalvar));
     } catch (e) {
@@ -755,6 +786,20 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     );
     setFormularioAberto(false);
   };
+
+  // Trocou a empresa no topo com o formulário editando outra: o formulário passa a ser da empresa do topo (cadastro
+  // novo sendo digitado continua como está, porque não é de empresa nenhuma ainda).
+  const topoAnteriorRef = useRef(chaveCnpjEmpresa(empresa?.cnpj));
+  useEffect(() => {
+    const agora = chaveCnpjEmpresa(empresa?.cnpj);
+    if (topoAnteriorRef.current === agora) return;
+    topoAnteriorRef.current = agora;
+    if (!modoEdicaoId) return;
+    const registro = empresasCadastradas.find((e) => chaveCnpjEmpresa(e.cnpj) === agora);
+    if (registro) preencherFormularioCom(registro);
+    else limparFormulario();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empresa?.cnpj]);
 
   // Empresa ativa atual (prioridade para prop ou primeira da lista)
   const empresaAtivaExibicao: EmpresaDados | null =
@@ -1727,7 +1772,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
         onFechar={() => setModalFiscalAberto(false)}
         empresa={empresaDetectadaModal}
         onConfirmarAtivar={(emp) => {
-          onUpdateEmpresa(emp);
+          ativarNoTopo(emp);
           setModalFiscalAberto(false);
           showToast(`✅ Empresa '${emp.razaoSocial}' ativada no Contábil com sucesso!`);
         }}
