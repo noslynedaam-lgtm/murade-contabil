@@ -2,9 +2,9 @@
 // (src/data/mapaTelasContabil.ts) ainda existe. Se alguém renomear um campo, botão, tela ou seção, o piloto deixaria
 // de achar o ponto na tela: este robô avisa o dono do sistema antes de o contador perceber.
 // Nunca altera arquivo nem dado: só lê.
-import { CAMPOS_CONTABIL, SECOES_CONTABIL, TELAS_CONTABIL, type CampoMapa } from '../data/mapaTelasContabil';
+import { CAMPOS_CONTABIL, SECOES_CONTABIL, TELAS_CONTABIL, conferirOrdemDoMenuContabil, itensDoMenuNoSidebar, type CampoMapa } from '../data/mapaTelasContabil';
 import { conferirAulasNasTelas, conferirParadasTour } from '../data/tourMurad';
-import { AREA_PRINCIPAL_CONTABIL, PARADAS_TOUR_CONTABIL, ROTAS_VALIDAS_CONTABIL } from '../data/tourParadasContabil';
+import { AREA_PRINCIPAL_CONTABIL, ORDEM_MENU_CONTABIL, PARADAS_TOUR_CONTABIL, ROTAS_VALIDAS_CONTABIL } from '../data/tourParadasContabil';
 import { aulasComTela } from '../data/tourAulasContabil';
 
 export type ProblemaPiloto = { tipo: 'tela' | 'menu' | 'campo' | 'botao_final' | 'botao_abrir' | 'secao' | 'periodo' | 'montagem' | 'arquivo' | 'tour'; chave: string; detalhe: string };
@@ -62,6 +62,11 @@ export function conferirMapaPiloto(ler: LerArquivo, agora = new Date()): Relator
     if (side !== null && !side.includes(`id: "${p.rota}" as TabId`)) problemas.push({ tipo: 'tour', chave: p.rota, detalhe: `Tour: a tela "${p.nome}" não está mais no menu lateral.` });
   }
   verificados += aulasComTela().length + 3;
+  // Menu na ordem do serviço (Início primeiro, etapas na ordem, Escola por último) e tour na mesma ordem do menu.
+  if (side !== null) {
+    for (const m of conferirOrdemDoMenuContabil(side)) problemas.push({ tipo: 'menu', chave: 'ordem-do-menu', detalhe: m });
+    if (itensDoMenuNoSidebar(side).map((i) => i.id).join(',') !== ORDEM_MENU_CONTABIL.join(',')) problemas.push({ tipo: 'tour', chave: 'ordem-do-menu', detalhe: 'Tour: a ordem do tour (ORDEM_MENU_CONTABIL) não é mais a ordem do menu lateral.' });
+  }
   if (app !== null && !app.includes(`id="${AREA_PRINCIPAL_CONTABIL.slice(1)}"`)) problemas.push({ tipo: 'tour', chave: AREA_PRINCIPAL_CONTABIL, detalhe: 'Tour: a área principal que o tour destaca não existe mais no App.' });
   if (app !== null && !app.includes('<TourMurad')) problemas.push({ tipo: 'montagem', chave: 'TourMurad', detalhe: 'O tour guiado não está montado no App.' });
   const escola = arq('src/components/escola/TelaEscolaMurade.tsx');

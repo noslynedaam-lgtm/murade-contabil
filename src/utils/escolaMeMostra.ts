@@ -19,7 +19,7 @@ export function pilotoDoMeMostra(m: MeMostra, titulo: string): PlanoPiloto | nul
   ] });
 }
 
-/** Roteiro da Agente para "abre a aula de X": destaca a aula na lista (só mostra). A Escola não fica no menu: já está aberta pelo link. */
+/** Roteiro da Agente para "abre a aula de X": destaca a aula na lista (só mostra). A Escola já está aberta (último item do menu, "Aprender", ou pelo link #escola). */
 export function pilotoAbrirAula(aulaId: string, tituloAula: string, legenda: string): PlanoPiloto | null {
   return soMostra({ titulo: `Aula: ${tituloAula}`.slice(0, 120), passos: [
     { tipo: 'destacar', alvo: `#escola-aula-${aulaId}`, legenda },

@@ -32,27 +32,27 @@ export interface SecaoMapa { chave: string; tela: string; texto: string; arquivo
 export const TELAS_CONTABIL: TelaMapa[] = [
   { id: 'inicio', rotulo: 'Tela Inicial' },
   { id: 'empresa', rotulo: 'Cadastro de Empresa' },
-  { id: 'agenda', rotulo: 'Agenda & Lembretes' },
-  { id: 'fluxo-previtico', rotulo: 'Fluxo de Caixa Previsto' },
-  { id: 'modulos-finais', rotulo: 'Obrigações & Gestão' },
-  { id: 'gestao-contabil', rotulo: 'Gestão contábil', periodo: 'gestao-periodo' },
-  { id: 'conexoes', rotulo: 'Conexão Órgãos' },
-  { id: 'lancamentos', rotulo: 'Lançamentos' },
-  { id: 'aprovacoes', rotulo: 'Aprovar lançamentos' },
-  { id: 'balancete', rotulo: 'Balancete', periodo: 'balancete-competencia' },
-  { id: 'livros', rotulo: 'Livros Fiscais & ECD' },
-  { id: 'demonstracoes', rotulo: 'Demonstrações e relatórios', periodo: 'demonstracoes-competencia' },
   { id: 'plano-contas', rotulo: 'Plano de Contas' },
-  { id: 'migracao', rotulo: 'Migração Contábil' },
   { id: 'integracao', rotulo: 'Integrações' },
   { id: 'revisao-origens', rotulo: 'Revisar dados recebidos' },
+  { id: 'lancamentos', rotulo: 'Lançamentos' },
+  { id: 'aprovacoes', rotulo: 'Aprovar lançamentos' },
+  { id: 'gestao-contabil', rotulo: 'Gestão contábil', periodo: 'gestao-periodo' },
+  { id: 'balancete', rotulo: 'Balancete', periodo: 'balancete-competencia' },
+  { id: 'livros', rotulo: 'Livros Fiscais & ECD' },
+  { id: 'modulos-finais', rotulo: 'Obrigações & Gestão' },
+  { id: 'agenda', rotulo: 'Agenda & Lembretes' },
   { id: 'vigencia-obrigacoes', rotulo: 'Vigência das obrigações' },
-  { id: 'calculadora', rotulo: 'Calculadora 3D' },
+  { id: 'demonstracoes', rotulo: 'Demonstrações e relatórios', periodo: 'demonstracoes-competencia' },
+  { id: 'fluxo-previtico', rotulo: 'Fluxo de Caixa Previsto' },
   { id: 'agente', rotulo: 'Robôs' },
-  { id: 'tarefas-equipe', rotulo: 'Tarefas da equipe' },
-  { id: 'backups', rotulo: 'Backups' },
-  { id: 'meu-jeito', rotulo: 'Meu jeito' },
   { id: 'revisor', rotulo: 'Revisor', periodo: 'revisor-competencia' },
+  { id: 'tarefas-equipe', rotulo: 'Tarefas da equipe' },
+  { id: 'calculadora', rotulo: 'Calculadora 3D' },
+  { id: 'migracao', rotulo: 'Migração Contábil' },
+  { id: 'backups', rotulo: 'Backups' },
+  { id: 'conexoes', rotulo: 'Conexão Órgãos' },
+  { id: 'meu-jeito', rotulo: 'Meu jeito' },
 ];
 
 const LANC = 'src/components/tabs/LancamentosTab.tsx';
@@ -186,3 +186,28 @@ export const SECOES_CONTABIL: SecaoMapa[] = [
 export const IDS_DE_TELAS_CONTABIL: ReadonlySet<string> = new Set(TELAS_CONTABIL.map((t) => t.id));
 export const campoDoMapa = (chave: string): CampoMapa | undefined => CAMPOS_CONTABIL.find((c) => c.chave === chave);
 export const alvoDoCampo = (chave: string): string => { const c = campoDoMapa(chave); return c?.porId ? `#${chave}` : `[data-campo=${chave}]`; };
+
+// ------------------------------------------------------------------------------------------------
+// ORDEM DO SERVIÇO do menu (27/11/2026, pedido do Natan via dono)
+// ------------------------------------------------------------------------------------------------
+/** Etapas do menu lateral, na ordem do trabalho (o Início fica antes, sem título; a Escola por último). */
+export const ETAPAS_MENU_CONTABIL: string[] = [
+  'Cadastros', 'Lançamentos e importações', 'Fechamento', 'Obrigações', 'Relatórios', 'Robôs, revisão e tarefas', 'Ferramentas', 'Configurações', 'Aprender',
+];
+
+/** Id e etapa de cada item, na ordem em que o Sidebar desenha (lido do texto do arquivo). */
+export function itensDoMenuNoSidebar(sidebar: string): Array<{ id: string; grupo: string }> {
+  return [...sidebar.matchAll(/id: "([a-z-]+)" as TabId,\s*label: "[^"]+",\s*grupo: "([^"]*)"/g)].map((m) => ({ id: m[1], grupo: m[2] }));
+}
+
+/** Confere a ordem do serviço no menu (vazio = tudo certo): Início primeiro, Escola por último, cada etapa num bloco só e na ordem. */
+export function conferirOrdemDoMenuContabil(sidebar: string): string[] {
+  const itens = itensDoMenuNoSidebar(sidebar);
+  if (!itens.length) return ['Menu: não achei as etapas (grupo) dos itens do menu lateral no Sidebar.'];
+  const problemas: string[] = [];
+  if (itens[0].id !== 'inicio') problemas.push('Menu: o primeiro item tem que ser a Tela Inicial.');
+  if (itens[itens.length - 1].id !== 'escola') problemas.push('Menu: "Aprender (Escola Murad)" tem que ser o último item.');
+  const etapas = itens.map((i) => i.grupo).filter((g, k, a) => g && g !== a[k - 1]);
+  if (etapas.join('|') !== ETAPAS_MENU_CONTABIL.join('|')) problemas.push(`Menu: as etapas saíram da ordem do serviço (${etapas.join(' → ')}).`);
+  return problemas;
+}
