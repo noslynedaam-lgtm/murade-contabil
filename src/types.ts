@@ -398,6 +398,8 @@ export interface ChatMessage {
   timestamp: string;
   sources?: { title: string; url: string }[];
   acoes?: AcaoAgenteCartao[];
+  /** "Me leva lá": a Agente respondeu onde fica e oferece levar (o plano só mostra, não aperta nada). */
+  oferta?: { rotulo: string; piloto: unknown };
 }
 
 export interface AcaoAgenteCartao {

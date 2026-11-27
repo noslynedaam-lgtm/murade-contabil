@@ -570,7 +570,7 @@ export function criarServicoMeuJeito(consultar: Consultar, agora: () => Date = (
     await consultar(`UPDATE ${TABELA_JEITO} SET nome=$3, nome_resposta='nome', nome_perguntado_em=COALESCE(nome_perguntado_em, $4), versao=versao+1, atualizado_em=now() WHERE tenant_id=$1 AND user_id=$2`, [tenant, sessao.userId, nome, agora().toISOString()]);
     await espelharNome(sessao.userId, nome);
     const e = await entregarPendentes(tenant, sessao.userId, nome);
-    return { nome, frase: e.boasVindas ? `Prazer, ${nome}! ${e.boasVindas}` : `Combinado, vou te chamar de ${nome}.`, boasVindas: e.boasVindas, oferecerApresentacao: e.oferecerApresentacao };
+    return { nome, frase: e.boasVindas ? e.boasVindas : `Combinado, vou te chamar de ${nome}.`, boasVindas: e.boasVindas, oferecerApresentacao: e.oferecerApresentacao };
   }
   /** "Agora não" à pergunta do nome: não pergunta de novo sozinha (a pessoa pode pedir "mudar meu nome" quando quiser) e libera as boas-vindas. */
   async function dispensarNome(sessao: SessaoJeito) {

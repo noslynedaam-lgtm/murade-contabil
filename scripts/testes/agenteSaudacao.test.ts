@@ -39,7 +39,8 @@ test('o que não é nome não é gravado', () => {
 });
 
 test('frase de saudação com e sem nome', () => {
-  assert.equal(fraseDeSaudacao('Herbert', em(8)), 'Bom dia, Herbert!');
+  // Pedido do dono (27/11/2026): nas próximas vezes, só "Oi, {nome}." (curto, para ser ágil); sem nome, a saudação do horário.
+  assert.equal(fraseDeSaudacao('Herbert', em(8)), 'Oi, Herbert.');
   assert.equal(fraseDeSaudacao(null, em(15)), 'Boa tarde!');
-  assert.equal(fraseDeSaudacao('Aldair', em(21)), 'Boa noite, Aldair!');
+  assert.equal(fraseDeSaudacao('Aldair', em(21)), 'Oi, Aldair.');
 });

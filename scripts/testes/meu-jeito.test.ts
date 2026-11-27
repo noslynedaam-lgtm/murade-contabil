@@ -220,7 +220,8 @@ test('Agente: sugestão só vira regra com o cartão confirmado; esquecer é uma
   const tudo = montarAgente([{ chamadas: [{ nome: 'esquecer_regra_do_jeito', args: { tipo: 'preferencia', chave: 'tudo' } }] }, { texto: 'ok' }]);
   assert.equal((await conversar(tudo.ctx, tudo.modelo, 'x', [])).acoes.length, 0);
   const um = montarAgente([{ chamadas: [{ nome: 'esquecer_regra_do_jeito', args: { tipo: 'regra', quando: 'abrir_tela', tela_quando: 'balancete' } }] }, { texto: 'ok' }]);
-  const ru = await conversar(um.ctx, um.modelo, 'x', []); assert.equal(ru.acoes.length, 1);
+  // Regra de permissão (27/11/2026): exclusão só com ordem explícita da pessoa ("esquece a regra...").
+  const ru = await conversar(um.ctx, um.modelo, 'esquece a regra de abrir o balancete', []); assert.equal(ru.acoes.length, 1);
   // Remoção por voz = exclusão: duas confirmações. Sem a primeira, o servidor recusa e nada é chamado.
   assert.equal(ru.acoes[0].duasEtapas, true);
   const semEtapa1 = await confirmarAcao(um.ctx, ru.acoes[0].id); assert.equal(semEtapa1.sucesso, false); assert.equal(posts(um.chamadas).length, 0);
@@ -466,8 +467,8 @@ test('nome: saneado (curto, sem HTML, sem símbolos, máx 40) e aceita a frase f
 });
 test('nome: pergunta fixa, boas-vindas com o nome só depois dele e sem nome continuam as mesmas', () => {
   assert.equal(PERGUNTA_NOME, 'Como posso te chamar?');
-  assert.match(textoBoasVindas(1, false, 'Ana')!, /^Boas-vindas ao Murad Contábil, Ana!/); assert.match(textoBoasVindas(3, false, 'Ana')!, /^Que bom ter você de volta, Ana!/);
-  assert.match(textoBoasVindas(1)!, /^Boas-vindas ao Murad Contábil! /); assert.equal(textoBoasVindas(6, false, 'Ana'), null);
+  assert.match(textoBoasVindas(1, false, 'Ana')!, /^Prazer, Ana! Meu nome é Murad\./); assert.match(textoBoasVindas(3, false, 'Ana')!, /^Que bom ter você de volta, Ana!/);
+  assert.match(textoBoasVindas(1)!, /^Prazer! Meu nome é Murad\. /); assert.equal(textoBoasVindas(6, false, 'Ana'), null);
   assert.equal(textoBoasVindas(5, true, 'Ana'), textoBoasVindas(1, false, 'Ana'));
 });
 test('Agente: "mudar meu nome" vira cartão, só grava depois do sim e recusa nome inválido', async () => {
@@ -519,7 +520,7 @@ test('nome, resposta logo na primeira pergunta: frase com o nome, boas-vindas e 
     const svc = criarServicoMeuJeito(consultar); await svc.garantirTabelas();
     const { sessoes: [bia] } = await escritorio(consultar, ['bia'], true);
     const a = await svc.abrir(bia, H()); assert.equal(a.perguntarNome, true);
-    const r = await svc.definirNome(bia, 'Bia'); assert.equal(r.nome, 'Bia'); assert.equal(r.boasVindas, textoBoasVindas(1, false, 'Bia')); assert.equal(r.frase, `Prazer, Bia! ${textoBoasVindas(1, false, 'Bia')}`); assert.equal(r.oferecerApresentacao, true);
+    const r = await svc.definirNome(bia, 'Bia'); assert.equal(r.nome, 'Bia'); assert.equal(r.boasVindas, textoBoasVindas(1, false, 'Bia')); assert.equal(r.frase, textoBoasVindas(1, false, 'Bia')); assert.match(r.frase, /^Prazer, Bia! Meu nome é Murad/); assert.equal(r.oferecerApresentacao, true);
     const r2 = await svc.definirNome(bia, 'Bianca'); assert.equal(r2.boasVindas, null); assert.equal(r2.oferecerApresentacao, false); assert.equal(r2.frase, 'Combinado, vou te chamar de Bianca.');
     assert.equal((await svc.abrir(bia, H())).perguntarNome, false);
     assert.equal((await consultar(`SELECT nome_tratamento FROM contabil_auth_users WHERE id=$1`, [bia.userId])).rows[0].nome_tratamento, 'Bianca');

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } f
 import { useFecharNoVoltar } from "../hooks/useVoltarCelular";
 import { ATRASO_ETAPA2_MS, ROTULO_CANCELAR, ROTULO_CONTINUAR, ROTULO_FINAL_PADRAO, ROTULO_VOLTAR_ETAPA2, TITULO_ETAPA2, TITULO_ETAPA2_REFAZIVEL } from "../utils/exclusaoDuasEtapas";
 import { escolherVozPtBr } from "../utils/vozNatural";
+import { resumoParaFala } from "../data/agenteAgil";
 import { falarHumana, pararHumana, humanaFalando, ajustarVoz, bipRapido, prepararVoz, respostaRapida } from "../utils/vozHumana";
 import { Mic, MicOff, Volume2, VolumeX, Send, Bot, Sparkles, X, RotateCcw } from "lucide-react";
 import { AcaoAgenteCartao, ChatMessage, EmpresaDados, LancamentoContabil } from "../types";
@@ -240,7 +241,9 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
       let respostaTexto: string = data.resposta;
       let acoes: AcaoAgenteCartao[] = [];
       let pilotoResp: any = null;
+      let oferta: ChatMessage["oferta"];
       if (res.ok && !ehDuvida && typeof respostaTexto === "string" && respostaTexto.trim()) {
+        if (data.oferta && typeof data.oferta === "object" && data.oferta.piloto) oferta = { rotulo: String(data.oferta.rotulo || "Me leva lá").slice(0, 40), piloto: data.oferta.piloto };
         acoes = Array.isArray(data.acoes)
           ? data.acoes
               .filter((a: any) => a && typeof a.id === "string" && typeof a.titulo === "string")
@@ -270,11 +273,13 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         sources: Array.isArray(data.sources) ? data.sources : [],
         acoes,
+        ...(oferta ? { oferta } : {}),
       };
 
       setMessages((prev) => [...prev, iaMsg]);
       if (minhaGeracao !== geracaoRef.current) return;
-      falarTexto(respostaTexto);
+      // A voz fala só o resumo (1 a 2 frases); o texto inteiro fica na tela.
+      falarTexto(resumoParaFala(respostaTexto));
       mostrarAviso(respostaTexto);
       if (acoes.length) onOpen?.();
       // Piloto Visível: a tela passa a ser conduzida; a janela da conversa sai da frente (a menos que haja cartão para confirmar).
@@ -515,7 +520,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
             </div>
             <div>
               <div className="font-extrabold text-sm flex items-center gap-1.5">
-                <span>IA Murad</span>
+                <span>Murad — Contábil</span>
                 <span className="text-[10px] font-semibold bg-emerald-500 text-white px-1.5 py-0.2 rounded-xs">
                   Voz Natural
                 </span>
@@ -587,6 +592,12 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
               >
                 <div className="whitespace-pre-wrap">{m.text}</div>
                 {!!m.sources?.length && <div className="mt-2 border-t border-slate-100 pt-2"><strong className="text-[10px]">Fontes consultadas</strong>{m.sources.map((source) => <a key={source.url} href={source.url} target="_blank" rel="noreferrer" className="block text-[10px] text-blue-700 underline">{source.title}</a>)}</div>}
+                {m.oferta && (
+                  <button type="button" data-piloto-ignorar="1" onClick={() => { enviarAoPiloto(m.oferta!.piloto as any); onClose(); }}
+                    className="mt-2 inline-flex items-center gap-1 rounded-lg bg-[#0a2342] px-3 py-1 text-xs font-bold text-white hover:bg-[#13315c]">
+                    ➜ {m.oferta.rotulo}
+                  </button>
+                )}
                 {!!m.acoes?.length && m.acoes.map((a) => (
                   <div key={a.id} className="mt-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-slate-800">
                     <div className="text-xs font-bold">{a.titulo}</div>

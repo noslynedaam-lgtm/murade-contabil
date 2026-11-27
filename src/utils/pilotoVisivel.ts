@@ -102,6 +102,10 @@ export function tipoDoClique(texto: string, legenda = '', marcacao: { final?: bo
   return RE_MUDA.test(t) ? 'confirmar' : 'abrir';
 }
 
+/** "Me leva lá": passo 'destacar' com este valor só mostra (nunca aperta). */
+export const MARCA_SO_MOSTRAR = 'so_mostrar';
+const DESTAQUE_SO_MOSTRAR_MS = 3200;
+
 export function validarPlanoPiloto(entrada: unknown): { ok: true; plano: PlanoPiloto } | { ok: false; motivo: string } {
   const e = entrada as any;
   if (!e || typeof e !== 'object') return { ok: false, motivo: 'Plano ausente.' };
@@ -125,6 +129,7 @@ export function validarPlanoPiloto(entrada: unknown): { ok: true; plano: PlanoPi
       if (typeof p.valor !== 'string' || p.valor.length > 300 || /[\u0000-\u0008\u000b-\u001f]/.test(p.valor)) return { ok: false, motivo: `Passo ${i + 1}: valor ausente ou inválido.` };
       passo.valor = p.valor;
     }
+    if (p.tipo === 'destacar' && p.valor === MARCA_SO_MOSTRAR) passo.valor = MARCA_SO_MOSTRAR;
     if (p.via === 'api') {
       const a = p.api;
       if (!a || typeof a.ferramenta !== 'string' || !/^[a-z_]{3,60}$/.test(a.ferramenta)) return { ok: false, motivo: `Passo ${i + 1}: caminho de API inválido.` };
@@ -601,6 +606,12 @@ export class PilotoExecutor {
     if (p.tipo === 'rolar') { if (animar) this.amb.rolarAte(el); await this.dormir(animar ? 500 : 0); return this.livre() || this.semAnimacao ? 'ok' : 'repetir'; }
 
     if (p.tipo === 'destacar') {
+      // "Me leva lá": só mostra (destaque pulsando ~3 s) e NUNCA aperta — nem botão de abrir, nem de gravar, enviar ou excluir.
+      if (p.valor === MARCA_SO_MOSTRAR) {
+        if (animar) { this.amb.rolarAte(el); this.amb.destacar(el, p.legenda, false); }
+        await this.dormir(animar ? Math.max(DESTAQUE_SO_MOSTRAR_MS, MS_APOS_DESTAQUE[ritmo]) : 0);
+        return this.livre() || this.semAnimacao ? 'ok' : 'repetir';
+      }
       const d = this.amb.descrever?.(el) ?? null;
       if (d && this.amb.clicarAnimado) return this.apertar(el, p, d, false, animar);
       if (animar) { this.amb.rolarAte(el); this.amb.destacar(el, p.legenda, false); }

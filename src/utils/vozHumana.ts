@@ -2,6 +2,7 @@
 // liga quando a pessoa escolhe em Configurações ou pede por voz ("muda para a voz humana"). Uma fala por vez; dá para interromper.
 // Por que a voz humana existe: no celular (Android/iPhone) o navegador quase sempre mostra UMA voz em português e ignora a troca,
 // então "mudar a voz" no aparelho não muda nada. A voz humana vem do servidor e soa igual em computador, Android e iPhone.
+import { FRASES_PRONTAS, OFERTA_LEVAR, pedacosParaVoz } from '../data/agenteAgil';
 import { avisarMudancaAgente, falarRespostasLigado, registrarParador, usuarioDaVozAtual } from './agenteParar';
 import { FRASE_EXEMPLO_VOZ, TOM_NATURAL, VELOCIDADE_NATURAL, dividirEmFrases, escolherVozNatural, idDaVoz, nivelDaVoz, ordenarVozesPtBr, prepararTextoParaFala } from './vozNaturalPtBr';
 let audioAtual: HTMLAudioElement | null = null;
@@ -96,29 +97,8 @@ registrarParador({
   parar: () => { const falava = humanaFalando() || falaPendente !== null; pararHumana(); return falava ? {} : false; },
 });
 
-function dividirEmTrechos(texto: string): string[] {
-  // O primeiro trecho é curto para a voz começar logo; os seguintes são gerados enquanto ela fala.
-  const trechos: string[] = [];
-  let atual = '';
-  const frases: string[] = [];
-  for (const frase of texto.split(/(?<=[.!?:;])\s+/)) {
-    let resto = frase;
-    while (resto.length > 140) {
-      let corte = Math.max(resto.lastIndexOf(',', 140), resto.lastIndexOf(' ', 140));
-      if (corte < 40) corte = 140;
-      frases.push(resto.slice(0, corte + 1).trim());
-      resto = resto.slice(corte + 1);
-    }
-    if (resto.trim()) frases.push(resto.trim());
-  }
-  for (const frase of frases) {
-    const limite = trechos.length === 0 ? 100 : 600;
-    if ((atual + ' ' + frase).length > limite && atual) { trechos.push(atual.trim()); atual = frase; }
-    else atual = atual ? `${atual} ${frase}` : frase;
-  }
-  if (atual.trim()) trechos.push(atual.trim());
-  return trechos;
-}
+/** Pedaços da fala: o primeiro é bem curto (o áudio começa logo); os outros são gerados enquanto ele toca. */
+function dividirEmTrechos(texto: string): string[] { return pedacosParaVoz(texto); }
 
 /** Sinal sonoro curtinho: avisa na hora que ela ouviu, sem esperar a voz ficar pronta. */
 export function bipRapido(): void {
@@ -142,9 +122,12 @@ export function bipRapido(): void {
 export async function prepararVoz(): Promise<void> {
   if (!vozPremiumLigada()) return;
   try {
-    const codigo = await codigoDaFrase('Pois não?');
-    if (await lerDoCache(codigo)) return;
-    await buscarAudio('Pois não?');
+    // As frases que mais se repetem ficam guardadas neste aparelho (uma vez só; depois saem na hora, sem gastar a chave).
+    for (const frase of ['Pois não?', OFERTA_LEVAR, 'Pronto.']) {
+      if (!FRASES_PRONTAS.includes(frase)) continue;
+      if (await lerDoCache(await codigoDaFrase(frase))) continue;
+      await buscarAudio(frase, undefined, true);
+    }
   } catch { /* ignora */ }
 }
 
@@ -213,7 +196,7 @@ async function guardarNoCache(h: string, src: string): Promise<void> {
   } catch { /* ignora */ }
 }
 
-async function buscarAudio(trecho: string, sinal?: AbortSignal): Promise<string | null> {
+async function buscarAudio(trecho: string, sinal?: AbortSignal, rapido = false): Promise<string | null> {
   let codigo = '';
   try {
     codigo = await codigoDaFrase(trecho);
@@ -222,7 +205,7 @@ async function buscarAudio(trecho: string, sinal?: AbortSignal): Promise<string 
   } catch { /* segue para o servidor */ }
   try {
     if (sinal?.aborted) return null;
-    const resp = await fetch('/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ text: trecho }), signal: sinal });
+    const resp = await fetch('/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ text: trecho, ...(rapido ? { rapido: true } : {}) }), signal: sinal });
     if (!resp.ok) return null;
     const dados = await resp.json();
     if (!dados?.audio) return null;
@@ -437,11 +420,15 @@ export async function falarHumana(texto: string, aoTerminar?: () => void): Promi
 async function tocarVozHumana(limpo: string, minha: number, controle: AbortController | null): Promise<void> {
   const trechos = dividirEmTrechos(limpo).filter((t) => t.trim());
   if (!trechos.length) return;
-  let proximo = buscarAudio(trechos[0], controle?.signal);
+  // O primeiro pedaço vai no modelo de voz mais rápido; os dois seguintes já são pedidos em paralelo e tocam em ordem.
+  const pedidos: Array<Promise<string | null> | undefined> = [];
+  const pedir = (i: number) => { if (i < trechos.length && !pedidos[i]) pedidos[i] = buscarAudio(trechos[i], controle?.signal, i === 0); };
+  pedir(0); pedir(1); pedir(2);
   for (let i = 0; i < trechos.length; i += 1) {
-    const src = await proximo;
+    pedir(i);
+    const src = await pedidos[i];
     if (minha !== sequencia) return;
-    if (i + 1 < trechos.length) proximo = buscarAudio(trechos[i + 1], controle?.signal);
+    pedir(i + 1); pedir(i + 2);
     // Falhou: tenta de novo uma vez; se não vier, a resposta fica só escrita (nunca a voz robótica).
     const audioOk = src || (minha === sequencia ? await buscarAudio(trechos[i], controle?.signal) : null);
     if (!audioOk) { avisarFalhaVozHumana(); return; }

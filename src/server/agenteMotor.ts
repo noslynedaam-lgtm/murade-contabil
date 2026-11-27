@@ -19,9 +19,10 @@ export interface DeclaracaoFerramenta {
   parameters: { type: 'OBJECT'; properties: Record<string, any>; required?: string[] };
 }
 
-export interface ChamadaModelo { nome: string; args: Record<string, any> }
-export interface RespostaModelo { texto: string; chamadas: ChamadaModelo[]; turnoModelo?: unknown }
-export type ModeloIA = (entrada: { instrucao: string; conteudos: any[]; declaracoes: DeclaracaoFerramenta[] }) => Promise<RespostaModelo>;
+export interface ChamadaModelo { nome: string; args: Record<string, any>; /** id do functionCall (Gemini 3.x pede o mesmo id no functionResponse). */ id?: string }
+export interface RespostaModelo { texto: string; chamadas: ChamadaModelo[]; turnoModelo?: unknown; /** Medição: tokens do prompt e modelo que respondeu (quando o provedor informa). */ tokensPrompt?: number; modelo?: string }
+/** `perfil`: quanto o modelo precisa pensar (simples = mínimo; documento = mais). Ver src/data/agenteAgil.ts. */
+export type ModeloIA = (entrada: { instrucao: string; conteudos: any[]; declaracoes: DeclaracaoFerramenta[]; perfil?: PerfilPedido }) => Promise<RespostaModelo>;
 
 export interface EventoAuditoria {
   evento: 'proposta' | 'confirmada' | 'recusada' | 'falha' | 'whatsapp_preparado' | 'expirada' | 'duvida_sem_resposta' | 'piloto';
@@ -52,6 +53,7 @@ export interface MensagemWhatsAppParaTela {
 import type { CentralDePedidos } from './agentesEntreSistemas';
 import { REGRAS_DE_ENTENDIMENTO, contextoDeRespostaCurta } from './agenteEntendimento';
 import { REGRA_PEDIDO_LONGO } from './agenteEtapas';
+import { ESTILO_AGIL, MAX_TURNOS_HISTORICO, NOME_MAIS_FERRAMENTAS, PedidoAgil, REGRA_PERMISSAO, type PerfilPedido } from '../data/agenteAgil';
 
 export interface ContextoAgente {
   sessaoHash: string;
@@ -65,6 +67,8 @@ export interface ContextoAgente {
   central?: CentralDePedidos;
   /** Nome de tratamento da pessoa que está falando (gravado pelo sistema; sem custo de IA). */
   nomeUsuario?: string;
+  /** Quando o pedido chegou ao servidor (para medir o preparo antes do motor). */
+  inicioMs?: number;
 }
 
 interface AcaoPendente {
@@ -229,17 +233,25 @@ async function atalhoListarEmpresas(ctx: ContextoAgente, mensagem: string, porNo
 
 export async function conversar(ctx: ContextoAgente, modelo: ModeloIA, mensagem: string, historico: TurnoHistorico[] = []): Promise<ResultadoConversa> {
   const porNome = new Map(ctx.kit.ferramentas.map((f) => [f.declaracao.name, f]));
-  const declaracoes = ctx.kit.ferramentas.map((f) => f.declaracao);
+  historico = historico.slice(-MAX_TURNOS_HISTORICO);
+  // Agente ágil: só as ferramentas (e as linhas do prompt) que têm a ver com o pedido; mede cada etapa; aplica a regra de permissão.
+  const agil = new PedidoAgil({ sistema: 'contabil', declaracoes: ctx.kit.ferramentas.map((f) => f.declaracao), instrucaoKit: ctx.kit.instrucao, mensagem, historico, inicioMs: ctx.inicioMs });
   const rapida = await atalhoListarEmpresas(ctx, mensagem, porNome);
-  if (rapida) return rapida;
+  if (rapida) { agil.registrar(rapida.resposta, 'empresas'); return rapida; }
+  let respostaFinal = '';
+  try { const r = await conversarComModelo(ctx, modelo, mensagem, historico, porNome, agil); respostaFinal = r.resposta; return r; }
+  finally { agil.registrar(respostaFinal); }
+}
+
+async function conversarComModelo(ctx: ContextoAgente, modelo: ModeloIA, mensagem: string, historico: TurnoHistorico[], porNome: Map<string, Ferramenta>, agil: PedidoAgil<DeclaracaoFerramenta>): Promise<ResultadoConversa> {
   // Avisa o usuário de pedidos recebidos de outros sistemas que ainda aguardam resposta.
-  let instrucao = ctx.kit.instrucao + REGRAS_DE_ENTENDIMENTO + REGRA_PEDIDO_LONGO;
+  let instrucao = ESTILO_AGIL + REGRA_PERMISSAO + REGRAS_DE_ENTENDIMENTO + REGRA_PEDIDO_LONGO;
   if (ctx.nomeUsuario) instrucao += `\n\nA pessoa que está falando com você se chama ${ctx.nomeUsuario}. Trate-a pelo nome de vez em quando, de forma natural, sem repetir em toda frase. Não diga bom dia, boa tarde nem boa noite: o sistema já faz isso sozinho.`;
   try {
     const abertos = ctx.central ? (await ctx.central.caixaDeEntrada(true)).filter((p) => p.estado === 'recebido').length : 0;
     if (abertos > 0) instrucao += `\n\nAVISO: há ${abertos} pedido(s) recebido(s) de outros sistemas aguardando resposta. Na sua resposta, diga isso ao usuário em uma frase e ofereça mostrar (ver_pedidos_entre_sistemas).`;
   } catch { /* a caixa indisponível não impede a conversa */ }
-  const conteudos: any[] = historico.slice(-10).filter((t) => t && typeof t.texto === 'string' && t.texto.trim()).map((t) => ({
+  const conteudos: any[] = historico.filter((t) => t && typeof t.texto === 'string' && t.texto.trim()).map((t) => ({
     role: t.papel === 'ia' ? 'model' : 'user', parts: [{ text: t.texto.slice(0, 8000) }],
   }));
   conteudos.push({ role: 'user', parts: [{ text: `Data de hoje: ${ctx.hoje}\n${contextoDeRespostaCurta(mensagem, historico)}${mensagem}` }] });
@@ -249,20 +261,22 @@ export async function conversar(ctx: ContextoAgente, modelo: ModeloIA, mensagem:
   let piloto: RespostaPiloto | null = null;
 
   for (let passo = 0; passo < MAX_PASSOS_MODELO; passo += 1) {
-    const r = await modelo({ instrucao, conteudos, declaracoes });
+    const entrada = { instrucao: agil.instrucaoKit + instrucao, conteudos, declaracoes: agil.declaracoes, perfil: agil.perfil };
+    const r = await agil.chamar(entrada, () => modelo(entrada));
     if (!r.chamadas.length) {
       return { resposta: r.texto.trim() || 'Não consegui montar uma resposta. Pode repetir o pedido?', acoes, whatsapp, piloto };
     }
-    conteudos.push(r.turnoModelo ?? { role: 'model', parts: r.chamadas.map((c) => ({ functionCall: { name: c.nome, args: c.args } })) });
+    conteudos.push(r.turnoModelo ?? { role: 'model', parts: r.chamadas.map((c) => ({ functionCall: { name: c.nome, args: c.args, ...(c.id ? { id: c.id } : {}) } })) });
     const respostas: any[] = [];
     for (const chamada of r.chamadas.slice(0, MAX_CHAMADAS_POR_PASSO)) {
       let resultado: Record<string, unknown>;
       const ferramenta = porNome.get(chamada.nome);
       const args = chamada.args && typeof chamada.args === 'object' ? chamada.args : {};
       try {
-        if (!ferramenta) resultado = { erro: `Ferramenta desconhecida: ${chamada.nome}.` };
+        if (chamada.nome === NOME_MAIS_FERRAMENTAS) { agil.liberarTudo(); resultado = { status: 'lista_completa_liberada', instrucao: 'Agora todas as ferramentas do sistema estão disponíveis. Escolha a certa e continue.' }; }
+        else if (!ferramenta) resultado = { erro: `Ferramenta desconhecida: ${chamada.nome}.` };
         else if (ferramenta.tipo === 'leitura') {
-          const bruto: any = await ferramenta.executar(ctx, args);
+          const bruto: any = await agil.ferramenta(() => ferramenta.executar(ctx, args));
           // Piloto Visível: o roteiro vai para a tela do usuário, não para o modelo.
           if (bruto && typeof bruto === 'object' && bruto.piloto) {
             const { piloto: p, ...resto } = bruto;
@@ -275,15 +289,19 @@ export async function conversar(ctx: ContextoAgente, modelo: ModeloIA, mensagem:
           } else resultado = resultadoParaModelo(bruto);
         }
         else if (ferramenta.tipo === 'mensagem') {
-          const m = await ferramenta.executar(ctx, args);
+          const m = await agil.ferramenta(() => ferramenta.executar(ctx, args));
           if ('erro' in m) resultado = m;
           else {
             whatsapp.push(m.mensagem);
             resultado = { status: 'mensagem_preparada', numeroCadastrado: Boolean(m.mensagem.numero), instrucao: m.mensagem.numero ? 'O botão para abrir o WhatsApp já aparece para o usuário. Avise que ele precisa clicar e enviar.' : 'A empresa não tem WhatsApp de avisos válido cadastrado. O botão abre o WhatsApp sem destinatário. Avise para cadastrar o número na tela Empresa.' };
           }
         } else {
-          const proposta = await ferramenta.preparar(ctx, args);
+          // Regra de permissão (firme): pergunta de como/onde fazer nunca vira ação; exclusão só com ordem explícita. Mesmo liberada, é só o cartão de OK.
+          const antes = agil.permissao(false);
+          const proposta = antes.pode ? await agil.ferramenta(() => ferramenta.preparar(ctx, args)) : { erro: antes.motivo || 'Sem permissão.' };
+          const depois = 'erro' in proposta ? { pode: true } : agil.permissao(ferramenta.exclusao === true);
           if ('erro' in proposta) resultado = proposta;
+          else if (!depois.pode) resultado = { erro: depois.motivo || 'Sem permissão.' };
           else {
             const pendente = ctx.pendentes.criar({ sessaoHash: ctx.sessaoHash, login: ctx.login, ferramenta: chamada.nome, cnpj: proposta.cnpj, titulo: proposta.titulo, params: proposta.params, resumo: proposta.resumo, duasEtapas: ferramenta.exclusao === true });
             acoes.push({ id: pendente.id, ferramenta: chamada.nome, titulo: proposta.titulo, descricao: proposta.descricao, aviso: proposta.aviso ?? null, irreversivel: proposta.irreversivel === true, duasEtapas: pendente.duasEtapas, expiraEm: new Date(pendente.expiraEmMs).toISOString() });
@@ -295,7 +313,7 @@ export async function conversar(ctx: ContextoAgente, modelo: ModeloIA, mensagem:
         console.error(`Falha na ferramenta ${chamada.nome} da Agente IA:`, erro?.message || erro);
         resultado = { erro: 'Não foi possível concluir esta consulta agora.' };
       }
-      respostas.push({ functionResponse: { name: chamada.nome, response: resultado } });
+      respostas.push({ functionResponse: { name: chamada.nome, response: resultado, ...(chamada.id ? { id: chamada.id } : {}) } });
     }
     conteudos.push({ role: 'user', parts: respostas });
   }
@@ -303,7 +321,8 @@ export async function conversar(ctx: ContextoAgente, modelo: ModeloIA, mensagem:
   // foi levantado (texto longo ou pedido com várias partes nunca deve virar "não entendi").
   try {
     conteudos.push({ role: 'user', parts: [{ text: 'Responda agora ao usuário em português, com tudo o que você já levantou nas consultas acima. Se alguma parte do pedido ficou sem resposta, diga qual e o que falta, em uma frase. Não chame mais ferramentas.' }] });
-    const fim = await modelo({ instrucao, conteudos, declaracoes: [] });
+    const entradaFim = { instrucao: agil.instrucaoKit + instrucao, conteudos, declaracoes: [] as DeclaracaoFerramenta[], perfil: agil.perfil };
+    const fim = await agil.chamar(entradaFim, () => modelo(entradaFim));
     if (fim.texto.trim()) return { resposta: fim.texto.trim(), acoes, whatsapp, piloto };
   } catch (erro: any) { console.error('Falha na resposta final da Agente IA:', erro?.message || erro); }
   return { resposta: 'Fiz várias consultas para responder e não consegui fechar tudo de uma vez. Me diga qual parte do pedido você quer primeiro que eu continuo daí.', acoes, whatsapp, piloto };

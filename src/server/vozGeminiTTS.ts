@@ -6,6 +6,7 @@ import type { Express, Request, Response, RequestHandler } from 'express';
  * Se a cota acabar, responde 429 e o navegador usa a voz local como reserva.
  */
 const cacheVoz = new Map<string, string>();
+const MAX_CACHE_VOZ = 200;
 const usoPorIp = new Map<string, { total: number; ate: number }>();
 let vozPausadaAte = 0;
 
@@ -45,7 +46,7 @@ export function registrarRotaVozGemini(
         .slice(0, 1500);
       const chave = `Kore|${limpo}`;
       const guardado = cacheVoz.get(chave);
-      if (guardado) return res.json({ success: true, audio: guardado, mimeType: 'audio/wav', cache: true });
+      if (guardado) { cacheVoz.delete(chave); cacheVoz.set(chave, guardado); return res.json({ success: true, audio: guardado, mimeType: 'audio/wav', cache: true }); }
       if (Date.now() < vozPausadaAte) return res.status(429).json({ error: 'Cota da voz esgotada; usando a voz do navegador.' });
 
       const pedir = (modelo: string) => ia.models.generateContent({
@@ -53,14 +54,24 @@ export function registrarRotaVozGemini(
         contents: [{ role: 'user', parts: [{ text: limpo, speechMetadata: { style: ESTILO } }] }],
         config: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } } },
       });
-      let resposta;
-      try { resposta = await pedir(process.env.GEMINI_TTS_MODEL || 'gemini-3.8-flash-tts'); }
-      catch { resposta = await pedir('gemini-3.8-flash-lite-tts'); }
+      // Primeiro pedaço da fala (rapido=true): modelo Flash-Lite TTS, o de menor latência do Gemini (mesma voz Kore, mesmo formato).
+      // Os pedaços seguintes usam o modelo principal, gerados enquanto o primeiro toca.
+      const principal = process.env.GEMINI_TTS_MODEL || 'gemini-3.8-flash-tts';
+      const leve = process.env.GEMINI_TTS_MODEL_RAPIDO || 'gemini-3.8-flash-lite-tts';
+      const ordem = req.body?.rapido === true ? [leve, principal] : [principal, leve];
+      const t0 = Date.now();
+      let resposta; let usado = ordem[0];
+      try { resposta = await pedir(ordem[0]); }
+      catch { usado = ordem[1]; resposta = await pedir(ordem[1]); }
 
       const audio = resposta?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
       if (!audio) return res.status(502).json({ error: 'Nenhum áudio gerado.' });
-      cacheVoz.set(chave, audio);
-      if (cacheVoz.size > 60) cacheVoz.delete(cacheVoz.keys().next().value as string);
+      console.log(`[Voz tempo] ms=${Date.now() - t0} chars=${limpo.length} modelo=${usado} kb=${Math.round(String(audio).length * 0.75 / 1024)}`);
+      // Frases curtas se repetem ("Feito.", "Quer que eu te leve?"): guardadas para sair na hora. Textos longos raramente repetem.
+      if (limpo.length <= 400) {
+        cacheVoz.set(chave, audio);
+        while (cacheVoz.size > MAX_CACHE_VOZ) cacheVoz.delete(cacheVoz.keys().next().value as string);
+      }
       return res.json({ success: true, audio, mimeType: 'audio/wav' });
     } catch (erro: any) {
       console.error('Falha na voz humana (/api/tts):', erro?.message || erro);

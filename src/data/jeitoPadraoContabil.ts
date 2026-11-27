@@ -4,6 +4,7 @@
 // se uma tela for renomeada, o teste (e o Robô Conferidor "Meu jeito") avisam. Não escreva aqui o que o sistema não faz.
 // O jeito PADRÃO vale para todos os escritórios e evolui por atualização; o jeito de cada pessoa é só uma camada por cima.
 
+import { fraseDeApresentacao } from './agenteAgil';
 export type TelaJeito = {
   id: string;
   /** Mesmo nome que aparece no menu lateral. */
@@ -98,7 +99,8 @@ export function textoBoasVindas(sessao: number, legado = false, nome?: string | 
   const n = typeof nome === 'string' && nome.trim() ? nome.trim() : '';
   // Quem já usava o sistema antes do "Meu jeito" conta como já tendo passado por 4 aberturas: vê UMA vez, e com o texto completo.
   if (sessao === 1 || legado) {
-    return `Boas-vindas ao Murad Contábil${n ? `, ${n}` : ''}! Aqui funciona assim: o Fiscal e o DP mandam os dados, você confere em Revisar dados recebidos, aprova os lançamentos, acompanha o Balancete e fecha o mês na Gestão contábil. Mas cada contador trabalha de um jeito, e eu posso aprender o seu: é só me contar como prefere trabalhar, que eu salvo e passo a trabalhar sempre do seu jeito.`;
+    // Primeiro contato (pedido do dono: curto e ágil): a apresentação do Murad (nome + como chamar) e o convite do Meu jeito.
+    return `${fraseDeApresentacao(n || null)} Eu posso aprender o seu jeito de trabalhar: é só me contar como prefere, que eu salvo e passo a trabalhar sempre do seu jeito.`;
   }
   return `Que bom ter você de volta${n ? `, ${n}` : ''}! Lembre que eu posso aprender o seu jeito de trabalhar, ${DICAS[sessao - 2]}. Para ver o que eu já sei, diga: mostra meu jeito.`;
 }

@@ -1,3 +1,5 @@
+import { MAX_TURNOS_HISTORICO, aceitaTemperatura, configDoPerfil, type PerfilPedido } from "./src/data/agenteAgil";
+import { respostaLevarContabil } from "./src/server/pilotoContabil";
 import { enviarExtratoParaBaixa } from "./src/server/baixaGuiasFiscal";
 import { registrarRotasCentralLucroReal } from "./src/server/centralLucroRealRotas";
 import { atualizarSelicContabil, painelCentral, rodarCentralLucroReal, type DepsCentral } from "./src/server/centralLucroReal";
@@ -47,7 +49,7 @@ import { criarServicoMeuJeito, registrarRotasMeuJeito, type SessaoJeito } from "
 import { conferirApresentacao, resumoRelatorioApresentacao } from "./src/server/conferidorApresentacao";
 import type { SessaoContabil } from './src/server/authContabil';
 import { lerPerfilSaudacaoContabil, marcarSaudadoHojeContabil } from "./src/server/authContabil";
-import { extrairNomeDaResposta, fraseDeSaudacao } from "./src/server/agenteSaudacao";
+import { extrairNomeDaResposta, fraseDeApresentacao, fraseDeSaudacao } from "./src/server/agenteSaudacao";
 import { opcoesConexaoBancoContabil, bancoTransacionalContabil } from "./src/server/authContabil";
 import { removerEmpresaCompleta, sobrasDeEmpresasExcluidas } from "./src/server/exclusaoEmpresaCascata";
 import { listarRegistroAgenteIAContabil, bancoContabilConfigurado, consultaBancoContabil, hashSessaoContabil, registrarAcaoAgenteIAContabil, listarDuvidasSemRespostaDonoSistemaContabil, resolverDuvidaSemRespostaDonoSistemaContabil } from "./src/server/authContabil";
@@ -111,7 +113,8 @@ function getAI(): GoogleGenAI | null {
 
 // Chamada ao Gemini com tempo limite e modelos reserva (rápido primeiro), para não deixar o usuário esperando.
 const MODELOS_RAPIDOS = () => [process.env.GEMINI_MODEL_RAPIDO || "gemini-3.1-flash-lite", process.env.GEMINI_MODEL || "gemini-3.8-flash"];
-async function gerarComReserva(ai: GoogleGenAI, base: { contents: any; systemInstruction: string; tools?: any[]; temperature?: number }, limiteMs = 12_000): Promise<any> {
+// `perfil` (Agente): raciocínio e tamanho da resposta por tipo de pedido (src/data/agenteAgil.ts): mínimo nas perguntas simples.
+async function gerarComReserva(ai: GoogleGenAI, base: { contents: any; systemInstruction: string; tools?: any[]; temperature?: number; perfil?: PerfilPedido; aoResponder?: (modelo: string) => void }, limiteMs = 12_000): Promise<any> {
   let ultimoErro: unknown;
   const tentativas: { model: string; tools?: any[] }[] = [];
   for (const model of MODELOS_RAPIDOS()) {
@@ -123,9 +126,13 @@ async function gerarComReserva(ai: GoogleGenAI, base: { contents: any; systemIns
       const chamada = ai.models.generateContent({
         model: t.model,
         contents: base.contents,
-        config: { systemInstruction: base.systemInstruction, temperature: base.temperature ?? 0.2, ...(t.tools ? { tools: t.tools } : {}), thinkingConfig: { thinkingLevel: "LOW" as any } },
+        config: base.perfil
+          ? (() => { const c = configDoPerfil(t.model, base.perfil); return { systemInstruction: base.systemInstruction, ...(aceitaTemperatura(t.model) ? { temperature: base.temperature ?? 0.2 } : {}), ...(t.tools ? { tools: t.tools } : {}), maxOutputTokens: c.maxOutputTokens, thinkingConfig: { thinkingLevel: c.thinkingLevel as any } }; })()
+          : { systemInstruction: base.systemInstruction, temperature: base.temperature ?? 0.2, ...(t.tools ? { tools: t.tools } : {}), thinkingConfig: { thinkingLevel: "LOW" as any } },
       });
-      return await Promise.race([chamada, new Promise((_, rej) => setTimeout(() => rej(new Error("tempo esgotado")), limiteMs).unref())]);
+      const r = await Promise.race([chamada, new Promise((_, rej) => setTimeout(() => rej(new Error("tempo esgotado")), base.perfil ? configDoPerfil(t.model, base.perfil).tempoRapidoMs : limiteMs).unref())]);
+      base.aoResponder?.(t.model);
+      return r;
     } catch (e) {
       ultimoErro = e;
       console.error(`Gemini (${t.model}${t.tools ? " + busca" : ""}):`, e instanceof Error ? e.message.slice(0, 200) : e);
@@ -1346,16 +1353,19 @@ const reconciliacaoRascunhosStatus: {
     return true;
   };
 
-  const modeloGeminiAgente = (): ModeloIA => async ({ instrucao, conteudos, declaracoes }) => {
+  const modeloGeminiAgente = (): ModeloIA => async ({ instrucao, conteudos, declaracoes, perfil }) => {
     const ai = getAI();
     if (!ai) throw new Error("GEMINI_API_KEY não configurada.");
-    const response: any = await gerarComReserva(ai, { contents: conteudos as any, systemInstruction: instrucao, tools: [{ functionDeclarations: declaracoes as any }], temperature: 0.2 }, 15_000);
+    let modelo = "";
+    const response: any = await gerarComReserva(ai, { contents: conteudos as any, systemInstruction: instrucao, ...(declaracoes.length ? { tools: [{ functionDeclarations: declaracoes as any }] } : {}), temperature: 0.2, perfil: perfil || "simples", aoResponder: (m) => { modelo = m; } }, 15_000);
     const turno: any = response.candidates?.[0]?.content;
     const partes: any[] = Array.isArray(turno?.parts) ? turno.parts : [];
     return {
       texto: partes.filter((p) => typeof p?.text === "string" && !p.thought).map((p) => p.text).join(""),
-      chamadas: partes.filter((p) => p?.functionCall?.name).map((p) => ({ nome: String(p.functionCall.name), args: (p.functionCall.args || {}) as Record<string, any> })),
+      chamadas: partes.filter((p) => p?.functionCall?.name).map((p) => ({ nome: String(p.functionCall.name), args: (p.functionCall.args || {}) as Record<string, any>, ...(p.functionCall.id ? { id: String(p.functionCall.id) } : {}) })),
       turnoModelo: turno,
+      tokensPrompt: typeof response.usageMetadata?.promptTokenCount === "number" ? response.usageMetadata.promptTokenCount : undefined,
+      modelo: modelo || undefined,
     };
   };
 
@@ -1391,7 +1401,7 @@ const reconciliacaoRascunhosStatus: {
     try {
       await servicoMeuJeito.definirNome(sessaoMeuJeito(req)!, nome);
       await marcarSaudadoHojeContabil(sessao.userId);
-      return res.json({ sucesso: true, nome, frase: `Prazer, ${nome}! Pode falar o que precisa.` });
+      return res.json({ sucesso: true, nome, frase: fraseDeApresentacao(nome) });
     } catch (error) { console.error("Falha ao gravar o nome da Agente IA do Contábil:", error instanceof Error ? error.message : error); return res.status(503).json({ sucesso: false, mensagem: "Não consegui gravar o nome agora." }); }
   });
 
@@ -1399,16 +1409,24 @@ const reconciliacaoRascunhosStatus: {
   const etapasAgenteIA = new ArmazemDeEtapas();
   app.post("/api/ai/agente", exigirSessaoContabil, async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
+    const inicioPedido = Date.now();
     const ctx = contextoAgenteIA(req);
     if (!ctx) return res.status(401).json({ error: "Entre novamente para continuar." });
+    ctx.inicioMs = inicioPedido;
     const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
     if (!message) return res.status(400).json({ error: "Digite seu pedido." });
+    const historico = Array.isArray(req.body?.historico)
+      ? req.body.historico.filter((t: any) => t && (t.papel === "usuario" || t.papel === "ia") && typeof t.texto === "string").slice(-MAX_TURNOS_HISTORICO)
+      : [];
+    // "Me leva lá", "onde fica/como faço", "tem X?" e o "sim" depois de "Quer que eu te leve?": responde na hora, SEM IA. O plano só leva e destaca.
+    const levarAgora = respostaLevarContabil(message, historico);
+    if (levarAgora) {
+      console.log(`[Agente tempo] sistema=contabil perfil=simples atalho=${levarAgora.levarAgora ? "levar" : "onde_fica"} total=${Date.now() - inicioPedido}ms modelo=0ms`);
+      return res.json({ sucesso: true, resposta: levarAgora.resposta, acoes: [], whatsapp: [], ...(levarAgora.levarAgora ? { piloto: levarAgora.piloto } : { oferta: { rotulo: "Me leva lá", piloto: levarAgora.piloto } }) });
+    }
     // Nunca recusa por tamanho: até 500.000 caracteres; acima disso lê o começo e avisa. Texto longo vai por etapas.
     if (!getAI()) return res.status(503).json({ error: "Agente indisponível: configure GEMINI_API_KEY no servidor." });
     if (!limiteUsoAgenteIA(ctx.sessaoHash)) return res.status(429).json({ error: "Muitos pedidos em pouco tempo. Aguarde alguns minutos." });
-    const historico = Array.isArray(req.body?.historico)
-      ? req.body.historico.filter((t: any) => t && (t.papel === "usuario" || t.papel === "ia") && typeof t.texto === "string").slice(-10)
-      : [];
     try {
       try { const sessao = sessaoDaRequisicaoContabil(req); if (sessao) ctx.nomeUsuario = (await lerPerfilSaudacaoContabil(sessao.userId)).nome || undefined; } catch { /* sem o nome a conversa segue normal */ }
       // Meu jeito: a Agente trabalha do jeito da pessoa (conversa curta ou detalhada; cartão resumido SÓ nas ações de baixo risco). Se falhar, segue no jeito padrão.

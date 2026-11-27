@@ -42,8 +42,9 @@ export function extrairNomeDaResposta(texto: string): string {
   return normalizarNomeTratamento(t);
 }
 
-/** Frase de abertura do dia: "Bom dia, Herbert!" (ou sem nome, enquanto ela ainda não sabe). */
+export { NOME_DA_AGENTE, fraseDeApresentacao } from '../data/agenteAgil';
+
+/** Frase de abertura do dia, curta para ser ágil: "Oi, Herbert." (sem nome, enquanto ela ainda não sabe: "Bom dia!"). */
 export function fraseDeSaudacao(nome: string | null | undefined, agora: Date = new Date()): string {
-  const s = saudacaoDoHorario(agora);
-  return nome ? `${s}, ${nome}!` : `${s}!`;
+  return nome ? `Oi, ${nome}.` : `${saudacaoDoHorario(agora)}!`;
 }

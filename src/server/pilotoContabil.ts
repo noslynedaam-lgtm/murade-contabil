@@ -6,8 +6,9 @@
 // Regras: escopo por empresa da sessão (só empresas que a rota /api/workspaces devolve), nunca credencial, nunca consulta paga,
 // nunca calcula valor (o valor sai exatamente como o contador/Agente informou, só validado e com vírgula trocada por ponto).
 import { erroApi, ok, q, type ContextoAgente, type Ferramenta } from './agenteMotor';
-import { CAMPOS_CONTABIL, IDS_DE_TELAS_CONTABIL, SECOES_CONTABIL, TELAS_CONTABIL, alvoDoCampo, campoDoMapa } from '../data/mapaTelasContabil';
-import { validarPlanoPiloto, type PassoPiloto, type PlanoPiloto } from '../utils/pilotoVisivel';
+import { CAMPOS_CONTABIL, IDS_DE_TELAS_CONTABIL, SECOES_CONTABIL, TELAS_CONTABIL, alvoDoCampo, campoDoMapa, type SecaoMapa, type TelaMapa } from '../data/mapaTelasContabil';
+import { MARCA_SO_MOSTRAR, validarPlanoPiloto, type PassoPiloto, type PlanoPiloto } from '../utils/pilotoVisivel';
+import { OFERTA_LEVAR, acharPorApelidos, assuntoDoPedidoDeLugar, ehPedidoDeLevar, ehPerguntaDeLocal, ehPerguntaSeTem, ehSimParaLevar, ofereceuLevar, respostaTemSim, semAcentoAgil } from '../data/agenteAgil';
 import { calcularProximoCodigoSequencial } from '../utils/planoContasUtils';
 
 const limpaCnpj = (v: unknown): string | null => { const d = String(v ?? '').replace(/[^0-9A-Za-z]/g, '').toUpperCase(); return /^[A-Z0-9]{12}\d{2}$/.test(d) ? d : null; };
@@ -266,3 +267,74 @@ PILOTO VISÍVEL (a tela muda sozinha)
 - Depois de chamar, diga em UMA frase o que ele vai ver e que pode interromper. Nunca diga que gravou: só grava depois do OK dele.
 - O piloto nunca mexe em senha, token, certificado nem dados bancários; salvar, fechar período, enviar, pagar ou excluir só depois do OK no cartão; consulta paga ao Serpro só no clique do contador; nada em lote.
 - Se o contador interferir, o piloto pausa sozinho. "Pode continuar", "continua", "segue" → continuar_piloto. "Em segundo plano", "faz por trás enquanto eu uso outra tela" → piloto_segundo_plano (termina de verdade, sem animação, mostrando o andamento, e avisa no fim; o que grava continua pedindo o OK). "Cancela", "para" → cancelar_piloto.`;
+
+// ---------------------------------------------------------------------------------------------
+// "Me leva lá" SEM IA (resposta instantânea): pedido explícito leva na hora; pergunta de "onde fica / como faço" responde em uma
+// frase e oferece levar ("Quer que eu te leve?" + botão Me leva lá); o "sim" seguinte leva sem chamar o modelo.
+// O plano só LEVA (clica no item do menu) e destaca a seção (so_mostrar): nunca aperta botão de gravar, enviar ou excluir.
+// "O sistema tem X?" só responde "Tem sim" quando a tela ou a seção existe no mapa (regra de honestidade).
+// ---------------------------------------------------------------------------------------------
+/** Jeitos de falar de cada tela (só o que a tela tem de verdade; as seções vêm de SECOES_CONTABIL, conferidas contra o código). */
+export const APELIDOS_TELAS_CONTABIL: Record<string, string[]> = {
+  'inicio': ['inicio', 'tela inicial', 'painel', 'home'],
+  'empresa': ['empresa', 'empresas', 'cadastro de empresa', 'dados da empresa', 'excluir empresa', 'apagar empresa'],
+  'agenda': ['agenda', 'lembretes', 'agenda e lembretes'],
+  'fluxo-previtico': ['fluxo de caixa previsto', 'fluxo previsto', 'previsao de caixa'],
+  'modulos-finais': ['obrigacoes', 'obrigacoes e gestao'],
+  'gestao-contabil': ['gestao contabil', 'conciliacao bancaria', 'extrato', 'extrato bancario', 'regras de conciliacao'],
+  'conexoes': ['conexao orgaos', 'conexoes', 'orgaos'],
+  'lancamentos': ['lancamentos', 'lancamento', 'lancamentos contabeis', 'partidas', 'lancamentos padrao'],
+  'aprovacoes': ['aprovar lancamentos', 'aprovacoes', 'aprovacao', 'pre lancamentos', 'servicos preparados'],
+  'balancete': ['balancete'],
+  'livros': ['livros', 'livros fiscais', 'ecd', 'livro diario', 'livro razao', 'diario', 'razao', 'livro caixa', 'encerramento do resultado'],
+  'demonstracoes': ['demonstracoes', 'relatorios', 'demonstracoes contabeis', 'dre', 'dva', 'dfc', 'dmpl', 'notas explicativas', 'relatorio para o cliente'],
+  'plano-contas': ['plano de contas', 'contas', 'saldos iniciais'],
+  'migracao': ['migracao', 'migracao contabil', 'backup do sistema anterior', 'trazer do sistema anterior', 'importar ecd'],
+  'integracao': ['integracoes', 'integracao', 'fiscal para contabil', 'dp para contabil'],
+  'revisao-origens': ['revisar dados recebidos', 'dados recebidos', 'conciliacao fiscal dp', 'previa da folha', 'previa das notas', 'trilha de auditoria'],
+  'vigencia-obrigacoes': ['vigencia', 'vigencia das obrigacoes'],
+  'calculadora': ['calculadora'],
+  'agente': ['robos', 'saude dos robos'],
+  'tarefas-equipe': ['tarefas', 'tarefas da equipe'],
+  'backups': ['backups', 'backup'],
+  'meu-jeito': ['meu jeito'],
+  'revisor': ['revisor', 'revisao', 'corrigir'],
+};
+type DestinoContabil = { tela: TelaMapa; secao?: SecaoMapa };
+function indiceDeLugares(): Array<{ item: DestinoContabil; nomes: string[]; chave: string }> {
+  return [
+    ...TELAS_CONTABIL.map((t) => ({ item: { tela: t }, nomes: [t.rotulo, ...(APELIDOS_TELAS_CONTABIL[t.id] || [])], chave: t.id })),
+    ...SECOES_CONTABIL.flatMap((s) => { const t = TELAS_CONTABIL.find((x) => x.id === s.tela); return t ? [{ item: { tela: t, secao: s }, nomes: [s.texto], chave: `${t.id}#${s.chave}` }] : []; }),
+  ];
+}
+export function destinoDoPedido(texto: string): DestinoContabil | null { return acharPorApelidos(assuntoDoPedidoDeLugar(texto), indiceDeLugares()); }
+export function planoParaLevarContabil(d: DestinoContabil): PlanoPiloto | null {
+  const passos: PassoPiloto[] = [passoTela(d.tela.id, d.tela.rotulo)];
+  if (d.secao) passos.push({ tipo: 'destacar', alvo: `texto:${d.secao.texto}`, valor: MARCA_SO_MOSTRAR, legenda: `Aqui, ó: ${d.secao.texto}.` });
+  const v = validarPlanoPiloto({ titulo: `Levando até ${d.tela.rotulo}`, passos });
+  return v.ok ? v.plano : null;
+}
+export interface RespostaLevarContabil { resposta: string; piloto: PlanoPiloto; levarAgora: boolean }
+const RE_NAO_E_LUGAR_C = /\b(quanto|quantos|quantas|quando|valor|aliquota|lei|artigo|porque|por que|status|situacao|vence|venceu|prazo|regra de|percentual)\b/;
+export function respostaLevarContabil(mensagem: string, historico: Array<{ papel: string; texto: string }> = []): RespostaLevarContabil | null {
+  const t = semAcentoAgil(mensagem);
+  if (!t || t.split(' ').length > 16) return null;
+  const levar = (d: DestinoContabil, agora: boolean, tem = false): RespostaLevarContabil | null => {
+    const piloto = planoParaLevarContabil(d);
+    if (!piloto) return null;
+    const lugar = d.secao ? `${d.tela.rotulo}, em "${d.secao.texto}"` : d.tela.rotulo;
+    return { piloto, levarAgora: agora, resposta: tem ? respostaTemSim(lugar) : agora ? `Abrindo ${d.tela.rotulo}.` : `Fica em ${lugar}. ${OFERTA_LEVAR}` };
+  };
+  if (ehSimParaLevar(mensagem)) {
+    const i = historico.map((h) => h.papel).lastIndexOf('ia');
+    if (i < 0 || !ofereceuLevar(historico[i].texto)) return null;
+    const pergunta = [...historico.slice(0, i)].reverse().find((h) => h.papel === 'usuario');
+    const d = pergunta ? destinoDoPedido(pergunta.texto) : null;
+    return d ? levar(d, true) : null;
+  }
+  if (RE_NAO_E_LUGAR_C.test(t)) return null;
+  if (ehPerguntaSeTem(mensagem)) { const d = destinoDoPedido(mensagem); return d ? levar(d, false, true) : null; }
+  if (ehPedidoDeLevar(mensagem)) { const d = destinoDoPedido(mensagem); return d ? levar(d, true) : null; }
+  if (ehPerguntaDeLocal(mensagem)) { const d = destinoDoPedido(mensagem); return d ? levar(d, false) : null; }
+  return null;
+}
