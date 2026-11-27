@@ -104,7 +104,7 @@ export const INTEGRACOES_APRESENTACAO: IntegracaoApresentacao[] = [
   },
   {
     id: 'fiscal-apuracoes', titulo: 'Do Fiscal: apurações de tributo', tela: 'revisao-origens',
-    falar: 'O Fiscal também envia as apurações de tributo que a contadora já confirmou, como o DIFAL do ICMS, o IRPJ, a CSLL, o PIS e a COFINS do Lucro Presumido e o DAS do Simples (provisão e pagamento). O Contábil grava por empresa, tributo e competência e prepara os pré-lançamentos para você aprovar.',
+    falar: 'O Fiscal também envia as apurações de tributo que a contadora já confirmou, como o DIFAL do ICMS, o IRPJ, a CSLL, o PIS e a COFINS do Lucro Presumido e o DAS do Simples (provisão e pagamento), e os parcelamentos cadastrados lá: a consolidação no dia da adesão e cada parcela paga, com os juros à parte. O Contábil grava por empresa, tributo e competência e prepara os pré-lançamentos para você aprovar.',
     rotas: ['POST /api/integracao/fiscal/apuracoes', 'GET /api/integracao/fiscal/apuracoes'],
   },
   {
@@ -155,6 +155,18 @@ type Fixo = { id: string; titulo: string; falar: string; tela?: string; soDono?:
 export const ABERTURA: Fixo[] = [
   { id: 'abertura', titulo: 'Começando', falar: 'Vou contar em blocos curtos o que o Murad Contábil faz: os módulos, o que é automático, o que depende de você, o que é integrado e o que ele ainda não faz. A qualquer momento você pode dizer para, continua ou pula esse bloco.' },
 ];
+/** Como funciona, em detalhe (recursos novos): o que é, onde fica, o que é automático e o limite. Entram na seção dos módulos,
+ *  logo depois deles, e também quando a pessoa pede um módulo só (a `tela` é a do módulo). */
+export const DETALHES_DO_SISTEMA: Array<Fixo & { tela: string }> = [
+  { id: 'detalhe-migracao-backup', titulo: 'Migração pelo backup: a parte do Contábil', tela: 'migracao', falar: 'Na migração pelo backup, a empresa grande vem inteira, ano a ano, sem bloqueio por tamanho: os exercícios antigos vão para o histórico guardado e a prévia avisa até que ano. A prévia e a gravação usam menos memória, com o mesmo resultado, e o arquivo enviado fica guardado 2 horas a contar do último uso. Cliente ativo no escritório vem no sentido certo, decidido pelo movimento contábil.' },
+  { id: 'detalhe-regras-integracao', titulo: 'Regras de integração do sistema anterior', tela: 'revisao-origens', falar: 'As regras de integração do sistema anterior, de fornecedor e de CFOP para a conta, vêm na migração e o reconciliador usa desde o primeiro dia nas notas do Fiscal. Só conta que existe no plano da empresa vira regra; o resto fica registrado com aviso. Você vê o quadro em Revisar dados recebidos, só para leitura.' },
+  { id: 'detalhe-exercicio-consultado', titulo: 'Empresa grande: histórico guardado por exercício', tela: 'balancete', falar: 'Empresa grande fica com os exercícios em aberto no documento da empresa e os antigos guardados no histórico, por exercício, com o saldo transportado. No topo do Balancete, dos Livros e das Demonstrações, escolha o ano em Exercício consultado para ver um ano guardado, só para leitura. Os números dos exercícios em aberto não mudam, e os robôs da ECD, das demonstrações e da DVA usam o ano guardado.' },
+  { id: 'detalhe-guardar-exercicio', titulo: 'Guardar e trazer exercício de volta', tela: 'balancete', falar: 'No mesmo lugar ficam Guardar no histórico, até o ano escolhido, e Trazer o último ano de volta, cada um com segunda confirmação; pela Agente, com cartão. Nada é apagado: só muda de lugar. Para alterar um ano guardado, traga-o de volta. O robô do histórico confere o saldo transportado de 6 em 6 horas.' },
+  { id: 'detalhe-dva', titulo: 'DVA', tela: 'demonstracoes', falar: 'Em Demonstrações e relatórios, DVA: a Demonstração do Valor Adicionado pelo CPC 09 e pela Lei 6.404, montada das contas de resultado, do plano referencial e da DRE, com PDF e Excel. Conta que o sistema não classifica com certeza fica pendente até você escolher a linha e clicar em Salvar linhas da DVA. O robô confere de 6 em 6 horas; na companhia aberta, onde a DVA é obrigatória, o aviso é mais forte.' },
+  { id: 'detalhe-extrato-pdf', titulo: 'Extrato em PDF', tela: 'gestao-contabil', falar: 'Na conciliação bancária, em Gestão contábil, o extrato em PDF dos principais bancos é lido no servidor: primeiro mostra a conferência e só guarda, em Guardar extrato, se o saldo inicial mais as entradas menos as saídas der o saldo final, sem duplicar.' },
+  { id: 'detalhe-baixa-guias', titulo: 'Baixa das guias pelo extrato', tela: 'gestao-contabil', falar: 'O extrato importado, em OFX, CSV, Excel ou PDF, vai ao Fiscal na hora e de hora em hora para dar baixa só nas guias do aplicativo do cliente que casam com o débito pelo valor e pela data ou pelo código da guia. Não mexe na conciliação nem consulta o Serpro.' },
+];
+
 export const DEPENDE_DO_CONTADOR: Fixo[] = [
   { id: 'depende-aprovar', titulo: 'Aprovar lançamentos', tela: 'aprovacoes', falar: 'Lançamento manual só entra nos livros depois de aprovado por uma pessoa, e a rejeição pede o motivo, que fica no histórico.' },
   { id: 'depende-contabilizar', titulo: 'Contabilizar os rascunhos', tela: 'revisao-origens', falar: 'Os pré-lançamentos que vêm do Fiscal e do DP só viram lançamento definitivo quando você contabiliza. O servidor revisa cada um com os dados atuais e recusa o que não bater.' },
@@ -185,6 +197,7 @@ export function montarApresentacao(ehDono = false): BlocoApresentacao[] {
   const b: BlocoApresentacao[] = [];
   for (const a of ABERTURA) b.push({ ...a, secao: 'abertura' });
   for (const m of MODULOS_JEITO_PADRAO) b.push({ id: `modulo-${m.id}`, secao: 'modulos', titulo: m.rotulo, falar: `${m.rotulo}. ${m.resumo}`, tela: m.id });
+  for (const d of DETALHES_DO_SISTEMA) b.push({ ...d, secao: 'modulos' });
   for (const r of ROBOS_APRESENTACAO) b.push({ id: `robo-${r.id}`, secao: 'automatico', titulo: r.nome, tela: 'agente', soDono: r.soDono, falar: `${r.nome}: ${r.quando ?? falarIntervalo(r.intervaloMs)}. ${r.faz.charAt(0).toUpperCase()}${r.faz.slice(1)}` });
   for (const d of DEPENDE_DO_CONTADOR) b.push({ ...d, secao: 'depende' });
   for (const i of INTEGRACOES_APRESENTACAO) b.push({ id: `integracao-${i.id}`, secao: 'integracoes', titulo: i.titulo, falar: i.falar, tela: i.tela, soDono: i.soDono });

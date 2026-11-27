@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { conferirApresentacao, resumoRelatorioApresentacao, robosDoServidor, rotasDeIntegracaoDoServidor } from '../../src/server/conferidorApresentacao';
 import { MODULOS_JEITO_PADRAO } from '../../src/data/jeitoPadraoContabil';
-import { INTEGRACOES_APRESENTACAO, ROBOS_APRESENTACAO } from '../../src/data/apresentacaoSistema';
+import { DETALHES_DO_SISTEMA, INTEGRACOES_APRESENTACAO, ROBOS_APRESENTACAO, blocosDoAssunto } from '../../src/data/apresentacaoSistema';
 
 const lerReal = (c: string) => readFileSync(c, 'utf8');
 
@@ -45,4 +45,12 @@ test('apresentação: bloco de tela que não existe no menu é apontado', () => 
 test('apresentação: tela do menu sem bloco é apontada', () => {
   const i = MODULOS_JEITO_PADRAO.findIndex((m) => m.id === 'balancete'); const [tirado] = MODULOS_JEITO_PADRAO.splice(i, 1);
   try { assert.ok(conferirApresentacao(lerReal).problemas.some((p) => p.tipo === 'tela_sem_bloco' && p.chave === 'balancete')); } finally { MODULOS_JEITO_PADRAO.splice(i, 0, tirado); }
+});
+test('apresentação: cada detalhe aponta para uma tela do menu e vem junto quando a pessoa pede aquele módulo', () => {
+  const ids = new Set(MODULOS_JEITO_PADRAO.map((m) => m.id));
+  for (const d of DETALHES_DO_SISTEMA) {
+    assert.ok(ids.has(d.tela), `${d.id}: tela inexistente ${d.tela}`);
+    const doModulo = blocosDoAssunto({ modulo: d.tela }).map((b) => b.id);
+    assert.equal(doModulo[0], `modulo-${d.tela}`); assert.ok(doModulo.includes(d.id), d.id);
+  }
 });
