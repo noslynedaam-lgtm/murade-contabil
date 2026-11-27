@@ -1,3 +1,4 @@
+import { AjudaInatividade } from "./components/AjudaInatividade";
 import React, { useState } from "react";
 import { useFecharNoVoltar, useVoltarCelular } from "./hooks/useVoltarCelular";
 import { usePresencaSinal } from "./hooks/usePresencaSinal";
@@ -1353,6 +1354,7 @@ function AppWorkspace() {
       <ApresentacaoSistema assistenteRef={assistenteRef} ehDono={ehDonoSistema} />
       {/* Botão PARAR da Agente: só aparece enquanto ela fala ou age e quando não há outro PARAR à vista (Esc também para). */}
       <BotaoPararAgente variante="flutuante" />
+      <AjudaInatividade tela={String(tabAtiva)} />
       <IAMuradModal
         ref={assistenteRef}
         isOpen={assistenteAberta}

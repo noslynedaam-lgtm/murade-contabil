@@ -475,3 +475,16 @@ export function respostaDoQueFalta(mensagem: string, catalogo: FuncaoQueFalta[])
   if (!f) return null;
   return f.tipo === 'nao_tem' ? `Ainda não tem ${f.texto} ${LISTA_DE_MELHORIAS}` : `Tem em parte: ${f.texto} ${LISTA_DE_MELHORIAS}`;
 }
+
+// ------------------------------------------------------------------------------------------------ dica de ajuda por inatividade
+/** "Precisa de ajuda?": na primeira semana de uso, parado 20 s numa tela, no máximo 1 vez por tela por dia; dá para desligar. */
+export const FRASE_AJUDA = `Precisa de ajuda? É só dizer "${NOME_DA_AGENTE}".`;
+export const AJUDA_PARADO_MS = 20_000;
+export const AJUDA_DIAS_DE_USO = 7;
+export interface EstadoAjuda { primeiroUsoMs: number; ofertas: Record<string, string>; desligada: boolean }
+export function deveOferecerAjuda(e: EstadoAjuda, tela: string, agoraMs: number, ultimaInteracaoMs: number, hoje: string): boolean {
+  if (e.desligada || !tela) return false;
+  if (agoraMs - e.primeiroUsoMs > AJUDA_DIAS_DE_USO * 24 * 60 * 60_000) return false;
+  if (agoraMs - ultimaInteracaoMs < AJUDA_PARADO_MS) return false;
+  return e.ofertas[tela] !== hoje;
+}

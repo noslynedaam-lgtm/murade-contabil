@@ -179,3 +179,16 @@ test('honestidade: "o sistema tem X?" é reconhecido; a regra manda responder s�
   assert.match(ESTILO_AGIL, /Nunca diga que tem uma função que você não achou/);
   assert.match(ESTILO_AGIL, /Ainda não tem/);
 });
+
+test('dica de ajuda por inatividade: só na primeira semana, parado 20 s, 1 vez por tela por dia, e dá para desligar', async () => {
+  const { AJUDA_PARADO_MS, FRASE_AJUDA, deveOferecerAjuda } = await import('../../src/data/agenteAgil');
+  const agora = 10 * 24 * 60 * 60_000;
+  const base = { primeiroUsoMs: agora - 2 * 24 * 60 * 60_000, ofertas: {}, desligada: false };
+  assert.equal(FRASE_AJUDA, 'Precisa de ajuda? É só dizer "Murad".');
+  assert.equal(deveOferecerAjuda(base, 'folha', agora, agora - AJUDA_PARADO_MS, '2026-11-27'), true);
+  assert.equal(deveOferecerAjuda(base, 'folha', agora, agora - 5000, '2026-11-27'), false, 'mexeu há pouco');
+  assert.equal(deveOferecerAjuda({ ...base, ofertas: { folha: '2026-11-27' } }, 'folha', agora, 0, '2026-11-27'), false, 'já ofereceu hoje nesta tela');
+  assert.equal(deveOferecerAjuda({ ...base, ofertas: { folha: '2026-11-26' } }, 'folha', agora, 0, '2026-11-27'), true);
+  assert.equal(deveOferecerAjuda({ ...base, desligada: true }, 'folha', agora, 0, '2026-11-27'), false);
+  assert.equal(deveOferecerAjuda({ ...base, primeiroUsoMs: 0 }, 'folha', agora, 0, '2026-11-27'), false, 'depois da primeira semana');
+});
