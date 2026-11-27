@@ -13,6 +13,7 @@ import crypto from "node:crypto";
 import { diaDeHoje } from "./agenteSaudacao";
 import type { NextFunction, Request, Response } from "express";
 import { Pool, type PoolClient } from "pg";
+import { protegerDdlNoPool } from "./ddlProtegido";
 import { gerarRelatoriosContabeis, normalizarDataContabil } from "../utils/livrosContabeis";
 import { avisarHubFiscal, removerEmpresaCompleta, type BancoTransacional } from './exclusaoEmpresaCascata';
 import {
@@ -44,12 +45,13 @@ function obterBanco(): Pool {
   const url = process.env.DATABASE_URL?.trim();
   if (!url) throw new Error("DATABASE_URL não configurada no Contábil.");
   if (!pool) {
-    pool = new Pool({
+    // DDL (CREATE/ALTER) passa por ddlProtegido: nunca fica esperando lock de transação longa (ex.: gravação da migração).
+    pool = protegerDdlNoPool(new Pool({
       connectionString: url,
       ssl: process.env.PGSSLMODE === "require" ? { rejectUnauthorized: false } : undefined,
       max: 5,
       idleTimeoutMillis: 30_000,
-    });
+    }), "contabil-auth");
   }
   return pool;
 }
