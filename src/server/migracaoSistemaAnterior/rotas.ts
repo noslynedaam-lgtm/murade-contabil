@@ -7,7 +7,7 @@ import type { SessaoContabil } from '../authContabil';
 import type { BancoTransacional, ConsultaSql } from '../exclusaoEmpresaCascata';
 import {
   descartarMigracaoContabil, gerarPreviaContabil, gravarMigracaoContabil, iniciarLimpezaMigracaoContabil, listarEmpresasDoBackupContabil,
-  receberArquivoContabil, situacaoMigracaoContabilDoUsuario,
+  receberArquivoContabil, situacaoMigracaoContabilDoUsuario, configurarRetomadaContabil, bancoInterrompivel, PausaParaAtualizacao,
 } from './servico';
 import { listarRegrasIntegracaoFiscal } from '../regrasIntegracaoFiscalStore';
 import { lerHistoricoDoEscritorio, resumoHistorico } from '../historicoLancamentosStore';
@@ -63,6 +63,8 @@ const normalizar = (v: unknown) => String(v ?? '').toUpperCase().replace(/[^A-Z0
 
 export function registrarRotasMigracaoSistemaAnterior(app: express.Express, dep: DependenciasRotasMigracao): void {
   iniciarLimpezaMigracaoContabil();
+  // Gravação que sobrevive a uma publicação: estado no banco, arquivo guardado fora do servidor, pausa no SIGTERM.
+  configurarRetomadaContabil(() => (dep.bancoConfigurado() ? (sql: string, params?: unknown[]) => dep.consultar(sql, params as any[]) as any : null));
   const base = '/api/migracao-sistema-anterior';
   const doEscritorio = (req: express.Request, res: express.Response): SessaoContabil | null => {
     const s = sessaoDe(req);
@@ -118,13 +120,14 @@ export function registrarRotasMigracaoSistemaAnterior(app: express.Express, dep:
       const s = doEscritorio(req, res); if (!s) return;
       try {
         await dep.preparar();
-        const resultados = await gravarMigracaoContabil(String(req.body?.token || ''), s.userId, req.body?.cdempresas, req.body?.escolhidasUmaAUma === true, async (dados) => {
+        const resultados = await gravarMigracaoContabil(String(req.body?.token || ''), s.userId, req.body?.cdempresas, req.body?.escolhidasUmaAUma === true, async (dados, controle) => {
           try {
-            return await gravarEmpresaMigrada(dep.banco(), dados, { userId: s.userId, login: s.login, escritorioId: s.escritorioDe || s.userId, tenantId: tenantDe(s) }, {
+            // Publicação no meio: o banco desfaz a empresa da vez (ROLLBACK) se não der tempo de terminar (migracaoRetomada.ts).
+            return await gravarEmpresaMigrada(controle ? bancoInterrompivel(dep.banco(), controle.desfazerAgora) : dep.banco(), dados, { userId: s.userId, login: s.login, escritorioId: s.escritorioDe || s.userId, tenantId: tenantDe(s) }, {
               modelo: dep.modelo, validar: (p) => dep.workspaceValido(p), competenciaAtual: competenciaDoBrasil(),
             });
           } catch (e) {
-            if (e instanceof ErroMigracao) throw e;
+            if (e instanceof ErroMigracao || e instanceof PausaParaAtualizacao) throw e;
             console.error('Falha ao gravar empresa migrada no Contábil:', (e as Error)?.message || e);
             throw new Error('O banco não confirmou a gravação desta empresa; nada ficou pela metade. Tente de novo.');
           }

@@ -94,6 +94,11 @@ import { registrarRotasEscrituracao, roboAjustesFechamento, roboConciliacao, rob
 import { criarRevisorContabil, registrarRotasRevisor, INTERVALO_ROBO_REVISOR_MS } from "./src/server/revisorContabil";
 import { conferirFolhasDP } from "./src/server/conferidorFolhaDP";
 import { registrarRotasMigracaoSistemaAnterior, rotinaConferidorMigracao } from "./src/server/migracaoSistemaAnterior/rotas";
+import { migracoesAtivasContabil } from "./src/server/migracaoSistemaAnterior/servico";
+import { descricaoGuarda } from "./src/server/migracaoRetomada";
+import { estadoDdlProtegido } from "./src/server/ddlProtegido";
+import { estaDesligando, instalarDesligamento } from "./src/server/desligamento";
+import { obterSessaoContabil } from "./src/server/authContabil";
 import { registrarRotasHistoricoContabil } from "./src/server/historicoLancamentosRotas";
 import { ID_ROBO_HISTORICO, rotinaRoboHistorico } from "./src/server/historicoLancamentos";
 import { workspaceValido } from "./src/server/authContabil";
@@ -541,6 +546,18 @@ const reconciliacaoRascunhosStatus: {
       console.error("Falha ao montar fila de revisão das origens:", error);
       return res.status(503).json({ sucesso: false, motivo: error?.message || "Não foi possível carregar os dados recebidos." });
     }
+  });
+
+  // Rotina de publicar (e o dono): há gravação da migração pelo backup em andamento? E alteração de esquema adiada? Só números.
+  // Bearer de integração (MURADE_INTEGRATION_TOKEN) ou sessão do dono do sistema.
+  app.get("/api/manutencao/migracoes-ativas", async (req, res) => {
+    res.setHeader("Cache-Control", "private, no-store");
+    const dono = integracaoAutorizada(req) || (await obterSessaoContabil(req).catch(() => null))?.donoSistema === true;
+    if (!dono) return res.status(403).json({ sucesso: false, motivo: "Somente o dono do sistema ou a integração consultam isto." });
+    try {
+      const m = await migracoesAtivasContabil();
+      return res.json({ sucesso: true, sistema: "Murad Contábil", ...m, podePublicarSemPausar: m.emAndamento === 0, arquivoGuardadoEm: descricaoGuarda("contabil"), esquemaAdiado: estadoDdlProtegido(), desligando: estaDesligando() });
+    } catch { return res.status(503).json({ sucesso: false, motivo: "Não foi possível consultar agora." }); }
   });
 
   // API Health
@@ -2533,6 +2550,8 @@ const reconciliacaoRascunhosStatus: {
   // Exceção síncrona fora de qualquer tratador: estado incerto; o Render reinicia o serviço.
   process.on("uncaughtException", (error) => { console.error("[Murad Contábil] Exceção não capturada; reiniciando:", error?.message || error); process.exit(1); });
 
+  // Publicação (SIGTERM): a gravação da migração termina ou desfaz a empresa da vez e pausa; o servidor novo continua.
+  instalarDesligamento();
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[Murad Contábil] Servidor ativo em http://localhost:${PORT}`);
     let reconciliacaoEmCurso = false;

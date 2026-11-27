@@ -23,8 +23,25 @@ const formatarCnpj = (c: string) => /^\d{14}$/.test(c) ? c.replace(/^(\d{2})(\d{
 async function chamar(url: string, corpo: unknown): Promise<any> {
   const r = await fetch(url, { method: "POST", credentials: "include", cache: "no-store", headers: { "Content-Type": "application/json" }, body: JSON.stringify(corpo) });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok || j?.sucesso === false) throw new Error(j?.motivo || "Não foi possível concluir esta etapa.");
+  if (!r.ok || j?.sucesso === false) throw Object.assign(new Error(j?.motivo || "Não foi possível concluir esta etapa."), { status: r.status });
   return j;
+}
+/** Queda passageira (publicação do sistema no meio): sem resposta, ou o Render respondendo 502/503/504 enquanto troca o servidor. */
+const quedaPassageira = (e: any) => e instanceof TypeError || [502, 503, 504].includes(Number(e?.status));
+const esperar = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
+/** Grava um lote; se o sistema for atualizado no meio, as empresas que ficaram "pausadas" são pedidas de novo sozinhas (até 5 min). */
+async function gravarLoteComRetomada(corpo: { token: string; cdempresas: number[]; escolhidasUmaAUma: boolean }, aoContinuar: () => void): Promise<any[]> {
+  const prontos = new Map<number, any>(); let faltam = corpo.cdempresas; let ultimo: any[] = [];
+  for (let tentativa = 0; faltam.length && tentativa < 60; tentativa += 1) {
+    try {
+      const r = await chamar("/api/migracao-sistema-anterior/gravar", { ...corpo, cdempresas: faltam });
+      ultimo = r.resultados || [];
+      for (const x of ultimo) if (!x.pausado) prontos.set(x.cdempresa, x);
+      faltam = ultimo.filter((x: any) => x.pausado).map((x: any) => x.cdempresa);
+    } catch (e) { if (!quedaPassageira(e)) throw e; }
+    if (faltam.length) { aoContinuar(); await esperar(5000); }
+  }
+  return corpo.cdempresas.map((cd) => prontos.get(cd) || ultimo.find((x: any) => x.cdempresa === cd)).filter(Boolean);
 }
 
 async function converterBackupNoNavegador(arquivo: File, aoAvancar: (texto: string) => void): Promise<File | null> {
@@ -119,9 +136,9 @@ export const MigracaoBackupContabil: React.FC<{ aoTerminar?: () => void }> = ({ 
       const cds = gravaveis.map((p) => p.cdempresa);
       const todos: Resultado[] = [];
       for (let i = 0; i < cds.length; i += LOTE) {
-        setOcupado(`Gravando as empresas… ${Math.min(cds.length, i + LOTE)} de ${cds.length}. Não feche esta tela.`);
-        const r = await chamar("/api/migracao-sistema-anterior/gravar", { token, cdempresas: cds.slice(i, i + LOTE), escolhidasUmaAUma: umaAUma });
-        todos.push(...(r.resultados || []));
+        const texto = `Gravando as empresas… ${Math.min(cds.length, i + LOTE)} de ${cds.length}. Não feche esta tela.`;
+        setOcupado(texto);
+        todos.push(...(await gravarLoteComRetomada({ token, cdempresas: cds.slice(i, i + LOTE), escolhidasUmaAUma: umaAUma }, () => setOcupado(`Continuando… ${texto}`))));
       }
       setResultados(todos); setEtapa("pronto");
     } catch (e: any) { setErro(e?.message || "Falha ao gravar."); }

@@ -7,6 +7,9 @@ services:
     startCommand: npm start
     healthCheckPath: /api/health
     autoDeploy: true
+    # Publicação no meio da migração pelo backup: até 120 s (SIGTERM → SIGKILL) para terminar ou desfazer a empresa da vez e
+    # devolver "pausado" à tela, que pede de novo ao servidor novo. MURADE_PRAZO_DESLIGAR_S diz ao código o mesmo prazo.
+    maxShutdownDelaySeconds: 120
     envVars:
       - key: NODE_ENV
         value: production
@@ -16,6 +19,8 @@ services:
         sync: false
       - key: MURADE_INTEGRATION_TOKEN
         sync: false
+      - key: MURADE_PRAZO_DESLIGAR_S
+        value: "120"
       - key: DATABASE_URL
         sync: false
       - key: PGSSLMODE

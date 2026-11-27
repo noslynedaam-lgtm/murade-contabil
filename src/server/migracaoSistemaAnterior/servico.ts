@@ -17,8 +17,10 @@ import { FilaMigracao, textoDaFila } from './fila';
 import { indexarDump, carregarTabelaDump, type IndiceDump } from './leitorDump';
 import { aplicarSentidoAtiva, listarEmpresasContabeis, montarDadosEmpresa, sentidoDaMarcaAtiva, ultimoMesComLancamento, type DadosContabeisEmpresa, type EmpresaDoBackup, type Linha } from './conversor';
 import { juntarComHistorico } from './historicoMigracao';
+import { criarRetomadaMigracao, MOTIVO_PAUSADO, pastaPersistente, type ArquivoGuardado, type RetomadaMigracao } from '../migracaoRetomada';
 
-const PASTA = path.join(os.tmpdir(), 'murade-contabil-migracao-sistema-anterior');
+// Com disco persistente ligado (MURADE_MIGRACAO_DIR), o arquivo é recebido direto nele e sobrevive à publicação.
+const PASTA = path.join(pastaPersistente() ?? os.tmpdir(), 'murade-contabil-migracao-sistema-anterior');
 const LIMITE_BYTES = 400 * 1024 * 1024;
 const VALIDADE_MS = 2 * 60 * 60 * 1000;
 const MAX_SESSOES = 6;
@@ -32,6 +34,23 @@ interface Sessao {
   previas: Map<number, { cnpjInformado: string; desfazerAjustes: boolean }>; ocupado: boolean;
   /** Sentido da marca "empresa ativa" neste arquivo (decidido na lista pelo movimento contábil). */
   sentidoAtiva?: 'direto' | 'invertido';
+  /** Empresas já gravadas nesta sessão: pedir de novo (tela que repete o lote depois de uma publicação) devolve o mesmo resultado. */
+  resultados: Map<number, ResultadoGravacaoContabil>;
+  /** Onde o arquivo ficou guardado fora do servidor (para o servidor novo continuar depois de uma publicação). */
+  arquivoGuardado?: ArquivoGuardado; guardando?: boolean; terminada?: boolean;
+}
+/** Erro interno: desfaz (ROLLBACK) a empresa da vez quando o servidor vai ser desligado e não dá tempo de terminar. */
+export class PausaParaAtualizacao extends Error { constructor() { super(MOTIVO_PAUSADO); } }
+let retomada: RetomadaMigracao | null = null;
+/** Liga a retomada (o rotas.ts chama): estado no banco, arquivo guardado fora do servidor, pausa no SIGTERM. */
+export function configurarRetomadaContabil(consultar: () => ((sql: string, params?: unknown[]) => Promise<{ rows: any[] }>) | null, opcoes: { registrarNoDesligamento?: boolean; env?: NodeJS.ProcessEnv } = {}): RetomadaMigracao {
+  retomada = criarRetomadaMigracao({ sistema: 'contabil', consultar, ...opcoes });
+  return retomada;
+}
+export const retomadaContabil = (): RetomadaMigracao | null => retomada;
+/** Banco que desfaz a empresa da vez (ROLLBACK) quando o servidor pede para parar já. */
+export function bancoInterrompivel<B extends { transacao<T>(fn: (q: any) => Promise<T>): Promise<T> }>(banco: B, pararJa: () => boolean): B {
+  return { ...banco, transacao: <T>(fn: (q: any) => Promise<T>) => banco.transacao((q: any) => fn(async (sql: string, params?: unknown[]) => { if (pararJa()) throw new PausaParaAtualizacao(); return q(sql, params); })) } as B;
 }
 /** Uma leitura pesada por vez no servidor inteiro (prévia e gravação), na ordem de chegada (servidor compartilhado, 512 MB). */
 export const filaMigracaoContabil = new FilaMigracao();
@@ -44,7 +63,31 @@ const apagarArquivo = (a: string) => { try { fs.rmSync(a, { force: true }); } ca
 export function descartarMigracaoContabil(token: string): void {
   const s = sessoes.get(token);
   if (!s) return;
+  if (!s.terminada && (s.arquivoGuardado || s.resultados.size)) void retomada?.salvar(s.token, s.userId, 'terminou', dadosGuardados(s)).catch(() => undefined);
+  s.terminada = true;
+  if (s.arquivoGuardado) retomada?.apagarArquivoGuardado(s.arquivoGuardado, s.arquivo);
   apagarArquivo(s.arquivo); s.previas.clear(); s.cache.clear(); sessoes.delete(token);
+}
+function dadosGuardados(s: Sessao) {
+  return { previas: Object.fromEntries(s.previas), resultados: Object.fromEntries(s.resultados), emAndamento: null, extras: { sentidoAtiva: s.sentidoAtiva ?? null, criadoEm: s.criadoEm },
+    arquivo: s.arquivoGuardado ?? { tamanho: s.tamanho, onde: '' as const, chave: '', pronto: false } };
+}
+/** A sessão está neste servidor? Se não (publicação no meio da gravação), traz do banco e o arquivo guardado de volta. */
+async function obterOuRestaurar(token: unknown, userId: string): Promise<Sessao> {
+  const t = String(token || '');
+  if (sessoes.has(t) || !retomada) return obter(t, userId);
+  const g = await retomada.ler(t, userId).catch(() => null);
+  if (!g || g.estado !== 'gravando') return obter(t, userId);
+  const arquivo = path.join(PASTA, `${t}.sql`);
+  if (!(await retomada.trazerArquivo(g.dados.arquivo, arquivo))) throw new Error('A gravação foi pausada por uma atualização do sistema e o arquivo não ficou guardado no servidor. Escolha o arquivo de novo e grave as empresas que faltaram: o que já foi gravado não duplica.');
+  const sentido = g.dados.extras?.sentidoAtiva;
+  const s: Sessao = { token: t, userId, arquivo, tamanho: g.dados.arquivo.tamanho, criadoEm: Date.now(), cache: new Map(), ocupado: false,
+    previas: new Map(Object.entries(g.dados.previas || {}).map(([k, v]) => [Number(k), v as { cnpjInformado: string; desfazerAjustes: boolean }])),
+    resultados: new Map(Object.entries(g.dados.resultados || {}).map(([k, v]) => [Number(k), v as ResultadoGravacaoContabil])),
+    sentidoAtiva: sentido === 'direto' || sentido === 'invertido' ? sentido : undefined, arquivoGuardado: g.dados.arquivo };
+  sessoes.set(t, s);
+  console.log(`Migração (Contábil): sessão retomada depois de uma publicação (${s.resultados.size} empresa(s) já gravada(s), ${s.previas.size} faltando).`);
+  return s;
 }
 
 export function limparMigracoesContabilVencidas(agora = Date.now()): number {
@@ -55,7 +98,9 @@ export function limparMigracoesContabilVencidas(agora = Date.now()): number {
 
 /** Ao ligar o servidor apaga o que sobrou (disco temporário, dado de cliente) e limpa os vencidos a cada 10 minutos. */
 export function iniciarLimpezaMigracaoContabil(): void {
-  try { fs.mkdirSync(PASTA, { recursive: true }); for (const f of fs.readdirSync(PASTA)) apagarArquivo(path.join(PASTA, f)); } catch { /* sem disco gravável: o envio avisa */ }
+  // Disco persistente (MURADE_MIGRACAO_DIR): só apaga o que passou de 2 dias (o resto pode ser de uma gravação pausada pela publicação).
+  const persistente = Boolean(pastaPersistente());
+  try { fs.mkdirSync(PASTA, { recursive: true }); for (const f of fs.readdirSync(PASTA)) { const a = path.join(PASTA, f); if (!persistente || Date.now() - fs.statSync(a).mtimeMs > 2 * 24 * 3600_000) apagarArquivo(a); } } catch { /* sem disco gravável: o envio avisa */ }
   setInterval(() => { limparMigracoesContabilVencidas(); }, 10 * 60 * 1000).unref();
 }
 
@@ -116,7 +161,7 @@ export async function receberArquivoContabil(req: Request, userId: string, compa
     throw new Error('Este navegador mandou o backup inteiro sem separar a parte contábil. Use o Chrome ou o Edge atualizados e escolha o arquivo de novo.');
   }
   if (tamanho < 100) { apagarArquivo(arquivo); throw new Error('O arquivo está vazio.'); }
-  sessoes.set(token, { token, userId, arquivo, tamanho, criadoEm: Date.now(), cache: new Map(), previas: new Map(), ocupado: false });
+  sessoes.set(token, { token, userId, arquivo, tamanho, criadoEm: Date.now(), cache: new Map(), previas: new Map(), ocupado: false, resultados: new Map() });
   return { token, tamanho };
 }
 
@@ -234,23 +279,39 @@ export async function gerarPreviaContabil(token: string, userId: string, cdempre
   }));
 }
 
-export interface ResultadoGravacaoContabil { cdempresa: number; cnpj: string; gravado: boolean; motivo?: string; lancamentos: number; contas: number; conferencia?: string; bate?: boolean }
+export interface ResultadoGravacaoContabil { cdempresa: number; cnpj: string; gravado: boolean; motivo?: string; pausado?: boolean; lancamentos: number; contas: number; conferencia?: string; bate?: boolean }
 
 /** Grava as empresas já conferidas na prévia. Empresa excluída antes só volta se foi marcada uma por uma. */
 export async function gravarMigracaoContabil(
   token: string, userId: string, cdempresas: unknown, escolhidasUmaAUma: boolean,
-  gravar: (dados: DadosContabeisEmpresa) => Promise<{ lancamentos: number; contasNovas: number; conferencia: { resumo: string; bate: boolean } }>,
+  gravar: (dados: DadosContabeisEmpresa, controle?: { desfazerAgora: () => boolean }) => Promise<{ lancamentos: number; contasNovas: number; conferencia: { resumo: string; bate: boolean } }>,
   excluidaAntes: (cnpj: string) => Promise<boolean>,
 ): Promise<ResultadoGravacaoContabil[]> {
-  const s = obter(token, userId);
+  const s = await obterOuRestaurar(token, userId);
   const lista = [...new Set((Array.isArray(cdempresas) ? cdempresas : []).map(Number).filter((n) => Number.isInteger(n)))];
   if (!lista.length) throw new Error('Marque ao menos uma empresa.');
   if (lista.length > MAX_EMPRESAS_POR_VEZ) throw new Error(`Grave no máximo ${MAX_EMPRESAS_POR_VEZ} empresas por vez.`);
+  const lote = retomada?.comecarLote();
+  // Primeira gravação desta sessão: guarda o estado no banco e o arquivo fora do servidor (cifrado), para continuar depois de uma publicação.
+  const salvar = () => retomada?.salvar(s.token, s.userId, 'gravando', dadosGuardados(s)).catch((e) => console.error('Migração (Contábil): não consegui guardar o andamento:', (e as Error)?.message || e));
+  if (retomada && !s.arquivoGuardado && !s.guardando) {
+    s.guardando = true;
+    retomada.guardarArquivo(s.token, s.arquivo, s.tamanho, (a) => {
+      s.guardando = false;
+      // A gravação já terminou enquanto o arquivo subia: apaga a cópia e não reabre a sessão no banco.
+      if (s.terminada) { retomada?.apagarArquivoGuardado(a, s.arquivo); return; }
+      s.arquivoGuardado = a; void salvar();
+    });
+  }
   const resultados = await comOcupado(s, () => filaMigracaoContabil.entrar(s.token, async () => {
+    await salvar();
     s.indice = s.indice || await indexarDump(s.arquivo);
     const ler = leitor(s);
     const r: ResultadoGravacaoContabil[] = [];
     for (const cd of lista) {
+      const feita = s.resultados.get(cd);
+      if (feita) { r.push(feita); continue; } // já gravada (a tela repetiu o lote depois de uma publicação): não grava de novo
+      if (lote?.pararAntesDaProxima()) { r.push({ cdempresa: cd, cnpj: '', gravado: false, pausado: true, motivo: MOTIVO_PAUSADO, lancamentos: 0, contas: 0 }); continue; }
       const escolha = s.previas.get(cd);
       if (!escolha) { r.push({ cdempresa: cd, cnpj: '', gravado: false, motivo: 'Confira a prévia desta empresa antes de gravar.', lancamentos: 0, contas: 0 }); continue; }
       // Lê de novo do arquivo a empresa conferida na prévia (mesmo arquivo, mesma regra: o mesmo resultado da prévia).
@@ -263,18 +324,22 @@ export async function gravarMigracaoContabil(
           r.push({ cdempresa: cd, cnpj: dados.cnpj, gravado: false, motivo: 'Esta empresa foi excluída antes. Para trazer de volta, use "Não, quero escolher" e marque ela uma por uma.', lancamentos: 0, contas: 0 });
           continue;
         }
-        const g = await gravar(dados);
-        r.push({ cdempresa: cd, cnpj: dados.cnpj, gravado: true, lancamentos: g.lancamentos, contas: dados.contas.length, conferencia: g.conferencia.resumo, bate: g.conferencia.bate });
+        const g = await gravar(dados, { desfazerAgora: () => lote?.desfazerAgora() === true });
+        const feitaAgora: ResultadoGravacaoContabil = { cdempresa: cd, cnpj: dados.cnpj, gravado: true, lancamentos: g.lancamentos, contas: dados.contas.length, conferencia: g.conferencia.resumo, bate: g.conferencia.bate };
+        r.push(feitaAgora); s.resultados.set(cd, feitaAgora);
         s.previas.delete(cd);
+        await salvar();
       } catch (erro: any) {
-        r.push({ cdempresa: cd, cnpj: dados.cnpj, gravado: false, motivo: String(erro?.message || erro).slice(0, 400), lancamentos: 0, contas: 0 });
+        // Publicação no meio: a transação desta empresa foi desfeita inteira; ela fica para o servidor novo (a tela pede de novo).
+        if (erro instanceof PausaParaAtualizacao || lote?.desfazerAgora()) r.push({ cdempresa: cd, cnpj: dados.cnpj, gravado: false, pausado: true, motivo: MOTIVO_PAUSADO, lancamentos: 0, contas: 0 });
+        else r.push({ cdempresa: cd, cnpj: dados.cnpj, gravado: false, motivo: String(erro?.message || erro).slice(0, 400), lancamentos: 0, contas: 0 });
       }
       await new Promise<void>((ok) => setImmediate(ok));
     }
     return r;
-  }));
-  // Tudo que foi conferido já foi gravado: o arquivo (dado de cliente) é apagado na hora.
-  if (!s.previas.size) descartarMigracaoContabil(token);
+  })).finally(() => lote?.fim());
+  // Tudo que foi conferido já foi gravado: o arquivo (dado de cliente) é apagado na hora (e a cópia guardada fora do servidor).
+  if (!s.previas.size) { s.terminada = true; await retomada?.salvar(s.token, s.userId, 'terminou', dadosGuardados(s)).catch(() => undefined); descartarMigracaoContabil(token); }
   return resultados;
 }
 
@@ -287,3 +352,16 @@ export function estadoMigracoesContabil(): { emAndamento: number; maisAntigaMin:
   const agora = Date.now();
   return { emAndamento: sessoes.size, maisAntigaMin: sessoes.size ? Math.round(Math.max(...[...sessoes.values()].map((s) => agora - s.criadoEm)) / 60000) : 0 };
 }
+
+/** Para a rotina de publicar: gravações em andamento (neste servidor e as guardadas no banco). Só números. */
+export async function migracoesAtivasContabil(): Promise<{ emAndamento: number; sessoesNesteServidor: number; gravandoAgora: number; guardadas: Array<{ empresasGravadas: number; empresasFaltando: number; atualizadoHaSegundos: number; arquivoGuardado: boolean }> }> {
+  const guardadas = (await retomada?.emAndamento().catch(() => []) ?? []);
+  const agora = Date.now();
+  const gravandoAgora = [...sessoes.values()].filter((s) => s.ocupado).length;
+  return { emAndamento: Math.max(guardadas.length, gravandoAgora), sessoesNesteServidor: sessoes.size, gravandoAgora,
+    guardadas: guardadas.map((g) => ({ empresasGravadas: Object.keys(g.dados.resultados || {}).length, empresasFaltando: Object.keys(g.dados.previas || {}).length, atualizadoHaSegundos: Math.round((agora - new Date(g.atualizadoEm).getTime()) / 1000), arquivoGuardado: g.dados.arquivo?.pronto === true })) };
+}
+/** Só para testes: simula o servidor novo (memória vazia). */
+export function esquecerSessoesContabilParaTeste(): void { sessoes.clear(); }
+/** Só para testes: o que a prévia deixaria escolhido para cada empresa. */
+export function definirPreviasContabilParaTeste(token: string, cds: number[]): void { const s = sessoes.get(token); if (s) for (const cd of cds) s.previas.set(cd, { cnpjInformado: '', desfazerAjustes: false }); }

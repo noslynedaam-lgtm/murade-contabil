@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { protegerDdlNoPool } from "./ddlProtegido";
 import { cnpjContabilValido, normalizarCnpjAcesso } from "./authContabil";
 
 let pool: Pool | null | undefined;
@@ -7,11 +8,11 @@ function obterPool(): Pool | null {
   if (pool !== undefined) return pool;
   const connectionString = process.env.DATABASE_URL?.trim();
   pool = connectionString
-    ? new Pool({
+    ? protegerDdlNoPool(new Pool({
         connectionString,
         ssl: process.env.PGSSLMODE === "require" ? { rejectUnauthorized: false } : undefined,
         max: 5,
-      })
+      }), "contabil-documentos")
     : null;
   return pool;
 }

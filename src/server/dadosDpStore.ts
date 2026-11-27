@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { protegerDdlNoPool } from "./ddlProtegido";
 import { cnpjContabilValido, normalizarCnpjAcesso } from "./authContabil";
 import { CAMPOS_DESCONTOS_CLASSIFICADOS, CAMPOS_OPCIONAIS_RESUMO_DP } from "../utils/origensContabeis";
 
@@ -9,11 +10,11 @@ function obterPool(): Pool | null {
   if (pool !== undefined) return pool;
   const connectionString = process.env.DATABASE_URL?.trim();
   pool = connectionString
-    ? new Pool({
+    ? protegerDdlNoPool(new Pool({
         connectionString,
         ssl: process.env.PGSSLMODE === "require" ? { rejectUnauthorized: false } : undefined,
         max: 5,
-      })
+      }), "contabil-dados-dp")
     : null;
   return pool;
 }
