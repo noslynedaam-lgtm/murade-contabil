@@ -48,6 +48,9 @@ function bancoFalso() {
     if (sql.startsWith('DELETE FROM contabil_sistema_anterior')) return apagar(t.sistemaAnterior);
     if (/to_regclass\('contabil_(titulos|cartoes|extrato_movimentos|alertas_nota_sem_valor|conferencia_origens|regras_integracao_fiscal)'\)/.test(sql)) return { rows: [{ t: (t as any).extras ? 'sim' : null }] };
     if (/^DELETE FROM contabil_(titulos|cartoes|extrato_movimentos|alertas_nota_sem_valor|conferencia_origens|regras_integracao_fiscal)/.test(sql)) return { rows: [], rowCount: 1 };
+    // Agente 007: relatório da empresa (sai junto; só existe depois da primeira migração conferida).
+    if (/to_regclass\('murad_007_(rodadas|cofre)'\)/.test(sql)) return { rows: [{ t: (t as any).agente007 ? 'sim' : null }] };
+    if (/^DELETE FROM murad_007_(rodadas|cofre) WHERE cnpj=\$1/.test(sql)) return { rows: [], rowCount: (t as any).agente007 ? 1 : 0 };
     const lr = /to_regclass\('(contabil_lucro_real_\w+|contabil_lalur_\w+)'\)/.exec(sql); if (lr) return { rows: [{ t: (t as any).lucroReal ? lr[1] : null }] };
     const lrSel = /^SELECT \* FROM (contabil_lucro_real_\w+|contabil_lalur_\w+) WHERE cnpj=\$1/.exec(sql); if (lrSel) return { rows: ((t as any).lucroReal?.[lrSel[1]] || []).filter((x: any) => x.cnpj === cnpj) };
     const lrDel = /^DELETE FROM (contabil_lucro_real_\w+|contabil_lalur_\w+) WHERE cnpj=\$1/.exec(sql); if (lrDel) { const l = (t as any).lucroReal?.[lrDel[1]] || []; return apagar(l); }

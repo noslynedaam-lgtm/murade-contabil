@@ -14,7 +14,7 @@ const calcularIntervalo = (expr: string): number | null => (/^[0-9_ *]+$/.test(e
 /** Lê (id, nome, intervalo) de cada registrarRobo({...}) do server.ts. */
 export function robosDoServidor(codigo: string): Array<{ id: string; nome: string; intervaloMs: number | null }> {
   const saida: Array<{ id: string; nome: string; intervaloMs: number | null }> = [];
-  const re = /registrarRobo\(\{\s*id:\s*"([a-z_]+)",\s*nome:\s*"([^"]+)"([^]*?)\}\)/g;
+  const re = /registrarRobo\(\{\s*id:\s*"([a-z_0-9]+)",\s*nome:\s*"([^"]+)"([^]*?)\}\)/g;
   for (const m of codigo.matchAll(re)) {
     const i = /intervaloMs:\s*([0-9_ *]+?)\s*[,}]/.exec(`${m[3]} }`);
     saida.push({ id: m[1], nome: m[2], intervaloMs: i ? calcularIntervalo(i[1]) : null });

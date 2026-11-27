@@ -165,3 +165,15 @@ export function limparRobosParaTeste(): void {
   robos.clear();
   rotinasManuais.clear();
 }
+
+/** Espera o robô terminar a rodada em andamento (o Agente 007 encadeia os robôs um depois do outro). true = terminou; false = passou do prazo. */
+export async function esperarRoboLivre(id: string, prazoMs = 20 * 60_000, passoMs = 500): Promise<boolean> {
+  const fim = Date.now() + prazoMs;
+  while (robos.get(id)?.executando) {
+    if (Date.now() > fim) return false;
+    await new Promise((r) => setTimeout(r, passoMs));
+  }
+  return true;
+}
+/** Resumo da última rodada de um robô (para o 007 contar no relatório dele). */
+export const ultimoResultadoRobo = (id: string): string | null => robos.get(id)?.ultimoResultado ?? null;

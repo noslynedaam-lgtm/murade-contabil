@@ -350,6 +350,28 @@ const FERRAMENTAS: Ferramenta[] = [
     },
   },
   {
+    tipo: 'leitura',
+    declaracao: { name: 'agente_007_resumo', description: 'Responde "o que o 007 fez?", "o 007 conferiu meu backup?": o último resumo do Agente 007 (conferidor do backup) nas empresas do escritório que vieram da migração pelo backup — campos completados pelo registro do sistema anterior, balancete que não bateu e campo a campo. Responda curto e diga que o quadro fica em Robôs (tela agente).', parameters: { type: 'OBJECT', properties: {} } },
+    async executar(ctx) {
+      const r = await ctx.chamarApi('GET', '/api/agente007/status');
+      return ok(r) ? { texto: r.corpo?.texto, ultima: r.corpo?.ultima, empresas: (r.corpo?.empresas || []).length, tela: 'agente' } : erroApi(r);
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'agente_007_rodar_agora', description: 'Propõe rodar AGORA o Agente 007 (conferidor do backup) nas empresas do escritório que vieram da migração pelo backup: completa só o vazio e confere de novo, sem transmitir nada e sem aprovar lançamento. Precisa do OK no cartão.', parameters: { type: 'OBJECT', properties: {} } },
+    async preparar(ctx) {
+      const r = await ctx.chamarApi('GET', '/api/agente007/status');
+      if (!ok(r)) return erroApi(r);
+      return { cnpj: '', params: {}, titulo: 'Rodar agora o Agente 007 (conferidor do backup)', descricao: ['Completa só o que está vazio pelo registro do sistema anterior e confere de novo o balancete e o campo a campo das empresas do seu escritório que vieram do backup.', 'Não transmite nada e não aprova lançamento.'], resumo: 'Rodar agora o Agente 007' };
+    },
+    async executar(ctx) {
+      const r = await ctx.chamarApi('POST', '/api/agente007/rodar-agora', { ok: true });
+      if (!ok(r)) return { sucesso: false, mensagem: erroApi(r).erro };
+      return { sucesso: true, mensagem: r.corpo?.mensagem || 'O 007 começou a conferir.' };
+    },
+  },
+  {
     tipo: 'acao',
     declaracao: { name: 'sincronizar_entidades', description: 'Propõe SINCRONIZAR agora, com o Murad Fiscal e o Murad DP, a marca de entidade imune ou isenta (com a certificação de entidade beneficente e a validade) das empresas do usuário (ou de uma). Só preenche o que está em branco no Contábil e manda ao Fiscal o que foi marcado aqui; o que estiver diferente entre os sistemas NÃO é sobrescrito: vira aviso. Não cria nem duplica empresa e não mexe em lançamento. Com a marca, o plano de contas da entidade e a Demonstração do Superávit ou Déficit vêm sozinhos.', parameters: { type: 'OBJECT', properties: { cnpj: { type: 'STRING', description: 'Opcional: CNPJ de uma empresa. Vazio = todas as empresas do usuário com acesso de edição.' } } } },
     async preparar(ctx, args) {

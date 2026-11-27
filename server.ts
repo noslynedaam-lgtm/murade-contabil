@@ -33,7 +33,7 @@ import { ErroValidacaoApuracaoFiscal, apuracoesStoreConfigurado, gravarApuracoes
 import { dpStoreConfigurado, ErroConflitoResumoDP, ErroValidacaoResumoDP, gravarResumoDP, lerResumosDP, verificarEstadoStoreDP } from "./src/server/dadosDpStore";
 import { gravarResumoProLaboreDP } from "./src/server/dadosProLaboreStore";
 import { registrarRotasArquivoMorto } from "./src/server/arquivoMortoRotas";
-import { migrarArquivoAntigo, rodarRoboPrazoGuarda } from "./src/server/arquivoMorto";
+import { migrarArquivoAntigo, rodarRoboPrazoGuarda, escritorioDaEmpresa } from "./src/server/arquivoMorto";
 import { gravarEventoDP, lerEventosDP } from "./src/server/dadosDpEventosStore";
 import { registrarGestaoEquipe } from "./src/server/gestaoEquipe";
 import { prepararAuthContabil, configGestaoEquipeContabil, adicionarEmpresaAcessoContabil, adicionarEquipeContabil, bloquearEscritorioContabil, definirLimiteEscritorioContabil, convidarEquipeContabil, convidarEscritorioContabil, reenviarAcessoEscritorioContabil, listarEquipeContabil, listarEscritoriosContabil, removerEquipeContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, sessaoDaRequisicaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarCnpjsComOrigensSemMapeamentoContabil, aplicarMapeamentosPadraoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, manterConectadoContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil, importarCnpjsCompartilhados, sessaoDoEscritorioParaIntegracaoContabil, auth2faEstadoContabil, auth2faIniciarContabil, auth2faAtivarContabil, auth2faDesativarContabil, auth2faRedefinirContabil, auth2faResumoContabil, resumoSegurancaContabil, alterarWorkspaceNoServidorContabil, criarWorkspacesQueFaltamContabil, resumoPreLancamentosPorEmpresaContabil, ORIGENS_BASICAS_CONTABIL } from "./src/server/authContabil";
@@ -58,7 +58,7 @@ import { definirTravasTesteContabil, criarSessaoPorIdContabil, sessaoDaRequisica
 import * as testeLocal from "./src/server/testeGratisLocal";
 import { definirLimiteTesteMigracaoContabil } from "./src/server/migracaoSistemaAnterior/banco";
 import { aproveitarBackupDoFiscalContabil } from "./src/server/dadosBackupDoFiscalContabil";
-import { definirAlertaRobo, dispararRoboAgora, executarRobo, registrarResultadoRobo, registrarRobo, registrarRotinaManual, statusRobos } from "./src/server/robosStatus";
+import { definirAlertaRobo, dispararRoboAgora, executarRobo, registrarResultadoRobo, registrarRobo, registrarRotinaManual, statusRobos, esperarRoboLivre, ultimoResultadoRobo } from "./src/server/robosStatus";
 import { conferirEmpresasRepetidas } from "./src/server/conferidorEmpresaRepetida";
 import { criarServicoBackupBanco } from "./src/server/backupBanco/servico";
 import { buscarEmpresasDoFiscal, buscarResumoNotasFiscal, cnpjsValidosDoFiscal, pedirReenvioNotasFiscal } from "./src/server/empresasDoFiscal";
@@ -94,7 +94,10 @@ import { registrarRotasEscrituracao, roboAjustesFechamento, roboConciliacao, rob
 import { criarRevisorContabil, registrarRotasRevisor, INTERVALO_ROBO_REVISOR_MS } from "./src/server/revisorContabil";
 import { conferirFolhasDP } from "./src/server/conferidorFolhaDP";
 import { registrarRotasMigracaoSistemaAnterior, rotinaConferidorMigracao } from "./src/server/migracaoSistemaAnterior/rotas";
-import { migracoesAtivasContabil } from "./src/server/migracaoSistemaAnterior/servico";
+import { migracoesAtivasContabil, definirAoGravarEmpresaContabil } from "./src/server/migracaoSistemaAnterior/servico";
+import { repo007Postgres, criarFila007, respostaMurad007, NOME_ROBO_007 } from "./src/server/agente007";
+import { etapas007Contabil, assinatura007Contabil, painelCofre007Contabil } from "./src/server/agente007Contabil";
+import { versaoMapaBackupContabil } from "./src/data/mapaBackupContabil";
 import { descricaoGuarda } from "./src/server/migracaoRetomada";
 import { estadoDdlProtegido } from "./src/server/ddlProtegido";
 import { estaDesligando, instalarDesligamento } from "./src/server/desligamento";
@@ -2079,6 +2082,66 @@ const reconciliacaoRascunhosStatus: {
   setTimeout(() => void rodarDadosBackupFiscal(), 340_000).unref();
   setInterval(() => void rodarDadosBackupFiscal(), 6 * 60 * 60_000).unref();
   registrarRotinaManual("dados_backup_fiscal", rodarDadosBackupFiscal);
+  // ===== Agente 007 — conferidor do backup (pedido do dono, 27/11/2026): núcleo em src/server/agente007.ts (igual nos três sistemas) e etapas
+  // do Contábil em src/server/agente007Contabil.ts. Cada empresa que termina de gravar na migração (também na retomada e na parte que vem do DP)
+  // entra na fila dele (~90 s depois); os robôs que varrem o sistema rodam uma vez por lote, com a fila vazia e sem migração gravando.
+  const consultar007Contabil = (sql: string, params?: unknown[]) => consultaBancoContabil(sql, params as any[]) as any;
+  const repo007Contabil = repo007Postgres(consultar007Contabil);
+  const encadear007 = (id: string) => async () => { await esperarRoboLivre(id); const r = dispararRoboAgora(id); if (!r.ok) return undefined; await new Promise((ok) => setTimeout(ok, 300)); await esperarRoboLivre(id); return ultimoResultadoRobo(id)?.slice(0, 200) || undefined; };
+  const fila007Contabil = bancoContabilConfigurado() ? criarFila007({
+    sistema: "contabil", repo: repo007Contabil, versaoMapa: versaoMapaBackupContabil(), log: (l) => console.log(l),
+    assinatura: (a) => assinatura007Contabil(consultar007Contabil, a.cnpj),
+    migracaoGravando: async () => (await migracoesAtivasContabil().catch(() => ({ gravandoAgora: 0 }))).gravandoAgora > 0,
+    etapas: etapas007Contabil({ consultar: consultar007Contabil, banco: bancoTransacionalContabil, workspaceValido, pesadas: [
+      { id: "dados_backup_fiscal", nome: "Aproveitamento do backup pelo Fiscal", rodar: encadear007("dados_backup_fiscal") },
+      { id: "reconciliador", nome: "Reconciliador (Fiscal e DP → pré-lançamentos)", rodar: encadear007("reconciliador") },
+      { id: "conferidor_migracao_sistema_anterior", nome: "Conferidor da migração", rodar: encadear007("conferidor_migracao_sistema_anterior") },
+    ] }),
+  }, { aoTerminarLote: (rodadas, pesadas) => {
+    const soma = (k: "organizados" | "pendencias") => rodadas.reduce((t, x) => t + x.resumo.contagem[k], 0);
+    registrarResultadoRobo("agente_007", `${rodadas.length} empresa(s) conferida(s) depois da migração: ${soma("organizados")} campo(s) completado(s), ${soma("pendencias")} ponto(s) para conferir; robôs encadeados: ${pesadas.map((x) => `${x.id}${x.ok ? "" : " (não terminou)"}`).join(", ") || "nenhum"}.`);
+  } }) : null;
+  definirAoGravarEmpresaContabil((r) => {
+    if (!fila007Contabil || !r?.cnpj) return;
+    void escritorioDaEmpresa(consultar007Contabil, r.cnpj).then((tenantId) => { if (tenantId && tenantId !== "sem-escritorio") fila007Contabil.enfileirar({ tenantId, cnpj: r.cnpj, motivo: "empresa gravada pela migração do backup" }); }).catch(() => undefined);
+  });
+  registrarRobo({ id: "agente_007", nome: "Agente 007 — conferidor do backup", posto: "conferidor", missao: "Fica sabendo sozinho de cada empresa gravada pela migração do backup (e da retomada depois de uma publicação) e, ~90 s depois, organiza por trás dos panos, só o que mudou: completa os campos vazios pelo registro guardado do sistema anterior (sem sobrescrever e fora de competência fechada), confere o balancete com o backup e o campo a campo. Com a fila vazia e sem migração gravando, encadeia na ordem o Aproveitamento do Backup pelo Fiscal, o Reconciliador e o Conferidor da Migração. Uma vez por dia confere de novo onde algo mudou. Nunca transmite, não aprova lançamento e não exclui.", ...(bancoContabilConfigurado() ? { intervaloMs: 24 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  const rodar007Diario = () => fila007Contabil ? executarRobo("agente_007", async () => {
+    const r = await fila007Contabil.rodadaDiaria();
+    if (!r.rodadas) registrarResultadoRobo("agente_007", `${r.empresas} empresa(s) migrada(s) acompanhada(s): nada mudou desde a última conferência.`);
+  }).catch((e) => console.error("[007:contabil] rodada diária:", e?.message || e)) : undefined;
+  registrarRotinaManual("agente_007", rodar007Diario);
+  setTimeout(() => void rodar007Diario(), 17 * 60_000).unref();
+  setInterval(() => void rodar007Diario(), 24 * 60 * 60_000).unref();
+  const tenant007 = (s: any) => String(s.tenantId || s.escritorioDe || s.userId);
+  app.get("/api/agente007/status", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const s = sessaoDaRequisicaoContabil(req); if (!s) return res.status(401).json({ sucesso: false });
+    try {
+      const visiveis = new Set((s.cnpjs || []).map((c: string) => String(c)));
+      const rodadas = bancoContabilConfigurado() ? (await repo007Contabil.rodadasDoTenant(tenant007(s), "contabil", 500)).filter((r) => visiveis.has(r.cnpj)) : [];
+      return res.json({ sucesso: true, nome: NOME_ROBO_007, texto: respostaMurad007(rodadas), ultima: rodadas[0]?.quando || null, aguardando: fila007Contabil?.aguardando() || 0,
+        empresas: rodadas.slice(0, 100).map((r) => ({ cnpj: r.cnpj, quando: r.quando, texto: r.resumo.texto, achados: r.resumo.achados.length, pontos: r.resumo.achados.slice(0, 5).map((x) => x.texto.slice(0, 200)) })) });
+    } catch { return res.status(503).json({ sucesso: false, motivo: "Não foi possível ler o relatório do 007 agora." }); }
+  });
+  app.post("/api/agente007/rodar-agora", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const s = sessaoDaRequisicaoContabil(req); if (!s) return res.status(401).json({ sucesso: false });
+    if (!s.administrador && !s.escritorioDe) return res.status(403).json({ sucesso: false, motivo: "Somente o responsável ou a equipe do escritório roda o Agente 007." });
+    if (req.body?.ok !== true) return res.status(400).json({ sucesso: false, motivo: "Confirme no cartão (OK) para rodar o Agente 007 agora." });
+    if (!fila007Contabil) return res.status(503).json({ sucesso: false, motivo: "Configure o PostgreSQL do Contábil." });
+    const visiveis = new Set((s.cnpjs || []).map((c: string) => String(c)));
+    const migradas = (await consultaBancoContabil("SELECT DISTINCT cnpj FROM contabil_sistema_anterior", []).catch(() => ({ rows: [] as any[] }))).rows.map((x: any) => String(x.cnpj)).filter((c: string) => visiveis.has(c));
+    if (!migradas.length) return res.json({ sucesso: true, mensagem: "Nenhuma empresa deste escritório veio da migração pelo backup: o 007 não tem o que conferir." });
+    void fila007Contabil.rodarTenant(tenant007(s), migradas).catch((e) => console.error("[007:contabil] rodar agora:", e?.message || e));
+    return res.json({ sucesso: true, mensagem: `O 007 começou a conferir ${migradas.length} empresa(s) do backup. O resumo aparece em Robôs em instantes.` });
+  });
+  app.get("/api/agente007/cofre", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "private, no-store");
+    if (sessaoDaRequisicaoContabil(req)?.donoSistema !== true) return res.status(403).json({ sucesso: false, motivo: "Somente o dono do sistema vê o cofre do backup." });
+    const linhas = bancoContabilConfigurado() ? await painelCofre007Contabil(consultar007Contabil) : [];
+    return res.json({ sucesso: true, versaoMapa: versaoMapaBackupContabil(), urgentes: linhas.length, linhas });
+  });
   // Tela Empresa: "Completar agora" do escritório (só as empresas dele, com acesso de edição).
   app.post("/api/dados-backup-fiscal/rodar", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
     res.setHeader("Cache-Control", "no-store");

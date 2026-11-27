@@ -169,6 +169,8 @@ export const FERRAMENTAS_SEMPRE = [
   'onde_fica', 'mostrar_na_tela', 'preencher_na_tela', 'continuar_piloto', 'cancelar_piloto', 'piloto_segundo_plano',
   'apresentar_sistema', 'perguntar_integracoes', 'listar_empresas', 'chamar_supervisor', 'consultar_legislacao', 'perguntar_consultor',
   'status_robos', 'vencimentos_urgentes', 'central_anti_multa', 'ver_pedidos_entre_sistemas', 'meu_jeito', 'ver_meu_jeito',
+  // "Murad, o que o 007 fez?": o resumo do Agente 007 (conferidor do backup) vai sempre (é leitura e curta).
+  'agente_007_resumo',
 ];
 const MAX_ESCOLHIDAS = 28;
 

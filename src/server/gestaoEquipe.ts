@@ -220,6 +220,8 @@ export function registrarGestaoEquipe(app: Express, cfg: ConfigGestaoEquipe, par
         const ids: string[] = contas.rows.map((x) => String(x.id));
         await c.query(`DELETE FROM ${T.convites} WHERE office_owner=$1 OR created_by = ANY($2::uuid[])`, [tenant, ids]);
         for (const id of ids) { if (await apagarConta(c, id) === 'apagada') apagadas += 1; else anonimizadas += 1; }
+        // Agente 007 (conferidor do backup): relatório e cofre do backup do escritório saem junto (sem bloquear CNPJ nem e-mail).
+        if ((await c.query(`SELECT to_regclass('public.murad_007_rodadas') IS NOT NULL AS ok`)).rows[0]?.ok === true) for (const t of ['murad_007_rodadas', 'murad_007_cofre']) await c.query(`DELETE FROM ${t} WHERE tenant_id=$1`, [tenant]);
         await c.query('COMMIT');
       } catch (e) { await c.query('ROLLBACK').catch(() => undefined); throw e; }
       finally { c.release(); }

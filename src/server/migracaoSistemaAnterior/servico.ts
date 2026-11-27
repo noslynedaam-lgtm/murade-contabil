@@ -279,6 +279,9 @@ export async function gerarPreviaContabil(token: string, userId: string, cdempre
   }));
 }
 
+let aoGravarEmpresa: ((r: ResultadoGravacaoContabil) => void) | null = null;
+/** O servidor liga o Agente 007 aqui: chamado logo depois de CADA empresa gravada (também na retomada depois de uma publicação). */
+export function definirAoGravarEmpresaContabil(fn: ((r: ResultadoGravacaoContabil) => void) | null): void { aoGravarEmpresa = fn; }
 export interface ResultadoGravacaoContabil { cdempresa: number; cnpj: string; gravado: boolean; motivo?: string; pausado?: boolean; lancamentos: number; contas: number; conferencia?: string; bate?: boolean }
 
 /** Grava as empresas já conferidas na prévia. Empresa excluída antes só volta se foi marcada uma por uma. */
@@ -327,6 +330,8 @@ export async function gravarMigracaoContabil(
         const g = await gravar(dados, { desfazerAgora: () => lote?.desfazerAgora() === true });
         const feitaAgora: ResultadoGravacaoContabil = { cdempresa: cd, cnpj: dados.cnpj, gravado: true, lancamentos: g.lancamentos, contas: dados.contas.length, conferencia: g.conferencia.resumo, bate: g.conferencia.bate };
         r.push(feitaAgora); s.resultados.set(cd, feitaAgora);
+        // Agente 007: a empresa terminou de gravar — ele fica sabendo agora, sem esperar o resto (falha aqui nunca atrapalha a gravação).
+        try { aoGravarEmpresa?.(feitaAgora); } catch (e) { console.error('Migração (Contábil): aviso ao Agente 007 falhou:', (e as Error)?.message || e); }
         s.previas.delete(cd);
         await salvar();
       } catch (erro: any) {

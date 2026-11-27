@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { Agente007Cartao } from './Agente007Cartao';
 
 interface Robo { id: string; nome: string; missao: string; estado: 'ativo' | 'parado' | 'aguardando_configuracao'; executando: boolean; podeRodarAgora?: boolean; intervaloSegundos: number | null; ultimaExecucao: string | null; execucoes: number; falhas: number; ultimoErro: string | null; ultimoResultado: string | null; motivoSemRotina: string | null; alerta?: { nivel: 'aviso' | 'critico'; texto: string } | null }
 
@@ -28,6 +29,7 @@ export function PainelRobos() {
   return (
     <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-4">
       <div className="flex items-center justify-between gap-2"><h3 className="text-base font-bold text-slate-900">Saúde dos robôs</h3><button type="button" className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold" onClick={() => void carregar()}>Atualizar</button></div>
+      <Agente007Cartao />
       {erro && <div className="rounded-lg bg-amber-50 p-2 text-sm font-semibold text-amber-900">{erro}</div>}
       {aviso && <div className="rounded-lg bg-sky-50 p-2 text-sm font-semibold text-sky-900">{aviso}</div>}
       {robos.map((r) => (
