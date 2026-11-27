@@ -43,6 +43,7 @@ import { conectarEPuxarEmpresaMuradFiscal, conectarMuradDP } from "../../service
 import { baixarPacoteEmpresasMurade, lerPacoteEmpresasMurade } from "../../services/migracaoEmpresaService";
 import { chaveCnpjEmpresa, dedupEmpresasPorCnpj } from "../../utils/dedupEmpresas";
 import { SincroniaEntidadeContabil } from "../SincroniaEntidadeContabil";
+import { CamposDoBackupFiscalContabil } from "../CamposDoBackupFiscalContabil";
 
 const competenciaAtualISO = () => { const hoje = new Date(); return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`; };
 
@@ -139,6 +140,8 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
 
   // ID da empresa em modo de edição (null = novo cadastro limpo)
   const [modoEdicaoId, setModoEdicaoId] = useState<string | null>(null);
+  /** Campos que o robô completou com o que veio do backup do sistema anterior pelo Fiscal (para pedir "confira"). */
+  const [camposDoBackup, setCamposDoBackup] = useState<string[]>([]);
   const [empresaEditada, setEmpresaEditada] = useState<EmpresaDados | null>(null);
 
   // Controle de visibilidade do formulário
@@ -342,6 +345,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
   // Carregar dados de uma empresa existente para edição
   const handleEditarEmpresa = (emp: EmpresaDados) => {
     setModoEdicaoId(emp.id || emp.cnpj || "emp-ativa");
+    { const o = (emp as any).camposDoBackupFiscal; setCamposDoBackup(o && typeof o === "object" ? Object.keys(o).filter((k) => String((emp as any)[k] ?? "").trim() !== "") : []); }
     setCnpj(emp.cnpj || "");
     setIe(emp.inscricaoEstadual || "");
     setIm(emp.inscricaoMunicipal || "");
@@ -1272,6 +1276,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
                 {entidadeCertificada && <label className="font-semibold">Validade da certificação<input type="date" data-campo="empresa-entidade-validade" value={entidadeCertificacaoValidade} onChange={(e) => setEntidadeCertificacaoValidade(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5" /></label>}
               </div>
             )}
+            {modoEdicaoId && <CamposDoBackupFiscalContabil cnpj={cnpj} campos={camposDoBackup} />}
             {modoEdicaoId && <div className="mt-2"><SincroniaEntidadeContabil cnpj={cnpj} ehEntidade={regimeTributario.startsWith("Entidade")} aoAtualizar={(m) => { setRegimeTributario(m.regime); setEntidadeCertificada(m.entidadeCertificada); setEntidadeCertificacaoValidade(m.entidadeCertificacaoValidade); setEntidadeSincronizada(m.entidadeSincronizada ?? undefined); }} /></div>}
           </div>
 

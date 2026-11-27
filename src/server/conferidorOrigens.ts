@@ -10,6 +10,7 @@
 // Corrige sozinho só o seguro: pede de novo ao Fiscal a nota que faltou ou ficou desatualizada (gravação por chave, nunca duplica),
 // recoloca na fila do DP a folha que não chegou, prepara os pré-lançamentos que faltaram e completa o plano provisório só acrescentando.
 // Nada aqui aprova, lança em definitivo, estorna nem apaga lançamento.
+import { historicoRegimeGuardado, simplesNaCompetencia, type PeriodoRegime } from "./dadosBackupDoFiscalContabil";
 import { diagnosticarNotaFiscal, notaSemValor, notasSemLancamentoEmDobro, referenciaDaNotaFiscal, regimeSimplesNacional, TEXTO_MOTIVO, type MotivoSemRascunho } from "./prepararRascunhosContabeis";
 import { ITENS_FOLHA_DP } from "../utils/origensContabeis";
 
@@ -53,11 +54,13 @@ export const INICIO_DAS_FISCAL = "2026-10";
  * Regra pura: meses já encerrados, a partir do INICIO_DAS_FISCAL, com saídas que valem e sem DAS do Simples confirmado vindo do Fiscal.
  * Só avisa: o valor do DAS é o que o Fiscal apurou e a contadora confirmou; nunca é inventado aqui.
  */
-export function mesesSemDas(notas: LinhaNotas[], dasRecebidos: string[], simples: boolean, mesAtual: string): string[] {
-  if (!simples) return [];
+/** `historico`: períodos do regime que vieram do backup do sistema anterior pelo Fiscal; com ele, só cobra DAS dos meses em que a empresa
+ *  estava no Simples (antes de entrar ou num intervalo fora do Simples, não cobra). Sem ele, vale o regime do cadastro de hoje. */
+export function mesesSemDas(notas: LinhaNotas[], dasRecebidos: string[], simples: boolean, mesAtual: string, historico?: PeriodoRegime[] | null): string[] {
+  if (!simples && !(historico && historico.length)) return [];
   const comDas = new Set(dasRecebidos);
   return [...new Set(notas.filter((l) => l.tipo === "Saída" && l.copia.qtd > 0 && l.competencia >= INICIO_DAS_FISCAL && l.competencia < mesAtual).map((l) => l.competencia))]
-    .filter((c) => !comDas.has(c)).sort();
+    .filter((c) => !comDas.has(c) && simplesNaCompetencia(historico, c, simples)).sort();
 }
 
 export const TEXTO_MOTIVO_CONFERIDOR: Record<string, string> = {
@@ -256,7 +259,7 @@ export async function conferirEmpresaOrigens(deps: DepsConferidorOrigens, cnpj: 
   try {
     if (await existeTabela(deps.consultar, "murade_apuracoes_fiscais_origem")) {
       const das = (await deps.consultar("SELECT DISTINCT competencia FROM murade_apuracoes_fiscais_origem WHERE cnpj=$1 AND tributo='DAS_SIMPLES' AND situacao='confirmado'", [cnpj])).rows.map((x: any) => String(x.competencia).trim());
-      const faltam = mesesSemDas(notas, das, regimeSimplesNacional(workspace?.empresa?.regime), agora.toISOString().slice(0, 7));
+      const faltam = mesesSemDas(notas, das, regimeSimplesNacional(workspace?.empresa?.regime), agora.toISOString().slice(0, 7), await historicoRegimeGuardado(deps.consultar, cnpj));
       if (faltam.length) avisos.push(`sem provisão do DAS do Simples de ${faltam.map((c) => c.replace(/(\d{4})-(\d{2})/, "$2/$1")).join(", ")}: o Fiscal ainda não tem DAS confirmado desse(s) mês(es) (se foi declarado fora do sistema, lance a provisão em Lançamentos)`);
     }
   } catch { /* a tabela de apurações pode não existir num banco novo */ }

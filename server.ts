@@ -57,6 +57,7 @@ import { listarRegistroAgenteIAContabil, bancoContabilConfigurado, consultaBanco
 import { definirTravasTesteContabil, criarSessaoPorIdContabil, sessaoDaRequisicaoContabil as sessaoTesteContabil } from "./src/server/authContabil";
 import * as testeLocal from "./src/server/testeGratisLocal";
 import { definirLimiteTesteMigracaoContabil } from "./src/server/migracaoSistemaAnterior/banco";
+import { aproveitarBackupDoFiscalContabil } from "./src/server/dadosBackupDoFiscalContabil";
 import { definirAlertaRobo, dispararRoboAgora, executarRobo, registrarResultadoRobo, registrarRobo, registrarRotinaManual, statusRobos } from "./src/server/robosStatus";
 import { conferirEmpresasRepetidas } from "./src/server/conferidorEmpresaRepetida";
 import { criarServicoBackupBanco } from "./src/server/backupBanco/servico";
@@ -2049,6 +2050,31 @@ const reconciliacaoRascunhosStatus: {
       const marcaAtual = p?.empresa ? { regime: String(p.empresa.regime || ""), entidadeCertificada: p.empresa.entidadeCertificada === true, entidadeCertificacaoValidade: String(p.empresa.entidadeCertificacaoValidade || ""), entidadeSincronizada: p.empresa.entidadeSincronizada ?? null, versao: Number(p.version) } : null;
       return res.status(r.ok ? 200 : 502).json({ sucesso: r.ok, ...r, mensagem: r.motivo, marcaAtual, divergencias: await divergenciasEntidadeContabil((sql, params) => consultaBancoContabil(sql, params), cnpjs) });
     } catch (e: any) { console.error("Falha na sincronia de entidades:", e?.message || e); return res.status(500).json({ sucesso: false, motivo: "Não foi possível sincronizar agora." }); }
+  });
+  // Contábil ← Fiscal: o que veio do backup do sistema anterior completa só o que está vazio no cadastro e dá o histórico do regime aos conferidores.
+  registrarRobo({ id: "dados_backup_fiscal", nome: "Robô de Aproveitamento do Backup pelo Fiscal (Contábil)", posto: "integrador", missao: "De 6 em 6 horas (e no \"Rodar agora\") busca no Murad Fiscal o que veio do backup do sistema anterior de cada empresa (histórico do regime tributário, receita mensal e cadastro: CNAE, inscrições, natureza jurídica, abertura e endereço) e preenche no Contábil SÓ o que está vazio, marcando \"veio do backup do sistema anterior pelo Murad Fiscal — confira\". Guarda o histórico do regime e a receita para os conferidores: o Robô Conferidor das Origens só cobra DAS do Simples nos meses em que a empresa estava no Simples. Nunca troca o que alguém digitou, nunca cria empresa e não mexe em lançamento, plano de contas, fechamento nem guia. O log só tem contagens.", ...(bancoContabilConfigurado() ? { intervaloMs: 6 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  const hojeBackupFiscalContabil = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+  const rodarDadosBackupFiscal = () => bancoContabilConfigurado() ? executarRobo("dados_backup_fiscal", async () => {
+    const r = await aproveitarBackupDoFiscalContabil((sql, params) => consultaBancoContabil(sql, params), { hoje: hojeBackupFiscalContabil() });
+    registrarResultadoRobo("dados_backup_fiscal", r.resumo);
+    if (!r.ok) throw new Error(r.resumo);
+  }).catch((e) => console.error("Falha no Robô de Aproveitamento do Backup pelo Fiscal:", e?.message || e)) : undefined;
+  setTimeout(() => void rodarDadosBackupFiscal(), 340_000).unref();
+  setInterval(() => void rodarDadosBackupFiscal(), 6 * 60 * 60_000).unref();
+  registrarRotinaManual("dados_backup_fiscal", rodarDadosBackupFiscal);
+  // Tela Empresa: "Completar agora" do escritório (só as empresas dele, com acesso de edição).
+  app.post("/api/dados-backup-fiscal/rodar", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const sessao = sessaoDaRequisicaoContabil(req);
+    if (!sessao) return res.status(401).json({ sucesso: false, motivo: "Entre no sistema." });
+    if (!bancoContabilConfigurado()) return res.status(503).json({ sucesso: false, motivo: "PostgreSQL não configurado." });
+    const pedido = String(req.body?.cnpj || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const cnpjs = sessao.cnpjs.filter((c) => (sessao.administrador || sessao.memberships.find((m) => m.cnpj === c)?.role !== "viewer") && (!pedido || c === pedido));
+    if (!cnpjs.length) return res.status(403).json({ sucesso: false, motivo: "Nenhuma empresa com acesso de edição." });
+    try {
+      const r = await aproveitarBackupDoFiscalContabil((sql, params) => consultaBancoContabil(sql, params), { hoje: hojeBackupFiscalContabil(), cnpjs });
+      return res.status(r.ok ? 200 : 502).json({ sucesso: r.ok, ...r, mensagem: r.resumo });
+    } catch (e: any) { console.error("Falha ao completar pelo backup do Fiscal:", String(e?.message || e).slice(0, 160)); return res.status(500).json({ sucesso: false, motivo: "Não foi possível completar agora." }); }
   });
   // Robô Conferidor de Empresas Excluídas: se o Fiscal diz que uma empresa foi excluída (lápide) e ela ainda tem acesso, cadastro ou workspace aqui,
   // avisa o dono no painel de Saúde dos robôs. Só lê: apagar é sempre uma empresa por vez, com confirmação de uma pessoa.
