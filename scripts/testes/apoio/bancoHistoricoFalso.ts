@@ -64,6 +64,9 @@ export function bancoHistoricoFalso(opcoes: { guardarLinhasDoRegistro?: boolean 
     // ---- registro do sistema anterior
     if (s.startsWith('DELETE FROM contabil_sistema_anterior')) { t.registro = t.registro.filter((r) => r.cnpj !== p[0] || (p[1] !== undefined && r.bloco === p[1] && s.includes('bloco<>'))); return { rows: [] }; }
     if (s.startsWith('INSERT INTO contabil_sistema_anterior')) { t.registro.push({ cnpj: String(p[0]), bloco: String(p[1]), quantidade: Number(p[3]), ...(opcoes.guardarLinhasDoRegistro || String(p[1]).startsWith('__') ? { linhas: JSON.parse(String(p[2])) } : {}) }); return { rows: [] }; }
+    // Leitura compatível com a cifra em repouso (27/11/2026): lista dos blocos e os blocos pedidos (aqui, abertos).
+    if (s.startsWith('SELECT bloco, quantidade, migrado_em FROM contabil_sistema_anterior')) return { rows: t.registro.filter((r) => r.cnpj === p[0]).map((r) => ({ bloco: r.bloco, quantidade: r.quantidade, migrado_em: new Date() })) };
+    if (s.startsWith('SELECT * FROM contabil_sistema_anterior WHERE cnpj=$1 AND bloco = ANY')) return { rows: t.registro.filter((r) => r.cnpj === p[0] && (p[1] as string[]).includes(r.bloco)).map((r) => ({ ...r, linhas: r.linhas ?? null })) };
     if (s.startsWith('SELECT bloco, quantidade, migrado_em, CASE WHEN bloco=$2 THEN linhas END AS resumo FROM contabil_sistema_anterior')) {
       return { rows: t.registro.filter((r) => r.cnpj === p[0]).map((r) => ({ bloco: r.bloco, quantidade: r.quantidade, migrado_em: new Date(), resumo: r.bloco === p[1] ? r.linhas : null })) };
     }

@@ -23,7 +23,7 @@ test('Contábil: ordem das etapas — completar, balancete, campo a campo e depo
     { id: 'dados_backup_fiscal', nome: 'a', rodar: async () => { ordem.push('fiscal'); } },
     { id: 'reconciliador', nome: 'b', rodar: async () => { ordem.push('reconciliador'); } },
   ] });
-  assert.deepEqual(etapas.map((e) => e.id), ['completar', 'balancete', 'campo_a_campo', 'dados_backup_fiscal', 'reconciliador']);
+  assert.deepEqual(etapas.map((e) => e.id), ['completar', 'balancete', 'campo_a_campo', 'cofre', 'dados_backup_fiscal', 'reconciliador']);
   assert.deepEqual(etapas.filter((e) => e.pesada).map((e) => e.id), ['dados_backup_fiscal', 'reconciliador']);
   for (const e of etapas.filter((x) => x.pesada)) await e.rodar({ tenantId: '*', cnpj: '*', motivo: '' });
   assert.deepEqual(ordem, ['fiscal', 'reconciliador']);

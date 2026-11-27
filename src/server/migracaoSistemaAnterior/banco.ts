@@ -14,6 +14,7 @@ import { analisarMigracao, aplicarAcaoAchado, resumoAnalise, type AchadoMigracao
 import { converterClassificacao } from './conversor';
 import { gravarRegrasIntegracaoMigradas, listarRegrasIntegracaoFiscal } from '../regrasIntegracaoFiscalStore';
 import { compararRegras, regrasIntegracaoDoBackup } from './integracaoFiscal';
+import { SQL_COLUNAS_CIFRA, cifraParaGravar, colunasCifraProntas, inserirBloco, lerBlocos, linhasDoRegistro } from './cifraRegistro';
 
 export const TABELA_SISTEMA_ANTERIOR = 'contabil_sistema_anterior';
 export const BLOCO_RESUMO = '__migracao';
@@ -45,7 +46,11 @@ export interface ResumoMigracaoGuardado extends ReferenciaConferencia {
   historicoGuardado?: { ateCompetencia: string; lancamentos: number; doSistemaAnterior: number };
 }
 
-export async function prepararTabelaSistemaAnterior(consultar: ConsultaSql): Promise<void> { await consultar(SQL_TABELA); }
+export async function prepararTabelaSistemaAnterior(consultar: ConsultaSql): Promise<void> {
+  await consultar(SQL_TABELA);
+  // Cifra em repouso (27/11/2026): colunas novas pelo ddlProtegido; se adiar, a gravação segue aberta como antes.
+  await consultar(SQL_COLUNAS_CIFRA).catch(() => undefined);
+}
 
 /** Teste grátis: limite de empresas do escritório em teste (o server.ts liga; sem ele, nada muda). */
 let limiteTesteMigracao: ((escritorioId: string, cnpj: string) => Promise<string | null>) | null = null;
@@ -62,6 +67,8 @@ export async function gravarEmpresaMigrada(
   await prepararTabelaSistemaAnterior(banco.consultar);
   return banco.transacao(async (q) => {
     await q('SELECT pg_advisory_xact_lock(hashtext($1))', [cnpj]);
+    // O registro do sistema anterior grava cifrado quando o servidor tem a chave mestra e as colunas já existem (senão, aberto como antes).
+    const cifra = await cifraParaGravar(q);
     const outro = await q('SELECT 1 FROM contabil_auth_company_access a JOIN contabil_auth_users u ON u.id=a.user_id WHERE a.cnpj=$1 AND COALESCE(u.tenant_id,u.id)::text<>$2 LIMIT 1', [cnpj, quem.tenantId]);
     if (outro.rows.length) throw new ErroMigracao('Este CNPJ já está cadastrado em outro escritório. Cada empresa pertence a um único escritório; nada foi gravado.');
     const ws = await q('SELECT payload,version FROM contabil_company_workspaces WHERE cnpj=$1 FOR UPDATE', [cnpj]);
@@ -79,7 +86,7 @@ export async function gravarEmpresaMigrada(
       // Empresa lida em partes: as linhas originais de cada ano vão para o registro do sistema anterior (nada fica para trás).
       gravarOriginais: async (ano, linhas) => {
         if (!linhas.length) return;
-        await q(`INSERT INTO ${TABELA_SISTEMA_ANTERIOR}(cnpj,bloco,linhas,quantidade,migrado_por) VALUES($1,$2,$3::jsonb,$4,$5)`, [cnpj, `lancamentos_originais_${ano || 'sem_data'}`, JSON.stringify(linhas), linhas.length, quem.login]);
+        await inserirBloco(q, cifra, { cnpj, bloco: `lancamentos_originais_${ano || 'sem_data'}`, linhas, quantidade: linhas.length, por: quem.login });
         linhasOriginaisEmPartes += linhas.length; blocosEmPartes++;
       },
     });
@@ -107,10 +114,10 @@ export async function gravarEmpresaMigrada(
     let linhasGuardadas = linhasOriginaisEmPartes;
     const blocos = Object.entries(dados.blocos);
     for (const [bloco, linhas] of blocos) {
-      await q(`INSERT INTO ${TABELA_SISTEMA_ANTERIOR}(cnpj,bloco,linhas,quantidade,migrado_por) VALUES($1,$2,$3::jsonb,$4,$5)`, [cnpj, bloco, JSON.stringify(linhas), linhas.length, quem.login]);
+      await inserirBloco(q, cifra, { cnpj, bloco, linhas, quantidade: linhas.length, por: quem.login });
       linhasGuardadas += linhas.length;
     }
-    await q(`INSERT INTO ${TABELA_SISTEMA_ANTERIOR}(cnpj,bloco,linhas,quantidade,migrado_por) VALUES($1,$2,$3::jsonb,$4,$5)`, [cnpj, BLOCO_RESUMO, JSON.stringify(resumo), 1, quem.login]);
+    await inserirBloco(q, cifra, { cnpj, bloco: BLOCO_RESUMO, linhas: resumo, quantidade: 1, por: quem.login });
     if ((dados.titulos || []).length || (dados.cartoes || []).length) await gravarTitulosECartoesMigrados(q, cnpj, dados.titulos || [], dados.cartoes || []);
     // Regras de integração Fiscal → Contábil (de-para): tabela própria; confere a quantidade gravada antes de confirmar.
     if (dados.regrasIntegracao) {
@@ -129,8 +136,9 @@ export async function gravarEmpresaMigrada(
 export async function lerRegistroSistemaAnterior(consultar: ConsultaSql, cnpj: string): Promise<{ resumo: ResumoMigracaoGuardado | null; blocos: Array<{ bloco: string; quantidade: number; migradoEm: string }> }> {
   const existe = await consultar(`SELECT to_regclass('${TABELA_SISTEMA_ANTERIOR}') AS t`, []);
   if (!existe.rows[0]?.t) return { resumo: null, blocos: [] };
-  const r = await consultar(`SELECT bloco, quantidade, migrado_em, CASE WHEN bloco=$2 THEN linhas END AS resumo FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 ORDER BY bloco`, [cnpj, BLOCO_RESUMO]);
-  const resumo = r.rows.find((x) => x.bloco === BLOCO_RESUMO)?.resumo ?? null;
+  const r = await consultar(`SELECT bloco, quantidade, migrado_em FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 ORDER BY bloco`, [cnpj]);
+  // Resumo aberto ou cifrado em repouso.
+  const resumo = r.rows.some((x) => x.bloco === BLOCO_RESUMO) ? ((await lerBlocos(consultar, cnpj, [BLOCO_RESUMO]))[BLOCO_RESUMO] ?? null) : null;
   return { resumo, blocos: r.rows.filter((x) => x.bloco !== BLOCO_RESUMO && x.bloco !== BLOCO_DECISOES).map((x) => ({ bloco: String(x.bloco), quantidade: Number(x.quantidade), migradoEm: new Date(x.migrado_em).toISOString() })) };
 }
 
@@ -141,6 +149,11 @@ export async function lerBlocoSistemaAnterior(consultar: ConsultaSql, cnpj: stri
   if (!existe.rows[0]?.t) return { total: 0, linhas: [] };
   const lim = Math.max(1, Math.min(500, Math.floor(limite)));
   const desl = Math.max(0, Math.floor(deslocamento));
+  // Bloco cifrado em repouso: abre e pagina aqui. Aberto (antes do robô da cifra): pagina no banco, como antes.
+  if (await colunasCifraProntas(consultar)) {
+    const c = (await consultar(`SELECT cnpj, bloco, quantidade, cifra, cifra_iv, cifra_tag FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 AND bloco=$2 AND cifra IS NOT NULL`, [cnpj, bloco])).rows[0];
+    if (c) { const l = linhasDoRegistro(c); return { total: Number(c.quantidade), linhas: Array.isArray(l) ? l.slice(desl, desl + lim) : [] }; }
+  }
   const r = await consultar(`SELECT quantidade, (SELECT coalesce(jsonb_agg(e ORDER BY i), '[]'::jsonb) FROM jsonb_array_elements(linhas) WITH ORDINALITY AS x(e, i) WHERE i > $3 AND i <= $3 + $4) AS pagina FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 AND bloco=$2`, [cnpj, bloco, desl, lim]);
   if (!r.rows.length) return { total: 0, linhas: [] };
   return { total: Number(r.rows[0].quantidade), linhas: r.rows[0].pagina || [] };
@@ -170,9 +183,8 @@ export const BLOCOS_CONFERENCIA_CAMPOS: string[] = ['cadastro_empresa', 'marca_a
 export async function conferirCamposEmpresaMigrada(consultar: ConsultaSql, cnpj: string): Promise<ResultadoCampos | null> {
   const { resumo } = await lerRegistroSistemaAnterior(consultar, cnpj);
   if (!resumo) return null;
-  const r = await consultar(`SELECT bloco, linhas FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 AND bloco = ANY($2::text[])`, [cnpj, BLOCOS_CONFERENCIA_CAMPOS]);
   const blocos: Record<string, any[]> = {};
-  for (const x of r.rows) blocos[String(x.bloco)] = Array.isArray(x.linhas) ? x.linhas : [];
+  for (const [b, l] of Object.entries(await lerBlocos(consultar, cnpj, BLOCOS_CONFERENCIA_CAMPOS))) blocos[b] = Array.isArray(l) ? l : [];
   const ws = await consultar('SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1', [cnpj]);
   const payload = ws.rows[0]?.payload || {};
   let mapa = resumo.mapaContas;
@@ -193,9 +205,8 @@ export interface ConferenciaRegrasIntegracao { cnpj: string; bate: boolean; regr
 export async function conferirRegrasIntegracaoEmpresa(consultar: ConsultaSql, cnpj: string): Promise<ConferenciaRegrasIntegracao | null> {
   const { resumo } = await lerRegistroSistemaAnterior(consultar, cnpj);
   if (!resumo || resumo.regrasIntegracao === undefined) return null;
-  const r = await consultar(`SELECT bloco, linhas FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 AND bloco = ANY($2::text[])`, [cnpj, ['plano_contas', 'integracao_fornecedores', 'integracao_codigos_fiscais', 'integracao_configuracao']]);
   const b: Record<string, any[]> = {};
-  for (const x of r.rows) b[String(x.bloco)] = Array.isArray(x.linhas) ? x.linhas : [];
+  for (const [k, l] of Object.entries(await lerBlocos(consultar, cnpj, ['plano_contas', 'integracao_fornecedores', 'integracao_codigos_fiscais', 'integracao_configuracao']))) b[k] = Array.isArray(l) ? l : [];
   const idPlano = resumo.idPlano ?? null;
   const ws = (await consultar('SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1', [cnpj])).rows[0]?.payload || {};
   const tipos = new Map<string, string>((Array.isArray(ws.contas) ? ws.contas : []).map((c: any) => [String(c?.codigo), String(c?.tipo)]));
@@ -222,7 +233,7 @@ async function carregarParaAnalise(consultar: ConsultaSql, cnpj: string, payload
   const { resumo } = await lerRegistroSistemaAnterior(consultar, cnpj);
   if (!resumo) return null;
   const nomes = [...BLOCOS_CONFERENCIA_CAMPOS, 'lancamentos_lote_aberto', 'lancamentos_automaticos', 'lancamentos_automaticos_contas', BLOCO_DECISOES];
-  const r = await consultar(`SELECT bloco, linhas FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 AND bloco = ANY($2::text[])`, [cnpj, nomes]);
+  const r = { rows: Object.entries(await lerBlocos(consultar, cnpj, nomes)).map(([bloco, linhas]) => ({ bloco, linhas })) };
   const blocos: Record<string, any[]> = {}; let decisoes: Record<string, any> = {};
   for (const x of r.rows) { if (x.bloco === BLOCO_DECISOES) decisoes = x.linhas && typeof x.linhas === 'object' && !Array.isArray(x.linhas) ? x.linhas : {}; else blocos[String(x.bloco)] = Array.isArray(x.linhas) ? x.linhas : []; }
   const payload = payloadAtual || (await consultar('SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1', [cnpj])).rows[0]?.payload || {};
@@ -297,7 +308,7 @@ export async function aplicarAchadoEmpresaMigrada(banco: BancoTransacional, cnpj
 
 /** Decisões em grupo ainda valendo (para o "Desfazer do grupo" na tela). */
 export async function lotesDaAnalise(consultar: ConsultaSql, cnpj: string): Promise<Array<{ lote: string; decisao: string; quantidade: number; em: string; por: string }>> {
-  const r = await consultar(`SELECT bloco, linhas FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 AND bloco = ANY($2::text[])`, [cnpj, [BLOCO_DECISOES]]).catch(() => ({ rows: [] as any[] }));
+  const r = await lerBlocos(consultar, cnpj, [BLOCO_DECISOES]).then((o) => ({ rows: Object.entries(o).map(([bloco, linhas]) => ({ bloco, linhas })) })).catch(() => ({ rows: [] as any[] }));
   const m = new Map<string, { lote: string; decisao: string; quantidade: number; em: string; por: string }>();
   const linhas = r.rows.find((x: any) => x.bloco === BLOCO_DECISOES)?.linhas;
   for (const d of Object.values<any>(linhas && typeof linhas === 'object' && !Array.isArray(linhas) ? linhas : {})) { if (!d?.lote) continue; const x = m.get(d.lote) ?? { lote: d.lote, decisao: String(d.decisao), quantidade: 0, em: String(d.em || ''), por: String(d.por || '') }; x.quantidade++; m.set(d.lote, x); }
@@ -444,9 +455,8 @@ export async function completarEmpresaMigrada(banco: BancoTransacional, cnpj: st
     if (!resumo) return [];
     const ws = await q('SELECT payload FROM contabil_company_workspaces WHERE cnpj=$1 FOR UPDATE', [cnpj]);
     if (!ws.rows.length) return [];
-    const r = await q(`SELECT bloco, linhas FROM ${TABELA_SISTEMA_ANTERIOR} WHERE cnpj=$1 AND bloco = ANY($2::text[])`, [cnpj, BLOCOS_COMPLETAR]);
     const blocos: Record<string, any[]> = {};
-    for (const x of r.rows) blocos[String(x.bloco)] = Array.isArray(x.linhas) ? x.linhas : [];
+    for (const [b, l] of Object.entries(await lerBlocos(q, cnpj, BLOCOS_COMPLETAR))) blocos[b] = Array.isArray(l) ? l : [];
     let mapa = resumo.mapaContas;
     if (!mapa) { mapa = {}; for (const c of blocos.plano_contas || []) { const cod = converterClassificacao(c.cdclassinterna); if (cod) mapa[String(Number(c.idconta))] = cod; } }
     const fechadas = new Set((await q('SELECT competencia FROM contabil_period_closures WHERE cnpj=$1', [cnpj])).rows.map((x) => String(x.competencia)));

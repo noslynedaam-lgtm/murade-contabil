@@ -184,6 +184,8 @@ function bancoFalso() {
     if (s.startsWith('UPDATE contabil_company_workspaces')) { const w = t.workspaces.get(String(p[0]))!; w.payload = JSON.parse(String(p[1])); w.version++; return { rows: [{ version: w.version }] }; }
     if (s.startsWith('INSERT INTO contabil_sistema_anterior')) { t.registro.push({ cnpj: p[0], bloco: p[1], linhas: JSON.parse(String(p[2])), quantidade: p[3], migrado_em: new Date() }); return { rows: [] }; }
     if (s.startsWith('SELECT bloco, quantidade, migrado_em')) return { rows: t.registro.filter((r) => r.cnpj === p[0]).map((r) => ({ ...r, resumo: r.bloco === p[1] ? r.linhas : null })) };
+    // Leitura compatível com a cifra em repouso (27/11/2026): os blocos pedidos (aqui, abertos).
+    if (s.startsWith('SELECT * FROM contabil_sistema_anterior WHERE cnpj=$1 AND bloco = ANY')) return { rows: t.registro.filter((r) => r.cnpj === p[0] && (p[1] as string[]).includes(r.bloco)) };
     if (s.startsWith('SELECT bloco, linhas FROM contabil_sistema_anterior')) return { rows: t.registro.filter((r) => r.cnpj === p[0] && (p[1] as string[]).includes(r.bloco)) };
     if (s.startsWith('SELECT cnpj FROM contabil_sistema_anterior')) return { rows: [...new Set(t.registro.filter((r) => r.bloco === p[0]).map((r) => r.cnpj))].map((cnpj) => ({ cnpj })) };
     // Regras de integração Fiscal → Contábil (tabela própria), em memória.

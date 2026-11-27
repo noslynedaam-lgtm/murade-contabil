@@ -96,8 +96,10 @@ import { criarRevisorContabil, registrarRotasRevisor, INTERVALO_ROBO_REVISOR_MS 
 import { conferirFolhasDP } from "./src/server/conferidorFolhaDP";
 import { registrarRotasMigracaoSistemaAnterior, rotinaConferidorMigracao } from "./src/server/migracaoSistemaAnterior/rotas";
 import { migracoesAtivasContabil, definirAoGravarEmpresaContabil } from "./src/server/migracaoSistemaAnterior/servico";
-import { repo007Postgres, criarFila007, respostaMurad007, NOME_ROBO_007 } from "./src/server/agente007";
-import { etapas007Contabil, assinatura007Contabil, painelCofre007Contabil } from "./src/server/agente007Contabil";
+import { repo007Postgres, criarFila007, implantarDoCofre007, respostaMurad007, NOME_ROBO_007 } from "./src/server/agente007";
+import { etapas007Contabil, assinatura007Contabil, painelCofre007Contabil, painelCofre007ContabilDoCofre, implantadores007Contabil } from "./src/server/agente007Contabil";
+import { cifraRegistro as cifraRegistroContabil, migrarCifraSistemaAnteriorContabil, textoCifrarAntigos as textoCifrarAntigosContabil } from "./src/server/migracaoSistemaAnterior/cifraRegistro";
+import { prepararTabelaSistemaAnterior } from "./src/server/migracaoSistemaAnterior/banco";
 import { versaoMapaBackupContabil } from "./src/data/mapaBackupContabil";
 import { descricaoGuarda } from "./src/server/migracaoRetomada";
 import { estadoDdlProtegido } from "./src/server/ddlProtegido";
@@ -2088,16 +2090,22 @@ const reconciliacaoRascunhosStatus: {
   // do Contábil em src/server/agente007Contabil.ts. Cada empresa que termina de gravar na migração (também na retomada e na parte que vem do DP)
   // entra na fila dele (~90 s depois); os robôs que varrem o sistema rodam uma vez por lote, com a fila vazia e sem migração gravando.
   const consultar007Contabil = (sql: string, params?: unknown[]) => consultaBancoContabil(sql, params as any[]) as any;
-  const repo007Contabil = repo007Postgres(consultar007Contabil);
+  // Cofre do backup cifrado com a mesma chave do registro do sistema anterior (MURADE_BACKUP_MASTER_KEY, que o Contábil já tem); sem chave, não grava.
+  const cifra007Contabil = cifraRegistroContabil();
+  const repo007Contabil = repo007Postgres(consultar007Contabil, cifra007Contabil);
+  const base007Contabil = { sistema: "contabil" as const, repo: repo007Contabil, versaoMapa: versaoMapaBackupContabil(), log: (l: string) => console.log(l) };
+  const implantadores007DoContabil = () => implantadores007Contabil(bancoTransacionalContabil, workspaceValido, (c) => escritorioDaEmpresa(consultar007Contabil, c));
   const encadear007 = (id: string) => async () => { await esperarRoboLivre(id); const r = dispararRoboAgora(id); if (!r.ok) return undefined; await new Promise((ok) => setTimeout(ok, 300)); await esperarRoboLivre(id); return ultimoResultadoRobo(id)?.slice(0, 200) || undefined; };
   const fila007Contabil = bancoContabilConfigurado() ? criarFila007({
     sistema: "contabil", repo: repo007Contabil, versaoMapa: versaoMapaBackupContabil(), log: (l) => console.log(l),
     assinatura: (a) => assinatura007Contabil(consultar007Contabil, a.cnpj),
     migracaoGravando: async () => (await migracoesAtivasContabil().catch(() => ({ gravandoAgora: 0 }))).gravandoAgora > 0,
-    etapas: etapas007Contabil({ consultar: consultar007Contabil, banco: bancoTransacionalContabil, workspaceValido, pesadas: [
+    etapas: etapas007Contabil({ consultar: consultar007Contabil, banco: bancoTransacionalContabil, workspaceValido, guardarCofre: cifra007Contabil ? (itens) => repo007Contabil.guardarCofre(itens) : undefined, pesadas: [
       { id: "dados_backup_fiscal", nome: "Aproveitamento do backup pelo Fiscal", rodar: encadear007("dados_backup_fiscal") },
       { id: "reconciliador", nome: "Reconciliador (Fiscal e DP → pré-lançamentos)", rodar: encadear007("reconciliador") },
       { id: "conferidor_migracao_sistema_anterior", nome: "Conferidor da migração", rodar: encadear007("conferidor_migracao_sistema_anterior") },
+      // Por último: implanta do cofre o que ganhou campo no mapa (só vazio, só cadastro, nunca competência; nunca envia a órgão).
+      { id: "cofre_backup", nome: "Cofre do backup (implanta o que ganhou campo no mapa)", rodar: async () => { const r = await implantarDoCofre007(base007Contabil, implantadores007DoContabil()); return r.implantados ? `${r.implantados} dado(s) implantado(s) do cofre` : undefined; } },
     ] }),
   }, { aoTerminarLote: (rodadas, pesadas) => {
     const soma = (k: "organizados" | "pendencias") => rodadas.reduce((t, x) => t + x.resumo.contagem[k], 0);
@@ -2110,6 +2118,7 @@ const reconciliacaoRascunhosStatus: {
   registrarRobo({ id: "agente_007", nome: "Agente 007 — conferidor do backup", posto: "conferidor", missao: "Fica sabendo sozinho de cada empresa gravada pela migração do backup (e da retomada depois de uma publicação) e, ~90 s depois, organiza por trás dos panos, só o que mudou: completa os campos vazios pelo registro guardado do sistema anterior (sem sobrescrever e fora de competência fechada), confere o balancete com o backup e o campo a campo. Com a fila vazia e sem migração gravando, encadeia na ordem o Aproveitamento do Backup pelo Fiscal, o Reconciliador e o Conferidor da Migração. Uma vez por dia confere de novo onde algo mudou. Nunca transmite, não aprova lançamento e não exclui.", ...(bancoContabilConfigurado() ? { intervaloMs: 24 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
   const rodar007Diario = () => fila007Contabil ? executarRobo("agente_007", async () => {
     const r = await fila007Contabil.rodadaDiaria();
+    await implantarDoCofre007(base007Contabil, implantadores007DoContabil()).catch(() => undefined);
     if (!r.rodadas) registrarResultadoRobo("agente_007", `${r.empresas} empresa(s) migrada(s) acompanhada(s): nada mudou desde a última conferência.`);
   }).catch((e) => console.error("[007:contabil] rodada diária:", e?.message || e)) : undefined;
   registrarRotinaManual("agente_007", rodar007Diario);
@@ -2141,9 +2150,32 @@ const reconciliacaoRascunhosStatus: {
   app.get("/api/agente007/cofre", exigirSessaoContabil, async (req, res) => {
     res.setHeader("Cache-Control", "private, no-store");
     if (sessaoDaRequisicaoContabil(req)?.donoSistema !== true) return res.status(403).json({ sucesso: false, motivo: "Somente o dono do sistema vê o cofre do backup." });
-    const linhas = bancoContabilConfigurado() ? await painelCofre007Contabil(consultar007Contabil) : [];
-    return res.json({ sucesso: true, versaoMapa: versaoMapaBackupContabil(), urgentes: linhas.length, linhas });
+    try {
+      // Lido do cofre por coluna; enquanto o cofre ainda está vazio (servidor sem chave ou 007 ainda não passou), os blocos do registro.
+      let linhas = bancoContabilConfigurado() ? painelCofre007ContabilDoCofre(await repo007Contabil.linhasCofre("contabil")) : [];
+      if (!linhas.length && bancoContabilConfigurado()) linhas = await painelCofre007Contabil(consultar007Contabil);
+      return res.json({ sucesso: true, versaoMapa: versaoMapaBackupContabil(), urgentes: linhas.filter((l) => l.situacao !== "implantado").length, linhas });
+    } catch { return res.status(503).json({ sucesso: false, motivo: "Não foi possível ler o cofre do backup agora." }); }
   });
+  // ===== Cifra em repouso do registro do sistema anterior (27/11/2026): grava cifrado desde já; este robô cifra o que já estava gravado aberto,
+  // um bloco por transação curta (lock_timeout curto, trava da empresa sem esperar, para se a migração começar). Até terminar, lê aberto ou cifrado.
+  registrarRobo({ id: "cifra_sistema_anterior", nome: "Robô da Cifra do Sistema Anterior", posto: "conferidor", missao: "Cifra, aos poucos e sem travar o sistema, o registro do sistema anterior que a migração pelo backup já tinha gravado aberto, com a mesma chave mestra dos backups. Não roda com migração gravando; confere cada bloco antes de apagar o texto aberto; não muda nenhum dado. Depois de tudo cifrado, confere uma vez por dia.", ...(bancoContabilConfigurado() ? { intervaloMs: 15 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  let cifraAntigosTerminouEm = 0;
+  const gravandoMigracaoContabil = async () => (await migracoesAtivasContabil().catch(() => ({ gravandoAgora: 0 }))).gravandoAgora > 0;
+  const rodarCifraSistemaAnterior = (forcar = false) => {
+    if (!bancoContabilConfigurado()) return;
+    if (!forcar && cifraAntigosTerminouEm && Date.now() - cifraAntigosTerminouEm < 24 * 60 * 60_000) return;
+    void executarRobo("cifra_sistema_anterior", async () => {
+      await prepararTabelaSistemaAnterior(consultar007Contabil);
+      const b = bancoTransacionalContabil();
+      const r = await migrarCifraSistemaAnteriorContabil({ consultar: consultar007Contabil, transacao: (fn) => b.transacao(fn), migracaoGravando: gravandoMigracaoContabil });
+      cifraAntigosTerminouEm = r.situacao === "terminou" || r.situacao === "sem_chave" ? Date.now() : 0;
+      registrarResultadoRobo("cifra_sistema_anterior", textoCifrarAntigosContabil(r));
+    }).catch((e) => console.error("Falha no Robô da Cifra do Sistema Anterior:", String(e?.message || e).slice(0, 160)));
+  };
+  registrarRotinaManual("cifra_sistema_anterior", () => rodarCifraSistemaAnterior(true));
+  setTimeout(() => rodarCifraSistemaAnterior(), 7 * 60_000).unref();
+  setInterval(() => rodarCifraSistemaAnterior(), 15 * 60_000).unref();
   // Tela Empresa: "Completar agora" do escritório (só as empresas dele, com acesso de edição).
   app.post("/api/dados-backup-fiscal/rodar", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
