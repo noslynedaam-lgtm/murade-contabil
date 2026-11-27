@@ -52,7 +52,7 @@ export const AULAS: AulaEscola[] = [
   { id: 'como-funciona', trilha: 'primeiros-passos', titulo: 'Como o Murad Contábil funciona',
     oQueE: 'O Murad Contábil faz a escrituração das empresas do escritório: plano de contas, lançamentos, conciliação, fechamento, balancete, livros, ECD e ECF. Quase toda tela trabalha com a EMPRESA ativa, escolhida no cabeçalho.',
     porQue: 'Cada empresa tem o próprio plano, lançamentos e fechamento. Conferir a empresa antes de lançar evita lançar no cliente errado.',
-    regras: ['O menu da esquerda leva a cada tela; no celular ele abre pelo botão do menu.', 'Em Cadastro de Empresa você cadastra e escolhe as empresas; as que já estão no Murad Fiscal são trazidas pelo robô.', 'Nada é apagado de uma vez: excluir é um item por vez, em duas etapas.'],
+    regras: ['O menu da esquerda leva a cada tela; no celular ele abre pelo botão do menu.', 'O menu segue a ordem do serviço, em etapas com título: Cadastros (empresa e plano de contas), Lançamentos e importações, Fechamento (balancete e livros), Obrigações, Relatórios, Robôs, Ferramentas, Configurações e, por último, Aprender.', 'Em Cadastro de Empresa você cadastra e escolhe as empresas; as que já estão no Murad Fiscal são trazidas pelo robô.', 'Nada é apagado de uma vez: excluir é um item por vez, em duas etapas.'],
     fontes: [F.sistema], conferidoEm: DATA_CONFERENCIA, exemplo: null,
     meMostra: { tela: 'empresa', legenda: 'Aqui ficam as empresas. Escolha a empresa antes de lançar.' }, pratica: null,
     perguntas: [

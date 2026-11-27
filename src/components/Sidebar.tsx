@@ -36,117 +36,124 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendentesAprovacao = 0 }) => {
   const jeito = useJeito();
+  // Menu na ORDEM DO SERVIÇO (27/11/2026, pedido do Natan via dono): começa pelo que se faz primeiro e segue a sequência natural
+  // da contabilidade, agrupado por etapa (campo `grupo` = título discreto da etapa, também no celular):
+  // Cadastros → Lançamentos e importações → Fechamento → Obrigações → Relatórios → Robôs, revisão e tarefas → Ferramentas →
+  // Configurações → Aprender (Escola sempre por último). Ids (btn-menu-<id>) e telas NÃO mudam: piloto, tour e testes continuam valendo.
+  // A mesma ordem está em ORDEM_MENU_CONTABIL (tour), ETAPAS_MENU_CONTABIL (mapa) e MODULOS_JEITO_PADRAO (apresentação).
   const navItemsPadrao = [
+    // Início (sem título)
     {
       id: "inicio" as TabId,
       label: "Tela Inicial",
+      grupo: "",
       icon: Home,
       badge: "Início",
       badgeColor: "bg-emerald-300 text-slate-950 font-bold",
     },
+    // Cadastros
     {
       id: "empresa" as TabId,
       label: "Cadastro de Empresa",
+      grupo: "Cadastros",
       icon: Building2,
       badge: "CNPJ / A1",
       badgeColor: "bg-white/20 text-white",
     },
     {
-      id: "agenda" as TabId,
-      label: "Agenda & Lembretes",
-      icon: Calendar,
-    },
-    {
-      id: "fluxo-previtico" as TabId,
-      label: "Fluxo de Caixa Previsto",
-      icon: Zap,
-    },
-    {
-      id: "modulos-finais" as TabId,
-      label: "Obrigações & Gestão",
-      icon: Briefcase,
-    },
-    {
-      id: "gestao-contabil" as TabId,
-      label: "Gestão contábil",
-      icon: Briefcase,
-    },
-    {
-      id: "conexoes" as TabId,
-      label: "Conexão Órgãos",
-      icon: Plug,
-      badge: "",
-      badgeColor: "bg-white/10 text-blue-100",
-    },
-    {
-      id: "lancamentos" as TabId,
-      label: "Lançamentos",
-      icon: FileText,
-    },
-    {
-      id: "aprovacoes" as TabId,
-      label: "Aprovar lançamentos",
-      icon: FileText,
-      ...(pendentesAprovacao > 0 ? { badge: String(pendentesAprovacao), badgeColor: "bg-amber-400 text-slate-950 font-bold" } : {}),
-    },
-    {
-      id: "balancete" as TabId,
-      label: "Balancete",
-      icon: BarChart3,
-    },
-    {
-      id: "livros" as TabId,
-      label: "Livros Fiscais & ECD",
-      icon: BookOpen,
-    },
-    {
-      id: "demonstracoes" as TabId,
-      label: "Demonstrações e relatórios",
-      icon: BarChart3,
-      badge: "DFC · índices",
-      badgeColor: "bg-emerald-300 text-emerald-950 font-bold",
-    },
-    {
       id: "plano-contas" as TabId,
       label: "Plano de Contas",
+      grupo: "Cadastros",
       icon: FolderTree,
       badge: "CPC",
       badgeColor: "bg-white/20 text-white",
     },
-    {
-      id: "migracao" as TabId,
-      label: "Migração Contábil",
-      icon: Database,
-      badge: "4 etapas",
-      badgeColor: "bg-cyan-300 text-cyan-950 font-bold",
-    },
+    // Lançamentos e importações
     {
       id: "integracao" as TabId,
       label: "Integrações",
+      grupo: "Lançamentos e importações",
       icon: Network,
     },
     {
       id: "revisao-origens" as TabId,
       label: "Revisar dados recebidos",
+      grupo: "Lançamentos e importações",
       icon: ClipboardCheck,
       badge: "Fiscal + DP",
       badgeColor: "bg-cyan-300 text-cyan-950 font-bold",
     },
     {
-      id: "vigencia-obrigacoes" as TabId,
-      label: "Vigência das obrigações",
-      icon: CalendarClock,
+      id: "lancamentos" as TabId,
+      label: "Lançamentos",
+      grupo: "Lançamentos e importações",
+      icon: FileText,
     },
     {
-      id: "calculadora" as TabId,
-      label: "Calculadora 3D",
-      icon: Calculator,
-      badge: "",
-      badgeColor: "bg-purple-300 text-purple-950 font-bold",
+      id: "aprovacoes" as TabId,
+      label: "Aprovar lançamentos",
+      grupo: "Lançamentos e importações",
+      icon: FileText,
+      ...(pendentesAprovacao > 0 ? { badge: String(pendentesAprovacao), badgeColor: "bg-amber-400 text-slate-950 font-bold" } : {}),
     },
+    // Fechamento
+    {
+      id: "gestao-contabil" as TabId,
+      label: "Gestão contábil",
+      grupo: "Fechamento",
+      icon: Briefcase,
+    },
+    {
+      id: "balancete" as TabId,
+      label: "Balancete",
+      grupo: "Fechamento",
+      icon: BarChart3,
+    },
+    {
+      id: "livros" as TabId,
+      label: "Livros Fiscais & ECD",
+      grupo: "Fechamento",
+      icon: BookOpen,
+    },
+    // Obrigações
+    {
+      id: "modulos-finais" as TabId,
+      label: "Obrigações & Gestão",
+      grupo: "Obrigações",
+      icon: Briefcase,
+    },
+    {
+      id: "agenda" as TabId,
+      label: "Agenda & Lembretes",
+      grupo: "Obrigações",
+      icon: Calendar,
+    },
+    {
+      id: "vigencia-obrigacoes" as TabId,
+      label: "Vigência das obrigações",
+      grupo: "Obrigações",
+      icon: CalendarClock,
+    },
+    // Relatórios
+    {
+      id: "demonstracoes" as TabId,
+      label: "Demonstrações e relatórios",
+      grupo: "Relatórios",
+      icon: BarChart3,
+      badge: "DFC · índices",
+      badgeColor: "bg-emerald-300 text-emerald-950 font-bold",
+    },
+    {
+      id: "fluxo-previtico" as TabId,
+      label: "Fluxo de Caixa Previsto",
+      grupo: "Relatórios",
+      icon: Zap,
+    },
+    // Robôs, revisão e tarefas
     {
       id: "agente" as TabId,
       label: "Robôs",
+      grupo: "Robôs, revisão e tarefas",
       icon: Bot,
       badge: "",
       badgeColor: "bg-amber-400/30 text-amber-200",
@@ -154,6 +161,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
     {
       id: "revisor" as TabId,
       label: "Revisor",
+      grupo: "Robôs, revisão e tarefas",
       icon: ShieldCheck,
       badge: "Corrigir",
       badgeColor: "bg-amber-300 text-amber-950 font-bold",
@@ -161,35 +169,67 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
     {
       id: "tarefas-equipe" as TabId,
       label: "Tarefas da equipe",
+      grupo: "Robôs, revisão e tarefas",
       icon: ListChecks,
       badge: "Pedidos",
       badgeColor: "bg-sky-300 text-sky-950 font-bold",
     },
+    // Ferramentas
     {
-      id: "backups" as TabId,
-      label: "Backups",
-      icon: ShieldHalf,
-      badge: "Agenda",
-      badgeColor: "bg-emerald-400/30 text-emerald-100",
-    },
-    {
-      id: "meu-jeito" as TabId,
-      label: "Meu jeito",
-      icon: SlidersHorizontal,
-      badge: "Pessoal",
-      badgeColor: "bg-white/20 text-white",
+      id: "calculadora" as TabId,
+      label: "Calculadora 3D",
+      grupo: "Ferramentas",
+      icon: Calculator,
+      badge: "",
+      badgeColor: "bg-purple-300 text-purple-950 font-bold",
     },
     {
       id: "ia-premium" as TabId,
       label: "IA Murad Premium",
+      grupo: "Ferramentas",
       icon: Sparkles,
       badge: "Voz",
       badgeColor: "bg-amber-300 text-slate-950 font-bold",
     },
-    // Escola Murad (27/11/2026, dono): no FIM do menu, junto dos itens pouco usados; o topo fica só para o serviço do dia a dia. O link #escola continua.
+    {
+      id: "migracao" as TabId,
+      label: "Migração Contábil",
+      grupo: "Ferramentas",
+      icon: Database,
+      badge: "4 etapas",
+      badgeColor: "bg-cyan-300 text-cyan-950 font-bold",
+    },
+    {
+      id: "backups" as TabId,
+      label: "Backups",
+      grupo: "Ferramentas",
+      icon: ShieldHalf,
+      badge: "Agenda",
+      badgeColor: "bg-emerald-400/30 text-emerald-100",
+    },
+    // Configurações
+    {
+      id: "conexoes" as TabId,
+      label: "Conexão Órgãos",
+      grupo: "Configurações",
+      icon: Plug,
+      badge: "",
+      badgeColor: "bg-white/10 text-blue-100",
+    },
+    {
+      id: "meu-jeito" as TabId,
+      label: "Meu jeito",
+      grupo: "Configurações",
+      icon: SlidersHorizontal,
+      badge: "Pessoal",
+      badgeColor: "bg-white/20 text-white",
+    },
+    // Aprender
+    // Escola Murad (27/11/2026, dono): sempre o ÚLTIMO item do menu; o topo fica só para o serviço do dia a dia. O link #escola continua.
     {
       id: "escola" as TabId,
       label: "Aprender (Escola Murad)",
+      grupo: "Aprender",
       icon: GraduationCap,
       badge: "",
       badgeColor: "",
@@ -198,6 +238,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
 
   // "Meu jeito": as telas favoritas da pessoa (ou do escritório) vêm primeiro, na ordem escolhida.
   const navItems = ordenarMenu(navItemsPadrao, jeito?.efetivo?.menuFavoritos);
+  // Quantos favoritos ("Meu jeito") subiram para o começo: ficam juntos, sob o título "Favoritos"; o resto segue a ordem do serviço.
+  const favoritosMenu: unknown = jeito?.efetivo?.menuFavoritos;
+  const qtdFavoritos = Array.isArray(favoritosMenu) ? new Set(favoritosMenu.filter((id) => navItemsPadrao.some((x) => x.id === id))).size : 0;
 
   const copiarCodigo = () => {
     if (navigator?.clipboard?.writeText) {
@@ -228,16 +271,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
 
       {/* Navegação Principal Lateral com Rolagem Independente */}
       <div className="flex-1 py-2 px-1.5 space-y-0.5 overflow-y-auto overscroll-contain bg-[#082B66] sidebar-scroll">
-        <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-200/90">
-          Navegação Geral
-        </div>
-
-        {navItems.map((item) => {
+        {navItems.map((item, indice) => {
           const Icon = item.icon;
           const isActive = tabAtiva === item.id;
           const isRobo = item.id === "agente";
+          // Título discreto da etapa: aparece quando a etapa muda (no celular também, sem ocupar espaço de faixa).
+          const grupoDe = (k: number) => (k < qtdFavoritos ? "Favoritos" : navItems[k].grupo);
+          const mostrarTitulo = !!grupoDe(indice) && (indice === 0 || grupoDe(indice) !== grupoDe(indice - 1));
 
           return (
+            <React.Fragment key={item.id}>
+            {mostrarTitulo && (
+              <div data-testid="titulo-etapa-menu" role="presentation" className="px-2 pt-2 pb-0.5 text-[10px] font-bold uppercase tracking-wider leading-none text-blue-200/90">
+                {grupoDe(indice)}
+              </div>
+            )}
             <button
               key={item.id}
               id={`btn-menu-${item.id}`}
@@ -281,6 +329,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
                 </span>
               )}
             </button>
+            </React.Fragment>
           );
         })}
       </div>
