@@ -1,4 +1,7 @@
 import { AjudaInatividade } from "./components/AjudaInatividade";
+import { TourMurad } from "./components/TourMurad";
+import { OfertaAulaTela } from "./components/OfertaAulaTela";
+import { AREA_PRINCIPAL_CONTABIL, PARADAS_TOUR_CONTABIL, ROTA_ESCOLA_CONTABIL } from "./data/tourParadasContabil";
 import React, { useState } from "react";
 import { useFecharNoVoltar, useVoltarCelular } from "./hooks/useVoltarCelular";
 import { usePresencaSinal } from "./hooks/usePresencaSinal";
@@ -1034,7 +1037,7 @@ function AppWorkspace() {
           <FaixaLucroReal onAbrir={() => setTabAtiva("livros" as TabId)} />
           <AvisosBackupEscritorio api="/api/contabil/backup-agendado" sistema="contabil" aoAbrirBackup={() => setTabAtiva("backups")} />
           <FaixaTesteGratis />
-          <main className="p-2 sm:p-3 w-full mx-auto">
+          <main className="p-2 sm:p-3 w-full mx-auto" id="conteudo-principal-contabil">
             {/* Grid Principal: 2 Colunas (Área de Trabalho + Sidebar do Robô) */}
             <div className="grid grid-cols-1 gap-5 items-start">
             {/* Coluna Esquerda: Conteúdo da Aba Selecionada */}
@@ -1355,6 +1358,9 @@ function AppWorkspace() {
       {/* Botão PARAR da Agente: só aparece enquanto ela fala ou age e quando não há outro PARAR à vista (Esc também para). */}
       <BotaoPararAgente variante="flutuante" />
       <AjudaInatividade tela={String(tabAtiva)} />
+      {/* Tour guiado ("Murad, me mostra o sistema") e, na primeira semana do escritório, a oferta discreta de aula da tela. */}
+      <TourMurad paradas={PARADAS_TOUR_CONTABIL} telaAtual={String(tabAtiva)} navegar={(rota) => setTabAtiva(rota as TabId)} areaPrincipal={AREA_PRINCIPAL_CONTABIL} rotaEscola={ROTA_ESCOLA_CONTABIL} />
+      <OfertaAulaTela tela={String(tabAtiva)} abrirEscola={() => setTabAtiva(ROTA_ESCOLA_CONTABIL as TabId)} rotaEscola={ROTA_ESCOLA_CONTABIL} />
       <IAMuradModal
         ref={assistenteRef}
         isOpen={assistenteAberta}

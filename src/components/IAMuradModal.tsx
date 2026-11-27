@@ -13,6 +13,8 @@ import { aplicarIntencaoAoPiloto, intencaoDoTexto, pilotoAtivo } from "../utils/
 import { enviarAoPiloto } from "./PilotoVisivel";
 import { tratarFraseDaApresentacao } from "../utils/apresentacaoCliente";
 import { tratarRespostaDoNome } from "../utils/nomeCliente";
+import { tourAtivo, tratarFraseDoTour } from "../utils/tourMuradBarramento";
+import { FRASE_INICIO_TOUR, comandoDoTour } from "../data/tourMurad";
 import { EVENTO_AGENTE_PAROU, agenteAgindo, continuarDeOndeParou, ehComandoContinuar, ehComandoParar, falarRespostasLigado, pararTudo, registrarParador, temParaRetomar, type ResultadoPararTudo } from "../utils/agenteParar";
 import { BotaoPararAgente } from "./BotaoPararAgente";
 import { OpcaoFalarRespostas } from "./OpcaoFalarRespostas";
@@ -174,6 +176,16 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
       setMessages((prev) => [...prev, { id: `msg-${Date.now()}`, sender: "user", text: texto, timestamp: hora }, { id: `msg-${Date.now()}-continua`, sender: "ia", text: "Certo, continuando de onde parei.", timestamp: hora }]);
       setInput("");
       continuarDeOndeParou();
+      return;
+    }
+    // Tour guiado ("Murad, me mostra o sistema") e os comandos dele ("próxima", "volta", "sair do tour"): aqui mesmo, sem IA.
+    // A voz é do próprio tour; a conversa fecha para a tela ficar à vista.
+    const fraseTour = tratarFraseDoTour(texto);
+    if (fraseTour) {
+      const hora = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      setMessages((prev) => [...prev, { id: `msg-${Date.now()}`, sender: "user", text: texto, timestamp: hora }, { id: `msg-${Date.now()}-tour`, sender: "ia", text: fraseTour, timestamp: hora }]);
+      setInput("");
+      if (fraseTour === FRASE_INICIO_TOUR) onClose();
       return;
     }
     if (loading) return;
@@ -458,7 +470,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
           } else if (chamada.test(texto)) {
             if (!emUso()) continue; // outra janela é a que está em uso
             const resto = semPalavraDeChamada(bruto);
-            if (resto.split(" ").length >= 3) enviarRef.current(resto);
+            if (resto.split(" ").length >= 3 || (tourAtivo() && comandoDoTour(resto))) enviarRef.current(resto);
             else {
               bipRapido(); falarRef.current("Pois não?");
               aguardandoComandoRef.current = true;

@@ -6,6 +6,7 @@
 //  - sistemas que conversam: SISTEMAS de src/server/agentesEntreSistemas.ts.
 // O teste scripts/testes/apresentacao.test.ts e o Robô Conferidor da Apresentação falham/avisam se algo novo não tiver bloco ou se um bloco citar algo que não existe.
 // Regra do dono: nada de promessa que o código não cumpra. Se um robô, tela ou integração mudar, mude o bloco junto.
+import { FUNCOES_QUE_FALTAM } from './funcoesQueFaltam';
 import { MODULOS_JEITO_PADRAO } from './jeitoPadraoContabil';
 
 export type SecaoApresentacao = 'abertura' | 'modulos' | 'automatico' | 'depende' | 'integracoes' | 'limites';
@@ -156,6 +157,7 @@ export const SISTEMAS_QUE_CONVERSAM = ['dp', 'fiscal', 'fiscoia'];
 type Fixo = { id: string; titulo: string; falar: string; tela?: string; soDono?: boolean };
 export const ABERTURA: Fixo[] = [
   { id: 'abertura', titulo: 'Começando', falar: 'Vou contar em blocos curtos o que o Murad Contábil faz: os módulos, o que é automático, o que depende de você, o que é integrado e o que ele ainda não faz. A qualquer momento você pode dizer para, continua ou pula esse bloco.' },
+  { id: 'detalhe-escola-tour', titulo: 'Escola Murad e tour guiado', falar: 'Em Aprender, a Escola Murad tem aulas curtas com a fonte de cada regra, perguntas e prática numa empresa de treino. Diga "Murad, me mostra o sistema", ou toque em Fazer tour na Escola, e eu passo tela por tela do menu, só abrindo e destacando, sem clicar em nada; dá para pausar, pular e sair. Na primeira semana do escritório, ao abrir uma tela com aula, eu ofereço uma aula rápida, uma vez por tela.' },
 ];
 /** Como funciona, em detalhe (recursos novos): o que é, onde fica, o que é automático e o limite. Entram na seção dos módulos,
  *  logo depois deles, e também quando a pessoa pede um módulo só (a `tela` é a do módulo). */
@@ -167,6 +169,8 @@ export const DETALHES_DO_SISTEMA: Array<Fixo & { tela: string }> = [
   { id: 'detalhe-dva', titulo: 'DVA', tela: 'demonstracoes', falar: 'Em Demonstrações e relatórios, DVA: a Demonstração do Valor Adicionado pelo CPC 09 e pela Lei 6.404, montada das contas de resultado, do plano referencial e da DRE, com PDF e Excel. Conta que o sistema não classifica com certeza fica pendente até você escolher a linha e clicar em Salvar linhas da DVA. O robô confere de 6 em 6 horas; na companhia aberta, onde a DVA é obrigatória, o aviso é mais forte.' },
   { id: 'detalhe-extrato-pdf', titulo: 'Extrato em PDF', tela: 'gestao-contabil', falar: 'Na conciliação bancária, em Gestão contábil, o extrato em PDF dos principais bancos é lido no servidor: primeiro mostra a conferência e só guarda, em Guardar extrato, se o saldo inicial mais as entradas menos as saídas der o saldo final, sem duplicar.' },
   { id: 'detalhe-baixa-guias', titulo: 'Baixa das guias pelo extrato', tela: 'gestao-contabil', falar: 'O extrato importado, em OFX, CSV, Excel ou PDF, vai ao Fiscal na hora e de hora em hora para dar baixa só nas guias do aplicativo do cliente que casam com o débito pelo valor e pela data ou pelo código da guia. Não mexe na conciliação nem consulta o Serpro.' },
+  { id: 'detalhe-migracao-retomada', titulo: 'Migração que pausa e continua', tela: 'migracao', falar: 'A gravação da migração pelo backup vai empresa por empresa, com o andamento na tela. Se o sistema for atualizado no meio, a empresa da vez termina ou é desfeita inteira, a gravação pausa e a tela mostra Continuando: as empresas que faltaram são pedidas de novo sozinhas, e o que já gravou não grava de novo. Deixe a tela aberta até o resultado.' },
+  { id: 'detalhe-empresa-topo', titulo: 'Empresa do topo', tela: 'empresa', falar: 'Todas as telas trabalham na empresa escolhida no topo. Em Cadastro de Empresa, o formulário é sempre o dela: Editar Empresa põe aquela empresa no topo, e trocar no topo carrega a nova no formulário. Se o CNPJ do formulário for diferente do topo, o sistema avisa e não grava.' },
 ];
 
 export const DEPENDE_DO_CONTADOR: Fixo[] = [
@@ -191,6 +195,19 @@ export const LIMITES: Fixo[] = [
   { id: 'limite-robos', titulo: 'O que não faz: horários dos robôs', falar: 'Os robôs rodam em temporizadores do próprio servidor. Se a hospedagem suspender o sistema, eles pausam até ele voltar, e eu não afirmo que está atualizado quando uma origem falhou.' },
   { id: 'limite-fiscoia', titulo: 'O que não é integrado', falar: 'Do Fisco IA chegam só as guias, a dívida ativa e os parcelamentos que uma pessoa consultou por clique; o resto do Fisco IA conversa com a minha Agente, mas não vira lançamento. As consultas pagas ao SERPRO nunca são feitas por robô: só quando uma pessoa clica.' },
 ];
+/** Nome falado antes da frase do que tem em parte (a frase do catálogo nem sempre diz o assunto). */
+const ROTULO_DO_QUE_FALTA: Record<string, string> = { patrimonio: 'Patrimônio', 'demonstrativo-proprio': 'Relatório próprio' };
+/** O que ainda NÃO tem e o que tem só EM PARTE: o mesmo catálogo que a Murad usa para responder "o sistema tem X?". */
+export function limitesDoQueFalta(): Fixo[] {
+  const frase = (t: string) => t.replace(/\.$/, '');
+  const naoTem = FUNCOES_QUE_FALTAM.filter((f) => f.tipo === 'nao_tem');
+  const parcial = FUNCOES_QUE_FALTAM.filter((f) => f.tipo === 'parcial');
+  const blocos: Fixo[] = [];
+  for (let i = 0; i < naoTem.length; i += 4) blocos.push({ id: `limite-nao-tem-${i / 4 + 1}`, titulo: 'Ainda não tem', falar: `Ainda não tem: ${naoTem.slice(i, i + 4).map((f) => frase(f.texto)).join('; ')}. Está na lista de melhorias.` });
+  const comNome = (f: { id: string; texto: string }) => (ROTULO_DO_QUE_FALTA[f.id] ? `${ROTULO_DO_QUE_FALTA[f.id]}: ${frase(f.texto)}` : frase(f.texto));
+  for (let i = 0; i < parcial.length; i += 2) blocos.push({ id: `limite-em-parte-${i / 2 + 1}`, titulo: 'Tem em parte', falar: `Tem em parte. ${parcial.slice(i, i + 2).map(comNome).join('. ')}. Está na lista de melhorias.` });
+  return blocos;
+}
 export const LEMBRETE_PROCURACOES: Fixo = { id: 'lembrete-procuracoes', titulo: 'Procurações', falar: 'Para o sistema trabalhar sozinho, o contador precisa ter a procuração eletrônica de todas as empresas: e-CAC, eSocial e FGTS Digital. No cadastro do escritório tem a lista do que falta e o passo a passo.' };
 export const ENCERRAMENTO: Fixo = { id: 'fim', titulo: 'Fim', falar: 'Era isso. Quando quiser ouvir de novo, é só pedir: o que o sistema faz, o que é automático ou o que é integrado. E se quiser que eu te mostre onde fica algo, é só dizer.' };
 
@@ -204,6 +221,7 @@ export function montarApresentacao(ehDono = false): BlocoApresentacao[] {
   for (const d of DEPENDE_DO_CONTADOR) b.push({ ...d, secao: 'depende' });
   for (const i of INTEGRACOES_APRESENTACAO) b.push({ id: `integracao-${i.id}`, secao: 'integracoes', titulo: i.titulo, falar: i.falar, tela: i.tela, soDono: i.soDono });
   for (const l of LIMITES) b.push({ ...l, secao: 'limites' });
+  for (const l of limitesDoQueFalta()) b.push({ ...l, secao: 'limites' });
   b.push({ ...LEMBRETE_PROCURACOES, secao: 'limites' });
   b.push({ ...ENCERRAMENTO, secao: 'limites' });
   return b.filter((x) => ehDono || !x.soDono);

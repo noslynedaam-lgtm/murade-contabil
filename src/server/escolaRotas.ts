@@ -11,6 +11,9 @@ import {
   demonstracoesDoTenant, registrarDemonstracao,
 } from './escola';
 import { registroDemoValido } from '../data/escolaDemonstracao';
+import { camposPrimeiraSemana } from './primeiraSemanaEscritorio';
+import { aulasComTela } from '../data/tourAulasContabil';
+const aulasPorTela = () => aulasComTela().map((a) => ({ id: a.id, titulo: a.titulo, tela: a.meMostra.tela }));
 
 export interface SessaoEscola { userId: string; login: string; tenantId?: string; administrador?: boolean; donoSistema?: boolean }
 type Rota = (caminho: string, ...h: RequestHandler[]) => unknown;
@@ -25,6 +28,8 @@ export interface DepsEscola {
   cnpjDoEscritorio(tenantId: string): Promise<string | null>;
   /** O escritório é o do dono do sistema (usa a Escola sempre). */
   escritorioDoDono(tenantId: string): Promise<boolean>;
+  /** Data de criação do escritório (oferta de aula na primeira semana). Opcional: sem ela, a oferta não aparece. */
+  criadoEmDoEscritorio?(tenantId: string): Promise<string | null>;
 }
 
 export const ID_ROBO_ESCOLA = 'conferidor_escola';
@@ -62,7 +67,9 @@ export function registrarRotasEscola(d: DepsEscola): { rodarRobo: (tenantSo?: st
     res.setHeader('Cache-Control', 'no-store');
     const s = d.sessao(req); if (!s) return res.status(401).json({ sucesso: false, motivo: 'Entre no sistema.' });
     const lib = await liberacaoDaSessao(s, d);
-    return res.json({ sucesso: true, liberado: lib.liberado, motivo: lib.motivo, gestor: ehGestorEscola(s), trilhas: TRILHAS.map((t) => ({ ...t, aulas: AULAS.filter((a) => a.trilha === t.id).length })) });
+    const q = quemDaSessao(s);
+    const semana = await camposPrimeiraSemana(q.tenantId, q.userId, d.criadoEmDoEscritorio);
+    return res.json({ sucesso: true, liberado: lib.liberado, motivo: lib.motivo, gestor: ehGestorEscola(s), ...semana, aulasPorTela: aulasPorTela(), trilhas: TRILHAS.map((t) => ({ ...t, aulas: AULAS.filter((a) => a.trilha === t.id).length })) });
   });
 
   d.app.get('/api/escola/conteudo', d.exigirSessao, async (req, res) => {

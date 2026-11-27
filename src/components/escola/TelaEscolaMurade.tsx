@@ -9,6 +9,8 @@ import { PainelGestorEscola } from './PainelGestorEscola';
 import { useFalarNaEscola } from './escolaAdaptador';
 import { DemonstracaoCompleta } from './DemonstracaoCompleta';
 import { ETAPAS_DEMO, TITULO_DEMO } from '../../data/escolaDemonstracao';
+import { EVENTO_ABRIR_AULA, ROTULO_BOTAO_TOUR } from '../../data/tourMurad';
+import { consumirAulaPendente, iniciarTour } from '../../utils/tourMuradBarramento';
 
 interface Progresso { aulas: Array<{ aulaId: string; quizNota: number | null; concluida: boolean }>; provas: Array<{ praticaId: string; nota: number }>; atribuicoes: Array<{ trilhaId: string }>; nivel: string }
 interface Demonstracao { etapas: string[]; suaVez: string[]; completaEm: string | null; totalEtapas: number }
@@ -39,6 +41,15 @@ export const TelaEscolaMurade: React.FC<{ onVoltar?: () => void }> = ({ onVoltar
     } catch { setErro('Sem conexão com o servidor.'); }
   };
   useEffect(() => { void carregar(); }, []);
+  // Aula pedida de fora (oferta "Quer uma aula rápida desta tela?" ou a Murad): abre assim que as aulas carregam.
+  useEffect(() => {
+    if (!conteudo) return undefined;
+    const abrir = (id: string | null) => { if (id && conteudo.aulas.some((a) => a.id === id)) { setDemoAberta(false); setAba('trilhas'); setAulaAberta(id); } };
+    abrir(consumirAulaPendente());
+    const ouvir = (e: Event) => { abrir(consumirAulaPendente() || String((e as CustomEvent<{ id?: string }>).detail?.id || '') || null); };
+    window.addEventListener(EVENTO_ABRIR_AULA, ouvir);
+    return () => window.removeEventListener(EVENTO_ABRIR_AULA, ouvir);
+  }, [conteudo]);
 
   const cabecalho = (
     <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -62,6 +73,7 @@ export const TelaEscolaMurade: React.FC<{ onVoltar?: () => void }> = ({ onVoltar
         </ul>
         <p className="mt-3 rounded-lg bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-900">{MSG_ADICIONAL}</p>
         {estado.motivo !== MSG_ADICIONAL && <p className="mt-1 text-xs text-slate-500">{estado.motivo}</p>}
+        <button id="escola-fazer-tour" type="button" onClick={() => iniciarTour()} className="mt-3 rounded-full bg-amber-400 px-4 py-2 text-sm font-extrabold text-slate-900 shadow hover:bg-amber-300">🧭 {ROTULO_BOTAO_TOUR} pelo sistema</button>
       </section>
     </div>
   );
@@ -91,7 +103,11 @@ export const TelaEscolaMurade: React.FC<{ onVoltar?: () => void }> = ({ onVoltar
             <p className="text-xs text-blue-100">A Agente faz na tela de treino, campo a campo: {ETAPAS_DEMO.map((e) => e.titulo).join(' → ')}. Depois é a sua vez.</p>
             {conteudo.demonstracao && <p className="mt-0.5 text-[11px] font-bold text-amber-200">{conteudo.demonstracao.completaEm ? '✅ Você já assistiu a demonstração completa.' : `Você assistiu ${conteudo.demonstracao.etapas.length} de ${conteudo.demonstracao.totalEtapas} etapas.`}{conteudo.demonstracao.suaVez.length ? ` Fez ${conteudo.demonstracao.suaVez.length} na sua vez.` : ''}</p>}
           </div>
-          <button id="escola-demo-completa" type="button" onClick={() => { setAba('trilhas'); setDemoAberta(true); }} className="rounded-full bg-white px-4 py-2 text-sm font-extrabold text-blue-800 shadow hover:bg-blue-50">▶ Assistir</button>
+          <div className="flex flex-wrap gap-2">
+            <button id="escola-demo-completa" type="button" onClick={() => { setAba('trilhas'); setDemoAberta(true); }} className="rounded-full bg-white px-4 py-2 text-sm font-extrabold text-blue-800 shadow hover:bg-blue-50">▶ Assistir</button>
+            {/* Tour guiado: a Murad passeia pelas telas de verdade, só abrindo e destacando (nunca clica em nada). */}
+            <button id="escola-fazer-tour" type="button" title="A Murad mostra as telas do sistema, uma por vez" onClick={() => iniciarTour()} className="rounded-full bg-amber-400 px-4 py-2 text-sm font-extrabold text-slate-900 shadow hover:bg-amber-300">🧭 {ROTULO_BOTAO_TOUR}</button>
+          </div>
         </section>
       )}
       {!aula && !demoAberta && (

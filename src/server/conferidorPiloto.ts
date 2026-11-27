@@ -3,8 +3,11 @@
 // de achar o ponto na tela: este robô avisa o dono do sistema antes de o contador perceber.
 // Nunca altera arquivo nem dado: só lê.
 import { CAMPOS_CONTABIL, SECOES_CONTABIL, TELAS_CONTABIL, type CampoMapa } from '../data/mapaTelasContabil';
+import { conferirAulasNasTelas, conferirParadasTour } from '../data/tourMurad';
+import { AREA_PRINCIPAL_CONTABIL, PARADAS_TOUR_CONTABIL, ROTAS_VALIDAS_CONTABIL } from '../data/tourParadasContabil';
+import { aulasComTela } from '../data/tourAulasContabil';
 
-export type ProblemaPiloto = { tipo: 'tela' | 'menu' | 'campo' | 'botao_final' | 'botao_abrir' | 'secao' | 'periodo' | 'montagem' | 'arquivo'; chave: string; detalhe: string };
+export type ProblemaPiloto = { tipo: 'tela' | 'menu' | 'campo' | 'botao_final' | 'botao_abrir' | 'secao' | 'periodo' | 'montagem' | 'arquivo' | 'tour'; chave: string; detalhe: string };
 export type RelatorioPiloto = { verificadoEm: string; verificados: number; problemas: ProblemaPiloto[] };
 export type LerArquivo = (caminho: string) => string | null;
 
@@ -51,6 +54,18 @@ export function conferirMapaPiloto(ler: LerArquivo, agora = new Date()): Relator
     if (txt === null) { problemas.push({ tipo: 'arquivo', chave: s.chave, detalhe: `Arquivo ${s.arquivo} não encontrado.` }); continue; }
     if (!semAcento(txt).includes(semAcento(s.texto))) problemas.push({ tipo: 'secao', chave: s.chave, detalhe: `O título "${s.texto}" não aparece mais em ${s.arquivo}.` });
   }
+  // Tour guiado e aulas da Escola: toda parada e todo "Me mostra" apontam para tela que existe; cada parada está no menu; a área
+  // destacada, o tour no App e o botão "Fazer tour" da Escola continuam no código.
+  for (const m of [...conferirParadasTour(PARADAS_TOUR_CONTABIL, ROTAS_VALIDAS_CONTABIL), ...conferirAulasNasTelas(aulasComTela(), ROTAS_VALIDAS_CONTABIL)]) problemas.push({ tipo: 'tour', chave: 'tour', detalhe: m });
+  for (const p of PARADAS_TOUR_CONTABIL) {
+    verificados += 1;
+    if (side !== null && !side.includes(`id: "${p.rota}" as TabId`)) problemas.push({ tipo: 'tour', chave: p.rota, detalhe: `Tour: a tela "${p.nome}" não está mais no menu lateral.` });
+  }
+  verificados += aulasComTela().length + 3;
+  if (app !== null && !app.includes(`id="${AREA_PRINCIPAL_CONTABIL.slice(1)}"`)) problemas.push({ tipo: 'tour', chave: AREA_PRINCIPAL_CONTABIL, detalhe: 'Tour: a área principal que o tour destaca não existe mais no App.' });
+  if (app !== null && !app.includes('<TourMurad')) problemas.push({ tipo: 'montagem', chave: 'TourMurad', detalhe: 'O tour guiado não está montado no App.' });
+  const escola = arq('src/components/escola/TelaEscolaMurade.tsx');
+  if (escola !== null && !escola.includes('id="escola-fazer-tour"')) problemas.push({ tipo: 'tour', chave: 'escola-fazer-tour', detalhe: 'Tour: o botão "Fazer tour" sumiu da Escola.' });
   return { verificadoEm: agora.toISOString(), verificados, problemas };
 }
 
