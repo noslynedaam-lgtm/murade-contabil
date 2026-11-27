@@ -37,7 +37,7 @@ interface Sessao {
   /** Empresas já gravadas nesta sessão: pedir de novo (tela que repete o lote depois de uma publicação) devolve o mesmo resultado. */
   resultados: Map<number, ResultadoGravacaoContabil>;
   /** Onde o arquivo ficou guardado fora do servidor (para o servidor novo continuar depois de uma publicação). */
-  arquivoGuardado?: ArquivoGuardado; guardando?: boolean;
+  arquivoGuardado?: ArquivoGuardado; guardando?: boolean; terminada?: boolean;
 }
 /** Erro interno: desfaz (ROLLBACK) a empresa da vez quando o servidor vai ser desligado e não dá tempo de terminar. */
 export class PausaParaAtualizacao extends Error { constructor() { super(MOTIVO_PAUSADO); } }
@@ -63,8 +63,9 @@ const apagarArquivo = (a: string) => { try { fs.rmSync(a, { force: true }); } ca
 export function descartarMigracaoContabil(token: string): void {
   const s = sessoes.get(token);
   if (!s) return;
+  if (!s.terminada && (s.arquivoGuardado || s.resultados.size)) void retomada?.salvar(s.token, s.userId, 'terminou', dadosGuardados(s)).catch(() => undefined);
+  s.terminada = true;
   if (s.arquivoGuardado) retomada?.apagarArquivoGuardado(s.arquivoGuardado, s.arquivo);
-  if (s.arquivoGuardado || s.resultados.size) void retomada?.salvar(s.token, s.userId, 'terminou', dadosGuardados(s)).catch(() => undefined);
   apagarArquivo(s.arquivo); s.previas.clear(); s.cache.clear(); sessoes.delete(token);
 }
 function dadosGuardados(s: Sessao) {
@@ -293,7 +294,15 @@ export async function gravarMigracaoContabil(
   const lote = retomada?.comecarLote();
   // Primeira gravação desta sessão: guarda o estado no banco e o arquivo fora do servidor (cifrado), para continuar depois de uma publicação.
   const salvar = () => retomada?.salvar(s.token, s.userId, 'gravando', dadosGuardados(s)).catch((e) => console.error('Migração (Contábil): não consegui guardar o andamento:', (e as Error)?.message || e));
-  if (retomada && !s.arquivoGuardado && !s.guardando) { s.guardando = true; retomada.guardarArquivo(s.token, s.arquivo, s.tamanho, (a) => { s.arquivoGuardado = a; s.guardando = false; void salvar(); }); }
+  if (retomada && !s.arquivoGuardado && !s.guardando) {
+    s.guardando = true;
+    retomada.guardarArquivo(s.token, s.arquivo, s.tamanho, (a) => {
+      s.guardando = false;
+      // A gravação já terminou enquanto o arquivo subia: apaga a cópia e não reabre a sessão no banco.
+      if (s.terminada) { retomada?.apagarArquivoGuardado(a, s.arquivo); return; }
+      s.arquivoGuardado = a; void salvar();
+    });
+  }
   const resultados = await comOcupado(s, () => filaMigracaoContabil.entrar(s.token, async () => {
     await salvar();
     s.indice = s.indice || await indexarDump(s.arquivo);
@@ -330,7 +339,7 @@ export async function gravarMigracaoContabil(
     return r;
   })).finally(() => lote?.fim());
   // Tudo que foi conferido já foi gravado: o arquivo (dado de cliente) é apagado na hora (e a cópia guardada fora do servidor).
-  if (!s.previas.size) descartarMigracaoContabil(token);
+  if (!s.previas.size) { s.terminada = true; await retomada?.salvar(s.token, s.userId, 'terminou', dadosGuardados(s)).catch(() => undefined); descartarMigracaoContabil(token); }
   return resultados;
 }
 

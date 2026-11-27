@@ -101,7 +101,8 @@ export function criarRetomadaMigracao(op: { sistema: 'dp' | 'contabil'; consulta
       if (!op.consultar()) return;
       await preparar();
       await q()(`INSERT INTO ${tabela} (token, user_id, estado, dados, atualizado_em) VALUES ($1,$2,$3,$4::jsonb,now())
-        ON CONFLICT (token) DO UPDATE SET estado=EXCLUDED.estado, dados=EXCLUDED.dados, atualizado_em=now() WHERE ${tabela}.user_id=EXCLUDED.user_id`, [token, userId, estado, JSON.stringify(dados)]);
+        ON CONFLICT (token) DO UPDATE SET estado=EXCLUDED.estado, dados=EXCLUDED.dados, atualizado_em=now()
+        WHERE ${tabela}.user_id=EXCLUDED.user_id AND NOT (${tabela}.estado='terminou' AND EXCLUDED.estado='gravando')`, [token, userId, estado, JSON.stringify(dados)]);
       if (estado === 'terminou') await q()(`DELETE FROM ${tabela} WHERE estado='terminou' AND atualizado_em < now() - interval '2 days'`).catch(() => undefined);
     },
     async ler(token, userId) {
