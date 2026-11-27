@@ -104,7 +104,9 @@ test('Escola (Contábil): "Me mostra no sistema" vira roteiro válido do Piloto 
 });
 
 test('Escola (Contábil): aba no menu, no tipo TabId, no App e no mapa do piloto (o robô do piloto não acha problema da Escola)', () => {
-  assert.doesNotMatch(ler('src/components/Sidebar.tsx')!, /id: "escola" as TabId/, 'a Escola não fica no menu (só por link #escola)');
+  // 27/11/2026 (dono): "Aprender (Escola Murad)" é o ÚLTIMO item do menu; o link #escola continua.
+  const sb = ler('src/components/Sidebar.tsx')!; const ids = [...sb.matchAll(/id: "([a-z-]+)" as TabId/g)].map((m) => m[1]);
+  assert.equal(ids[ids.length - 1], 'escola'); assert.match(sb, /label: "Aprender \(Escola Murad\)"/);
   assert.match(ler('src/App.tsx')!, /#&\]\)escola/, 'o link #escola abre a Escola');
   assert.match(ler('src/types.ts')!, /\| "escola"/);
   assert.match(ler('src/App.tsx')!, /tabAtiva === "escola" && <TelaEscolaMurade/);

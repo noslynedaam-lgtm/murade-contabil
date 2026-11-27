@@ -25,6 +25,7 @@ import {
   ListChecks,
   SlidersHorizontal,
   CalendarClock,
+  GraduationCap,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -184,6 +185,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ tabAtiva, onSelectTab, pendent
       icon: Sparkles,
       badge: "Voz",
       badgeColor: "bg-amber-300 text-slate-950 font-bold",
+    },
+    // Escola Murad (27/11/2026, dono): no FIM do menu, junto dos itens pouco usados; o topo fica só para o serviço do dia a dia. O link #escola continua.
+    {
+      id: "escola" as TabId,
+      label: "Aprender (Escola Murad)",
+      icon: GraduationCap,
+      badge: "",
+      badgeColor: "",
     },
   ];
 

@@ -92,7 +92,7 @@ function AppWorkspace() {
   const flushWorkspaceRef = React.useRef<() => Promise<boolean>>(async () => true);
   const workspaceSnapshotPersistidoRef = React.useRef<string | null>(null);
   const [assistenteAberta, setAssistenteAberta] = useState(false);
-  // A Escola Murade não fica no menu: abre só pelo link que o fornecedor manda (https://…/#escola).
+  // Escola Murade: item "Aprender (Escola Murad)" no fim do menu e também pelo link (https://…/#escola).
   const [tabAtiva, setTabAtiva] = useState<TabId>(() => (typeof window !== "undefined" && /(^|[#&])escola(&|$)/.test(window.location.hash.replace(/^#/, "")) ? "escola" : "inicio"));
   // Botão "Robôs" do cabeçalho: abre a tela de robôs (antes abria um painel de demonstração).
   React.useEffect(() => { const abrir = () => setTabAtiva("agente"); window.addEventListener(EVENTO_ABRIR_ROBOS, abrir); return () => window.removeEventListener(EVENTO_ABRIR_ROBOS, abrir); }, []);

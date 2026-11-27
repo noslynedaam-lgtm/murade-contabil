@@ -23,7 +23,7 @@ const ler = (c: string) => readFileSync(c, 'utf8');
 test('jeito padrão: cada módulo existe no menu, com o mesmo nome, na tela e no tipo TabId', () => {
   const sidebar = ler('src/components/Sidebar.tsx'); const app = ler('src/App.tsx'); const tipos = ler('src/types.ts');
   const itens = [...sidebar.matchAll(/id: "([a-z-]+)" as TabId,\s*label: "([^"]+)"/g)].map((m) => ({ id: m[1], label: m[2] }));
-  const doMenu = itens.filter((i) => i.id !== 'ia-premium'); // a IA Premium só abre a Agente; não é módulo
+  const doMenu = itens.filter((i) => i.id !== 'ia-premium' && i.id !== 'escola'); // a IA Premium só abre a Agente e a Escola é aprendizado (fim do menu); não são módulos de serviço
   assert.deepEqual(MODULOS_JEITO_PADRAO.map((m) => m.id).sort(), doMenu.map((i) => i.id).sort());
   for (const m of MODULOS_JEITO_PADRAO) {
     assert.equal(itens.find((i) => i.id === m.id)?.label, m.rotulo, `rótulo de ${m.id}`);
