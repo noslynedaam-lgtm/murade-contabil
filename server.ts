@@ -41,6 +41,7 @@ import { ArmazemDeEtapas, chaveDeEtapas, prepararPedido, limitarPedido, avisoDeT
 import { ArmazemAcoesPendentes, avancarAcao as avancarAcaoAgenteIA, confirmarAcao as confirmarAcaoAgenteIA, conversar as conversarAgenteIA, recusarAcao as recusarAcaoAgenteIA, type ChamarApi, type ContextoAgente, type ModeloIA } from "./src/server/agenteMotor";
 import { kitContabil } from "./src/server/agenteContabil";
 import { registrarRotasEscola } from "./src/server/escolaRotas";
+import { sqlCriadoEmDoEscritorio } from "./src/server/primeiraSemanaEscritorio";
 import { ArmazemPedidosMemoria, ArmazemPedidosPg, CentralDePedidos, tokenValido, urlDoSistema } from "./src/server/agentesEntreSistemas";
 import { criarPresencaDono } from "./src/server/presencaDono";
 import { SQL_ESCRITORIOS_CONTABIL, SQL_ORFAOS_CONTABIL, SQL_SINAIS_CONTABIL, agruparEscritorios as agruparEscritoriosPresenca } from "./src/server/presencaDonoContabil";
@@ -1751,6 +1752,7 @@ const reconciliacaoRascunhosStatus: {
     consultar: (sql, params) => consultaBancoContabil(sql, params ?? []) as any, bancoConfigurado: bancoContabilConfigurado,
     liberacao: { env: process.env, fetch: (url, init) => fetch(url, init) as any },
     cnpjDoEscritorio: (tenantId) => storeEscritorio.lerOuDescobrir(tenantId),
+    criadoEmDoEscritorio: async (tenantId) => { const r = await consultaBancoContabil(sqlCriadoEmDoEscritorio('contabil_auth_users'), [tenantId]); return r.rows[0]?.criado ? new Date(r.rows[0].criado).toISOString() : null; },
     escritorioDoDono: async (tenantId) => {
       const lista = (process.env.MURADE_DONO_SISTEMA || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
       const r = lista.length
