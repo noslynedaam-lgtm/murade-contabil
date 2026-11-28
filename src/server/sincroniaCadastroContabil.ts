@@ -54,11 +54,14 @@ export interface DepsReceberContabil {
   /** Altera o campo "empresa" do workspace (se a empresa já tem workspace); devolve a empresa atual. */
   alterarEmpresaDoWorkspace: (cnpj: string, alterar: (empresa: Record<string, any>) => Record<string, any> | null) => Promise<Record<string, any> | null>;
 }
-export async function receberCadastroNoContabil(d: DepsReceberContabil, e: { cnpj: string; escritorio: string; donoSistema: boolean; origem: string; dados: unknown }) {
+export async function receberCadastroNoContabil(d: DepsReceberContabil, e: { cnpj: string; escritorio: string; donoSistema: boolean; origem: string; dados: unknown; /** Só empresa NOVA cadastrada pela pessoa (depois do marco) pode ser criada aqui. */ criar?: boolean }) {
   const recebido = limparCadastroCompartilhado(e.dados);
   const donoId = await d.donoPorLogin(e.escritorio);
   const acessos = (await d.consultar("SELECT a.user_id::text AS uid, u.office_owner::text AS dono FROM contabil_auth_company_access a JOIN contabil_auth_users u ON u.id=a.user_id WHERE a.cnpj=$1", [e.cnpj])).rows;
   if (acessos.length && donoId && !acessos.some((a: any) => a.uid === donoId || a.dono === donoId)) return { sucesso: true as const, vinculada: false, criada: false, preenchidos: [] as string[], divergencias: 0, motivo: "Este CNPJ está no Contábil em outro escritório: nada foi mexido." };
+  // Regra do dono (28/11/2026): nem todo cliente do Fiscal é cliente do Contábil. Empresa que não existe aqui só é criada quando é
+  // NOVA (a pessoa acabou de cadastrar); o resto só completa empresa que já existe.
+  if (!acessos.length && e.criar !== true) return { sucesso: true as const, vinculada: false, criada: false, naoExiste: true, preenchidos: [] as string[], divergencias: 0, motivo: "A empresa não existe no Contábil: a sincronia só completa empresa que já existe aqui (criar, só empresa nova cadastrada a partir de agora)." };
   // Cria se faltar e alinha regime/razão/fantasia/município/UF pela regra que já existia (Fiscal é a fonte do regime).
   const r = await d.importar([{ cnpj: e.cnpj, escritorio: e.escritorio, donoSistema: e.donoSistema, dados: { cnpj: e.cnpj, razaoSocial: recebido.razaoSocial || "", nomeFantasia: recebido.nomeFantasia || "", regime: recebido.regimeTributario || "", municipio: recebido.cidade || "", uf: recebido.uf || "" } }]);
   const criada = r.criadas.includes(e.cnpj);
@@ -94,28 +97,31 @@ export function criarEnvioContabilParaFiscal(lerCadastro: (cnpj: string) => Prom
     try {
       const r = await buscar(`${urlDoSistema("fiscal", env)}/api/integracao/fiscal/empresas`, {
         method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-        body: JSON.stringify({ cnpj: item.cnpj, escritorio: item.escritorio, dados, cadastroManual: false, origem: "contabil" }), signal: AbortSignal.timeout(20_000),
+        body: JSON.stringify({ cnpj: item.cnpj, escritorio: item.escritorio, dados, cadastroManual: item.criar === true, origem: "contabil", criarAqui: item.criar === true, ...(item.criar ? { empresaNova: true } : {}) }), signal: AbortSignal.timeout(20_000),
       });
       const corpo: any = await r.json().catch(() => null);
       if (!r.ok) return { ok: false, definitivo: r.status === 400 || r.status === 401, motivo: `o Fiscal respondeu ${r.status}${corpo?.motivo ? `: ${corpo.motivo}` : ""}` };
       if (corpo?.sucesso !== true) return { ok: false, motivo: corpo?.motivo || "o Fiscal não confirmou" };
-      if (corpo.vinculada === false) return { ok: false, definitivo: true, motivo: corpo.motivo || "o Fiscal não aceitou (outro escritório ou empresa excluída)" };
+      if (corpo.vinculada === false) return { ok: false, definitivo: true, motivo: corpo.naoExiste ? "não existe no Fiscal (só completa empresa que já existe lá)" : corpo.motivo || "o Fiscal não aceitou (outro escritório ou empresa excluída)" };
       return { ok: true, motivo: corpo.criada ? "criada no Fiscal" : "completada no Fiscal" };
     } catch (err: any) { return { ok: false, motivo: err?.name === "TimeoutError" ? "o Fiscal não respondeu a tempo" : `sem resposta do Fiscal: ${err?.message || err}` }; }
   };
 }
 
-export interface DepsFilaContabil { consultar: Consultar; lerCadastro: (cnpj: string) => Promise<Record<string, any> | null>; enviar: (item: ItemFila) => Promise<RespostaEnvio> }
+export interface DepsFilaContabil { consultar: Consultar; lerCadastro: (cnpj: string) => Promise<Record<string, any> | null>; enviar: (item: ItemFila) => Promise<RespostaEnvio>; /** Migração gravando: a rodada pula. */ migracaoGravando?: () => Promise<boolean> }
 export async function rodarEnvioCadastroContabil(d: DepsFilaContabil) {
+  if (await d.migracaoGravando?.().catch(() => false)) return { entregues: 0, falharam: [], desistidos: [], resumo: "Migração pelo backup gravando agora: esta rodada foi pulada (tento de novo na próxima)." };
   return rodarFilaSincronia(d.consultar, PREFIXO_CONTABIL, async (cnpj) => { const e = await d.lerCadastro(cnpj); return e ? assinaturaCadastro(contabilParaComum(e)) : null; }, d.enviar);
 }
-export async function enfileirarCadastroContabil(consultar: Consultar, cnpj: string, escritorio: string, origem = "contabil"): Promise<void> {
-  await enfileirarSincronia(consultar, PREFIXO_CONTABIL, { cnpj, destino: "fiscal", escritorio, origem });
+export async function enfileirarCadastroContabil(consultar: Consultar, cnpj: string, escritorio: string, origem = "contabil", criar = false): Promise<void> {
+  await enfileirarSincronia(consultar, PREFIXO_CONTABIL, { cnpj, destino: "fiscal", escritorio, origem, criar });
 }
 export function cadastroMudou(antes: unknown, depois: unknown): boolean { return assinaturaCadastro(contabilParaComum(antes)) !== assinaturaCadastro(contabilParaComum(depois)); }
 
 /** Conferidor Contábil × Fiscal: o Fiscal recebeu o cadastro ATUAL de cada empresa do Contábil? O que não recebeu vai para a fila e é enviado. */
 export async function conferirCadastroContabilFiscal(d: DepsFilaContabil & { empresasComEscritorio: () => Promise<Array<{ cnpj: string; escritorio: string }>> }) {
+  if (await d.migracaoGravando?.().catch(() => false)) return { conferidas: 0, enfileiradas: 0, alerta: false, resumo: "Migração pelo backup gravando agora: a conferência foi pulada (tento de novo na próxima rodada)." };
+  // O conferidor NUNCA cria empresa no Fiscal: só manda para COMPLETAR o vazio da empresa que já existe lá.
   const entregues = await assinaturasEntregues(d.consultar, PREFIXO_CONTABIL);
   let conferidas = 0; let enfileiradas = 0;
   for (const e of await d.empresasComEscritorio()) {

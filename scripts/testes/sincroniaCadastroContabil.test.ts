@@ -22,13 +22,16 @@ function cenario(acessos: Array<{ uid: string; dono: string | null }>, empresa: 
   return { b, estado, deps };
 }
 
-test("Contábil recebe empresa nova: cria pelo Robô de Empresas do Fiscal (uma vez) e completa o resto", async () => {
+test("Contábil: empresa antiga que não existe aqui não é criada; a NOVA é criada (uma vez) e completa o resto", async () => {
   const c = cenario([], null);
-  const r = await receberCadastroNoContabil(c.deps, { cnpj: CNPJ, escritorio: "escritorio1", donoSistema: false, origem: "dp", dados: { razaoSocial: "PADARIA PAO BOM LTDA", inscricaoEstadual: "101234567", cidade: "GOIANIA", uf: "GO" } });
+  const naoNova = await receberCadastroNoContabil(c.deps, { cnpj: CNPJ, escritorio: "escritorio1", donoSistema: false, origem: "dp", dados: { razaoSocial: "PADARIA PAO BOM LTDA" } });
+  assert.equal(naoNova.vinculada, false, "empresa antiga que não existe aqui: não cria");
+  assert.equal(c.estado.importou, 0);
+  const r = await receberCadastroNoContabil(c.deps, { cnpj: CNPJ, escritorio: "escritorio1", donoSistema: false, origem: "dp", criar: true, dados: { razaoSocial: "PADARIA PAO BOM LTDA", inscricaoEstadual: "101234567", cidade: "GOIANIA", uf: "GO" } });
   assert.equal(r.criada, true);
   assert.equal(c.estado.empresa.inscricaoEstadual, "101234567");
   assert.equal(c.estado.empresa.cidadeUf, "GOIANIA / GO");
-  const r2 = await receberCadastroNoContabil(c.deps, { cnpj: CNPJ, escritorio: "escritorio1", donoSistema: false, origem: "dp", dados: { razaoSocial: "PADARIA PAO BOM LTDA" } });
+  const r2 = await receberCadastroNoContabil(c.deps, { cnpj: CNPJ, escritorio: "escritorio1", donoSistema: false, origem: "dp", criar: true, dados: { razaoSocial: "PADARIA PAO BOM LTDA" } });
   assert.equal(r2.criada, false, "não duplica");
 });
 
@@ -67,4 +70,17 @@ test("ficha (cadastro por foto) → Contábil; só vazios na empresa existente; 
   assert.equal(soVaziosContabil({ razaoSocial: "OUTRA", qsa: [] }, e).qsa.length, 1);
   assert.equal(contabilParaComum({ cidadeUf: "Goiânia / GO" }).cidade, "Goiânia");
   assert.deepEqual(comumParaContabil({ regimeTributario: "MEI", cidade: "GOIANIA" }, { uf: "GO" }), { regime: "MEI", municipio: "GOIANIA", cidadeUf: "GOIANIA / GO" });
+});
+
+test("Contábil → Fiscal: conferidor nunca pede para criar; empresa nova vai com criarAqui e empresaNova", async () => {
+  const { criarEnvioContabilParaFiscal, enfileirarCadastroContabil, rodarEnvioCadastroContabil } = await import("../../src/server/sincroniaCadastroContabil");
+  const b = criarBancoFalso();
+  const corpos: any[] = [];
+  const enviar = criarEnvioContabilParaFiscal(async () => ({ razaoSocial: "X LTDA" }), { MURADE_INTEGRATION_TOKEN: "t" }, (async (_u: string, init: any) => { corpos.push(JSON.parse(init.body)); return { ok: true, status: 200, json: async () => ({ sucesso: true, vinculada: true }) }; }) as any);
+  await enfileirarCadastroContabil(b.consultar, CNPJ, "escritorio1", "conferidor");
+  await enfileirarCadastroContabil(b.consultar, "45723174000110", "escritorio1", "contabil", true);
+  await rodarEnvioCadastroContabil({ consultar: b.consultar, lerCadastro: async () => ({ razaoSocial: "X LTDA" }), enviar });
+  assert.deepEqual(corpos.map((c) => [c.cnpj, c.criarAqui, c.empresaNova === true]).sort(), [[CNPJ, false, false], ["45723174000110", true, true]].sort());
+  const pulou = await rodarEnvioCadastroContabil({ consultar: b.consultar, lerCadastro: async () => ({ razaoSocial: "X" }), enviar, migracaoGravando: async () => true });
+  assert.match(pulou.resumo, /pulada/);
 });

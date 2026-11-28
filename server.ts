@@ -24,10 +24,12 @@ import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import { timingSafeEqual } from "node:crypto";
 import { prepararFicha } from "./src/server/cadastroPorDocumento";
+import { consultarOutrosSistemas, resultadoJaCadastrada, respostaExiste, aplicarExistenteNaFicha } from "./src/server/empresaJaCadastrada";
+import { contabilParaComum } from "./src/server/sincroniaCadastroContabil";
 import { lerAnexoDoPedidoAgente } from "./src/server/agenteCadastroEmpresa";
 import { consultarCnpjPublico } from "./src/server/consultaCnpjPublica";
 import { receberCadastroNoContabil, criarEnvioContabilParaFiscal, rodarEnvioCadastroContabil, enfileirarCadastroContabil, cadastroMudou, conferirCadastroContabilFiscal, soVaziosContabil, PREFIXO_CONTABIL } from "./src/server/sincroniaCadastroContabil";
-import { listarDivergencias, dispensarDivergencia } from "./src/server/sincroniaCadastroEmpresas";
+import { listarDivergencias, dispensarDivergencia, marcarEmpresaNova, usarMarcaDeEmpresaNova } from "./src/server/sincroniaCadastroEmpresas";
 import { ErroValidacaoDocumentoFiscal, fiscalStoreConfigurado, gravarDocumentosFiscais, lerDocumentosFiscais, lerVersoesDocumentoFiscal, verificarEstadoStoreFiscal } from "./src/server/documentosFiscaisStore";
 import { registrarRotasLucroReal } from "./src/server/lucroRealRotas";
 import { rodarRoboLucroReal, listarApuracoesReal, listarPagamentosReal } from "./src/server/lucroRealApuracao";
@@ -322,7 +324,14 @@ const reconciliacaoRascunhosStatus: {
   app.get("/api/auth/2fa/resumo", exigirSessaoContabil, auth2faResumoContabil);
   registrarGestaoEquipe(app, configGestaoEquipeContabil(exigirSessaoContabil, exigirOrigemNavegador));
   app.post("/api/auth/redeem", exigirOrigemNavegador, resgatarConviteUsuarioContabil);
-  app.post("/api/auth/companies", exigirOrigemNavegador, exigirSessaoContabil, adicionarEmpresaAcessoContabil);
+  // Vincular um CNPJ que ainda não estava em nenhum escritório do Contábil (cadastro de empresa nova, tela ou Murad) marca a empresa
+  // como NOVA: só ela pode ser criada nos outros sistemas pela sincronia (regra do dono, 28/11/2026).
+  app.post("/api/auth/companies", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
+    const cnpj = normalizarCnpjAcesso(req.body?.cnpj);
+    const jaExistia = !bancoContabilConfigurado() || !cnpjContabilValido(cnpj) ? true : Boolean((await consultaBancoContabil("SELECT 1 FROM contabil_auth_company_access WHERE cnpj=$1 LIMIT 1", [cnpj]).catch(() => ({ rows: [1] as any[] }))).rows.length);
+    if (!jaExistia) res.on("finish", () => { if (res.statusCode === 201) { const login = String(sessaoDaRequisicaoContabil(req)?.login || ""); void marcarEmpresaNova(consultaBancoContabil as any, PREFIXO_CONTABIL, cnpj, login).catch(() => undefined); } });
+    return adicionarEmpresaAcessoContabil(req, res);
+  });
   app.delete("/api/auth/companies/:cnpj", exigirOrigemNavegador, exigirSessaoContabil, removerEmpresaAcessoContabil);
   // Migração da parte contábil pelo backup do sistema anterior (tela Migração) + Robô Conferidor da Migração.
   registrarRotasMigracaoSistemaAnterior(app, {
@@ -2049,23 +2058,25 @@ const reconciliacaoRascunhosStatus: {
     const r = await alterarWorkspaceNoServidorContabil(cnpj, (payload) => { const nova = alterar((payload.empresa as Record<string, any>) || {}); return { payload: nova ? { ...payload, empresa: nova } : null, resultado: nova }; });
     return r.resultado;
   };
-  const depsFilaCadastro = () => ({ consultar: consultarSinc, lerCadastro: lerCadastroContabil, enviar: criarEnvioContabilParaFiscal(lerCadastroContabil) });
+  const depsFilaCadastro = () => ({ consultar: consultarSinc, lerCadastro: lerCadastroContabil, enviar: criarEnvioContabilParaFiscal(lerCadastroContabil), migracaoGravando: async () => (await migracoesAtivasContabil()).emAndamento > 0 });
   async function mandarCadastroContabilAoFiscal(req: express.Request, cnpj: string): Promise<void> {
     if (!bancoContabilConfigurado() || !process.env.MURADE_INTEGRATION_TOKEN) return;
     const login = String(sessaoDaRequisicaoContabil(req)?.login || "").toLowerCase();
     if (!login) return;
     const escritorio = (await loginDoDonoDoEscritorioContabil(login).catch(() => null)) || login;
-    await enfileirarCadastroContabil(consultarSinc, cnpj, escritorio);
+    // Empresa NOVA (CNPJ vinculado agora pela pessoa, depois do marco) pode ser criada no Fiscal e no DP; as outras só completam o vazio lá.
+    const nova = await usarMarcaDeEmpresaNova(consultarSinc, PREFIXO_CONTABIL, cnpj).catch(() => false);
+    await enfileirarCadastroContabil(consultarSinc, cnpj, escritorio, "contabil", nova);
     rodarEnvioCadastroLogo();
   }
-  registrarRobo({ id: "envio_cadastro_fiscal", nome: "Robô de Envio do Cadastro de Empresas ao Fiscal (e ao DP)", posto: "integrador", missao: "Na hora em que o cadastro de uma empresa é salvo ou alterado no Contábil, e de 10 em 10 minutos para o que não chegou, manda o cadastro ao Murad Fiscal do MESMO escritório; o Fiscal completa só o que estiver vazio lá e repassa ao DP. Nada do que foi digitado nos outros sistemas é trocado (diferença vira aviso \"conferir\"). Nunca cria empresa duas vezes, nunca leva empresa para outro escritório e nunca leva certificado nem senha.", ...(bancoContabilConfigurado() ? { intervaloMs: 10 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  registrarRobo({ id: "envio_cadastro_fiscal", nome: "Robô de Envio do Cadastro de Empresas ao Fiscal (e ao DP)", posto: "integrador", missao: "Na hora em que o cadastro de uma empresa é salvo ou alterado no Contábil, e de 10 em 10 minutos para o que não chegou (em lotes pequenos, pulando quando há migração gravando), manda o cadastro ao Murad Fiscal do MESMO escritório; o Fiscal completa só o que estiver vazio da empresa que já existe lá e repassa ao DP. Só cria a empresa nos outros sistemas quando ela é NOVA, cadastrada pela pessoa depois da publicação desta sincronia. Nada do que foi digitado nos outros sistemas é trocado (diferença vira aviso \"conferir\"). Nunca cria empresa duas vezes, nunca leva empresa para outro escritório e nunca leva certificado nem senha.", ...(bancoContabilConfigurado() ? { intervaloMs: 10 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
   const rodarEnvioCadastroJob = () => bancoContabilConfigurado() ? executarRobo("envio_cadastro_fiscal", async () => { const r = await rodarEnvioCadastroContabil(depsFilaCadastro()); registrarResultadoRobo("envio_cadastro_fiscal", r.resumo); definirAlertaRobo("envio_cadastro_fiscal", r.falharam.length ? { nivel: "aviso", texto: `${r.falharam.length} cadastro(s) de empresa ainda não chegaram ao Fiscal; o robô continua tentando.` } : null); }).catch((e) => console.error("Falha no Robô de Envio do Cadastro ao Fiscal:", e?.message || e)) : undefined;
   let envioCadastroAgendado: NodeJS.Timeout | null = null;
   const rodarEnvioCadastroLogo = () => { if (envioCadastroAgendado) return; envioCadastroAgendado = setTimeout(() => { envioCadastroAgendado = null; void rodarEnvioCadastroJob(); }, 4000); envioCadastroAgendado.unref?.(); };
   registrarRotinaManual("envio_cadastro_fiscal", rodarEnvioCadastroJob);
   setTimeout(() => void rodarEnvioCadastroJob(), 6 * 60_000).unref();
   setInterval(() => void rodarEnvioCadastroJob(), 10 * 60_000).unref();
-  registrarRobo({ id: "conferidor_cadastro_fiscal", nome: "Robô Conferidor do Cadastro de Empresas Contábil × Fiscal", posto: "conferidor", missao: "De 2 em 2 horas (e no \"Rodar agora\") confere, empresa por empresa, se o Fiscal recebeu o cadastro ATUAL de cada empresa do Contábil; o que mudou e não foi (ou nunca foi) vai para a fila e é enviado na hora (do Fiscal segue ao DP). Só confere e reenvia; nunca troca o que foi digitado, nunca apaga e nunca bloqueia CNPJ.", ...(bancoContabilConfigurado() ? { intervaloMs: 2 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  registrarRobo({ id: "conferidor_cadastro_fiscal", nome: "Robô Conferidor do Cadastro de Empresas Contábil × Fiscal", posto: "conferidor", missao: "De 2 em 2 horas (e no \"Rodar agora\") confere, empresa por empresa, se o Fiscal recebeu o cadastro ATUAL de cada empresa do Contábil; o que mudou e não foi (ou nunca foi) vai para a fila só para COMPLETAR o vazio da empresa que já existe lá (o conferidor nunca cria empresa; pula quando há migração gravando). Só confere e reenvia; nunca troca o que foi digitado, nunca apaga e nunca bloqueia CNPJ.", ...(bancoContabilConfigurado() ? { intervaloMs: 2 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
   const rodarConferidorCadastroJob = () => bancoContabilConfigurado() ? executarRobo("conferidor_cadastro_fiscal", async () => {
     const r = await conferirCadastroContabilFiscal({ ...depsFilaCadastro(), empresasComEscritorio: async () => (await consultaBancoContabil(`SELECT DISTINCT ON (a.cnpj) a.cnpj, lower(COALESCE(o.login, u.login)) AS login FROM contabil_auth_company_access a JOIN contabil_auth_users u ON u.id=a.user_id
       LEFT JOIN contabil_auth_users o ON o.id=u.office_owner AND u.global_admin=false WHERE u.disabled=false AND (u.global_admin=true OR o.id IS NOT NULL) ORDER BY a.cnpj, u.global_admin DESC`)).rows.map((x: any) => ({ cnpj: String(x.cnpj).trim(), escritorio: String(x.login) })) });
@@ -2085,13 +2096,45 @@ const reconciliacaoRascunhosStatus: {
     if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
     if (!escritorio && req.body?.donoSistema !== true) return res.status(400).json({ sucesso: false, motivo: "Informe o login do escritório." });
     try {
+      if ((await migracoesAtivasContabil().catch(() => ({ emAndamento: 0 }))).emAndamento > 0) return res.status(503).json({ sucesso: false, motivo: "Migração gravando no Contábil agora; tente de novo depois." });
       const r = await receberCadastroNoContabil({
         consultar: consultarSinc,
         donoPorLogin: async (login) => { const l = (await loginDoDonoDoEscritorioContabil(login).catch(() => null)) || login; return String((await consultaBancoContabil("SELECT id::text AS id FROM contabil_auth_users WHERE lower(login)=$1 AND global_admin=true AND disabled=false LIMIT 1", [l])).rows[0]?.id || "") || null; },
         importar: importarCnpjsCompartilhados, alterarEmpresaDoWorkspace,
-      }, { cnpj, escritorio, donoSistema: req.body?.donoSistema === true, origem: String(req.body?.origemPrimeira || "fiscal"), dados: req.body?.dados });
+      }, { cnpj, escritorio, donoSistema: req.body?.donoSistema === true, origem: String(req.body?.origemPrimeira || "fiscal"), dados: req.body?.dados, criar: req.body?.criar === true });
       return res.json(r);
     } catch (e: any) { console.error("Falha ao receber o cadastro da empresa do Fiscal:", e?.message || e); return res.status(503).json({ sucesso: false, motivo: "Não foi possível gravar agora." }); }
+  });
+  // Nunca duplicar empresa (28/11/2026): o Fiscal e o DP perguntam se o CNPJ está neste escritório aqui (só responde do mesmo escritório).
+  app.get("/api/integracao/empresas/existe", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    if (negarIntegracao(req, res)) return;
+    const cnpj = normalizarCnpjAcesso(req.query?.cnpj);
+    const escritorio = String(req.query?.escritorio || "").trim().toLowerCase();
+    if (!cnpjContabilValido(cnpj) || !escritorio) return res.status(400).json({ sucesso: false, motivo: "Informe CNPJ e escritório." });
+    if (!bancoContabilConfigurado()) return res.json({ sucesso: true, existe: false });
+    try {
+      const cad = await lerCadastroContabil(cnpj);
+      const l = (await loginDoDonoDoEscritorioContabil(escritorio).catch(() => null)) || escritorio;
+      const dono = String((await consultaBancoContabil("SELECT id::text AS id FROM contabil_auth_users WHERE lower(login)=$1 AND global_admin=true AND disabled=false LIMIT 1", [l])).rows[0]?.id || "");
+      const doEsc = cad && dono ? (await consultaBancoContabil("SELECT 1 FROM contabil_auth_company_access a JOIN contabil_auth_users u ON u.id=a.user_id WHERE a.cnpj=$1 AND (a.user_id::text=$2 OR u.office_owner::text=$2) LIMIT 1", [cnpj, dono])).rows.length > 0 : false;
+      return res.json(respostaExiste(Boolean(cad), doEsc, String(cad?.razaoSocial || ""), contabilParaComum(cad || {})));
+    } catch { return res.status(503).json({ sucesso: false, motivo: "Não foi possível consultar agora." }); }
+  });
+  const jaCadastradaContabil = async (req: express.Request, cnpj: string) => {
+    const s = sessaoDaRequisicaoContabil(req);
+    const local = s && s.cnpjs.map(normalizarCnpjAcesso).includes(cnpj) ? await lerCadastroContabil(cnpj).catch(() => null) : null;
+    const login = String(s?.login || "").toLowerCase();
+    const dono = login ? ((await loginDoDonoDoEscritorioContabil(login).catch(() => null)) || login) : "";
+    const outros = await consultarOutrosSistemas("contabil", cnpj, dono);
+    return resultadoJaCadastrada("contabil", { existe: Boolean(local), nome: local?.razaoSocial }, outros);
+  };
+  app.get("/api/empresas/ja-cadastrada", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const cnpj = normalizarCnpjAcesso(req.query?.cnpj);
+    if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
+    try { return res.json({ sucesso: true, ...(await jaCadastradaContabil(req, cnpj)) }); }
+    catch { return res.json({ sucesso: true, local: false, outros: [], foraDoAr: ["dp", "fiscal"], mensagem: null }); }
   });
   // Avisos "conferir" (campo diferente entre os sistemas) da empresa da sessão.
   app.get("/api/empresas/divergencias-cadastro", exigirSessaoContabil, async (req, res) => {
@@ -2126,6 +2169,11 @@ const reconciliacaoRascunhosStatus: {
     }, { arquivo: req.body?.arquivo, cnpj: req.body?.cnpj, lidos: req.body?.lidos, lado: req.body?.lado, mei: req.body?.mei });
     console.log("Leitura de cadastro de empresa:", JSON.stringify({ arquivo: Boolean(req.body?.arquivo), ok: r.ok, ...(r.ok && "ficha" in r ? { conferir: r.ficha.paraConferir, receita: r.ficha.receita.conferida } : {}) }));
     if (r.ok === false) return res.status(r.status).json({ sucesso: false, motivo: r.erro });
+    // Nunca duplicar: se o CNPJ já está no escritório (aqui ou no Fiscal/DP), a ficha vira a ficha dessa empresa (o que lá está vale).
+    if ("ficha" in r && r.ficha.pronta) {
+      const ja = await jaCadastradaContabil(req, r.ficha.cnpj).catch(() => null);
+      if (ja?.mensagem) { const ficha = ja.outros[0] ? aplicarExistenteNaFicha(r.ficha, ja.outros[0].dados, ja.outros[0].sistema) : r.ficha; return res.json({ sucesso: true, ok: true, ficha, jaCadastrada: ja }); }
+    }
     return res.json({ sucesso: true, ...r });
   });
   // Murad (cartão de OK): grava a ficha conferida no cadastro da empresa. Nova: cria o workspace com a empresa; existente: só campos vazios.

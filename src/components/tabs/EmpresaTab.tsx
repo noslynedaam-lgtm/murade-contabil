@@ -3,7 +3,7 @@ import { DocumentosGuardadosPainel } from "../DocumentosGuardadosPainel";
 import { useEstadoIntegracoes, NOME_FISCAL, NOME_DP } from "../PainelIntegracoesReais";
 import { textoOrigem } from "../../utils/integracaoTexto";
 import { EmpresaDados } from "../../types";
-import { CadastroPorDocumento, AvisosSincroniaCadastro } from "../CadastroPorDocumento";
+import { CadastroPorDocumento, AvisosSincroniaCadastro, conferirEmpresaJaCadastrada } from "../CadastroPorDocumento";
 import type { FichaEmpresa } from "../../server/cadastroPorDocumento";
 import { CAMPOS_MAIS_DADOS, maisDadosDe, maisDadosParaSalvar } from "../../utils/maisDadosEmpresa";
 import {
@@ -110,6 +110,7 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     setEmpresasCadastradasBruto((prev) => dedupEmpresasPorCnpj(typeof valor === "function" ? (valor as (p: EmpresaDados[]) => EmpresaDados[])(prev) : valor));
   // Cadastro novo com CNPJ que já está no escritório: avisa e oferece abrir (não cria outra nem sobrescreve).
   const [empresaJaCadastrada, setEmpresaJaCadastrada] = useState<EmpresaDados | null>(null);
+  const jaConferidaRef = useRef("");
 
   useEffect(() => {
     let ativo = true;
@@ -725,6 +726,21 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
       const existente = empresasCadastradas.find((e) => chaveCnpjEmpresa(e.cnpj) === chave)
         || (cnpjsAutorizados.includes(chave) ? ({ cnpj: chave, razaoSocial: chaveCnpjEmpresa(empresa.cnpj) === chave ? empresa.razaoSocial : chave } as EmpresaDados) : null);
       if (existente) { setEmpresaJaCadastrada(existente); return; }
+      // Nunca duplicar (28/11/2026): o mesmo CNPJ já está neste escritório no Fiscal ou no DP? Não cria outra: traz a ficha de lá
+      // (só completa o vazio) e o Salvar seguinte traz essa mesma empresa para o Contábil. Fora do ar: não bloqueia.
+      if (jaConferidaRef.current !== chave) {
+        const ja = await conferirEmpresaJaCadastrada(cnpjLimpo);
+        if (ja?.outros.length) {
+          jaConferidaRef.current = chave;
+          const d: Record<string, string> = ja.outros[0].dados || {};
+          const por = (atual: string, set: (x: any) => void, v?: string) => { if (v && !String(atual || "").trim()) set(v); };
+          por(razaoSocial, setRazaoSocial, d.razaoSocial); por(nomeFantasia, setNomeFantasia, d.nomeFantasia); por(ie, setIe, d.inscricaoEstadual); por(im, setIm, d.inscricaoMunicipal);
+          por(regimeTributario, setRegimeTributario, d.regimeTributario); por(cnaePrincipal, setCnaePrincipal, d.cnae); por(endereco, setEndereco, d.endereco); por(cep, setCep, d.cep);
+          por(cidadeUf, setCidadeUf, d.cidade && d.uf ? `${d.cidade} / ${d.uf}` : ""); por(telefone, setTelefone, d.telefone); por(email, setEmail, d.email);
+          showToast(`${ja.mensagem} Os dados de lá foram trazidos para o formulário (só onde estava vazio). Confira e clique em Salvar de novo: é a mesma empresa, nenhuma outra é criada.`);
+          return;
+        }
+      }
     }
     if (onAutorizarCnpj && !await onAutorizarCnpj(cnpjLimpo)) return;
 

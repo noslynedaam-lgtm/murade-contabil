@@ -50,15 +50,16 @@ export const CadastroPorDocumento: React.FC<CadastroPorDocumentoProps> = ({ onAp
   const [erro, setErro] = useState('');
   const [ficha, setFicha] = useState<FichaEmpresa | null>(null);
   const [lados, setLados] = useState<Lado[] | null>(null);
+  const [jaCadastrada, setJaCadastrada] = useState<string | null>(null);
 
   const pedir = async (corpo: Record<string, unknown>) => {
-    setLendo(true); setErro(''); setFicha(null); setLados(null);
+    setLendo(true); setErro(''); setFicha(null); setLados(null); setJaCadastrada(null);
     try {
       const r = await fetch(endpoint, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || j.sucesso !== true) throw new Error(j.motivo || j.error || 'Não consegui ler o documento agora.');
       if (Array.isArray(j.escolherLado)) setLados(j.escolherLado);
-      else if (j.ficha) setFicha(j.ficha);
+      else if (j.ficha) { setFicha(j.ficha); setJaCadastrada(j.jaCadastrada?.mensagem || null); }
     } catch (e: any) { setErro(e?.message || 'Não consegui ler o documento agora.'); }
     finally { setLendo(false); }
   };
@@ -102,6 +103,7 @@ export const CadastroPorDocumento: React.FC<CadastroPorDocumentoProps> = ({ onAp
             <button type="button" aria-label="Fechar" onClick={() => setFicha(null)} className="text-slate-400"><X className="w-4 h-4" /></button>
           </div>
           <p className="text-[11px] text-slate-600 mb-1.5">{ficha.receita.conferida ? `Conferido na Receita (${ficha.receita.fonte}).` : 'Não deu para conferir na Receita agora.'} {ficha.paraConferir ? `${ficha.paraConferir} campo(s) em amarelo para conferir.` : 'Nada para conferir.'}</p>
+          {jaCadastrada && <p className="mb-1.5 rounded bg-sky-50 px-2 py-1 text-[11px] font-bold text-sky-900 ring-1 ring-sky-200" data-campo="ficha-ja-cadastrada">{jaCadastrada} A ficha abaixo já traz o que está lá; o documento só completa o que estava vazio.</p>}
           {ficha.avisos.map((a, i) => <p key={i} className="mb-1 flex gap-1 text-[11px] font-semibold text-amber-800"><AlertTriangle className="w-3.5 h-3.5 shrink-0" />{a}</p>)}
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1">
             {ROTULOS.filter(([k]) => ficha.campos[k].valor || ficha.campos[k].conferir).map(([k, rotulo]) => {
@@ -157,3 +159,14 @@ export const AvisosSincroniaCadastro: React.FC<{ cnpj: string; endpoint?: string
     </div>
   );
 };
+
+/** Nunca duplicar empresa: antes de gravar um cadastro NOVO, pergunta se o CNPJ já está no escritório (aqui ou nos outros sistemas). */
+export async function conferirEmpresaJaCadastrada(cnpj: string): Promise<{ local: boolean; outros: Array<{ sistema: string; nome: string; dados: Record<string, string> }>; mensagem: string | null } | null> {
+  const limpo = String(cnpj || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (limpo.length !== 14) return null;
+  try {
+    const r = await fetch(`/api/empresas/ja-cadastrada?cnpj=${limpo}`, { credentials: 'include', cache: 'no-store' });
+    const j = await r.json().catch(() => null);
+    return r.ok && j?.sucesso ? { local: j.local === true, outros: Array.isArray(j.outros) ? j.outros : [], mensagem: j.mensagem || null } : null;
+  } catch { return null; } // fora do ar: não bloqueia (a sincronia junta depois pelo CNPJ)
+}

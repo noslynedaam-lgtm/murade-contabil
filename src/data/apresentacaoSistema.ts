@@ -95,8 +95,8 @@ export type IntegracaoApresentacao = { id: string; titulo: string; falar: string
 export const INTEGRACOES_APRESENTACAO: IntegracaoApresentacao[] = [
   {
     id: 'sincronia-cadastro-empresas', titulo: 'Cadastro da empresa igual nos três sistemas', tela: 'empresa',
-    falar: 'Empresa cadastrada ou alterada no Contábil vai sozinha ao Fiscal e, de lá, ao DP do mesmo escritório; a do Fiscal e a do DP chegam aqui pelo Fiscal. Só preenche campo vazio, nunca troca o que foi digitado; o que estiver diferente vira o aviso amarelo Conferir no Cadastro de Empresa. Nunca duplica, nunca toma empresa de outro escritório e nunca leva certificado nem senha.',
-    rotas: ['POST /api/integracao/empresas/receber'],
+    falar: 'Empresa cadastrada ou alterada no Contábil vai sozinha ao Fiscal e, de lá, ao DP do mesmo escritório. Só preenche campo vazio da empresa que já existe; criar lá, só empresa nova cadastrada pela pessoa. O diferente vira o aviso Conferir. Antes de um cadastro novo, o sistema pergunta aos outros se o CNPJ já está no escritório e abre a ficha de lá: nunca duplica.',
+    rotas: ['POST /api/integracao/empresas/receber', 'GET /api/integracao/empresas/existe'],
   },
   {
     id: 'presenca-dono', titulo: 'Online/offline para o dono do sistema',

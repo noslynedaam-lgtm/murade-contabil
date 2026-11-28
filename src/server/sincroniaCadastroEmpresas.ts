@@ -133,31 +133,35 @@ export function prepararFilaSincronia(consultar: Consultar, prefixo: string): Pr
     p = consultar(`CREATE TABLE IF NOT EXISTS ${t} (cnpj text NOT NULL, destino text NOT NULL, escritorio text NOT NULL DEFAULT '', origem text NOT NULL DEFAULT '',
       dono_sistema boolean NOT NULL DEFAULT false, tentativas int NOT NULL DEFAULT 0, ultimo_erro text NOT NULL DEFAULT '', entregue_assinatura text NOT NULL DEFAULT '',
       entregue_em timestamptz, pendente boolean NOT NULL DEFAULT true, criado_em timestamptz NOT NULL DEFAULT now(), atualizado_em timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (cnpj, destino))`)
+      // criar = pode CRIAR a empresa no destino (só empresa nova cadastrada pela pessoa depois do marco; o resto só completa o vazio).
+      .then(() => consultar(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS criar boolean NOT NULL DEFAULT false`))
       .catch((e) => { filasProntas.delete(t); throw e; });
     filasProntas.set(t, p);
   }
   return p;
 }
-export async function enfileirarSincronia(consultar: Consultar, prefixo: string, item: { cnpj: string; destino: string; escritorio: string; origem: string; donoSistema?: boolean }): Promise<void> {
+/** Lote pequeno por rodada (regra do dono: nada de leva grande; o resto vai nas próximas rodadas). */
+export const LOTE_SINCRONIA = 25;
+export async function enfileirarSincronia(consultar: Consultar, prefixo: string, item: { cnpj: string; destino: string; escritorio: string; origem: string; donoSistema?: boolean; criar?: boolean }): Promise<void> {
   await prepararFilaSincronia(consultar, prefixo);
-  await consultar(`INSERT INTO ${nomeFila(prefixo)}(cnpj,destino,escritorio,origem,dono_sistema,pendente,atualizado_em) VALUES($1,$2,$3,$4,$5,true,now())
+  await consultar(`INSERT INTO ${nomeFila(prefixo)}(cnpj,destino,escritorio,origem,dono_sistema,pendente,criar,atualizado_em) VALUES($1,$2,$3,$4,$5,true,$6,now())
     ON CONFLICT (cnpj,destino) DO UPDATE SET escritorio=CASE WHEN EXCLUDED.escritorio<>'' THEN EXCLUDED.escritorio ELSE ${nomeFila(prefixo)}.escritorio END,
-      origem=EXCLUDED.origem, dono_sistema=EXCLUDED.dono_sistema, pendente=true, atualizado_em=now()`,
-  [item.cnpj, item.destino, item.escritorio.trim().toLowerCase(), item.origem, item.donoSistema === true]);
+      origem=EXCLUDED.origem, dono_sistema=EXCLUDED.dono_sistema, pendente=true, criar=${nomeFila(prefixo)}.criar OR EXCLUDED.criar, atualizado_em=now()`,
+  [item.cnpj, item.destino, item.escritorio.trim().toLowerCase(), item.origem, item.donoSistema === true, item.criar === true]);
 }
-export interface ItemFila { cnpj: string; destino: string; escritorio: string; origem: string; donoSistema: boolean; tentativas: number; ultimoErro: string; entregueAssinatura: string; desde: string }
-export async function listarPendentesSincronia(consultar: Consultar, prefixo: string, limite = 200): Promise<ItemFila[]> {
+export interface ItemFila { cnpj: string; destino: string; escritorio: string; origem: string; donoSistema: boolean; /** Pode criar a empresa no destino (empresa nova cadastrada pela pessoa). */ criar?: boolean; tentativas: number; ultimoErro: string; entregueAssinatura: string; desde: string }
+export async function listarPendentesSincronia(consultar: Consultar, prefixo: string, limite = LOTE_SINCRONIA): Promise<ItemFila[]> {
   await prepararFilaSincronia(consultar, prefixo);
   const r = await consultar(`SELECT * FROM ${nomeFila(prefixo)} WHERE pendente=true ORDER BY atualizado_em LIMIT $1`, [limite]);
-  return r.rows.map((x: any) => ({ cnpj: String(x.cnpj), destino: String(x.destino), escritorio: String(x.escritorio), origem: String(x.origem), donoSistema: x.dono_sistema === true,
+  return r.rows.map((x: any) => ({ cnpj: String(x.cnpj), destino: String(x.destino), escritorio: String(x.escritorio), origem: String(x.origem), donoSistema: x.dono_sistema === true, criar: x.criar === true,
     tentativas: Number(x.tentativas) || 0, ultimoErro: String(x.ultimo_erro || ''), entregueAssinatura: String(x.entregue_assinatura || ''), desde: x.criado_em instanceof Date ? x.criado_em.toISOString() : String(x.criado_em || '') }));
 }
 export async function marcarEntregue(consultar: Consultar, prefixo: string, cnpj: string, destino: string, assinatura: string): Promise<void> {
-  await consultar(`UPDATE ${nomeFila(prefixo)} SET pendente=false, tentativas=0, ultimo_erro='', entregue_assinatura=$3, entregue_em=now(), atualizado_em=now() WHERE cnpj=$1 AND destino=$2`, [cnpj, destino, assinatura]);
+  await consultar(`UPDATE ${nomeFila(prefixo)} SET pendente=false, criar=false, tentativas=0, ultimo_erro='', entregue_assinatura=$3, entregue_em=now(), atualizado_em=now() WHERE cnpj=$1 AND destino=$2`, [cnpj, destino, assinatura]);
 }
 /** Falha: passageira fica pendente; recusa definitiva sai da fila marcada "recusado:<assinatura>" (o conferidor só tenta de novo quando o cadastro mudar). */
 export async function marcarFalha(consultar: Consultar, prefixo: string, cnpj: string, destino: string, erro: string, desistir: boolean, assinatura = ''): Promise<void> {
-  await consultar(`UPDATE ${nomeFila(prefixo)} SET tentativas=tentativas+1, ultimo_erro=$3, pendente=$4, entregue_assinatura=CASE WHEN $4 THEN entregue_assinatura ELSE $5 END, atualizado_em=now() WHERE cnpj=$1 AND destino=$2`,
+  await consultar(`UPDATE ${nomeFila(prefixo)} SET tentativas=tentativas+1, ultimo_erro=$3, pendente=$4, entregue_assinatura=CASE WHEN $4 THEN entregue_assinatura ELSE $5 END, criar=CASE WHEN $4 THEN criar ELSE false END, atualizado_em=now() WHERE cnpj=$1 AND destino=$2`,
     [cnpj, destino, erro.slice(0, 300), !desistir, `recusado:${assinatura}`]);
 }
 /** O conferidor não precisa reenviar: já entregue (ou recusado de vez) com este mesmo cadastro, ou ainda na fila. */
@@ -179,9 +183,9 @@ export interface RespostaEnvio { ok: boolean; definitivo?: boolean; motivo: stri
 export type EnviarCadastro = (item: ItemFila) => Promise<RespostaEnvio>;
 export interface ResultadoRodada { entregues: number; falharam: Array<{ cnpj: string; destino: string; motivo: string }>; desistidos: Array<{ cnpj: string; destino: string; motivo: string }>; resumo: string }
 /** Robô: manda o que está na fila. Falha passageira fica para a próxima rodada; recusa definitiva sai da fila (fica o motivo). */
-export async function rodarFilaSincronia(consultar: Consultar, prefixo: string, assinaturaDe: (cnpj: string) => Promise<string | null>, enviar: EnviarCadastro, nomeDestino: (d: string) => string = (d) => NOME_SISTEMA[d] || d): Promise<ResultadoRodada> {
+export async function rodarFilaSincronia(consultar: Consultar, prefixo: string, assinaturaDe: (cnpj: string) => Promise<string | null>, enviar: EnviarCadastro, nomeDestino: (d: string) => string = (d) => NOME_SISTEMA[d] || d, lote = LOTE_SINCRONIA): Promise<ResultadoRodada> {
   const out: ResultadoRodada = { entregues: 0, falharam: [], desistidos: [], resumo: '' };
-  for (const item of await listarPendentesSincronia(consultar, prefixo)) {
+  for (const item of await listarPendentesSincronia(consultar, prefixo, lote)) {
     const assinatura = await assinaturaDe(item.cnpj).catch(() => null);
     if (assinatura === null) { await apagarDaFila(consultar, prefixo, item.cnpj); out.desistidos.push({ cnpj: item.cnpj, destino: item.destino, motivo: 'a empresa não existe mais aqui (excluída): não é enviada' }); continue; }
     let r: RespostaEnvio;
@@ -196,4 +200,41 @@ export async function rodarFilaSincronia(consultar: Consultar, prefixo: string, 
   if (out.desistidos.length) p.push(`${out.desistidos.length} não foi(ram) enviado(s): ${out.desistidos.slice(0, 2).map((d) => d.motivo.slice(0, 90)).join('; ')}`);
   out.resumo = p.join('; ') || 'Nenhum cadastro de empresa esperando envio.';
   return out;
+}
+
+// ------------------------------------------------------------------------------------------------
+// Marco da publicação e empresas NOVAS (regra do dono, 28/11/2026): nada de criar empresa em massa no escritório do cliente.
+// Empresa que já existia antes do marco só tem campo vazio completado no destino (se lá existir). Criar no outro sistema só
+// quando a pessoa cadastra uma empresa NOVA (tela ou Murad) depois do marco: a tela de vincular CNPJ marca a empresa como nova.
+// ------------------------------------------------------------------------------------------------
+const marcosProntos = new Map<string, Promise<unknown>>();
+function prepararMarco(consultar: Consultar, prefixo: string): Promise<unknown> {
+  nomeTabela(prefixo);
+  let p = marcosProntos.get(prefixo);
+  if (!p) {
+    p = consultar(`CREATE TABLE IF NOT EXISTS ${prefixo}_sincronia_marco (chave text PRIMARY KEY, em timestamptz NOT NULL DEFAULT now())`)
+      .then(() => consultar(`CREATE TABLE IF NOT EXISTS ${prefixo}_sincronia_empresas_novas (cnpj text PRIMARY KEY, escritorio text NOT NULL DEFAULT '', marcada_em timestamptz NOT NULL DEFAULT now(), consumida_em timestamptz)`))
+      .then(() => consultar(`INSERT INTO ${prefixo}_sincronia_marco(chave) VALUES('publicacao') ON CONFLICT (chave) DO NOTHING`))
+      .catch((e) => { marcosProntos.delete(prefixo); throw e; });
+    marcosProntos.set(prefixo, p);
+  }
+  return p;
+}
+/** Data do marco (primeira vez que a sincronia subiu neste sistema). */
+export async function marcoDaPublicacao(consultar: Consultar, prefixo: string): Promise<string> {
+  await prepararMarco(consultar, prefixo);
+  const r = await consultar(`SELECT em FROM ${prefixo}_sincronia_marco WHERE chave='publicacao'`);
+  const em = r.rows[0]?.em; return em instanceof Date ? em.toISOString() : String(em || '');
+}
+/** A pessoa acabou de vincular um CNPJ que o escritório não tinha: é empresa NOVA (pode ser criada nos outros sistemas). */
+export async function marcarEmpresaNova(consultar: Consultar, prefixo: string, cnpj: string, escritorio: string): Promise<void> {
+  await prepararMarco(consultar, prefixo);
+  await consultar(`INSERT INTO ${prefixo}_sincronia_empresas_novas(cnpj,escritorio,marcada_em,consumida_em) VALUES($1,$2,now(),NULL) ON CONFLICT (cnpj) DO UPDATE SET escritorio=EXCLUDED.escritorio, marcada_em=now(), consumida_em=NULL`, [cnpj, escritorio.toLowerCase()]);
+}
+/** É empresa nova (marcada depois do marco, há até 30 dias, ainda não usada)? Usa a marca uma vez só. */
+export async function usarMarcaDeEmpresaNova(consultar: Consultar, prefixo: string, cnpj: string): Promise<boolean> {
+  await prepararMarco(consultar, prefixo);
+  const r = await consultar(`UPDATE ${prefixo}_sincronia_empresas_novas n SET consumida_em=now() FROM ${prefixo}_sincronia_marco m
+    WHERE n.cnpj=$1 AND n.consumida_em IS NULL AND m.chave='publicacao' AND n.marcada_em >= m.em AND n.marcada_em > now() - interval '30 days' RETURNING n.cnpj`, [cnpj]);
+  return (r.rowCount ?? r.rows.length) > 0;
 }

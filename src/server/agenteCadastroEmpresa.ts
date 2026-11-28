@@ -63,13 +63,15 @@ export function criarFerramentasCadastroEmpresa(o: OpcoesCadastroEmpresa): Ferra
       if (!ficha.pronta) return { erro: `Ainda não dá para cadastrar: ${ficha.avisos.join(' ') || 'falta a razão social'}` };
       const existente = await o.buscarExistente(ctx, cnpj).catch(() => null);
       const nome = ficha.campos.razaoSocial.valor;
-      const descricao = [...linhasDaFicha(ficha), ...ficha.avisos.map((a) => `Atenção: ${a}`),
+      // Nunca duplicar: o CNPJ já está neste escritório (aqui ou nos outros sistemas)? Então é a ficha dessa empresa, nunca outra.
+      const ja = r.corpo?.jaCadastrada as { mensagem?: string | null; outros?: Array<{ sistema: string }> } | undefined;
+      const descricao = [...(ja?.mensagem ? [ja.mensagem] : []), ...linhasDaFicha(ficha), ...ficha.avisos.map((a) => `Atenção: ${a}`),
         ficha.receita.conferida ? `Conferido na consulta pública da Receita (${ficha.receita.fonte}).` : 'Não foi conferido na Receita agora.',
         existente ? 'A empresa já está cadastrada aqui: só os campos VAZIOS serão preenchidos (nada do que já foi digitado é trocado).' : 'Empresa nova neste sistema.',
         `Depois de salvar, o cadastro vai sozinho para ${OUTROS[o.sistema]} do mesmo escritório (lá só preenche o que estiver vazio).`];
       return {
         params: { cnpj, ficha, existia: Boolean(existente) },
-        titulo: existente ? `Completar o cadastro de ${nome}` : `Cadastrar ${nome}${ficha.mei ? ' (MEI)' : ''}`,
+        titulo: existente ? `Já cadastrada: completar o cadastro de ${nome}` : ja?.outros?.length ? `Já cadastrada em outro sistema: trazer ${nome} para cá` : `Cadastrar ${nome}${ficha.mei ? ' (MEI)' : ''}`,
         descricao,
         ...(ficha.paraConferir ? { aviso: `${ficha.paraConferir} campo(s) marcado(s) "(conferir)": confira antes do OK. Dá para corrigir depois na tela de Cadastro de empresa.` } : {}),
         cnpj,
