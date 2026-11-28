@@ -2164,7 +2164,12 @@ const reconciliacaoRascunhosStatus: {
   const gravandoMigracaoContabil = async () => (await migracoesAtivasContabil().catch(() => ({ gravandoAgora: 0 }))).gravandoAgora > 0;
   const rodarCifraSistemaAnterior = (forcar = false) => {
     if (!bancoContabilConfigurado()) return;
-    if (!forcar && cifraAntigosTerminouEm && Date.now() - cifraAntigosTerminouEm < 24 * 60 * 60_000) return;
+    // Já terminou: fica em espera (não trabalha à toa), mas marca a rodada para o painel de saúde não acusar "robô parado".
+    // O backup novo já grava cifrado; a conferência pesada volta 1 vez por dia (ou no "Rodar agora").
+    if (!forcar && cifraAntigosTerminouEm && Date.now() - cifraAntigosTerminouEm < 24 * 60 * 60_000) {
+      void executarRobo("cifra_sistema_anterior", async () => { registrarResultadoRobo("cifra_sistema_anterior", "Em espera: tudo o que veio do sistema anterior já está cifrado. O backup novo já entra cifrado; confere de novo 1 vez por dia."); }).catch(() => {});
+      return;
+    }
     void executarRobo("cifra_sistema_anterior", async () => {
       await prepararTabelaSistemaAnterior(consultar007Contabil);
       const b = bancoTransacionalContabil();
