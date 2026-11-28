@@ -3,6 +3,8 @@ import { DocumentosGuardadosPainel } from "../DocumentosGuardadosPainel";
 import { useEstadoIntegracoes, NOME_FISCAL, NOME_DP } from "../PainelIntegracoesReais";
 import { textoOrigem } from "../../utils/integracaoTexto";
 import { EmpresaDados } from "../../types";
+import { CadastroPorDocumento, AvisosSincroniaCadastro } from "../CadastroPorDocumento";
+import type { FichaEmpresa } from "../../server/cadastroPorDocumento";
 import { CAMPOS_MAIS_DADOS, maisDadosDe, maisDadosParaSalvar } from "../../utils/maisDadosEmpresa";
 import {
   ArrowLeft,
@@ -538,6 +540,37 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       processarArquivoCertificado(e.dataTransfer.files[0]);
     }
+  };
+
+  // Ficha conferida do "Cadastrar por foto ou arquivo": cadastro novo recebe tudo; editando, só os campos VAZIOS (nunca troca o
+  // que foi digitado) e o CNPJ tem que ser o da empresa aberta.
+  const aplicarFichaDocumento = (ficha: FichaEmpresa) => {
+    const v = (k: keyof FichaEmpresa["campos"]) => ficha.campos[k]?.valor || "";
+    const cnpjFicha = ficha.cnpj.length === 14 ? `${ficha.cnpj.slice(0, 2)}.${ficha.cnpj.slice(2, 5)}.${ficha.cnpj.slice(5, 8)}/${ficha.cnpj.slice(8, 12)}-${ficha.cnpj.slice(12)}` : ficha.cnpj;
+    if (modoEdicaoId && chaveCnpjEmpresa(cnpj) && chaveCnpjEmpresa(cnpj) !== ficha.cnpj) {
+      showToast(`O documento é do CNPJ ${cnpjFicha}, mas a empresa aberta é outra. Nada foi preenchido.`); return;
+    }
+    const por = (atual: string, set: (x: any) => void, valor: string) => { if (!valor) return; if (modoEdicaoId && String(atual || "").trim()) return; set(valor); };
+    const rua = [[v("logradouro"), v("numero")].filter(Boolean).join(", "), v("complemento")].filter(Boolean).join(" - ");
+    por(cnpj, setCnpj, cnpjFicha);
+    por(razaoSocial, setRazaoSocial, v("razaoSocial"));
+    por(nomeFantasia, setNomeFantasia, v("nomeFantasia") || v("razaoSocial"));
+    por(regimeTributario, setRegimeTributario, ["Simples Nacional", "Lucro Presumido", "Lucro Real", "MEI"].includes(v("regime")) ? v("regime") : "");
+    por(ie, setIe, v("inscricaoEstadual"));
+    por(im, setIm, v("inscricaoMunicipal"));
+    por(naturezaJuridica, setNaturezaJuridica, v("naturezaJuridica"));
+    por(cnaePrincipal, setCnaePrincipal, v("cnae") ? `${v("cnae")}${v("cnaeDescricao") ? ` - ${v("cnaeDescricao")}` : ""}` : "");
+    por(endereco, setEndereco, [rua, v("bairro")].filter(Boolean).join(", "));
+    por(cep, setCep, v("cep"));
+    por(cidadeUf, setCidadeUf, v("cidade") && v("uf") ? `${v("cidade")} / ${v("uf")}` : "");
+    por(telefone, setTelefone, v("telefone"));
+    por(email, setEmail, v("email"));
+    por(responsavelNome, setResponsavelNome, v("titular"));
+    if (v("situacaoCadastral")) por(modoEdicaoId ? situacaoCadastral : "", setSituacaoCadastral, v("situacaoCadastral"));
+    if (v("dataAbertura")) por(dataAbertura, setDataAbertura, v("dataAbertura").split("-").reverse().join("/"));
+    if (ficha.socios.length && !(modoEdicaoId && qsaList.length)) setQsaList(ficha.socios.map((s) => ({ nome: s.nome, qualificacao: s.qualificacao || "Sócio", faixaEtaria: "" })));
+    if (!modoEdicaoId) setFonteDados(ficha.receita.conferida ? `Documento + Receita Federal (${ficha.receita.fonte})` : "Documento (não conferido na Receita)");
+    showToast(`Ficha da ${v("razaoSocial")} preenchida${ficha.paraConferir ? `: confira os ${ficha.paraConferir} campo(s) que estavam marcados` : ""}. Clique em Salvar para gravar.`);
   };
 
   // Consulta real na Receita Federal
@@ -1212,6 +1245,10 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
             </button>
           )}
         </div>
+
+        {/* Cadastro por foto/arquivo (27/11/2026): lê o documento, confere na Receita e preenche; quem grava é o Salvar. */}
+        <CadastroPorDocumento onAplicar={aplicarFichaDocumento} />
+        {modoEdicaoId && <AvisosSincroniaCadastro cnpj={cnpj} />}
 
         {/* BANNER INFORMATIVO SE ESTIVER EM MODO DE EDIÇÃO */}
         {modoEdicaoId && (

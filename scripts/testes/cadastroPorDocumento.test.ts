@@ -142,3 +142,16 @@ test('DANFE em foto com destinatário: pede para escolher o lado (emitente ou de
   const r2 = await prepararFicha(deps, { lidos: dest.lidos });
   assert.equal((r2 as any).ficha.cnpj, '45723174000110');
 });
+
+test('Murad: argumentos da Agente viram "lidos"; anexo XML vira texto; completar só o vazio', async () => {
+  const { lidosDosArgumentos, soVazios, lerAnexoDoPedidoAgente } = await import('../../src/server/agenteCadastroEmpresa');
+  const l = lidosDosArgumentos({ cnpj: '11222333000181', tipoDocumento: 'ccmei', mei: true, razaoSocial: ' MARIA ', socios: 'JOSE (Sócio-Administrador); ANA', duvidas: 'cep, inscricaoEstadual', inventado: 'x' });
+  assert.equal(l.tipoDocumento, 'ccmei'); assert.equal(l.mei, true); assert.equal(l.razaoSocial, 'MARIA');
+  assert.deepEqual(l.socios, [{ nome: 'JOSE', qualificacao: 'Sócio-Administrador' }, { nome: 'ANA', qualificacao: '' }]);
+  assert.deepEqual(l.duvidas, ['cep', 'inscricaoEstadual']);
+  assert.equal('inventado' in l, false);
+  assert.deepEqual(soVazios({ razaoSocial: 'A', email: '', cidade: 'Não informada' }, { razaoSocial: 'B', email: 'e@x.com.br', cidade: 'GOIANIA' }), { email: 'e@x.com.br', cidade: 'GOIANIA' });
+  const x = lerAnexoDoPedidoAgente({ mimeType: 'text/xml', dadosBase64: Buffer.from('<nfeProc/>').toString('base64') });
+  assert.ok(x.ok && x.textoXml.includes('<nfeProc/>') && !x.anexo);
+  assert.equal(lerAnexoDoPedidoAgente({ mimeType: 'application/zip', dadosBase64: 'AAAA' }).ok, false);
+});

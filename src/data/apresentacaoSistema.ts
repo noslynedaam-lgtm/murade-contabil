@@ -23,6 +23,8 @@ export type BlocoApresentacao = {
 export type RoboApresentacao = { id: string; nome: string; intervaloMs: number | null; quando?: string; faz: string; soDono?: boolean };
 /** Um item por registrarRobo() do server.ts. `intervaloMs` precisa ser igual ao do servidor (o teste confere). */
 export const ROBOS_APRESENTACAO: RoboApresentacao[] = [
+  { id: 'envio_cadastro_fiscal', nome: 'Robô de Envio do Cadastro de Empresas ao Fiscal (e ao DP)', intervaloMs: 10 * 60_000, faz: 'manda ao Fiscal, na hora e de 10 em 10 minutos para o que não chegou, o cadastro da empresa salvo ou alterado aqui; o Fiscal completa só o vazio e repassa ao DP. Nunca troca o que foi digitado lá.' },
+  { id: 'conferidor_cadastro_fiscal', nome: 'Robô Conferidor do Cadastro de Empresas Contábil × Fiscal', intervaloMs: 2 * 60 * 60_000, faz: 'confere de 2 em 2 horas se o Fiscal tem o cadastro atual de cada empresa do Contábil e reenvia o que faltar.' },
   { id: 'reconciliador', nome: 'Robô Reconciliador', intervaloMs: 60_000, faz: 'traz do Fiscal e do DP os dados novos e prepara pré-lançamentos para você conferir. Ele nunca aprova nada.' },
   { id: 'contabilizador', nome: 'Robô Contabilizador', intervaloMs: null, quando: 'não roda sozinho, de propósito', faz: 'transforma pré-lançamentos em lançamentos definitivos só depois da aprovação de uma pessoa; por regra, ele nunca decide sozinho.' },
   { id: 'mensageiro', nome: 'Robô Mensageiro', intervaloMs: 60_000, faz: 'reenvia os pedidos entre as Agentes dos sistemas Murad que não chegaram ao destino.' },
@@ -91,6 +93,11 @@ export function falarIntervalo(ms: number | null): string {
 export type IntegracaoApresentacao = { id: string; titulo: string; falar: string; /** "METHOD /api/integracao/..." */ rotas: string[]; tela?: string; soDono?: boolean };
 /** Toda rota /api/integracao/* do server.ts precisa estar em UMA destas listas (o teste confere nos dois sentidos). */
 export const INTEGRACOES_APRESENTACAO: IntegracaoApresentacao[] = [
+  {
+    id: 'sincronia-cadastro-empresas', titulo: 'Cadastro da empresa igual nos três sistemas', tela: 'empresa',
+    falar: 'Empresa cadastrada ou alterada no Contábil vai sozinha ao Fiscal e, de lá, ao DP do mesmo escritório; a do Fiscal e a do DP chegam aqui pelo Fiscal. Só preenche campo vazio, nunca troca o que foi digitado; o que estiver diferente vira o aviso amarelo Conferir no Cadastro de Empresa. Nunca duplica, nunca toma empresa de outro escritório e nunca leva certificado nem senha.',
+    rotas: ['POST /api/integracao/empresas/receber'],
+  },
   {
     id: 'presenca-dono', titulo: 'Online/offline para o dono do sistema',
     falar: 'Para o dono do sistema ver quem está online, cada sistema Murad guarda só o último sinal de cada usuário (usuário, escritório, tela e horário) e mostra aos outros dois por uma rota autenticada. Assim, em Usuários e licenças, a bolinha de cada escritório junta DP, Fiscal e Contábil. Escritórios clientes não veem isso.',
@@ -163,6 +170,7 @@ export const ABERTURA: Fixo[] = [
 /** Como funciona, em detalhe (recursos novos): o que é, onde fica, o que é automático e o limite. Entram na seção dos módulos,
  *  logo depois deles, e também quando a pessoa pede um módulo só (a `tela` é a do módulo). */
 export const DETALHES_DO_SISTEMA: Array<Fixo & { tela: string }> = [
+  { id: 'detalhe-cadastro-por-foto', titulo: 'Cadastro de empresa por foto', tela: 'empresa', falar: 'No Cadastro de Empresa, Tirar foto ou Foto, PDF ou XML lê o cartão CNPJ, a inscrição, o contrato social, o CCMEI ou o XML de uma nota, confere na consulta pública gratuita da Receita e mostra a ficha para conferir; só grava no Salvar. Pela Murad: cadastra essa empresa com o anexo, ou cadastra o CNPJ tal como MEI. A empresa vai sozinha ao Fiscal e ao DP do mesmo escritório; lá só preenche o vazio.' },
   { id: 'detalhe-migracao-backup', titulo: 'Migração pelo backup: a parte do Contábil', tela: 'migracao', falar: 'Na migração pelo backup, a empresa grande vem inteira, ano a ano, sem bloqueio por tamanho: os exercícios antigos vão para o histórico guardado e a prévia avisa até que ano. A prévia e a gravação usam menos memória, com o mesmo resultado, e o arquivo enviado fica guardado 2 horas a contar do último uso. Cliente ativo no escritório vem no sentido certo, decidido pelo movimento contábil.' },
   { id: 'detalhe-regras-integracao', titulo: 'Regras de integração do sistema anterior', tela: 'revisao-origens', falar: 'As regras de integração do sistema anterior, de fornecedor e de CFOP para a conta, vêm na migração e o reconciliador usa desde o primeiro dia nas notas do Fiscal. Só conta que existe no plano da empresa vira regra; o resto fica registrado com aviso. Você vê o quadro em Revisar dados recebidos, só para leitura.' },
   { id: 'detalhe-exercicio-consultado', titulo: 'Empresa grande: histórico guardado por exercício', tela: 'balancete', falar: 'Empresa grande fica com os exercícios em aberto no documento da empresa e os antigos guardados no histórico, por exercício, com o saldo transportado. No topo do Balancete, dos Livros e das Demonstrações, escolha o ano em Exercício consultado para ver um ano guardado, só para leitura. Os números dos exercícios em aberto não mudam, e os robôs da ECD, das demonstrações e da DVA usam o ano guardado.' },

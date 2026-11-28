@@ -68,6 +68,20 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
     },
   ]);
   const [input, setInput] = useState("");
+  const [anexo, setAnexo] = useState<{ mimeType: string; dadosBase64: string; nomeArquivo: string } | null>(null);
+  const anexoRef = useRef<typeof anexo>(null);
+  const inputAnexoRef = useRef<HTMLInputElement>(null);
+  const [erroAnexo, setErroAnexo] = useState("");
+  const escolherAnexo = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]; e.target.value = "";
+    if (!f) return;
+    if (f.size > 5 * 1024 * 1024) { setErroAnexo("Arquivo grande demais (limite de 5 MB)."); return; }
+    const ehXml = /\.xml$/i.test(f.name) || /xml/.test(f.type);
+    const r = new FileReader();
+    r.onload = () => { const a = { mimeType: ehXml ? "text/xml" : f.type, dadosBase64: String(r.result).replace(/^data:[^,]*,/, ""), nomeArquivo: f.name }; anexoRef.current = a; setAnexo(a); setErroAnexo(""); };
+    r.onerror = () => setErroAnexo("Não consegui ler o arquivo.");
+    r.readAsDataURL(f);
+  };
   const [loading, setLoading] = useState(false);
   const [vozAtiva, setVozAtiva] = useState(true);
   const [gravandoVoz, setGravandoVoz] = useState(false);
@@ -161,7 +175,9 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
   const toggleGravacao = () => microfone.alternar();
 
   const enviarMensagem = async (textoEnviar?: string) => {
-    const texto = (textoEnviar || input).trim();
+    // Anexo (foto/PDF/XML) para "Murad, cadastra essa empresa": vai junto no pedido à Agente; nada é gravado sem o cartão de OK.
+    const anexoAtual = anexoRef.current;
+    const texto = (textoEnviar || input).trim() || (anexoAtual ? `Leia o documento anexado (${anexoAtual.nomeArquivo}) e cadastre a empresa.` : "");
     if (!texto) return;
     // "Para" (falado ou digitado): para tudo NA HORA, aqui no navegador, sem ir ao servidor nem à IA.
     if (ehComandoParar(texto, NOMES_CHAMADA)) {
@@ -239,7 +255,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
         .slice(-10)
         .map((m) => ({ papel: m.sender === "user" ? "usuario" : "ia", texto: m.text }));
       // Dúvidas (perguntas) vão direto para a resposta rápida; pedidos de ação passam pela agente.
-      const ehDuvida = /^(como|o que|oque|qual|quais|quando|por que|porque|explique|me explique|me fale|fale sobre)\b/i.test(texto) && !/\b(lance|lancar|emita|gere|gerar|cadastre|exclua|apague|crie|importe|feche|transmita|envie)\b/i.test(texto);
+      const ehDuvida = !anexoAtual && /^(como|o que|oque|qual|quais|quando|por que|porque|explique|me explique|me fale|fale sobre)\b/i.test(texto) && !/\b(lance|lancar|emita|gere|gerar|cadastre|exclua|apague|crie|importe|feche|transmita|envie)\b/i.test(texto);
       let res: Response = new Response(null, { status: 204 });
       let data: any = {};
       if (!ehDuvida) {
@@ -247,9 +263,10 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
-          body: JSON.stringify({ message: texto, historico }),
-          signal: AbortSignal.timeout(25_000),
+          body: JSON.stringify({ message: texto, historico, ...(anexoAtual ? { anexo: { mimeType: anexoAtual.mimeType, dadosBase64: anexoAtual.dadosBase64, nomeArquivo: anexoAtual.nomeArquivo } } : {}) }),
+          signal: AbortSignal.timeout(anexoAtual ? 90_000 : 25_000),
         });
+        if (anexoAtual) { anexoRef.current = null; setAnexo(null); }
         data = await res.json().catch(() => ({}));
       }
       let respostaTexto: string = data.resposta;
@@ -724,8 +741,16 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
               e.preventDefault();
               enviarMensagem();
             }}
-            className="flex items-center gap-2"
+            className="flex flex-wrap items-center gap-2"
           >
+            {(anexo || erroAnexo) && (
+              <div className="w-full flex items-center justify-between text-[11px] px-1">
+                {anexo ? <span className="text-slate-700">📎 {anexo.nomeArquivo}</span> : <span className="text-rose-700">{erroAnexo}</span>}
+                {anexo && <button type="button" onClick={() => { anexoRef.current = null; setAnexo(null); }} className="text-rose-700 font-bold" title="Remover anexo">✕</button>}
+              </div>
+            )}
+            <input ref={inputAnexoRef} type="file" accept="application/pdf,image/*,.xml,text/xml,application/xml" className="hidden" onChange={escolherAnexo} />
+            <button type="button" onClick={() => inputAnexoRef.current?.click()} title="Anexar foto, PDF ou XML (ex.: cartão CNPJ para cadastrar a empresa)" aria-label="Anexar arquivo" className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 shrink-0">📎</button>
             <button
               type="button"
               onClick={toggleGravacao}
@@ -752,7 +777,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
 
             <button
               type="submit"
-              disabled={!input.trim() || loading}
+              disabled={(!input.trim() && !anexo) || loading}
               className="bg-blue-600 hover:bg-blue-700 text-white p-2.5 rounded-xl transition cursor-pointer disabled:opacity-40 shrink-0"
               title="Enviar mensagem"
             >

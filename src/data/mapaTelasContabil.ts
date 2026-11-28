@@ -110,6 +110,10 @@ export const CAMPOS_CONTABIL: CampoMapa[] = [
   { chave: 'empresa-email', tela: 'empresa', rotulo: 'E-mail de contato', arquivo: EMP, tipo: 'texto' },
   { chave: 'empresa-responsavel', tela: 'empresa', rotulo: 'Responsável legal', arquivo: EMP, tipo: 'texto' },
   { chave: 'empresa-salvar', tela: 'empresa', rotulo: 'Salvar Empresa', arquivo: EMP, tipo: 'botao', final: 'salvar' },
+  // Cadastro por foto ou arquivo (27/11/2026): o piloto só destaca; quem escolhe a foto/arquivo e confere a ficha é a pessoa.
+  { chave: 'cadastro-foto', tela: 'empresa', rotulo: 'Tirar foto (cadastrar por foto do cartão CNPJ, inscrição, contrato social ou CCMEI)', arquivo: 'src/components/CadastroPorDocumento.tsx', tipo: 'botao' },
+  { chave: 'cadastro-arquivo', tela: 'empresa', rotulo: 'Foto, PDF ou XML (cadastrar por arquivo)', arquivo: 'src/components/CadastroPorDocumento.tsx', tipo: 'botao' },
+  { chave: 'ficha-aplicar', tela: 'empresa', rotulo: 'Conferi, preencher o cadastro', arquivo: 'src/components/CadastroPorDocumento.tsx', tipo: 'botao' },
   // Serviço completo da Agente (src/server/servicoCompleto.ts): abas que o piloto abre e botões onde ele PARA (o clique é do contador).
   { chave: 'gestao-aba-imobilizado', tela: 'gestao-contabil', rotulo: 'Aba Ativo imobilizado', arquivo: GESTAO, tipo: 'botao', abre: true },
   { chave: 'gestao-aba-extrato', tela: 'gestao-contabil', rotulo: 'Aba Extrato e conciliação', arquivo: GESTAO, tipo: 'botao', abre: true },
