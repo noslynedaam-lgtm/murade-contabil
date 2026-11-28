@@ -15,6 +15,7 @@ import {
 import { analisarObrigatoriedadeECD, prazoEntregaECD } from '../services/ecdService';
 import { saldosParteB } from '../services/ecfComplementosService';
 import { conferirWorkspace, competenciaAnterior } from './conferidorContabil';
+import { soAtivas } from './empresaAtendimento';
 
 type Consultar = (sql: string, params?: unknown[]) => Promise<{ rows: any[] }>;
 const COMP = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -75,7 +76,9 @@ export async function rodarRoboDemonstracoes(consultar: Consultar, agora = new D
   for (;;) {
     const lote = await consultar('SELECT cnpj, payload FROM contabil_company_workspaces ORDER BY cnpj LIMIT 25 OFFSET $1', [desloc]);
     if (!lote.rows.length) break;
+    const ativas = new Set(await soAtivas(consultar as any, 'contabil', lote.rows.map((x: any) => String(x.cnpj)))); // não ativada no Contábil fica de fora
     for (const row of lote.rows) {
+      if (!ativas.has(String(row.cnpj))) continue;
       const cnpj = String(row.cnpj); vistos.add(cnpj);
       try {
         const a = conferirDemonstracoesWorkspace(cnpj, await visaoDoExercicio(consultar, cnpj, row.payload || {}, agora.getFullYear() - 1), agora);

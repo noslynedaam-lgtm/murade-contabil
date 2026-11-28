@@ -1,3 +1,4 @@
+import { soAtivas } from './empresaAtendimento';
 // Conferidor "empresa parada no Contábil": avisa quando uma empresa do escritório não tem workspace (o reconciliador não trabalha nela)
 // ou quando já tem notas autorizadas do Fiscal / folha do DP recebidas e nenhum pré-lançamento preparado. Só lê e conta.
 type Consultar = (sql: string, params?: unknown[]) => Promise<{ rows: any[] }>;
@@ -38,6 +39,7 @@ export async function situacaoEmpresasContabil(consultar: Consultar, cnpjs?: str
     LEFT JOIN contabil_company_workspaces w ON w.cnpj=a.cnpj
     ORDER BY a.cnpj
   `, [cnpjs ?? null]);
+  r.rows = await soAtivas(consultar as any, 'contabil', r.rows); // não ativada no Contábil não está "parada": o escritório não faz o Contábil dela
   return r.rows.map((x) => ({ cnpj: String(x.cnpj), temWorkspace: x.tem_workspace === true, temMapeamento: x.tem_mapeamento === true, notasProntas: Number(x.notas) || 0, folhasRecebidas: Number(x.folhas) || 0, preLancamentos: Number(x.pre) || 0, dasRecebidos: Number(x.das) || 0, temMapeamentoDas: x.tem_map_das === true }));
 }
 

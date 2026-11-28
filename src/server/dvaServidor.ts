@@ -5,6 +5,7 @@ import type express from "express";
 import { visaoDoExercicio } from './historicoLancamentosStore';
 import type { ContaPlano, EmpresaDados, LancamentoContabil } from "../types";
 import { calcularDva, ehLinhaDva, FONTES_DVA, linhasDaDva, resumoDva, ROTULO_DVA, type Dva } from "../utils/dva";
+import { soAtivas } from './empresaAtendimento';
 
 type Consultar = (sql: string, params?: unknown[]) => Promise<{ rows: any[] }>;
 export type AchadoDva = { cnpj: string; ano: number; fecha: boolean; completa: boolean; obrigatoria: boolean; nivel: "ok" | "atencao" | "falta"; texto: string; verificadoEm: string };
@@ -40,7 +41,9 @@ export async function rodarConferidorDva(consultar: Consultar, o: { cnpjs?: stri
       ? await consultar("SELECT cnpj, payload FROM contabil_company_workspaces WHERE cnpj = ANY($1::text[]) ORDER BY cnpj LIMIT 25 OFFSET $2", [filtro, desloc])
       : await consultar("SELECT cnpj, payload FROM contabil_company_workspaces ORDER BY cnpj LIMIT 25 OFFSET $1", [desloc]);
     if (!lote.rows.length) break;
+    const ativas = new Set(await soAtivas(consultar as any, 'contabil', lote.rows.map((x: any) => String(x.cnpj).trim()))); // não ativada no Contábil fica de fora
     for (const row of lote.rows) {
+      if (!ativas.has(String(row.cnpj).trim())) continue;
       const cnpj = String(row.cnpj).trim(); feito += 1; o.aoAndar?.(feito, Math.max(total, feito));
       try {
         const a = conferirDvaWorkspace(cnpj, await visaoDoExercicio(consultar, cnpj, row.payload || {}, ano), ano, agora);

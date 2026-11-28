@@ -46,6 +46,7 @@ import { baixarPacoteEmpresasMurade, lerPacoteEmpresasMurade } from "../../servi
 import { chaveCnpjEmpresa, dedupEmpresasPorCnpj } from "../../utils/dedupEmpresas";
 import { SincroniaEntidadeContabil } from "../SincroniaEntidadeContabil";
 import { CamposDoBackupFiscalContabil } from "../CamposDoBackupFiscalContabil";
+import { EmpresasNaoAtivadasContabil } from "../EmpresasNaoAtivadasContabil";
 
 const competenciaAtualISO = () => { const hoje = new Date(); return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`; };
 
@@ -859,6 +860,8 @@ export const EmpresaTab: React.FC<EmpresaTabProps> = ({
   return (
     <div className="space-y-5">
       {String(empresa?.cnpj || "") && <DocumentosGuardadosPainel cnpj={String(empresa.cnpj)} />}
+      {/* Empresas do escritório que vieram do Fiscal e ainda não foram ativadas no Contábil (bloco recolhido) */}
+      <EmpresasNaoAtivadasContabil />
       {/* 🔙 CABEÇALHO DO MÓDULO */}
       <div className="bg-white rounded-xl p-4 sm:p-5 shadow-xs border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">

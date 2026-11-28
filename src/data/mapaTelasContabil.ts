@@ -111,6 +111,8 @@ export const CAMPOS_CONTABIL: CampoMapa[] = [
   { chave: 'empresa-responsavel', tela: 'empresa', rotulo: 'Responsável legal', arquivo: EMP, tipo: 'texto' },
   { chave: 'empresa-salvar', tela: 'empresa', rotulo: 'Salvar Empresa', arquivo: EMP, tipo: 'botao', final: 'salvar' },
   // Cadastro por foto ou arquivo (27/11/2026): o piloto só destaca; quem escolhe a foto/arquivo e confere a ficha é a pessoa.
+  { chave: 'empresas-nao-ativadas', tela: 'empresa', rotulo: 'Empresas do escritório ainda não ativadas aqui (bloco recolhido: vieram do Fiscal e o escritório ainda não faz o Contábil delas)', arquivo: 'src/components/EmpresasNaoAtivadasContabil.tsx', tipo: 'botao' },
+  { chave: 'ativar-empresa-aqui', tela: 'empresa', rotulo: 'Ativar aqui (este escritório faz o Contábil desta empresa)', arquivo: 'src/components/EmpresasNaoAtivadasContabil.tsx', tipo: 'botao' },
   { chave: 'cadastro-foto', tela: 'empresa', rotulo: 'Tirar foto (cadastrar por foto do cartão CNPJ, inscrição, contrato social ou CCMEI)', arquivo: 'src/components/CadastroPorDocumento.tsx', tipo: 'botao' },
   { chave: 'cadastro-arquivo', tela: 'empresa', rotulo: 'Foto, PDF ou XML (cadastrar por arquivo)', arquivo: 'src/components/CadastroPorDocumento.tsx', tipo: 'botao' },
   { chave: 'ficha-aplicar', tela: 'empresa', rotulo: 'Conferi, preencher o cadastro', arquivo: 'src/components/CadastroPorDocumento.tsx', tipo: 'botao' },

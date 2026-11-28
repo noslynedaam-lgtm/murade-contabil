@@ -7,6 +7,7 @@ import type { BemImobilizado } from '../utils/imobilizado';
 import { conferirEcdWorkspace, type AchadoEcd } from './conferidorEcd';
 import { limiteLc224Workspace } from './limiteLc224';
 import { conferirFolhasDP } from './conferidorFolhaDP';
+import { soAtivas } from './empresaAtendimento';
 
 export type PendenciaConferidor = { id: string; titulo: string; detalhe: string };
 export type AchadoEmpresa = {
@@ -60,7 +61,9 @@ export async function rodarConferidorContabil(consultar: Consultar, agora = new 
   for (;;) {
     const lote = await consultar('SELECT cnpj, payload FROM contabil_company_workspaces ORDER BY cnpj LIMIT 25 OFFSET $1', [deslocamento]);
     if (!lote.rows.length) break;
+    const ativas = new Set(await soAtivas(consultar as any, 'contabil', lote.rows.map((x: any) => String(x.cnpj)))); // não ativada no Contábil: sem pendência
     for (const row of lote.rows) {
+      if (!ativas.has(String(row.cnpj))) continue;
       const cnpj = String(row.cnpj); vistos.add(cnpj);
       // Exercício da ECD guardado no histórico (empresa grande): confere com os lançamentos daquele ano e o saldo transportado.
       try { const e = conferirEcdWorkspace(cnpj, await visaoDoExercicio(consultar, cnpj, row.payload || {}, agora.getFullYear() - 1), agora); if (e) achadosEcd.set(cnpj, e); else achadosEcd.delete(cnpj); } catch (erro: any) { console.error(`Conferidor da ECD falhou para ${cnpj}:`, erro?.message || erro); }

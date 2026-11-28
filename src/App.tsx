@@ -142,6 +142,19 @@ function AppWorkspace() {
   const [empresa, setEmpresa] = useState<EmpresaDados>(initialEmpresa);
   // Empresas do escritório, para o seletor da barra do topo
   const [listaEmpresas, setListaEmpresas] = useState<{ cnpj: string; nome: string; dados: EmpresaDados }[]>([]);
+  // Empresas que vieram por cópia do Fiscal e ainda não foram ativadas no Contábil (28/11/2026): ficam fora do seletor do topo,
+  // a não ser com o bloco "Empresas do escritório ainda não ativadas aqui" aberto (tela Empresa).
+  const [disponiveisCnpj, setDisponiveisCnpj] = useState<Set<string>>(() => new Set());
+  const [exibirDisponiveis, setExibirDisponiveis] = useState(false);
+  const [recargaEmpresas, setRecargaEmpresas] = useState(0);
+  React.useEffect(() => {
+    const exibir = (e: Event) => setExibirDisponiveis(Boolean((e as CustomEvent).detail));
+    const recarregar = () => setRecargaEmpresas((n) => n + 1);
+    window.addEventListener("murad:exibir-disponiveis", exibir);
+    window.addEventListener("murad:empresas-mudaram", recarregar);
+    return () => { window.removeEventListener("murad:exibir-disponiveis", exibir); window.removeEventListener("murad:empresas-mudaram", recarregar); };
+  }, []);
+  const empresasDoSeletor = React.useMemo(() => listaEmpresas.filter((e) => exibirDisponiveis || !disponiveisCnpj.has(e.cnpj)).map((e) => ({ ...e, nome: disponiveisCnpj.has(e.cnpj) ? `${e.nome} (ainda não ativada no Contábil)` : e.nome })), [listaEmpresas, disponiveisCnpj, exibirDisponiveis]);
   const [orgaos, setOrgaos] = useState<OrgaoConectado[]>(() => orgaosIniciais.map((org) => ({
     ...org,
     status: "offline",
@@ -526,6 +539,7 @@ function AppWorkspace() {
       } catch { /* sem rede: o seletor mostra só os CNPJs autorizados */ }
       if (!ativo) return;
       const porCnpj = new Map<string, EmpresaDados>(cadastradas.map((e) => [limpar(e.cnpj), e]));
+      setDisponiveisCnpj(new Set(cadastradas.filter((e: any) => e?.atendimentoContabil === "disponivel").map((e) => limpar(e.cnpj))));
       // Uma por CNPJ no seletor do topo (nunca a mesma empresa duas vezes).
       setListaEmpresas([...new Set(auth.cnpjs.map((c) => String(c || "").toUpperCase().replace(/[^0-9A-Z]/g, "")).filter(Boolean))].map((c) => {
         const d = porCnpj.get(c);
@@ -533,7 +547,15 @@ function AppWorkspace() {
       }));
     })();
     return () => { ativo = false; };
-  }, [auth.cnpjs.join(",")]);
+  }, [auth.cnpjs.join(","), recargaEmpresas]);
+
+  // Empresa do topo que ainda não foi ativada no Contábil (com o bloco fechado): troca para a primeira ativa.
+  React.useEffect(() => {
+    const atual = String(empresa.cnpj || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
+    if (exibirDisponiveis || !atual || !disponiveisCnpj.has(atual)) return;
+    const primeira = listaEmpresas.find((e) => !disponiveisCnpj.has(e.cnpj));
+    if (primeira) trocarEmpresaAtiva(primeira.dados);
+  }, [disponiveisCnpj, exibirDisponiveis, listaEmpresas]);
 
   // Troca a empresa ativa do sistema inteiro: substitui os dados (não mistura com os da empresa anterior)
   const trocarEmpresaAtiva = (nova: EmpresaDados) => {
@@ -542,7 +564,7 @@ function AppWorkspace() {
     try { localStorage.setItem("murad_empresa_salva", JSON.stringify(dados)); } catch { /* troca vale só nesta sessão */ }
   };
   const escolherEmpresaPeloCnpj = (cnpj: string) => {
-    const alvo = listaEmpresas.find((e) => e.cnpj === cnpj);
+    const alvo = empresasDoSeletor.find((e) => e.cnpj === cnpj);
     if (alvo) trocarEmpresaAtiva(alvo.dados);
   };
 
@@ -602,10 +624,10 @@ function AppWorkspace() {
     ];
     const itens: ItemBusca[] = modulos.map(([id, rotulo, palavras]) => ({ id: `m-${id}`, rotulo, tipo: "Módulo", palavras, acao: () => setTabAtiva(id) }));
     for (const [tab, rotulo, palavras, campo] of assuntos) itens.push({ id: `a-${tab}-${rotulo}`, rotulo, tipo: "Assunto", palavras, acao: () => { setTabAtiva(tab); destacarCampo(campo); } });
-    for (const e of listaEmpresas) itens.push({ id: `e-${e.cnpj}`, rotulo: e.nome, tipo: "Empresa", palavras: e.cnpj, acao: () => escolherEmpresaPeloCnpj(e.cnpj) });
+    for (const e of empresasDoSeletor) itens.push({ id: `e-${e.cnpj}`, rotulo: e.nome, tipo: "Empresa", palavras: e.cnpj, acao: () => escolherEmpresaPeloCnpj(e.cnpj) });
     for (const c of contas.slice(0, 2000)) itens.push({ id: `c-${c.codigo}`, rotulo: `${c.codigo} · ${c.descricao}`, tipo: "Conta", acao: () => setTabAtiva("plano-contas") });
     return itens;
-  }, [listaEmpresas, contas]);
+  }, [empresasDoSeletor, contas]);
 
   // 1. Testar conexões com todos os órgãos em TEMPO REAL (Chamada ao Gateway Oficial)
   const handleTestarConexoes = async () => {
@@ -1009,7 +1031,7 @@ function AppWorkspace() {
           empresaNome={empresa.razaoSocial || null}
           empresaCnpj={String(empresa.cnpj || "").replace(/[^0-9a-z]/gi, "").toUpperCase() || null}
           onTrocarEmpresa={() => setTabAtiva("empresa")}
-          empresas={listaEmpresas.map(({ cnpj, nome }) => ({ cnpj, nome }))}
+          empresas={empresasDoSeletor.map(({ cnpj, nome }) => ({ cnpj, nome }))}
           onEscolherEmpresa={escolherEmpresaPeloCnpj}
           itensBusca={itensBusca}
           onLogout={auth.sair}

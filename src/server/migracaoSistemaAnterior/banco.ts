@@ -15,6 +15,7 @@ import { converterClassificacao } from './conversor';
 import { gravarRegrasIntegracaoMigradas, listarRegrasIntegracaoFiscal } from '../regrasIntegracaoFiscalStore';
 import { compararRegras, regrasIntegracaoDoBackup } from './integracaoFiscal';
 import { SQL_COLUNAS_CIFRA, cifraParaGravar, colunasCifraProntas, inserirBloco, lerBlocos, linhasDoRegistro } from './cifraRegistro';
+import { ativarEmpresa } from '../empresaAtendimento';
 
 export const TABELA_SISTEMA_ANTERIOR = 'contabil_sistema_anterior';
 export const BLOCO_RESUMO = '__migracao';
@@ -65,7 +66,7 @@ export async function gravarEmpresaMigrada(
   if (!/^[A-Z0-9]{12}[0-9]{2}$/.test(cnpj)) throw new ErroMigracao('CNPJ inválido para gravar.');
   if (limiteTesteMigracao) { const motivo = await limiteTesteMigracao(quem.escritorioId, cnpj); if (motivo) throw new ErroMigracao(motivo); }
   await prepararTabelaSistemaAnterior(banco.consultar);
-  return banco.transacao(async (q) => {
+  const gravado = await banco.transacao(async (q) => {
     await q('SELECT pg_advisory_xact_lock(hashtext($1))', [cnpj]);
     // O registro do sistema anterior grava cifrado quando o servidor tem a chave mestra e as colunas já existem (senão, aberto como antes).
     const cifra = await cifraParaGravar(q);
@@ -130,6 +131,9 @@ export async function gravarEmpresaMigrada(
       blocos: blocos.length + blocosEmPartes, linhasGuardadas, versao, avisos: resumo.avisos, conferencia,
     };
   });
+  // Migração pelo backup no próprio Contábil = o escritório faz o Contábil desta empresa: fica ativa (fora da transação: nunca atrapalha a gravação).
+  await ativarEmpresa(banco.consultar as any, 'contabil', cnpj, { motivo: 'Migração pelo backup no Contábil.', por: 'migração' }).catch(() => undefined);
+  return gravado;
 }
 
 /** Registro do sistema anterior de uma empresa: blocos e quantidades (sem as linhas), mais o resumo da migração. */
