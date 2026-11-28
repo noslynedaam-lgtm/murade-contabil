@@ -263,7 +263,7 @@ export const IAMuradModal = forwardRef<AssistenteHandle, IAMuradModalProps>(({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
-          body: JSON.stringify({ message: texto, historico, ...(anexoAtual ? { anexo: { mimeType: anexoAtual.mimeType, dadosBase64: anexoAtual.dadosBase64, nomeArquivo: anexoAtual.nomeArquivo } } : {}) }),
+          body: JSON.stringify({ message: texto, historico, tela: `contabil${window.location.hash || ""}`.slice(0, 80), ...(anexoAtual ? { anexo: { mimeType: anexoAtual.mimeType, dadosBase64: anexoAtual.dadosBase64, nomeArquivo: anexoAtual.nomeArquivo } } : {}) }),
           signal: AbortSignal.timeout(anexoAtual ? 90_000 : 25_000),
         });
         if (anexoAtual) { anexoRef.current = null; setAnexo(null); }

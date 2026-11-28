@@ -23,6 +23,11 @@ interface Props {
   /** Lista de empresas do escritório: com ela e onEscolherEmpresa, o nome da empresa vira um seletor para trocar de empresa. */
   empresas?: { cnpj: string; nome: string }[];
   onEscolherEmpresa?: (cnpj: string) => void;
+  /** Total do escritório E a divisão ("20 empresas — 13 atendidas…, 7 ainda não ativadas aqui"): primeira linha do seletor. */
+  resumoEmpresas?: string;
+  /** Atalho do seletor para ver e ativar as empresas ainda não ativadas aqui. */
+  onAtivarNaoAtivadas?: () => void;
+  rotuloAtivarNaoAtivadas?: string;
   /** Fora do DP: abre o DP, onde a licença é cadastrada e gerenciada. */
   urlGerenciarLicenca?: string;
   /** Só no DP: permite cadastrar/alterar a licença da empresa. */
@@ -36,7 +41,7 @@ function formatarData(iso: string): string {
   return `${d}/${m}/${a}`;
 }
 
-export const CabecalhoPadrao: React.FC<Props> = ({ usuario, soEmpresa, semLetra, empresaNome, empresaCnpj, buscarLicenca, onSair, salvarLicenca, onClicarEmpresa, urlGerenciarLicenca, empresas, onEscolherEmpresa }) => {
+export const CabecalhoPadrao: React.FC<Props> = ({ usuario, soEmpresa, semLetra, empresaNome, empresaCnpj, buscarLicenca, onSair, salvarLicenca, onClicarEmpresa, urlGerenciarLicenca, empresas, onEscolherEmpresa, resumoEmpresas, onAtivarNaoAtivadas, rotuloAtivarNaoAtivadas }) => {
   const [licenca, setLicenca] = useState<LicencaEmpresa | null | undefined>(undefined);
   const [aberto, setAberto] = useState(false);
   const [plano, setPlano] = useState('P50');
@@ -91,16 +96,18 @@ export const CabecalhoPadrao: React.FC<Props> = ({ usuario, soEmpresa, semLetra,
         <span className="truncate">{usuario || '—'}</span>
       </span>}
       {empresas && empresas.length > 0 && onEscolherEmpresa ? (
-        <label className="flex h-7 min-w-0 items-center gap-1 px-2 rounded-md bg-white/10 hover:bg-white/20 max-w-full lg:max-w-[220px]" title="Trocar de empresa">
+        <label className="flex h-7 min-w-0 items-center gap-1 px-2 rounded-md bg-white/10 hover:bg-white/20 max-w-full lg:max-w-[220px]" title={resumoEmpresas ? `Trocar de empresa · ${resumoEmpresas}` : "Trocar de empresa"}>
           <Building2 size={13} className="shrink-0" />
           <select
             value={empresaCnpj || ''}
-            onChange={(e) => { if (e.target.value) onEscolherEmpresa(e.target.value); }}
+            onChange={(e) => { const v = e.target.value; if (v === '__ativar_nao_ativadas') { onAtivarNaoAtivadas?.(); return; } if (v && v !== '__resumo_empresas') onEscolherEmpresa(v); }}
             aria-label="Trocar de empresa"
             className="min-w-0 w-full bg-transparent text-white text-[11px] font-semibold lg:max-w-[170px] truncate outline-none cursor-pointer"
           >
             {!empresas.some((e) => e.cnpj === empresaCnpj) && <option className="text-slate-900" value={empresaCnpj || ''}>{empresaNome || 'Nenhuma empresa'}</option>}
+            {resumoEmpresas && <option className="text-slate-500" value="__resumo_empresas" disabled>{resumoEmpresas}</option>}
             {empresas.map((e) => <option className="text-slate-900" key={e.cnpj} value={e.cnpj}>{e.nome}</option>)}
+            {onAtivarNaoAtivadas && rotuloAtivarNaoAtivadas && <option className="text-blue-800" value="__ativar_nao_ativadas">{rotuloAtivarNaoAtivadas}…</option>}
           </select>
         </label>
       ) : (

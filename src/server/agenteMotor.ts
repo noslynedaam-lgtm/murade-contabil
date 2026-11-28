@@ -53,6 +53,7 @@ export interface MensagemWhatsAppParaTela {
 import type { CentralDePedidos } from './agentesEntreSistemas';
 import { REGRAS_DE_ENTENDIMENTO, contextoDeRespostaCurta } from './agenteEntendimento';
 import { REGRA_PEDIDO_LONGO } from './agenteEtapas';
+import { cumprirPromessaSupervisor } from './chamadosSupervisor';
 import { ESTILO_AGIL, MAX_TURNOS_HISTORICO, NOME_MAIS_FERRAMENTAS, PedidoAgil, REGRA_PERMISSAO, type PerfilPedido } from '../data/agenteAgil';
 
 export interface ContextoAgente {
@@ -69,6 +70,8 @@ export interface ContextoAgente {
   nomeUsuario?: string;
   /** Quando o pedido chegou ao servidor (para medir o preparo antes do motor). */
   inicioMs?: number;
+  /** O pedido como a pessoa escreveu (sem anexos): vira a pergunta do chamado para o supervisor. */
+  mensagemOriginal?: string;
 }
 
 interface AcaoPendente {
@@ -223,11 +226,16 @@ async function atalhoListarEmpresas(ctx: ContextoAgente, mensagem: string, porNo
     if (!lista.length) return { resposta: 'Não há nenhuma empresa cadastrada neste sistema.', acoes: [], whatsapp: [] };
     const nome = (e: any) => String(e.razaoSocial || e.nome || e.nomeFantasia || 'sem nome');
     const ordinais = ['primeira', 'segunda', 'terceira', 'quarta', 'quinta', 'sexta', 'sétima', 'oitava', 'nona', 'décima'];
-    const descricao = (e: any) => `${nome(e)}, CNPJ ${formatarCnpjFalado(e.cnpj)}${e.regime ? `, regime ${e.regime}` : ''}`;
-    if (lista.length === 1) return { resposta: `Você tem uma empresa cadastrada: ${descricao(lista[0])}.`, acoes: [], whatsapp: [] };
-    const partes = lista.slice(0, 10).map((e, i) => `A ${ordinais[i]} é ${descricao(e)}.`);
+    const marca = (e: any) => (e.atendidaNoDP === false || e.atendidaNoContabil === false ? ', ainda não ativada aqui' : '');
+    const descricao = (e: any) => `${nome(e)}, CNPJ ${formatarCnpjFalado(e.cnpj)}${e.regime ? `, regime ${e.regime}` : ''}${marca(e)}`;
+    // Mesmo texto de contagem das telas (total do escritório E a divisão), quando a ferramenta traz o resumo.
+    const resumo = typeof r.resumo === 'string' && r.resumo ? r.resumo : '';
+    const atalho = resumo && /ainda não ativad/.test(resumo) ? ' Para ativar, abra Empresa e o bloco "Empresas do escritório ainda não ativadas aqui", ou me peça "ativa a empresa tal".' : '';
+    if (lista.length === 1) return { resposta: `Você tem uma empresa cadastrada: ${descricao(lista[0])}.${atalho}`, acoes: [], whatsapp: [] };
+    const ordenada = [...lista.filter((e) => !marca(e)), ...lista.filter((e) => marca(e))];
+    const partes = ordenada.slice(0, 10).map((e, i) => `A ${ordinais[i]} é ${descricao(e)}.`);
     const mais = lista.length > 10 ? ` Mostrei as dez primeiras. Peça para ver as outras, se quiser.` : '';
-    return { resposta: `Você tem ${lista.length} empresas cadastradas. ${partes.join(' ')}${mais}`, acoes: [], whatsapp: [] };
+    return { resposta: `Você tem ${resumo || `${lista.length} empresas cadastradas`}. ${partes.join(' ')}${mais}${atalho}`, acoes: [], whatsapp: [] };
   } catch { return null; }
 }
 
@@ -235,6 +243,19 @@ async function atalhoListarEmpresas(ctx: ContextoAgente, mensagem: string, porNo
 export interface AnexoConversa { mimeType: string; dadosBase64: string }
 
 export async function conversar(ctx: ContextoAgente, modelo: ModeloIA, mensagem: string, historico: TurnoHistorico[] = [], anexo?: AnexoConversa): Promise<ResultadoConversa> {
+  // Chamado para o supervisor (28/11/2026): se a resposta promete chamar o supervisor e nada foi registrado, o servidor registra
+  // sozinho; se não conseguir registrar, a resposta deixa de prometer. Nunca promete sem registrar.
+  const registrarOriginal = ctx.registrar;
+  let supervisorRegistrado = false;
+  ctx.registrar = async (evento) => { await registrarOriginal(evento); if (evento.evento === 'duvida_sem_resposta') supervisorRegistrado = true; };
+  try {
+    const r = await conversarSemGarantia(ctx, modelo, mensagem, historico, anexo);
+    const garantia = await cumprirPromessaSupervisor({ resposta: r.resposta, jaRegistrado: supervisorRegistrado, pergunta: ctx.mensagemOriginal || mensagem, cnpj: null, registrar: (e) => registrarOriginal(e) });
+    return garantia.resposta === r.resposta ? r : { ...r, resposta: garantia.resposta };
+  } finally { ctx.registrar = registrarOriginal; }
+}
+
+async function conversarSemGarantia(ctx: ContextoAgente, modelo: ModeloIA, mensagem: string, historico: TurnoHistorico[] = [], anexo?: AnexoConversa): Promise<ResultadoConversa> {
   const porNome = new Map(ctx.kit.ferramentas.map((f) => [f.declaracao.name, f]));
   historico = historico.slice(-MAX_TURNOS_HISTORICO);
   // Agente ágil: só as ferramentas (e as linhas do prompt) que têm a ver com o pedido; mede cada etapa; aplica a regra de permissão.

@@ -18,6 +18,9 @@ interface HeaderProps {
   onTrocarEmpresa?: () => void;
   empresas?: { cnpj: string; nome: string }[];
   onEscolherEmpresa?: (cnpj: string) => void;
+  resumoEmpresas?: string;
+  onAtivarNaoAtivadas?: () => void;
+  rotuloAtivarNaoAtivadas?: string;
   itensBusca?: ItemBusca[];
   onLogout?: () => void;
   onAbrirIA?: () => void;
@@ -37,6 +40,9 @@ export const Header: React.FC<HeaderProps> = ({
   onTrocarEmpresa,
   empresas,
   onEscolherEmpresa,
+  resumoEmpresas,
+  onAtivarNaoAtivadas,
+  rotuloAtivarNaoAtivadas,
   itensBusca,
   onLogout,
   onAbrirIA,
@@ -91,6 +97,9 @@ export const Header: React.FC<HeaderProps> = ({
                 onClicarEmpresa={onTrocarEmpresa}
                 empresas={empresas}
                 onEscolherEmpresa={onEscolherEmpresa}
+                resumoEmpresas={resumoEmpresas}
+                onAtivarNaoAtivadas={onAtivarNaoAtivadas}
+                rotuloAtivarNaoAtivadas={rotuloAtivarNaoAtivadas}
               />
             </div>
           )}

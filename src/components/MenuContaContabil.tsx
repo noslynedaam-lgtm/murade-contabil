@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { ChevronDown, LogOut, ShieldCheck, Sparkles, UserCircle, UserPlus } from "lucide-react";
 import { BotoesTamanhoLetra } from "./BotoesTamanhoLetra";
 import { useContabilAuth } from "./ContabilAccessGate";
+import { useContagemEmpresasContabil } from "./ContagemEmpresasContabil";
+import { textoContagemEmpresas } from "../utils/contagemEmpresas";
 
 // Menu da conta, igual ao do Murad DP e do Murad Fiscal (25/11/2026): clicar no e-mail (na barra azul de cima) abre
 // "Tamanho da letra A- A+", "Usuários e licenças" (só administrador, como antes), "Meu jeito", "Segurança" e "Sair".
@@ -9,6 +11,9 @@ import { useContabilAuth } from "./ContabilAccessGate";
 // O menu usa posição fixa para não ser cortado pela barra azul.
 export const MenuContaContabil: React.FC<{ onAbrirMeuJeito?: () => void }> = ({ onAbrirMeuJeito }) => {
   const auth = useContabilAuth();
+  // Mesma conta da tela e da Murad: total do escritório E a divisão (28/11/2026). Antes de carregar, o número da sessão.
+  const contagem = useContagemEmpresasContabil();
+  const textoEmpresas = contagem && contagem.total > 0 ? textoContagemEmpresas(contagem, "Contábil") : `${auth.cnpjs.length} empresa(s) autorizada(s)`;
   const [aberto, setAberto] = useState(false);
   const [pos, setPos] = useState<{ top: number; right: number }>({ top: 48, right: 8 });
   useEffect(() => {
@@ -32,7 +37,7 @@ export const MenuContaContabil: React.FC<{ onAbrirMeuJeito?: () => void }> = ({ 
         aria-expanded={aberto}
         aria-haspopup="menu"
         className="flex h-7 items-center gap-1 px-2 rounded-md bg-white/10 hover:bg-white/20 border border-white/20 text-[11px] font-semibold text-white cursor-pointer max-w-[190px]"
-        title={`Conta: ${auth.usuario} · ${auth.cnpjs.length} empresa(s) autorizada(s) — tamanho da letra, usuários, meu jeito, segurança e sair`}
+        title={`Conta: ${auth.usuario} · ${textoEmpresas} — tamanho da letra, usuários, meu jeito, segurança e sair`}
       >
         <UserCircle className="w-3.5 h-3.5 shrink-0" />
         <span className="truncate hidden lg:inline">{auth.usuario}</span>
@@ -42,7 +47,7 @@ export const MenuContaContabil: React.FC<{ onAbrirMeuJeito?: () => void }> = ({ 
       {aberto && (
         <div role="menu" className="fixed z-[120] w-72 max-w-[calc(100vw-1rem)] rounded-lg border border-slate-200 bg-white p-2 text-slate-900 shadow-xl" style={{ top: pos.top, right: pos.right }}>
           <div className="mb-1 border-b border-slate-100 px-2 pb-2 text-xs text-slate-600">
-            Conta: <strong className="text-slate-900 break-all">{auth.usuario}</strong><br />{auth.cnpjs.length} empresa(s) autorizada(s)
+            Conta: <strong className="text-slate-900 break-all">{auth.usuario}</strong><br />{textoEmpresas}
           </div>
           <div className="flex items-center justify-between px-2 py-1.5 text-sm text-slate-800" data-campo="tamanho-letra"><span>Tamanho da letra</span><BotoesTamanhoLetra escuro={false} /></div>
           {auth.administrador && <button type="button" role="menuitem" onClick={fecharE(auth.abrirUsuarios)} className={item}><UserPlus className="h-4 w-4" /> Usuários e licenças</button>}

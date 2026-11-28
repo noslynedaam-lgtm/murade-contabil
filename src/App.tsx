@@ -49,6 +49,8 @@ import { AvisosBackupEscritorio } from "./components/backupEscritorio/AvisosBack
 import { IAMuradModal } from "./components/IAMuradModal";
 import { BalaoAjudaProativa } from "./components/BalaoAjudaProativa";
 import { AvisoServicoPronto } from "./components/AvisoServicoPronto";
+import { contarEmpresas, textoAtalhoAtivar, textoContagemEmpresas } from "./utils/contagemEmpresas";
+import { pedirAbrirBlocoNaoAtivadas, publicarContagemEmpresas } from "./components/ContagemEmpresasContabil";
 import { CartaoOkContador } from "./components/CartaoOkContador";
 import { conferirNoServidor, useRevisor } from "./components/RevisorPainel";
 import { revisarFechamento } from "./utils/revisorContabil";
@@ -154,6 +156,9 @@ function AppWorkspace() {
     window.addEventListener("murad:empresas-mudaram", recarregar);
     return () => { window.removeEventListener("murad:exibir-disponiveis", exibir); window.removeEventListener("murad:empresas-mudaram", recarregar); };
   }, []);
+  // Total do escritório E a divisão (atendidas no Contábil x ainda não ativadas aqui): a MESMA conta da Murad (utils/contagemEmpresas).
+  const contagemEmpresas = React.useMemo(() => contarEmpresas(listaEmpresas, (e) => disponiveisCnpj.has(e.cnpj)), [listaEmpresas, disponiveisCnpj]);
+  React.useEffect(() => { if (listaEmpresas.length) publicarContagemEmpresas(contagemEmpresas); }, [contagemEmpresas, listaEmpresas.length]);
   const empresasDoSeletor = React.useMemo(() => listaEmpresas.filter((e) => exibirDisponiveis || !disponiveisCnpj.has(e.cnpj)).map((e) => ({ ...e, nome: disponiveisCnpj.has(e.cnpj) ? `${e.nome} (ainda não ativada no Contábil)` : e.nome })), [listaEmpresas, disponiveisCnpj, exibirDisponiveis]);
   const [orgaos, setOrgaos] = useState<OrgaoConectado[]>(() => orgaosIniciais.map((org) => ({
     ...org,
@@ -1033,6 +1038,9 @@ function AppWorkspace() {
           onTrocarEmpresa={() => setTabAtiva("empresa")}
           empresas={empresasDoSeletor.map(({ cnpj, nome }) => ({ cnpj, nome }))}
           onEscolherEmpresa={escolherEmpresaPeloCnpj}
+          resumoEmpresas={listaEmpresas.length ? textoContagemEmpresas(contagemEmpresas, "Contábil") : undefined}
+          onAtivarNaoAtivadas={contagemEmpresas.naoAtivadas > 0 ? () => { pedirAbrirBlocoNaoAtivadas(); setTabAtiva("empresa"); } : undefined}
+          rotuloAtivarNaoAtivadas={textoAtalhoAtivar(contagemEmpresas)}
           itensBusca={itensBusca}
           onLogout={auth.sair}
           onAbrirIA={() => assistenteRef.current?.abrir()}

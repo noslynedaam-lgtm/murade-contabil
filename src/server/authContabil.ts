@@ -269,6 +269,22 @@ export async function obterSessaoContabil(req: Request): Promise<SessaoContabil 
   return montarSessaoContabil(user.rows[0]);
 }
 
+/** Todos os usuários "dono do sistema" ativos (mesma regra da sessão): quem recebe os chamados para o supervisor. */
+export async function donosDoSistemaContabil(): Promise<Array<{ id: string; login: string }>> {
+  await prepararAuthContabil();
+  const admins = await obterBanco().query("SELECT id, login FROM contabil_auth_users WHERE global_admin=true AND disabled=false ORDER BY created_at, id");
+  const donos: Array<{ id: string; login: string }> = [];
+  for (const r of admins.rows) if (await ehDonoDoSistemaContabil(String(r.id), String(r.login).toLowerCase())) donos.push({ id: String(r.id), login: String(r.login) });
+  return donos;
+}
+
+/** Id do usuário pelo login (para avisar no aparelho quem recebeu a resposta do supervisor). */
+export async function idDoLoginContabil(login: string): Promise<string | null> {
+  await prepararAuthContabil();
+  const r = await obterBanco().query("SELECT id FROM contabil_auth_users WHERE lower(login)=lower($1) AND disabled=false LIMIT 1", [String(login || "")]);
+  return r.rows[0] ? String(r.rows[0].id) : null;
+}
+
 async function ehDonoDoSistemaContabil(userId: string, login: string): Promise<boolean> {
   const lista = (process.env.MURADE_DONO_SISTEMA || "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
   if (lista.length) return lista.includes(login);

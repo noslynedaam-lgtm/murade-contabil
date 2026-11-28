@@ -3,6 +3,7 @@
 // o Robô Reconciliador não prepara pré-lançamento e nenhum robô age nelas. Com o bloco aberto, aparecem no seletor do topo.
 import React, { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, CheckCircle2 } from "lucide-react";
+import { EVENTO_ABRIR_BLOCO_NAO_ATIVADAS, consumirPedidoAbrirBloco } from "./ContagemEmpresasContabil";
 
 interface Disponivel { cnpj: string; razaoSocial: string; regime?: string; uf?: string }
 const cnpjParaLer = (c: string) => { const d = String(c || "").replace(/[^0-9A-Z]/gi, ""); return d.length === 14 ? `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}` : c; };
@@ -21,6 +22,14 @@ export const EmpresasNaoAtivadasContabil: React.FC = () => {
     try { const r = await fetch("/api/empresas/atendimento/disponiveis", { credentials: "include", cache: "no-store" }); const j = await r.json().catch(() => ({})); if (r.ok && Array.isArray(j.empresas)) setLista(j.empresas); } catch { /* sem rede: o bloco some */ }
   };
   useEffect(() => { void carregar(); return () => { avisarApp("murad:exibir-disponiveis", false); }; }, []);
+  // Atalho "Ver e ativar as que faltam" (contagem de empresas do topo/menu/Murad): abre o bloco sozinho e rola até ele.
+  useEffect(() => {
+    const abrir = () => { setAberto(true); avisarApp("murad:exibir-disponiveis", true); window.setTimeout(() => document.getElementById("bloco-empresas-nao-ativadas")?.scrollIntoView({ behavior: "smooth", block: "center" }), 300); };
+    if (consumirPedidoAbrirBloco()) abrir();
+    const ouvir = () => { consumirPedidoAbrirBloco(); abrir(); };
+    window.addEventListener(EVENTO_ABRIR_BLOCO_NAO_ATIVADAS, ouvir);
+    return () => window.removeEventListener(EVENTO_ABRIR_BLOCO_NAO_ATIVADAS, ouvir);
+  }, []);
   if (!lista.length && !mensagem) return null;
   const alternar = () => { const novo = !aberto; setAberto(novo); avisarApp("murad:exibir-disponiveis", novo); };
   const ativar = async (e: Disponivel) => {

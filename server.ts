@@ -7,6 +7,7 @@ import { atualizarSelicContabil, painelCentral, rodarCentralLucroReal, type Deps
 import { conferirAvisosCelular, enviarAvisosCelular, enviarPeloFiscal, type ItemAviso as ItemAvisoLR } from "./src/server/avisoCelularLucroReal";
 import { registrarAlertaUrgenteContabil } from "./src/server/alertaUrgenteContabilRotas";
 import { enviarUrgentePeloFiscal } from "./src/server/alertaUrgenteContabil";
+import { registrarRotasChamados, registrarChamado, conferirChamados, type DepsChamados } from "./src/server/chamadosSupervisor";
 import { aparelhosDoUsuario, assinarAparelho, cancelarAparelho, chavePublicaContabil, enviarAoUsuario, enviarUrgenteContabilEFiscal, pushConfiguradoContabil } from "./src/server/avisoAparelhoContabil";
 import { linhaFalhaAvisoAparelho } from "./src/server/falhaAvisoAparelho";
 import { buscarRetencoesNoFiscal, gravarRetencoes } from "./src/server/lucroRealObrigacoesExtras";
@@ -61,7 +62,7 @@ import { lerPerfilSaudacaoContabil, marcarSaudadoHojeContabil } from "./src/serv
 import { extrairNomeDaResposta, fraseDeApresentacao, fraseDeSaudacao } from "./src/server/agenteSaudacao";
 import { opcoesConexaoBancoContabil, bancoTransacionalContabil } from "./src/server/authContabil";
 import { removerEmpresaCompleta, sobrasDeEmpresasExcluidas } from "./src/server/exclusaoEmpresaCascata";
-import { listarRegistroAgenteIAContabil, bancoContabilConfigurado, consultaBancoContabil, hashSessaoContabil, registrarAcaoAgenteIAContabil, listarDuvidasSemRespostaDonoSistemaContabil, resolverDuvidaSemRespostaDonoSistemaContabil } from "./src/server/authContabil";
+import { listarRegistroAgenteIAContabil, bancoContabilConfigurado, consultaBancoContabil, hashSessaoContabil, registrarAcaoAgenteIAContabil, donosDoSistemaContabil, idDoLoginContabil } from "./src/server/authContabil";
 import { definirTravasTesteContabil, criarSessaoPorIdContabil, sessaoDaRequisicaoContabil as sessaoTesteContabil } from "./src/server/authContabil";
 import * as testeLocal from "./src/server/testeGratisLocal";
 import { definirLimiteTesteMigracaoContabil } from "./src/server/migracaoSistemaAnterior/banco";
@@ -419,8 +420,30 @@ const reconciliacaoRascunhosStatus: {
   app.post("/api/auth/tenants/:login/reenviar", exigirOrigemNavegador, exigirSessaoContabil, reenviarAcessoEscritorioContabil);
   app.post("/api/auth/tenants/:login/bloqueio", exigirOrigemNavegador, exigirSessaoContabil, bloquearEscritorioContabil);
   app.post("/api/auth/tenants/:login/limite", exigirOrigemNavegador, exigirSessaoContabil, definirLimiteEscritorioContabil);
-  app.get("/api/auth/duvidas-supervisor", exigirSessaoContabil, listarDuvidasSemRespostaDonoSistemaContabil);
-  app.post("/api/auth/duvidas-supervisor/:id/resolver", exigirOrigemNavegador, exigirSessaoContabil, resolverDuvidaSemRespostaDonoSistemaContabil);
+  // Chamados para o supervisor (28/11/2026): registro garantido, aviso no aparelho do dono, contador na tela, Responder/Resolvido
+  // e a resposta volta para a pessoa como mensagem da Murad. Substitui as duas rotas antigas (mesmos endereços).
+  const depsChamadosContabil: DepsChamados = {
+    consultar: (sql, params) => consultaBancoContabil(sql, params || []),
+    tabela: "contabil_ai_agent_log",
+    sistema: "Contábil",
+    donos: donosDoSistemaContabil,
+    enviarPush: (userId, aviso) => enviarAoUsuario((sql, params) => consultaBancoContabil(sql, params || []), userId, aviso),
+    idDoLogin: idDoLoginContabil,
+  };
+  registrarRotasChamados(app, { deps: depsChamadosContabil, sessao: (req) => { const s = sessaoDaRequisicaoContabil(req); return s ? { login: s.login, donoSistema: s.donoSistema === true } : null; }, leitura: [exigirSessaoContabil], gravacao: [exigirOrigemNavegador, exigirSessaoContabil], bancoConfigurado: bancoContabilConfigurado });
+  // Robô conferidor (de hora em hora): chamado aberto há mais de 2 h que o dono ainda não viu → reenvia o aviso.
+  registrarRobo({ id: "conferidor_chamados_supervisor", nome: "Robô Conferidor dos Chamados para o Supervisor", posto: "conferidor", missao: "De hora em hora: confere os chamados que a Murad levou ao supervisor (dono do sistema). Chamado aberto há mais de 2 horas que o dono ainda não viu recebe o aviso no aparelho de novo (no máximo a cada 2 horas); conta os abertos, os não vistos e as respostas que ainda esperam a pessoa abrir o sistema; alerta quando nenhum aparelho do dono recebe o aviso. Nunca apaga chamado nem consulta o Serpro.", ...(bancoContabilConfigurado() ? { intervaloMs: 60 * 60_000 } : { motivoSemRotina: "Configure o banco do Contábil para guardar os chamados." }) });
+  const rodarConferidorChamadosSupervisor = () => {
+    if (!bancoContabilConfigurado()) return Promise.resolve();
+    return executarRobo("conferidor_chamados_supervisor", async () => {
+      const r = await conferirChamados(depsChamadosContabil);
+      definirAlertaRobo("conferidor_chamados_supervisor", r.alerta ? { nivel: "aviso", texto: r.alerta } : null);
+      registrarResultadoRobo("conferidor_chamados_supervisor", r.resumo);
+    }).catch((e: any) => console.error("Falha no Robô Conferidor dos Chamados para o Supervisor:", e?.message || e));
+  };
+  registrarRotinaManual("conferidor_chamados_supervisor", rodarConferidorChamadosSupervisor);
+  setTimeout(() => void rodarConferidorChamadosSupervisor(), 6 * 60_000).unref();
+  setInterval(() => void rodarConferidorChamadosSupervisor(), 60 * 60_000).unref();
   app.get("/api/workspaces", exigirSessaoContabil, listarWorkspacesContabil);
   // Painel "Prontos para conferir": por empresa do escritório (só os CNPJs da sessão), quantos pré-lançamentos o robô já preparou e o que está parado.
   app.get("/api/contabil/prontos-para-conferir", exigirSessaoContabil, async (req, res) => {
@@ -1381,6 +1404,24 @@ const reconciliacaoRascunhosStatus: {
   const servicoMeuJeito = criarServicoMeuJeito((sql, params) => consultaBancoContabil(sql, params));
   const sessaoMeuJeito = (req: express.Request): SessaoJeito | undefined => { const x = sessaoDaRequisicaoContabil(req); return x ? { userId: x.userId, login: x.login, tenantId: x.tenantId, escritorioDe: x.escritorioDe, administrador: x.administrador === true, donoSistema: x.donoSistema === true } : undefined; };
 
+  /** chamar_supervisor (ou o registro automático do motor): grava com o contexto e avisa o dono na hora. */
+  const registrarChamadoSupervisorContabil = async (req: express.Request, evento: { ferramenta: string; cnpj: string | null; resumo: string; resultado?: string }): Promise<void> => {
+    const sessao = sessaoDaRequisicaoContabil(req);
+    if (!sessao) throw new Error("Sessão não autorizada.");
+    if (!bancoContabilConfigurado()) return;
+    let escritorio: string | null = null;
+    try { const t = await consultaBancoContabil("SELECT login FROM contabil_auth_users WHERE id=$1", [sessao.tenantId || sessao.escritorioDe || sessao.userId]); escritorio = t.rows[0]?.login ? String(t.rows[0].login) : null; } catch { escritorio = null; }
+    const corpo: any = req.body || {};
+    const so = (v: unknown) => String(v || "").replace(/[^0-9A-Za-z]/g, "").toUpperCase();
+    const cnpjBruto = so(evento.cnpj || corpo?.empresaAtiva?.cnpj);
+    const cnpjOk = cnpjBruto.length === 14 && sessao.cnpjs.map(so).includes(cnpjBruto) ? cnpjBruto : null; // nunca grava empresa de outro escritório
+    const tela = typeof corpo.tela === "string" ? String(corpo.tela).slice(0, 80) : null;
+    await registrarChamado(depsChamadosContabil, {
+      login: sessao.login, cnpj: cnpjOk, pergunta: evento.resumo,
+      contexto: { origem: evento.ferramenta === "chamar_supervisor_automatico" ? "automatico" : "ferramenta", escritorio, tenant: String(sessao.tenantId || ""), empresaCnpj: cnpjOk, empresaNome: null, tela, respostaMurad: evento.resultado || null },
+    });
+  };
+
   const contextoAgenteIA = (req: express.Request): ContextoAgente | null => {
     const sessao = sessaoDaRequisicaoContabil(req);
     if (!sessao) return null;
@@ -1389,7 +1430,7 @@ const reconciliacaoRascunhosStatus: {
       login: sessao.login,
       hoje: new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" }),
       chamarApi: chamarApiComoUsuario(req),
-      registrar: (evento) => registrarAcaoAgenteIAContabil(sessao.login, evento),
+      registrar: (evento) => (evento.evento === "duvida_sem_resposta" ? registrarChamadoSupervisorContabil(req, evento) : registrarAcaoAgenteIAContabil(sessao.login, evento)),
       pendentes: acoesPendentesAgenteIA,
       kit: kitContabil,
       central: centralDePedidos,
@@ -1468,6 +1509,7 @@ const reconciliacaoRascunhosStatus: {
     ctx.inicioMs = inicioPedido;
     const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
     if (!message) return res.status(400).json({ error: "Digite seu pedido." });
+    ctx.mensagemOriginal = message.slice(0, 2000);
     const historico = Array.isArray(req.body?.historico)
       ? req.body.historico.filter((t: any) => t && (t.papel === "usuario" || t.papel === "ia") && typeof t.texto === "string").slice(-MAX_TURNOS_HISTORICO)
       : [];

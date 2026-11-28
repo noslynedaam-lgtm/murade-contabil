@@ -1,6 +1,7 @@
 // Ferramentas da Agente IA do Murade Contábil. Cada ferramenta chama uma rota que já existe, com a
 // sessão do próprio usuário, então escopo por empresa, perfil "somente leitura" e as travas de
 // conferência/fechamento continuam valendo. A Agente nunca grava lançamento definitivo por conta própria.
+import { contarEmpresas, textoContagemEmpresas } from '../utils/contagemEmpresas';
 import { FERRAMENTAS_CONFERE, INSTRUCAO_CONFERE } from './agenteConfere';
 import { FERRAMENTAS_CADASTRO_EMPRESA_CONTABIL, INSTRUCAO_CADASTRO_EMPRESA } from './agenteCadastroEmpresaContabil';
 import { criarFerramentasAtivarEmpresa, instrucaoAtivarEmpresa } from './agenteAtivarEmpresa';
@@ -63,11 +64,17 @@ async function lerWorkspace(ctx: Parameters<Extract<Ferramenta, { tipo: 'leitura
 const FERRAMENTAS: Ferramenta[] = [
   {
     tipo: 'leitura',
-    declaracao: { name: 'listar_empresas', description: 'Lista as empresas autorizadas para este usuário (CNPJ e nome).', parameters: { type: 'OBJECT', properties: {} } },
+    declaracao: { name: 'listar_empresas', description: 'Lista as empresas do escritório autorizadas para este usuário (CNPJ, nome e se já está ATENDIDA no Contábil ou ainda não ativada aqui). Traz "resumo" com o total e a divisão: diga SEMPRE os números do resumo, exatamente como vieram (o mesmo que aparece nas telas).', parameters: { type: 'OBJECT', properties: {} } },
     async executar(ctx) {
       const r = await ctx.chamarApi('GET', '/api/workspaces');
       if (!ok(r)) return erroApi(r);
-      return { empresas: (r.corpo?.empresas || []).map((e: any) => ({ cnpj: e.cnpj, nome: e.razaoSocial || e.nomeFantasia || e.nome || null, regime: e.regime || null })) };
+      const lista: any[] = Array.isArray(r.corpo?.empresas) ? r.corpo.empresas : [];
+      // Mesma função de contagem das telas (seletor do topo, menu da conta): total do escritório E a divisão.
+      const contagem = contarEmpresas(lista, (e: any) => e?.atendimentoContabil === 'disponivel');
+      return {
+        resumo: textoContagemEmpresas(contagem, 'Contábil'), contagem,
+        empresas: lista.map((e: any) => ({ cnpj: e.cnpj, nome: e.razaoSocial || e.nomeFantasia || e.nome || null, regime: e.regime || null, atendidaNoContabil: e?.atendimentoContabil !== 'disponivel' })),
+      };
     },
   },
   {
@@ -1195,7 +1202,7 @@ LIMITES (diga com clareza quando o pedido bater neles)
 NUNCA ENROLE NEM JOGUE CONVERSA FORA
 - Antes de responder qualquer pergunta sobre dados, telas, cálculos ou obrigações, pare e verifique se existe uma ferramenta (desta lista ou do MAPA DO SISTEMA acima) que responda. Se existir, use-a. Só diga que "não sabe" ou que algo "não existe no sistema" depois de checar a lista de ferramentas e o mapa do menu — nunca por suposição.
 - Se mesmo assim não houver ferramenta ou tela para aquilo, e você tiver certeza de quem resolve (outro sistema, o contador, a Receita), diga isso de forma direta e objetiva, em poucas frases.
-- Se não houver ferramenta, tela, NEM uma resposta clara de quem resolve — ou seja, você realmente não sabe o que fazer com o pedido —, use chamar_supervisor com um resumo da pergunta, e então diga ao usuário, com calma, que você vai levar isso ao seu supervisor e que volta a falar com ele assim que tiver a resposta. Nunca invente um prazo. Isso NÃO é desculpa para pular a busca por uma ferramenta: só chame o supervisor depois de checar tudo o que você tem.
+- Se não houver ferramenta, tela, NEM uma resposta clara de quem resolve — ou seja, você realmente não sabe o que fazer com o pedido —, use chamar_supervisor com um resumo da pergunta, e então diga ao usuário, com calma, que você vai levar isso ao seu supervisor e que volta a falar com ele assim que tiver a resposta. Nunca invente um prazo. Nunca diga que vai chamar ou levar ao supervisor sem ter usado chamar_supervisor antes, na mesma resposta (o sistema confere e registra). Isso NÃO é desculpa para pular a busca por uma ferramenta: só chame o supervisor depois de checar tudo o que você tem.
 - Nunca fique repetindo a pergunta, dando respostas vagas, enrolando ou gerando texto sem informação nova só para preencher a resposta — isso gasta crédito sem ajudar.`;
 
 export const kitContabil: KitAgente = { ferramentas: [...FERRAMENTAS, ...FERRAMENTAS_SERVICO_COMPLETO, ...FERRAMENTAS_PILOTO, ...FERRAMENTAS_ENTRE_SISTEMAS, ...FERRAMENTAS_REVISOR, ...FERRAMENTAS_CONFERIDOR_ORIGENS, ...FERRAMENTAS_DEMONSTRACOES, ...FERRAMENTAS_ESCOLA, ...FERRAMENTAS_CADASTRO_ESCRITORIO, ...FERRAMENTAS_MIGRACAO_SISTEMA_ANTERIOR, ...FERRAMENTAS_HISTORICO_GUARDADO, ...FERRAMENTAS_AJUSTES_FECHAMENTO, ...FERRAMENTAS_TITULOS_CARTOES, ...FERRAMENTAS_DOCUMENTOS_LIDOS, ...FERRAMENTAS_FISCOIA_CONTABIL, ...FERRAMENTAS_REGIMES, ...FERRAMENTAS_BAIXA_GUIAS, ...FERRAMENTAS_LUCRO_REAL, ...FERRAMENTAS_CENTRAL_LUCRO_REAL, ...FERRAMENTAS_ARQUIVO_MORTO, ...FERRAMENTAS_PRESENCA_DONO, ...ferramentasBackupEscritorio("/api/contabil/backup-agendado", "Murad Contábil"), ...FERRAMENTAS_CONFERE, ...FERRAMENTAS_CADASTRO_EMPRESA_CONTABIL, ...FERRAMENTAS_ATIVAR_EMPRESA_CONTABIL], instrucao: INSTRUCAO_BASE + INSTRUCAO_PRESENCA_DONO + INSTRUCAO_SERVICO_COMPLETO + INSTRUCAO_PILOTO + INSTRUCAO_ENTRE_SISTEMAS + INSTRUCAO_REVISOR + INSTRUCAO_CONFERIDOR_ORIGENS + INSTRUCAO_DEMONSTRACOES + INSTRUCAO_ESCOLA + INSTRUCAO_CADASTRO_ESCRITORIO + INSTRUCAO_MIGRACAO_SISTEMA_ANTERIOR + INSTRUCAO_HISTORICO_GUARDADO + INSTRUCAO_AJUSTES_FECHAMENTO + INSTRUCAO_TITULOS_CARTOES + INSTRUCAO_DOCUMENTOS_LIDOS + INSTRUCAO_FISCOIA_CONTABIL + INSTRUCAO_REGIMES + INSTRUCAO_BAIXA_GUIAS + INSTRUCAO_LUCRO_REAL + INSTRUCAO_CENTRAL_LUCRO_REAL + INSTRUCAO_ARQUIVO_MORTO + INSTRUCAO_BACKUP_ESCRITORIO + INSTRUCAO_CONFERE + INSTRUCAO_CADASTRO_EMPRESA + instrucaoAtivarEmpresa('Contábil') };
