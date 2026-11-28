@@ -23,6 +23,11 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import { timingSafeEqual } from "node:crypto";
+import { prepararFicha } from "./src/server/cadastroPorDocumento";
+import { lerAnexoDoPedidoAgente } from "./src/server/agenteCadastroEmpresa";
+import { consultarCnpjPublico } from "./src/server/consultaCnpjPublica";
+import { receberCadastroNoContabil, criarEnvioContabilParaFiscal, rodarEnvioCadastroContabil, enfileirarCadastroContabil, cadastroMudou, conferirCadastroContabilFiscal, soVaziosContabil, PREFIXO_CONTABIL } from "./src/server/sincroniaCadastroContabil";
+import { listarDivergencias, dispensarDivergencia } from "./src/server/sincroniaCadastroEmpresas";
 import { ErroValidacaoDocumentoFiscal, fiscalStoreConfigurado, gravarDocumentosFiscais, lerDocumentosFiscais, lerVersoesDocumentoFiscal, verificarEstadoStoreFiscal } from "./src/server/documentosFiscaisStore";
 import { registrarRotasLucroReal } from "./src/server/lucroRealRotas";
 import { rodarRoboLucroReal, listarApuracoesReal, listarPagamentosReal } from "./src/server/lucroRealApuracao";
@@ -36,7 +41,7 @@ import { registrarRotasArquivoMorto } from "./src/server/arquivoMortoRotas";
 import { migrarArquivoAntigo, rodarRoboPrazoGuarda, escritorioDaEmpresa } from "./src/server/arquivoMorto";
 import { gravarEventoDP, lerEventosDP } from "./src/server/dadosDpEventosStore";
 import { registrarGestaoEquipe } from "./src/server/gestaoEquipe";
-import { prepararAuthContabil, configGestaoEquipeContabil, adicionarEmpresaAcessoContabil, adicionarEquipeContabil, bloquearEscritorioContabil, definirLimiteEscritorioContabil, convidarEquipeContabil, convidarEscritorioContabil, reenviarAcessoEscritorioContabil, listarEquipeContabil, listarEscritoriosContabil, removerEquipeContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, sessaoDaRequisicaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarCnpjsComOrigensSemMapeamentoContabil, aplicarMapeamentosPadraoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, manterConectadoContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil, importarCnpjsCompartilhados, sessaoDoEscritorioParaIntegracaoContabil, auth2faEstadoContabil, auth2faIniciarContabil, auth2faAtivarContabil, auth2faDesativarContabil, auth2faRedefinirContabil, auth2faResumoContabil, resumoSegurancaContabil, alterarWorkspaceNoServidorContabil, criarWorkspacesQueFaltamContabil, resumoPreLancamentosPorEmpresaContabil, ORIGENS_BASICAS_CONTABIL } from "./src/server/authContabil";
+import { prepararAuthContabil, configGestaoEquipeContabil, adicionarEmpresaAcessoContabil, adicionarEquipeContabil, bloquearEscritorioContabil, definirLimiteEscritorioContabil, convidarEquipeContabil, convidarEscritorioContabil, reenviarAcessoEscritorioContabil, listarEquipeContabil, listarEscritoriosContabil, removerEquipeContabil, bootstrapAuthContabil, contabilizarRascunhosAutomaticosContabil, cnpjContabilValido, criarConviteUsuarioContabil, decidirLancamentoManualContabil, exigirSessaoContabil, sessaoDaRequisicaoContabil, fecharCompetenciaContabil, lerWorkspaceContabil, lerWorkspaceInternoContabil, listarCnpjsComMapeamentoContabil, listarCnpjsComOrigensSemMapeamentoContabil, aplicarMapeamentosPadraoContabil, listarFechamentosContabil, listarHistoricoAprovacoesContabil, listarUsuariosEmpresaContabil, listarWorkspacesContabil, loginAuthContabil, logoutAuthContabil, manterConectadoContabil, normalizarCnpjAcesso, removerEmpresaAcessoContabil, resgatarConviteUsuarioContabil, revogarUsuarioEmpresaContabil, salvarWorkspaceContabil, sessaoAtualContabil, statusAuthContabil, verificarCnpjAutorizadoContabil, vincularUsuarioExistenteContabil, importarCnpjsCompartilhados, loginDoDonoDoEscritorioContabil, sessaoDoEscritorioParaIntegracaoContabil, auth2faEstadoContabil, auth2faIniciarContabil, auth2faAtivarContabil, auth2faDesativarContabil, auth2faRedefinirContabil, auth2faResumoContabil, resumoSegurancaContabil, alterarWorkspaceNoServidorContabil, criarWorkspacesQueFaltamContabil, resumoPreLancamentosPorEmpresaContabil, ORIGENS_BASICAS_CONTABIL } from "./src/server/authContabil";
 import { ArmazemDeEtapas, chaveDeEtapas, prepararPedido, limitarPedido, avisoDeTextoCortado } from "./src/server/agenteEtapas";
 import { ArmazemAcoesPendentes, avancarAcao as avancarAcaoAgenteIA, confirmarAcao as confirmarAcaoAgenteIA, conversar as conversarAgenteIA, recusarAcao as recusarAcaoAgenteIA, type ChamarApi, type ContextoAgente, type ModeloIA } from "./src/server/agenteMotor";
 import { kitContabil } from "./src/server/agenteContabil";
@@ -221,6 +226,7 @@ const reconciliacaoRascunhosStatus: {
   // Agente IA: corpo maior para nunca recusar texto longo (até 500.000 caracteres + histórico; o servidor corta e avisa).
   app.use(["/api/ai/agente", "/api/ai/chat"], express.json({ limit: "25mb" }));
   app.use("/api/painel-escritorio/entrega/recibo", express.json({ limit: "5mb" })); // recibo da ECD/ECF de até 3 MB, em base64
+  app.use("/api/empresas/ler-documento-cadastro", express.json({ limit: "12mb" })); // foto/PDF do cartão CNPJ em base64 (até ~5 MB)
   app.use(express.json({ limit: "2mb" }));
   const sessaoAtividade = (req: express.Request) => (req as express.Request & { sessaoContabil?: SessaoContabil }).sessaoContabil;
   const atividadeEquipe = criarAtividadeEscritorio({ consultar: consultaBancoContabil, tabela: "contabil_atividade_equipe", sessao: sessaoAtividade, podeVer: (req) => sessaoAtividade(req)?.administrador === true });
@@ -498,7 +504,11 @@ const reconciliacaoRascunhosStatus: {
     } catch (error) {
       console.error("Falha ao preparar rascunhos durante atualização dos mapeamentos:", error);
     }
+    let empresaAntes: unknown = null;
+    try { empresaAntes = (await lerWorkspaceInternoContabil(cnpj) as any)?.empresa ?? null; } catch { /* sem leitura: não compara */ }
     await salvarWorkspaceContabil(req, res, { dadosPropostosPeloCliente: workspaceEnviado, permitirRascunhosServidor });
+    // Sincronia do cadastro (27/11/2026): cadastro da empresa salvo e diferente do anterior vai sozinho ao Fiscal e, de lá, ao DP.
+    if (res.statusCode < 300 && workspaceEnviado?.empresa && cadastroMudou(empresaAntes, workspaceEnviado.empresa)) void mandarCadastroContabilAoFiscal(req, cnpj).catch((e) => console.error("Falha ao mandar o cadastro da empresa ao Fiscal:", e?.message || e));
   });
   app.post("/api/workspaces/:cnpj/contabilizar", exigirOrigemNavegador, exigirSessaoContabil, servicoFeito.guardas.contabilizacao, async (req, res) => {
     const cnpj = normalizarCnpjAcesso(req.params.cnpj);
@@ -1458,7 +1468,10 @@ const reconciliacaoRascunhosStatus: {
       let confirmacaoResumida = false;
       try { const sj = sessaoMeuJeito(req); if (sj) { const j = await servicoMeuJeito.paraAgente(sj); if (j.instrucao) ctx.kit = { ...ctx.kit, instrucao: ctx.kit.instrucao + j.instrucao }; confirmacaoResumida = j.confirmacaoResumida; } } catch { /* jeito indisponível: jeito padrão */ }
       const pedido = prepararPedido(etapasAgenteIA, chaveDeEtapas("contabil", sessaoDaRequisicaoContabil(req)?.tenantId, ctx.login, ctx.sessaoHash), message);
-      const conversa = await conversarAgenteIA(ctx, modeloGeminiAgente(), pedido.mensagem, historico);
+      // Anexo opcional ("Murad, cadastra essa empresa" + foto/PDF/XML): foto/PDF a IA lê; XML vira texto. Nada é gravado sem o cartão de OK.
+      const anexoPedido = lerAnexoDoPedidoAgente(req.body?.anexo);
+      if (anexoPedido.ok === false) return res.status(anexoPedido.status).json({ error: anexoPedido.erro });
+      const conversa = await conversarAgenteIA(ctx, modeloGeminiAgente(), pedido.mensagem + anexoPedido.textoXml, historico, anexoPedido.anexo);
       const resultado = { ...conversa, ...pedido.concluir(conversa.resposta) };
       if (confirmacaoResumida) resultado.acoes = resultado.acoes.map((a) => (CARTAO_PODE_SER_RESUMIDO.has(a.ferramenta) && !a.irreversivel ? { ...a, descricao: a.descricao.slice(0, 1) } : a));
       return res.json({ sucesso: true, ...resultado });
@@ -2022,6 +2035,118 @@ const reconciliacaoRascunhosStatus: {
   const rodarEmpresasFiscal = () => bancoContabilConfigurado() ? executarRobo("empresas_fiscal", async () => { const r = await sincronizarEmpresasDoFiscal(); registrarResultadoRobo("empresas_fiscal", r.motivo); }).catch((e) => console.error("Falha no Robô de Empresas do Fiscal:", e?.message || e)) : undefined;
   setTimeout(() => void rodarEmpresasFiscal(), 120_000).unref();
   setInterval(() => void rodarEmpresasFiscal(), 10 * 60_000).unref();
+  // ===== Cadastro de empresa por foto/arquivo e sincronia do cadastro entre os três sistemas (27/11/2026) =====
+  const consultarSinc = (sql: string, params?: unknown[]) => consultaBancoContabil(sql, params) as any;
+  /** Cadastro atual da empresa no Contábil: o do workspace ou, sem workspace, o compartilhado. */
+  const lerCadastroContabil = async (cnpj: string): Promise<Record<string, any> | null> => {
+    const ws: any = await lerWorkspaceInternoContabil(cnpj).catch(() => null);
+    if (ws?.empresa && String(ws.empresa.razaoSocial || "").trim()) return ws.empresa;
+    const c = (await consultaBancoContabil("SELECT dados FROM contabil_empresas_compartilhadas WHERE cnpj=$1", [cnpj]).catch(() => ({ rows: [] as any[] }))).rows[0]?.dados;
+    const acesso = (await consultaBancoContabil("SELECT 1 FROM contabil_auth_company_access WHERE cnpj=$1 LIMIT 1", [cnpj]).catch(() => ({ rows: [] as any[] }))).rows.length;
+    return acesso ? (c || ws?.empresa || null) : null;
+  };
+  const alterarEmpresaDoWorkspace = async (cnpj: string, alterar: (empresa: Record<string, any>) => Record<string, any> | null) => {
+    const r = await alterarWorkspaceNoServidorContabil(cnpj, (payload) => { const nova = alterar((payload.empresa as Record<string, any>) || {}); return { payload: nova ? { ...payload, empresa: nova } : null, resultado: nova }; });
+    return r.resultado;
+  };
+  const depsFilaCadastro = () => ({ consultar: consultarSinc, lerCadastro: lerCadastroContabil, enviar: criarEnvioContabilParaFiscal(lerCadastroContabil) });
+  async function mandarCadastroContabilAoFiscal(req: express.Request, cnpj: string): Promise<void> {
+    if (!bancoContabilConfigurado() || !process.env.MURADE_INTEGRATION_TOKEN) return;
+    const login = String(sessaoDaRequisicaoContabil(req)?.login || "").toLowerCase();
+    if (!login) return;
+    const escritorio = (await loginDoDonoDoEscritorioContabil(login).catch(() => null)) || login;
+    await enfileirarCadastroContabil(consultarSinc, cnpj, escritorio);
+    rodarEnvioCadastroLogo();
+  }
+  registrarRobo({ id: "envio_cadastro_fiscal", nome: "Robô de Envio do Cadastro de Empresas ao Fiscal (e ao DP)", posto: "integrador", missao: "Na hora em que o cadastro de uma empresa é salvo ou alterado no Contábil, e de 10 em 10 minutos para o que não chegou, manda o cadastro ao Murad Fiscal do MESMO escritório; o Fiscal completa só o que estiver vazio lá e repassa ao DP. Nada do que foi digitado nos outros sistemas é trocado (diferença vira aviso \"conferir\"). Nunca cria empresa duas vezes, nunca leva empresa para outro escritório e nunca leva certificado nem senha.", ...(bancoContabilConfigurado() ? { intervaloMs: 10 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  const rodarEnvioCadastroJob = () => bancoContabilConfigurado() ? executarRobo("envio_cadastro_fiscal", async () => { const r = await rodarEnvioCadastroContabil(depsFilaCadastro()); registrarResultadoRobo("envio_cadastro_fiscal", r.resumo); definirAlertaRobo("envio_cadastro_fiscal", r.falharam.length ? { nivel: "aviso", texto: `${r.falharam.length} cadastro(s) de empresa ainda não chegaram ao Fiscal; o robô continua tentando.` } : null); }).catch((e) => console.error("Falha no Robô de Envio do Cadastro ao Fiscal:", e?.message || e)) : undefined;
+  let envioCadastroAgendado: NodeJS.Timeout | null = null;
+  const rodarEnvioCadastroLogo = () => { if (envioCadastroAgendado) return; envioCadastroAgendado = setTimeout(() => { envioCadastroAgendado = null; void rodarEnvioCadastroJob(); }, 4000); envioCadastroAgendado.unref?.(); };
+  registrarRotinaManual("envio_cadastro_fiscal", rodarEnvioCadastroJob);
+  setTimeout(() => void rodarEnvioCadastroJob(), 6 * 60_000).unref();
+  setInterval(() => void rodarEnvioCadastroJob(), 10 * 60_000).unref();
+  registrarRobo({ id: "conferidor_cadastro_fiscal", nome: "Robô Conferidor do Cadastro de Empresas Contábil × Fiscal", posto: "conferidor", missao: "De 2 em 2 horas (e no \"Rodar agora\") confere, empresa por empresa, se o Fiscal recebeu o cadastro ATUAL de cada empresa do Contábil; o que mudou e não foi (ou nunca foi) vai para a fila e é enviado na hora (do Fiscal segue ao DP). Só confere e reenvia; nunca troca o que foi digitado, nunca apaga e nunca bloqueia CNPJ.", ...(bancoContabilConfigurado() ? { intervaloMs: 2 * 60 * 60_000 } : { motivoSemRotina: "Configure o PostgreSQL do Contábil." }) });
+  const rodarConferidorCadastroJob = () => bancoContabilConfigurado() ? executarRobo("conferidor_cadastro_fiscal", async () => {
+    const r = await conferirCadastroContabilFiscal({ ...depsFilaCadastro(), empresasComEscritorio: async () => (await consultaBancoContabil(`SELECT DISTINCT ON (a.cnpj) a.cnpj, lower(COALESCE(o.login, u.login)) AS login FROM contabil_auth_company_access a JOIN contabil_auth_users u ON u.id=a.user_id
+      LEFT JOIN contabil_auth_users o ON o.id=u.office_owner AND u.global_admin=false WHERE u.disabled=false AND (u.global_admin=true OR o.id IS NOT NULL) ORDER BY a.cnpj, u.global_admin DESC`)).rows.map((x: any) => ({ cnpj: String(x.cnpj).trim(), escritorio: String(x.login) })) });
+    registrarResultadoRobo("conferidor_cadastro_fiscal", r.resumo);
+    definirAlertaRobo("conferidor_cadastro_fiscal", r.alerta ? { nivel: "aviso", texto: r.resumo.slice(0, 200) } : null);
+  }).catch((e) => console.error("Falha no Robô Conferidor do Cadastro Contábil × Fiscal:", e?.message || e)) : undefined;
+  registrarRotinaManual("conferidor_cadastro_fiscal", rodarConferidorCadastroJob);
+  setTimeout(() => void rodarConferidorCadastroJob(), 19 * 60_000).unref();
+  setInterval(() => void rodarConferidorCadastroJob(), 2 * 60 * 60_000).unref();
+  // O Fiscal manda o cadastro (dele ou do DP): cria se faltar ou completa só o vazio; nunca mexe em empresa de outro escritório.
+  app.post("/api/integracao/empresas/receber", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    if (negarIntegracao(req, res)) return;
+    if (!bancoContabilConfigurado()) return res.status(503).json({ sucesso: false, motivo: "PostgreSQL do Contábil não configurado." });
+    const cnpj = normalizarCnpjAcesso(req.body?.cnpj);
+    const escritorio = String(req.body?.escritorio || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 80).toLowerCase();
+    if (!cnpjContabilValido(cnpj)) return res.status(400).json({ sucesso: false, motivo: "CNPJ inválido." });
+    if (!escritorio && req.body?.donoSistema !== true) return res.status(400).json({ sucesso: false, motivo: "Informe o login do escritório." });
+    try {
+      const r = await receberCadastroNoContabil({
+        consultar: consultarSinc,
+        donoPorLogin: async (login) => { const l = (await loginDoDonoDoEscritorioContabil(login).catch(() => null)) || login; return String((await consultaBancoContabil("SELECT id::text AS id FROM contabil_auth_users WHERE lower(login)=$1 AND global_admin=true AND disabled=false LIMIT 1", [l])).rows[0]?.id || "") || null; },
+        importar: importarCnpjsCompartilhados, alterarEmpresaDoWorkspace,
+      }, { cnpj, escritorio, donoSistema: req.body?.donoSistema === true, origem: String(req.body?.origemPrimeira || "fiscal"), dados: req.body?.dados });
+      return res.json(r);
+    } catch (e: any) { console.error("Falha ao receber o cadastro da empresa do Fiscal:", e?.message || e); return res.status(503).json({ sucesso: false, motivo: "Não foi possível gravar agora." }); }
+  });
+  // Avisos "conferir" (campo diferente entre os sistemas) da empresa da sessão.
+  app.get("/api/empresas/divergencias-cadastro", exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const cnpj = normalizarCnpjAcesso(req.query?.cnpj);
+    const s = sessaoDaRequisicaoContabil(req);
+    if (!s || !s.cnpjs.map(normalizarCnpjAcesso).includes(cnpj)) return res.status(403).json({ sucesso: false, motivo: "Empresa fora do seu acesso." });
+    if (!bancoContabilConfigurado()) return res.json({ sucesso: true, avisos: [] });
+    try { return res.json({ sucesso: true, avisos: await listarDivergencias(consultarSinc, PREFIXO_CONTABIL, [cnpj]) }); }
+    catch { return res.status(503).json({ sucesso: false, motivo: "Não foi possível ler os avisos agora." }); }
+  });
+  app.post("/api/empresas/divergencias-cadastro/dispensar", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
+    const cnpj = normalizarCnpjAcesso(req.body?.cnpj);
+    const s = sessaoDaRequisicaoContabil(req);
+    if (!s || !s.cnpjs.map(normalizarCnpjAcesso).includes(cnpj)) return res.status(403).json({ sucesso: false, motivo: "Empresa fora do seu acesso." });
+    try { return res.json({ sucesso: true, dispensado: await dispensarDivergencia(consultarSinc, PREFIXO_CONTABIL, cnpj, String(req.body?.campo || "")) }); }
+    catch { return res.status(503).json({ sucesso: false, motivo: "Não foi possível tirar o aviso agora." }); }
+  });
+  // Ficha para conferir (foto/PDF/XML do documento, ou CNPJ): a IA só transcreve; consulta pública gratuita (nunca Serpro). Nada é gravado.
+  const usoLeituraCadastro = new Map<string, number[]>();
+  app.post("/api/empresas/ler-documento-cadastro", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const s = sessaoDaRequisicaoContabil(req);
+    if (!s) return res.status(401).json({ sucesso: false, motivo: "Entre novamente para continuar." });
+    const agora = Date.now(); const recentes = (usoLeituraCadastro.get(s.userId) || []).filter((t) => agora - t < 10 * 60_000);
+    if (req.body?.arquivo && recentes.length >= 30) return res.status(429).json({ sucesso: false, motivo: "Muitas leituras em pouco tempo. Aguarde alguns minutos ou digite o CNPJ." });
+    if (req.body?.arquivo) { recentes.push(agora); usoLeituraCadastro.set(s.userId, recentes); }
+    const ler = lerDocumentoComGemini();
+    const r = await prepararFicha({
+      consultarReceita: async (c) => { const x = await consultarCnpjPublico(c); return { ok: x.ok, dados: x.dados, mensagem: x.mensagem }; },
+      lerComIA: ler ? (arquivo, instrucao) => ler(instrucao, arquivo) : undefined,
+    }, { arquivo: req.body?.arquivo, cnpj: req.body?.cnpj, lidos: req.body?.lidos, lado: req.body?.lado, mei: req.body?.mei });
+    console.log("Leitura de cadastro de empresa:", JSON.stringify({ arquivo: Boolean(req.body?.arquivo), ok: r.ok, ...(r.ok && "ficha" in r ? { conferir: r.ficha.paraConferir, receita: r.ficha.receita.conferida } : {}) }));
+    if (r.ok === false) return res.status(r.status).json({ sucesso: false, motivo: r.erro });
+    return res.json({ sucesso: true, ...r });
+  });
+  // Murad (cartão de OK): grava a ficha conferida no cadastro da empresa. Nova: cria o workspace com a empresa; existente: só campos vazios.
+  app.post("/api/empresas/cadastro-pela-ficha", exigirOrigemNavegador, exigirSessaoContabil, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const cnpj = normalizarCnpjAcesso(req.body?.cnpj);
+    const s = sessaoDaRequisicaoContabil(req);
+    const empresa = req.body?.empresa && typeof req.body.empresa === "object" && !Array.isArray(req.body.empresa) ? req.body.empresa : null;
+    if (!s || !s.cnpjs.map(normalizarCnpjAcesso).includes(cnpj)) return res.status(403).json({ sucesso: false, motivo: "Empresa fora do seu acesso (autorize o CNPJ primeiro)." });
+    if (!s.administrador && s.memberships.find((m) => normalizarCnpjAcesso(m.cnpj) === cnpj)?.role === "viewer") return res.status(403).json({ sucesso: false, motivo: "Seu acesso a esta empresa é somente leitura." });
+    if (!empresa || !String(empresa.razaoSocial || "").trim()) return res.status(400).json({ sucesso: false, motivo: "Ficha sem razão social." });
+    try {
+      const limpo = Object.fromEntries(Object.entries(empresa).filter(([k]) => !/(certificado|senha|password|secret|chave)/i.test(k)));
+      await consultaBancoContabil("INSERT INTO contabil_empresas_compartilhadas(cnpj,dados) VALUES($1,$2::jsonb) ON CONFLICT(cnpj) DO NOTHING", [cnpj, JSON.stringify({ cnpj, razaoSocial: limpo.razaoSocial, nomeFantasia: limpo.nomeFantasia || "", regime: limpo.regime || "", municipio: limpo.municipio || "", uf: limpo.uf || "" })]);
+      await criarWorkspacesQueFaltamContabil([cnpj]).catch(() => undefined);
+      let preenchidos: string[] = [];
+      await alterarEmpresaDoWorkspace(cnpj, (atual) => { const c = soVaziosContabil(atual, { ...limpo, cnpj: atual.cnpj || cnpj }); preenchidos = Object.keys(c); return preenchidos.length ? { ...atual, ...c } : null; }).catch((e) => { throw e; });
+      void mandarCadastroContabilAoFiscal(req, cnpj).catch(() => undefined);
+      return res.json({ sucesso: true, cnpj, preenchidos });
+    } catch (e: any) { console.error("Falha ao gravar a ficha da empresa:", e?.message || e); return res.status(503).json({ sucesso: false, motivo: "Não foi possível gravar a empresa agora." }); }
+  });
   app.post("/api/empresas/importar-do-fiscal", exigirSessaoContabil, async (req, res) => {
     if (!sessaoDaRequisicaoContabil(req)?.donoSistema) return res.status(403).json({ sucesso: false, motivo: "Somente o dono do sistema pode trazer as empresas do Fiscal." });
     try { const r = await sincronizarEmpresasDoFiscal(); return res.status(r.ok ? 200 : 502).json({ sucesso: r.ok, ...r }); }

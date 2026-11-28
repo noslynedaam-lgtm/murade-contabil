@@ -231,19 +231,22 @@ async function atalhoListarEmpresas(ctx: ContextoAgente, mensagem: string, porNo
   } catch { return null; }
 }
 
-export async function conversar(ctx: ContextoAgente, modelo: ModeloIA, mensagem: string, historico: TurnoHistorico[] = []): Promise<ResultadoConversa> {
+/** Anexo opcional (foto/PDF): a IA multimodal lê; usado no "Murad, cadastra essa empresa". Nada é gravado sem o cartão de OK. */
+export interface AnexoConversa { mimeType: string; dadosBase64: string }
+
+export async function conversar(ctx: ContextoAgente, modelo: ModeloIA, mensagem: string, historico: TurnoHistorico[] = [], anexo?: AnexoConversa): Promise<ResultadoConversa> {
   const porNome = new Map(ctx.kit.ferramentas.map((f) => [f.declaracao.name, f]));
   historico = historico.slice(-MAX_TURNOS_HISTORICO);
   // Agente ágil: só as ferramentas (e as linhas do prompt) que têm a ver com o pedido; mede cada etapa; aplica a regra de permissão.
-  const agil = new PedidoAgil({ sistema: 'contabil', declaracoes: ctx.kit.ferramentas.map((f) => f.declaracao), instrucaoKit: ctx.kit.instrucao, mensagem, historico, inicioMs: ctx.inicioMs });
-  const rapida = await atalhoListarEmpresas(ctx, mensagem, porNome);
+  const agil = new PedidoAgil({ sistema: 'contabil', declaracoes: ctx.kit.ferramentas.map((f) => f.declaracao), instrucaoKit: ctx.kit.instrucao, mensagem, historico, anexo: Boolean(anexo?.dadosBase64), inicioMs: ctx.inicioMs });
+  const rapida = anexo ? null : await atalhoListarEmpresas(ctx, mensagem, porNome);
   if (rapida) { agil.registrar(rapida.resposta, 'empresas'); return rapida; }
   let respostaFinal = '';
-  try { const r = await conversarComModelo(ctx, modelo, mensagem, historico, porNome, agil); respostaFinal = r.resposta; return r; }
+  try { const r = await conversarComModelo(ctx, modelo, mensagem, historico, porNome, agil, anexo); respostaFinal = r.resposta; return r; }
   finally { agil.registrar(respostaFinal); }
 }
 
-async function conversarComModelo(ctx: ContextoAgente, modelo: ModeloIA, mensagem: string, historico: TurnoHistorico[], porNome: Map<string, Ferramenta>, agil: PedidoAgil<DeclaracaoFerramenta>): Promise<ResultadoConversa> {
+async function conversarComModelo(ctx: ContextoAgente, modelo: ModeloIA, mensagem: string, historico: TurnoHistorico[], porNome: Map<string, Ferramenta>, agil: PedidoAgil<DeclaracaoFerramenta>, anexo?: AnexoConversa): Promise<ResultadoConversa> {
   // Avisa o usuário de pedidos recebidos de outros sistemas que ainda aguardam resposta.
   let instrucao = ESTILO_AGIL + REGRA_PERMISSAO + REGRAS_DE_ENTENDIMENTO + REGRA_PEDIDO_LONGO;
   if (ctx.nomeUsuario) instrucao += `\n\nA pessoa que está falando com você se chama ${ctx.nomeUsuario}. Trate-a pelo nome de vez em quando, de forma natural, sem repetir em toda frase. Não diga bom dia, boa tarde nem boa noite: o sistema já faz isso sozinho.`;
@@ -254,7 +257,9 @@ async function conversarComModelo(ctx: ContextoAgente, modelo: ModeloIA, mensage
   const conteudos: any[] = historico.filter((t) => t && typeof t.texto === 'string' && t.texto.trim()).map((t) => ({
     role: t.papel === 'ia' ? 'model' : 'user', parts: [{ text: t.texto.slice(0, 8000) }],
   }));
-  conteudos.push({ role: 'user', parts: [{ text: `Data de hoje: ${ctx.hoje}\n${contextoDeRespostaCurta(mensagem, historico)}${mensagem}` }] });
+  const partesUsuario: any[] = [{ text: `Data de hoje: ${ctx.hoje}\n${contextoDeRespostaCurta(mensagem, historico)}${mensagem}` }];
+  if (anexo && anexo.dadosBase64 && anexo.mimeType) partesUsuario.push({ inlineData: { mimeType: anexo.mimeType, data: anexo.dadosBase64 } });
+  conteudos.push({ role: 'user', parts: partesUsuario });
 
   const acoes: AcaoParaTela[] = [];
   const whatsapp: MensagemWhatsAppParaTela[] = [];
