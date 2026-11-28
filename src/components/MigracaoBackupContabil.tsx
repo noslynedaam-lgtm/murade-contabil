@@ -76,6 +76,12 @@ export const MigracaoBackupContabil: React.FC<{ aoTerminar?: () => void }> = ({ 
   const seletor = useRef<HTMLInputElement>(null);
 
   const comCnpj = empresas.filter((e) => !e.semCadastro);
+
+  // Regra do dono (27/11/2026): só vêm as empresas ATIVAS; inativa ou sem como saber pode ser marcada à mão em "Não, quero escolher".
+
+  const ativas = comCnpj.filter((e) => e.ativa === true);
+
+  const foraInativas = comCnpj.length - ativas.length;
   const semCnpj = empresas.filter((e) => e.semCadastro);
 
   const enviar = async (arquivo?: File) => {
@@ -98,7 +104,7 @@ export const MigracaoBackupContabil: React.FC<{ aoTerminar?: () => void }> = ({ 
 
   const gerarPrevia = async (todas: boolean) => {
     setErro("");
-    const cds = todas ? comCnpj.map((e) => e.cdempresa) : [...marcadas];
+    const cds = todas ? ativas.map((e) => e.cdempresa) : [...marcadas];
     if (!cds.length) { setErro("Marque ao menos uma empresa."); return; }
     const faltaCnpj = cds.filter((cd) => semCnpj.some((e) => e.cdempresa === cd) && !String(cnpjs[cd] || "").replace(/\D/g, ""));
     if (faltaCnpj.length) { setErro("Digite o CNPJ das empresas marcadas que não têm cadastro no sistema anterior."); return; }
@@ -182,13 +188,14 @@ export const MigracaoBackupContabil: React.FC<{ aoTerminar?: () => void }> = ({ 
           </div>
           {!escolhendo ? (
             <div className="flex flex-wrap gap-2">
-              <button type="button" disabled={!!ocupado || !comCnpj.length} onClick={() => void gerarPrevia(true)} className="min-h-[44px] rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-700 disabled:opacity-50">Transportar tudo: todas as {comCnpj.length} empresas com CNPJ</button>
-              <button type="button" disabled={!!ocupado} onClick={() => setEscolhendo(true)} className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 font-bold text-slate-800 hover:bg-slate-100">Não, quero escolher</button>
+              <button type="button" disabled={!!ocupado || !ativas.length} onClick={() => void gerarPrevia(true)} className="min-h-[44px] rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-700 disabled:opacity-50">Transportar as ativas: {ativas.length} empresa(s){foraInativas ? ` (${foraInativas} inativa(s) ficam de fora)` : ''}</button>
+              <button type="button" disabled={!!ocupado} onClick={() => { setEscolhendo(true); setMarcadas((m) => (m.size ? m : new Set(ativas.map((x) => x.cdempresa)))); }} className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 font-bold text-slate-800 hover:bg-slate-100">Não, quero escolher</button>
             </div>
           ) : (
             <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
               <p className="font-bold">Marque as empresas (caixinha à esquerda do nome):</p>
               <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setMarcadas(new Set(ativas.map((e) => e.cdempresa)))} className="min-h-[40px] rounded border border-slate-300 bg-white px-3 font-semibold">Marcar só as ativas ({ativas.length})</button>
                 <button type="button" onClick={() => setMarcadas(new Set(comCnpj.map((e) => e.cdempresa)))} className="min-h-[40px] rounded border border-slate-300 bg-white px-3 font-semibold">Marcar todas com CNPJ</button>
                 <button type="button" onClick={() => setMarcadas(new Set())} className="min-h-[40px] rounded border border-slate-300 bg-white px-3 font-semibold">Desmarcar todas</button>
               </div>
