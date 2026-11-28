@@ -44,7 +44,27 @@ async function gravarLoteComRetomada(corpo: { token: string; cdempresas: number[
   return corpo.cdempresas.map((cd) => prontos.get(cd) || ultimo.find((x: any) => x.cdempresa === cd)).filter(Boolean);
 }
 
+function noTrabalhador(arquivo: File, aoAvancar: (feito: number, total: number) => void): Promise<{ blob?: Blob; naoEhBackup?: boolean }> | null {
+  if (typeof Worker === "undefined") return null;
+  let w: Worker;
+  try { w = new Worker(new URL("../utils/backupContabil.worker.ts", import.meta.url), { type: "module" }); } catch { return null; }
+  return new Promise((resolve, reject) => {
+    w.onmessage = (ev: MessageEvent<any>) => {
+      const m = ev.data || {};
+      if (m.tipo === "andamento") { aoAvancar(m.feito, m.total); return; }
+      w.terminate();
+      if (m.tipo === "erro") reject(new Error(m.motivo)); else resolve(m);
+    };
+    w.onerror = (e) => { w.terminate(); reject(new Error(e?.message || "O navegador não conseguiu abrir o backup.")); };
+    w.postMessage({ arquivo });
+  });
+}
+
 async function converterBackupNoNavegador(arquivo: File, aoAvancar: (texto: string) => void): Promise<File | null> {
+  // Abre o backup num Web Worker (fora da tela): com arquivo de vários GB a aba não trava mais.
+  aoAvancar("Abrindo o backup neste aparelho (nada sai daqui ainda)…");
+  const viaWorker = noTrabalhador(arquivo, (feito, total) => aoAvancar(`Separando a parte contábil… ${Math.min(100, Math.round((feito / Math.max(1, total)) * 100))}%`));
+  if (viaWorker) { const r = await viaWorker; return r.naoEhBackup || !r.blob ? null : new File([r.blob], "backup_contabil_sistema_anterior.sql", { type: "text/plain" }); }
   const inicio = new Uint8Array(await arquivo.slice(0, 5).arrayBuffer());
   if (!ehBackupCustom(inicio)) return null;
   const { ler, descompactar } = leitoresDoNavegador(arquivo);
